@@ -47,17 +47,16 @@ export function setupPlay(){
   physClear();
   const L = S.los;
   S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0;
-  OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); o.spd = 6.6; });
+  OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); });
   place(WRs[0], -20, L-0.8); place(WRs[1], 20, L-0.8); place(WRs[2], -11, L-1.0);
   place(TE, 6.8, L-1.0); formation();
-  QB.spd = 7.0; WRs.forEach(w => w.spd = rand(7.5, 7.9)); TE.spd = 6.9; RB.spd = 7.6;
   [-5, -1.2, 1.2, 5].forEach((x, i) => place(DL[i], x, L+1.1));
-  DL.forEach(d => { d.mode = 'rush'; d.spd = 6.0; });
+  DL.forEach(d => { d.mode = 'rush'; });
   CBs.forEach((c, i) => {
     const w = WRs[i]; place(c, w.x - Math.sign(w.x)*0.6, L + (i===2 ? 5 : 6));
-    c.mode = 'cover'; c.assign = w; c.cushion = rand(1.0, 2.4); c.spd = rand(7.4, 7.8);
+    c.mode = 'cover'; c.assign = w; c.cushion = rand(1.0, 2.4);
   });
-  SFs.forEach((s, i) => { s.side = i ? 1 : -1; place(s, s.side*10, L+13); s.mode = 'deep'; s.spd = rand(7.3, 7.6); });
+  SFs.forEach((s, i) => { s.side = i ? 1 : -1; place(s, s.side*10, L+13); s.mode = 'deep'; });
   // react: delay before breaking on a thrown ball; read: delay after the handoff before chasing the runner
   DEF.forEach(d => { d.fit = null; d.react = rand(0.15, 0.45); d.read = d.role === 'DL' ? rand(0.2, 0.35) : rand(0.25, 0.5); });
 
@@ -67,7 +66,7 @@ export function setupPlay(){
   LBs.forEach((b, i) => {
     const side = i ? 1 : -1, blitz = i === blitzer;
     place(b, side*3.5, blitz ? L+3.5 : L+5);
-    b.assign = i ? RB : TE; b.mode = blitz ? 'rush' : 'cover'; b.cushion = 0.6; b.spd = rand(6.9, 7.2);
+    b.assign = i ? RB : TE; b.mode = blitz ? 'rush' : 'cover'; b.cushion = 0.6;
   });
   const boxS = call.box ? SFs[Math.floor(Math.random()*2)] : null;
   if(boxS) place(boxS, boxS.side*4.5, L+6);

@@ -1,5 +1,5 @@
 import { scene } from './scene.js';
-import { rand } from './util.js';
+import { rateTeams } from './ratings.js';
 
 // ---------- players ----------
 // boxy jointed figure; every limb geometry hangs down from its pivot
@@ -57,26 +57,7 @@ export const LBs = [makePlayer('D','LB'), makePlayer('D','LB')];
 export const CBs = [makePlayer('D','CB'), makePlayer('D','CB'), makePlayer('D','CB')];
 export const SFs = [makePlayer('D','S'), makePlayer('D','S')];
 export const DEF = [...DL, ...LBs, ...CBs, ...SFs], ALL = [...OFF, ...DEF];
-// ratings (kept for the whole game): blockers have strength / agility, defenders power / speed
-{
-  const R = (a, b) => Math.round(rand(a, b));
-  const rate = (p, a, b, c, e) => { if(p.team === 'O'){ p.rStr = R(a, b); p.rAgi = R(c, e); } else { p.rPow = R(a, b); p.rSpd = R(c, e); } };
-  OL.forEach(o => rate(o, 70, 90, 55, 80)); rate(TE, 60, 80, 60, 75); rate(RB, 55, 70, 60, 75);
-  WRs.forEach(w => rate(w, 40, 60, 60, 80)); rate(QB, 35, 45, 45, 55);
-  DL.forEach((d, i) => (i === 0 || i === 3) ? rate(d, 60, 80, 72, 90) : rate(d, 75, 92, 55, 70));   // ends: speed, tackles: power
-  LBs.forEach(b => rate(b, 60, 75, 60, 78)); CBs.forEach(c => rate(c, 40, 60, 65, 85)); SFs.forEach(s => rate(s, 50, 65, 60, 80));
-  // tackling: ball carriers have break-tackle (rBrk), defenders tackling (rTkl); mass in lb drives collisions
-  const MASS = {RB:215, WR:195, TE:250, QB:220, OL:310, DT:305, DE:270, LB:240, CB:195, S:205};
-  OFF.forEach(o => o.rBrk = o === RB ? R(65, 85) : o === TE ? R(65, 80) : o === QB ? R(40, 55) : R(50, 70));
-  DEF.forEach(d => d.rTkl = d.role === 'LB' ? R(75, 90) : d.role === 'S' ? R(70, 85) : d.role === 'CB' ? R(60, 78) : R(65, 80));
-  // awareness: how fast he reads the play and how cleanly he takes his angles
-  DEF.forEach(d => d.rAwr = d.role === 'LB' || d.role === 'S' ? R(65, 90) : R(55, 80));
-  // movement: [acceleration, cut/turn] in yd/s²; braking is 1.5x acceleration
-  const MOVE = {RB:[7.2,13], WR:[6.5,8.5], TE:[6,6.5], QB:[5,6.5], OL:[5.6,5.5], DT:[5.8,6], DE:[6.2,7], LB:[5.8,7.5], CB:[6.5,8.5], S:[6,8]};
-  ALL.forEach(p => {
-    const key = p === RB ? 'RB' : p === TE ? 'TE' : p.role === 'DL' ? (p === DL[0] || p === DL[3] ? 'DE' : 'DT') : p.role;
-    const [a, t] = MOVE[key];
-    p.acc = a*rand(0.92, 1.08); p.brake = p.acc*1.5; p.turn = t*rand(0.92, 1.08);
-    p.mass = MASS[key]*rand(0.95, 1.05);
-  });
-}
+// ratings: nine 0-99 per player from a position template (src/ratings.js); newGame draws them again
+ALL.forEach(p => p.tpl = p === RB ? 'RB' : p === TE ? 'TE' : p.role === 'DL' ? (p === DL[0] || p === DL[3] ? 'DE' : 'DT') : p.role);
+export const rate = () => rateTeams(ALL);
+rate();
