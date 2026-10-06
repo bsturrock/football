@@ -37,7 +37,7 @@ function liveUpdate(dt){
   else if(ball.state === 'air'){ ball.t += dt/ball.dur; if(ball.t >= 1){ resolvePass(); return; } }
 
   if(ball.state !== 'held') return;
-  if(run === 'hand' && ball.holder === QB && dist(QB, RB) < 1.3) giveBall(RB);
+  if(run === 'hand' && ball.holder === QB && dist(QB, RB) < (PLAYS[S.play].mesh ? 1.9 : 1.3)) giveBall(RB);   // under center the QB extends the ball into the back's pocket
   const c = ball.holder;
   if(c === QB && !S.runMode && QB.y > S.los + 0.3){ S.runMode = true; S.handoffAt = S.clock; S.charging = false; routeGroup.visible = false; toast('Scramble!'); }
   if(c.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }

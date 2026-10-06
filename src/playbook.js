@@ -21,7 +21,9 @@ export const PLAYS = [
                          te:{pts:[[0,6],[1,5]], go:false},    rb:{pts:[[-5,1],[-8,3]], go:false}},
   {name:'Post / Corner', out:{pts:[[0,12],[8,30]], go:true},   slot:{pts:[[0,10],[-9,22]], go:true},
                          te:{pts:[[0,4],[14,6]], go:true},    rb:{pts:[[-6,2],[-8,12],[-8,35]], go:true}},
-  // run plays: RB path points are [field x, yards from the line]; hand = handoff, toss = pitch, keep = QB runs
+  // run plays: RB path points are [field x, yards from the line]; hand = handoff, toss = pitch.
+  // under: QB under center, singleback 7 yards deep (otherwise shotgun with the back beside the QB)
+  // mesh: [x, yards from line] where the QB opens to and meets the back on his path
   // scheme 'zone': linemen + TE each own a lane (start x + shift) and block whoever shows up in it, else climb.
   // scheme 'man': `blocks` names each blocker's defender; `pulls` are waypoints [x, yards from line] run first.
   // defender keys: DL0-3 and LB0-1 / S0-1 numbered left to right, CB0-2 = cornerback on WR0-2
@@ -35,8 +37,12 @@ export const PLAYS = [
   {name:'Outside Zone Right', run:'toss', scheme:'zone', shift:3, hole:8.5,   // aim: tight end's outside hip; he reads bounce / cut back
    blocks:{WR0:'CB0', WR1:'CB1', WR2:'S0'},
    path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]]},
-  {name:'QB Draw', run:'keep', scheme:'man', hole:0, passSet:0.7,
-   blocks:{LT:'DL0', LG:'DL1', RG:'DL2', RT:'DL3', C:'LB0', TE:'LB1', WR0:'CB0', WR1:'CB1', WR2:'CB2'}}
+  {name:'HB Dive', under:true, run:'hand', scheme:'zone', shift:0, hole:1.1, mesh:[0.3, -3.4],   // quick hit in the right A gap: everyone blocks the man in front
+   blocks:{WR0:'CB0', WR1:'CB1', WR2:'CB2'},
+   path:[[0.4,-3.2],[1.1,0.5],[1.1,8]]},
+  {name:'HB Stretch', under:true, run:'hand', scheme:'zone', shift:3, hole:8.5, mesh:[2.4, -3.2],   // outside zone from under center: aim at the TE's hip, read bounce / cut back
+   blocks:{WR0:'CB0', WR1:'CB1', WR2:'S0'},
+   path:[[1.5,-5.5],[3,-3.6],[6.5,-1.8],[8.5,1.5],[8.5,8]]}
 ].filter(p => PASS_GAME || p.run);
 const playsEl = $('plays');
 PLAYS.forEach((p, i) => {

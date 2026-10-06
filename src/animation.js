@@ -1,7 +1,7 @@
 import { setHint } from './hud.js';
 import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
-import { physBall, rt } from './physics.js';
+import { physBall } from './physics.js';
 import { PLAYS } from './playbook.js';
 import { ALL, C, JOINTS, QB, RB } from './players.js';
 import { toWorld } from './scene.js';
@@ -24,6 +24,7 @@ function targetPose(p, sp){
   const arms = (l, rt, el) => { T.shL = l; T.shR = rt; T.elL = T.elR = el; };
   if(S.phase === 'presnap'){
     if(p.role === 'OL' || p.role === 'DL') Object.assign(T, {lean:1.2, hipL:-1.3, hipR:-1.1, kneeL:1.7, kneeR:1.5, drop:0.42, shR:-1.25, elR:0, shL:-0.5, elL:-0.6});
+    else if(p === QB && PLAYS[S.play].under){ Object.assign(T, {lean:0.75, hipL:-0.7, hipR:-0.6, kneeL:1.1, kneeR:1.0, drop:0.3}); arms(-1.0, -1.0, -0.5); }   // under center
     else if(p === QB){ Object.assign(T, {lean:0.2, hipL:-0.3, hipR:-0.3, kneeL:0.5, kneeR:0.5, drop:0.08}); arms(-0.9, -0.9, -0.9); }
     else { Object.assign(T, {lean:0.45, hipL:-0.55, hipR:-0.35, kneeL:0.9, kneeR:0.7, drop:0.15}); arms(-0.3, -0.3, -0.7); }
     return T;
@@ -38,7 +39,7 @@ function targetPose(p, sp){
   if(p === QB && S.charging){ T.twist = -0.7; T.shR = 2.6; T.elR = -1.4; T.shL = -1.3; T.elL = -0.3; }
   else if(p === QB && p.act === 'throw'){ T.twist = 0.5; T.lean = 0.45; T.shR = -1.7; T.elR = -0.2; T.shL = 0.3; }
   else if(holding && p === QB && !S.runMode) arms(-0.9, -0.9, -1.1);
-  else if(holding){ T.shR = -0.4 - 0.45*s*r; T.elR = -1.85 + 0.2*s*r; if(p.downP > 0.05) T.lean = 0.8; }   // ball tucked high and tight, the arm still pumps; drive the legs when someone is hanging on
+  else if(holding){ T.shR = -0.4 - 0.45*s*r; T.elR = -1.85 + 0.2*s*r; if(p.churn) T.lean = 0.55; }   // ball tucked high and tight, the arm still pumps; drive the legs when someone is hanging on
   else if(ball.state === 'air' && ball.t > 0.5 && Math.hypot(ball.tx - p.x, ball.ty - p.y) < 3.5 && (p === ball.target || p.team === 'D')) arms(-2.7, -2.7, -0.2);
   else if(p.bt && p.team === 'D' && p.bt.phase === 'move' && p.bt.move === 'speed'){ T.shL = -1.3; T.shR = -2.9; T.elL = -0.5; T.elR = -0.2; T.twist = 0.4; }  // swim
   else if(p.bt && p.team === 'D' && p.bt.phase === 'move'){ arms(-1.7, -1.7, -0.1); T.lean = 0.9; }                                // bull rush

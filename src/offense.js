@@ -9,7 +9,7 @@ import { dist } from './util.js';
 // what blockers protect: the runner once he has the ball, otherwise the play's hole
 export function runRef(){
   const c = ball.state === 'held' ? ball.holder : null, play = PLAYS[S.play];
-  if(c && (c !== QB || !play.run || play.run === 'keep')) return c;
+  if(c && (c !== QB || !play.run)) return c;
   return {x:play.hole || 0, y:S.los + 1};
 }
 // nearest defender in front of the runner that no teammate is already blocking
@@ -80,14 +80,19 @@ export function offenseAI(p, dt, inp){
   p.faceAt = null;
   if(p.falling) return;                                   // going down: tackleUpdate moves him
   const c = ball.state === 'held' ? ball.holder : null, run = PLAYS[S.play].run;
-  if(run && run !== 'keep'){
+  if(run){
     if(p === RB && c !== RB){ runRoute(p, dt); return; }            // RB runs his path until he has the ball
-    if(p === QB && c === QB && run === 'hand'){ steer(p, RB.x, RB.y, 4, dt); return; }
+    if(p === QB && c === QB && run === 'hand'){                      // handoff: open to the mesh, then extend to the back
+      const m = PLAYS[S.play].mesh;
+      const mx = m && m[0] - p.x, my = m && S.los + m[1] - p.y, ml = m && Math.hypot(mx, my);
+      if(m && ml > 0.4) steerVel(p, mx/ml*6, my/ml*6, dt);   // open hard to the spot
+      else steer(p, RB.x, RB.y, m ? 6 : 4, dt);
+      return;
+    }
   }
   if(p === c && p.auto){                                              // runner follows the path until you take over
     if(inp.on) p.auto = false;
     else {
-      if(p === QB && run === 'keep' && S.clock < (PLAYS[S.play].passSet || 0)){ steer(p, p.x, p.y, 0, dt); return; }   // sell the pass
       autoCarry(p, dt);
       return;
     }
@@ -102,8 +107,7 @@ export function offenseAI(p, dt, inp){
     if(S.runMode && c !== p){ runBlock(p, dt); return; }
     runRoute(p, dt); return;
   }
-  const passSet = PLAYS[S.play].passSet;
-  if(S.runMode && !(passSet && S.clock < passSet)){ runBlock(p, dt); return; }   // draw: sell pass first
+  if(S.runMode){ runBlock(p, dt); return; }
   const r = olAssign(p), qx = QB.x - r.x, qy = QB.y - r.y, ql = Math.hypot(qx, qy) || 1;
   if(dist(p, r) < 1.4) p.eng = 0.15;
   p.faceAt = r;

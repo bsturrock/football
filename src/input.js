@@ -51,10 +51,9 @@ export const charge = () => Math.min(1, S.chargeT/0.9);
 export function snap(){
   const run = PLAYS[S.play].run;
   S.phase = 'live'; S.clock = 0; S.runMode = !!run;
-  S.ctrl = run && run !== 'keep' ? RB : QB;
-  pitch(C, QB, 0.3);
+  S.ctrl = run ? RB : QB;
+  pitch(C, QB, PLAYS[S.play].under ? 0.15 : 0.3);   // under center: hand-to-hand snap
   fitGroup.visible = false;
-  if(run === 'keep'){ S.handoffAt = PLAYS[S.play].passSet || 0; QB.auto = true; QB.route = [{x:0.4, y:S.los + 1.5}]; QB.wp = 0; }
   if(run){
     const play = PLAYS[S.play];
     const OK = {LT, LG, C, RG, RT, TE, RB, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2]};

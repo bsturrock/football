@@ -139,7 +139,7 @@ export function gripGap(d){
     const a = g.hb.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0)), b = g.best.pointToWorldFrame(g.loc); m = Math.max(m, a.distanceTo(b)); }
   return m;
 }
-export let qc, qd, qe, rv, rt, tw, dw;
+let qc, qd, qe, rv, rt, tw, dw;
 // rotation vector (axis * angle) of a cannon quaternion
 function rotVec(q, out){
   let {x, y, z, w} = q; if(w < 0){ x = -x; y = -y; z = -z; w = -w; }

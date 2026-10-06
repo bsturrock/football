@@ -15,7 +15,12 @@ export const ball = {state:'pre', holder:null, fx:0, fy:0, tx:0, ty:0, t:0, dur:
 export function selectPlay(i){
   S.play = i;
   PLAYS.forEach((_, j) => $('play'+j).setAttribute('aria-pressed', String(j===i)));
-  if(S.phase === 'presnap') assignRoutes();
+  if(S.phase === 'presnap'){ formation(); assignRoutes(); }
+}
+// backfield set for the called play: shotgun (back beside the QB) or under center with a singleback
+function formation(){
+  const L = S.los, under = PLAYS[S.play].under;
+  place(QB, 0, L - (under ? 1.2 : 4.5)); place(RB, under ? 0 : 1.8, L - (under ? 6.5 : 4.5));
 }
 function assignRoutes(){
   const play = PLAYS[S.play];
@@ -42,10 +47,9 @@ export function setupPlay(){
   physClear();
   const L = S.los;
   S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0;
-  place(QB, 0, L-4.5);
   OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); o.spd = 6.6; });
   place(WRs[0], -20, L-0.8); place(WRs[1], 20, L-0.8); place(WRs[2], -11, L-1.0);
-  place(TE, 6.8, L-1.0); place(RB, 1.8, L-4.5);
+  place(TE, 6.8, L-1.0); formation();
   QB.spd = 7.0; WRs.forEach(w => w.spd = rand(7.5, 7.9)); TE.spd = 6.9; RB.spd = 7.6;
   [-5, -1.2, 1.2, 5].forEach((x, i) => place(DL[i], x, L+1.1));
   DL.forEach(d => { d.mode = 'rush'; d.spd = 6.0; });
