@@ -41,6 +41,6 @@ export function runRoute(w, dt){
     const k = n ? clamp(1 - d/2.5, 0, 1)*0.6 : 0, ax = t.x + (n ? (n.x - t.x)*k : 0), ay = t.y + (n ? (n.y - t.y)*k : 0);
     const l = Math.hypot(ax - w.x, ay - w.y) || 1;
     steerVel(w, (ax - w.x)/l*w.spd, (ay - w.y)/l*w.spd, dt);
-  } else if(w.go) steer(w, w.x + w.goDir.x*5, w.y + w.goDir.y*5, w.spd, dt, 8);
-  else steer(w, w.x, w.y, 0, dt, 8);
+  } else if(w.go) steer(w, w.x + w.goDir.x*5, w.y + w.goDir.y*5, w.spd, dt);
+  else steer(w, w.x, w.y, 0, dt);
 }

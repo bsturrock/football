@@ -46,6 +46,8 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);overflow:hid
 #banner p{margin:8px 0 0;font-size:17px;font-weight:600;color:var(--accent);text-shadow:0 2px 10px rgba(0,0,0,.8)}
 #toast{left:16px;right:16px;top:calc(84px + env(safe-area-inset-top,0px));text-align:center;font-family:var(--display);font-weight:800;font-size:24px;letter-spacing:.06em;color:var(--accent);text-shadow:0 2px 12px rgba(0,0,0,.8);opacity:0;transition:opacity .25s}
 #toast.on{opacity:1}
+#warn{left:16px;top:calc(60px + env(safe-area-inset-top,0px));font-family:var(--display);font-weight:800;font-size:14px;letter-spacing:.06em;color:var(--accent);text-shadow:0 2px 8px rgba(0,0,0,.8);display:none}
+#warn.on{display:block}
 [hidden]{display:none!important}
 #labels{inset:0;z-index:1;overflow:hidden}
 .callout{position:absolute;left:0;top:0;white-space:nowrap;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg);text-shadow:0 1px 2px #000,0 0 8px rgba(0,0,0,.7)}
@@ -70,6 +72,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);overflow:hid
 
 <div class="hud" id="banner"><h1 id="bannerH"></h1><p id="bannerP"></p></div>
 <div class="hud" id="toast"></div>
+<div class="hud" id="warn"></div>
 <div class="hud" id="labels"></div>
 
 <div class="hud" id="dock">

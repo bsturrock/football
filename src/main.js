@@ -3,7 +3,7 @@ import { separate } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
-import { toast, updateCallouts } from './hud.js';
+import { toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
 import { steer } from './movement.js';
@@ -74,5 +74,5 @@ const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : 
 (window.CANNON ? Promise.resolve(window.CANNON) : import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js'))
   .then(m => { window.CANNON = m; physInit(); }, err => {
     console.error('physics failed to load', err);
-    toast('physics failed to load');
+    warn('Physics failed to load: no ragdolls');
   }).then(boot);
