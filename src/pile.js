@@ -25,7 +25,8 @@ export function pileReset(){
 }
 const freeBody = p => p.ph && !p.falling && !p.latch && !p.bt && !(p.stun > 0) && p.ph.bal >= PUSHER_BAL && !physDown(p);
 function side(list, c, rate, dir){
-  const ps = list.filter(p => p !== c && freeBody(p) && (c.y - p.y)*dir > 0 && dist(p, c) < PUSH_JOIN)   // only the side doing the pushing: offense behind him, defense in front.sort((a, b) => dist(a, c) - dist(b, c)).slice(0, PUSH_MAX);
+  // only the side doing the pushing: offense behind him, defense in front
+  const ps = list.filter(p => p !== c && freeBody(p) && (c.y - p.y)*dir > 0 && dist(p, c) < PUSH_JOIN).sort((a, b) => dist(a, c) - dist(b, c)).slice(0, PUSH_MAX);
   ps.forEach(p => {   // wanted velocity: toward the runner plus up (or down) the field
     const dx = c.x - p.x, dy = c.y - p.y, l = Math.hypot(dx, dy) || 1, vx = dx/l, vy = dy/l + dir, vl = Math.hypot(vx, vy) || 1;
     physDrive(p, PUSH_V*vx/vl, PUSH_V*vy/vl, p.acc*PUSH_K*(p[rate]/80));
