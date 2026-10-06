@@ -18,8 +18,9 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   bubble      p.ph.bubble: real-mass body, AI intent drives the legs (p.wx/p.wy), yaw held toward faceAt / heading
 //   tackle body p.ph, not bubble: ragdoll or tackler (tackling.js / blocking.js call physOn); lives until physOff
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
+//   over BODY_CAP (a tackle made bodies after the join pass): capTrim steps the farthest bubble body out, upright or not
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
-const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 2, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
+const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
 export const UPRIGHT_Y = 0.95, UPRIGHT_W = 2, UPRIGHT_H = 1.1;
 const YAW_K = 150, YAW_MAX = 1.5, HEADING_MIN = 0.4;   // yaw hold: spring gain, max error (rad), slowest speed (yd/s) that sets a heading
@@ -149,7 +150,7 @@ function lockGrip(d, c, kind){
     g.collideConnected = false; PW.addConstraint(g); D.grips.push({c:g, on:c, hb, best, loc, born:D.t, cap});
   }
 }
-export function physUngrip(d){ if(!d.ph) return; d.ph.grips.forEach(g => PW.removeConstraint(g.c)); d.ph.grips = []; }
+export function physUngrip(d){ if(!d.ph) return; d.ph.grips.forEach(g => PW.removeConstraint(g.c)); d.ph.grips = []; d.ph.reach = null; }   // reach too: a let-go tackler must not leave a reach that keeps the runner "held" (seed 7 play 43 never ended)
 // how hard each grip is being pulled vs what the hands can hold (>1 = slipping)
 export function gripStrain(d){
   let m = 0; if(!d.ph) return 0;
@@ -267,10 +268,17 @@ function bubbleUpdate(dt){
     else if(used < BODY_CAP - BUBBLE_RESERVE && joins < BUBBLE_JOINS){ used++; joins++; promote(p); }
   }
 }
+// hard cap: tackles add bodies after the join pass, so shed bubble bodies (farthest from the runner first) until the count fits
+function capTrim(){
+  if(PHYS.length <= BODY_CAP) return;
+  const ref = ball.state === 'held' ? ball.holder : {x:0, y:S.los};
+  const bub = PHYS.filter(p => p.ph.bubble).sort((a, b) => dist(b, ref) - dist(a, ref));
+  while(PHYS.length > BODY_CAP && bub.length) physOff(bub.shift());
+}
 let phAcc = 0;
 export function physStep(dt){
   if(!PW) return;
-  bubbleUpdate(dt);
+  bubbleUpdate(dt); capTrim();
   for(const p of [...PHYS]){
     const ph = p.ph; ph.t += dt;
     // dead ball or lying on the turf: stop fighting, let go, settle
