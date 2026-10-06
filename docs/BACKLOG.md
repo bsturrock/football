@@ -21,9 +21,9 @@ Items and tasks (features are names, not ids; see ## Features):
 
 ## Bugs & fixes
 
-- **B-001** [docs] Live build: the user can play main from any computer via GitHub Pages (https://bsturrock.github.io/football/). Now the game runs only on a local vite port, not reachable off-network; expected a public link that works anywhere. Repo is already public; enable Pages from branch main, root (no build step, no Actions; three r128 cdnjs, cannon-es jsdelivr, Google Fonts load fine), push main, verify a play runs at the URL; each push to main then redeploys. Trace: -. Size: S. Kind: tooling. Source: user L-1006-063, L-1006-064 (Pages). Status: open
 ## Backlog
 
 ## Moved
 
 ## Done
+- **B-001** [docs] Live build: the user can play main from any computer via GitHub Pages (https://bsturrock.github.io/football/). Now the game runs only on a local vite port, not reachable off-network; expected a public link that works anywhere. Repo is already public; enable Pages from branch main, root (no build step, no Actions; three r128 cdnjs, cannon-es jsdelivr, Google Fonts load fine), push main, verify a play runs at the URL; each push to main then redeploys. Trace: -. Size: S. Kind: tooling. Source: user L-1006-063, L-1006-064 (Pages). Status: closed 2026-10-06: live on GitHub Pages https://bsturrock.github.io/football/ (Pages from main, root); user tested: works (L-1006-068)
