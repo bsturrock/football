@@ -25,6 +25,10 @@ Top-line test for all work: would this look right on an NFL broadcast, graphics 
     - **Physical line play** Hands, pad level and leverage drive who wins; double teams and combos to the second level; reach and down blocks; fronts and slants change fits. Size L.
     - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
   - **Player AI and behaviour** Starting focus (user 2026-10-06, L-1006-079): defender reads and keys, pursuit angles that respect blockers, RB vision (press, cut, follow blocks), effort and fatigue. Today: pursuit aims at an intercept point with an awareness error and no blocker avoidance (defense.js), RB scores lanes by race-to-spot (carrier.js).
+    - **First up: RB vision and pursuit** The runner against the pursuit is the core of a run; reads and effort follow (user 2026-10-06, L-1006-081).
+    - **Human mistakes** Players misread, overrun plays and take bad angles, more often at lower ratings, so big runs come out naturally (user 2026-10-06, L-1006-081).
+    - **NFL-style ratings** Every player gets a fuller rating set (speed, acceleration, strength, agility, vision, tackling, block shedding, pursuit, play recognition) that drives behaviour (user 2026-10-06, L-1006-081).
+    - **Effort and fatigue** Later, after the run core works (user 2026-10-06, L-1006-081).
   - **Runner moves** Stiff-arm, spin, juke, truck, lowered shoulder at contact; press and cut off blocks, follow the lead blocker, fall forward. Today the carrier only picks lanes (carrier.js). Size M-L.
   - **Run playbook** Counter, trap, draw, RB blocking, QB carry-out fake; more than one defense. Size M.
 - **Contact feel** Viewpoint is a spectator in the sky box: no camera shake (user 2026-10-06, L-1006-072). Visceral feel comes from on-field animation, physics and sound, not the camera. Candidates: sound, whistle, hit-stop or slow-mo on big hits, replay. Nothing exists today. Size M.
