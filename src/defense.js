@@ -5,11 +5,18 @@ import { PLAYS } from './playbook.js';
 import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs } from './players.js';
 import { isBody } from './physics.js';
 import { S, ball } from './state.js';
+import { lack } from './ratings.js';
 import { dist, rand } from './util.js';
+
+// Human mistakes in pursuit. Per defender per play state (reset in assignFits):
+//   aim     AIM_K resampled every AIM_T s; < 1 undershoots the cut-off spot, > 1 overpursues
+//   holding AIM_K > HOLD_K when the runner cuts back: keep running to the old future spot for HOLD_T s
+//   bite    with p BITE_P*lack(recog) follows the first flow step BITE_T s longer
+const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_K = 1.35, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
 
 // pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
 // (solve |r + v·t| = s·t for the earliest t > 0); if he is faster, aim where he will be soon
-function intercept(d, c){
+function intercept(d, c, k = 1){
   const rx = c.x - d.x, ry = c.y - d.y, vx = c.svx, vy = c.svy, s = d.spd + 0.2;
   const a = vx*vx + vy*vy - s*s, b = 2*(rx*vx + ry*vy), cc = rx*rx + ry*ry;
   let t = Infinity;
@@ -21,7 +28,7 @@ function intercept(d, c){
   // he can get there first: take the cut-off angle (up to 3 s out). He can't: aim just ahead of the runner,
   // never at a spot far downfield (that sends him running away from the play)
   t = isFinite(t) ? Math.min(t, 3) : Math.min(Math.hypot(rx, ry)/s, 0.6);
-  return [c.x + vx*t, c.y + vy*t];
+  return [c.x + vx*t*k, c.y + vy*t*k];
 }
 function coverTarget(d){
   if(d.mode === 'cover'){ const w = d.assign; return [w.x + w.vx*0.25, w.y + w.vy*0.25 + d.cushion]; }
@@ -83,7 +90,9 @@ export function assignFits(call, boxS){
   }
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
-    d.read = d.mode === 'rush' && d.role === 'LB' ? 0 : 0.6 - d.rAwr/250;   // awareness: 0.24 s (95) .. 0.38 s (55)
+    d.read = d.mode === 'rush' && d.role === 'LB' ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
+    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null;
+    d.bite = Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
     d.fit = d.job.gx != null && (d.role === 'DL' || d.role === 'LB' || d === boxS) ? {x:d.job.gx, y:d.role === 'DL' ? L - 0.5 : L + 1.5} : null;
   });
@@ -92,7 +101,7 @@ export function assignFits(call, boxS){
 // where the job sends him this frame
 function runFit(d, c){
   const j = d.job, L = S.los, bx = c.x, by = c.y, s = j.side;
-  if(S.clock <= S.handoffAt + d.read){
+  if(S.clock <= S.handoffAt + d.read + d.bite){
     // before the read: linemen attack their gap, second level read-steps with the backfield, the rest hold
     const flow = ((ball.holder || RB).x - S.flow0)*(d.rAwr/100)*0.7;
     if(d.role === 'DL') return [j.gx, L - 0.5];
@@ -101,7 +110,13 @@ function runFit(d, c){
     if(j.role === 'deep') return [flow*0.4, L + 12];
     return coverTarget(d);
   }
-  const [px, py] = intercept(d, c), dir = Math.abs(c.svx) > 0.8 ? Math.sign(c.svx) : 0, e = d.levErr;
+  if(S.clock >= d.aimT){ d.aimK = 1 + lack(d, 'pursuit')*AIM_AMP*rand(-1, 1); d.aimT = S.clock + AIM_T; }
+  const dir = Math.abs(c.svx) > 0.8 ? Math.sign(c.svx) : 0, e = d.levErr;
+  let [px, py] = intercept(d, c, d.aimK);
+  if(dir && d.lastDir && dir !== d.lastDir && d.aimK > HOLD_K && d.lastAim) d.hold = {x:d.lastAim[0], y:d.lastAim[1], until:S.clock + HOLD_T};   // cutback: he is still running to the old spot
+  if(dir) d.lastDir = dir;
+  d.lastAim = [px, py];
+  if(d.hold){ if(S.clock < d.hold.until){ px = d.hold.x; py = d.hold.y; } else d.hold = null; }
   const inside = () => [px - dir*0.8 + e, py];                 // pursue keeping inside leverage: no cutback behind him
   const contain = side => dist(d, c) > 3
     ? [bx + side*1.5 + e, Math.max(L + 1, by + 1.5)]            // get outside and in front of him
