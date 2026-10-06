@@ -1,5 +1,5 @@
 import { callout, toast } from './hud.js';
-import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physGrip, physOff, physOn, physUngrip } from './physics.js';
+import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physDownC, physGrip, physOff, physOn, physUngrip } from './physics.js';
 import { DEF, QB } from './players.js';
 import { endPlay } from './rules.js';
 import { S } from './state.js';
@@ -69,7 +69,12 @@ export function tackleUpdate(c, dt){
   if(c.falling){
     // until he's down, anyone who gets there piles on
     for(const d of DEF) if(!d.latch && !isBody(d) && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
-    if(!c.ph || physDown(c) || c.ph.t > 4) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
+    if(c.ph && !physDown(c)) c.fallT = 0;
+    // on the turf with no defender on him for CONTACT_T: not down, he gets up and runs on (3 tries, then the play ends: never a hang)
+    else if(c.ph && !physDownC(c) && !DEF.some(d => d.latch === c) && c.ph.t > 0.4 && (c.ph.getUps || 0) < 3 && (c.fallT = (c.fallT || 0) + dt) > 0.3){
+      c.ph.getUps = (c.ph.getUps || 0) + 1; c.falling = false; c.act = null; c.fallT = 0; c.ph.getUp = true; return;
+    }
+    if(!c.ph || physDownC(c) || c.ph.t > 4 || (c.ph.getUps || 0) >= 3 && physDown(c))endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
     return;
   }
   if(c.tripT > 0) c.tripT -= dt;
@@ -114,7 +119,8 @@ export function tackleUpdate(c, dt){
     if(c.ph && !DEF.some(d => d.ph && (d.ph.grips.some(g => g.on === c) || (d.ph.reach && d.ph.reach.on === c)))){
       // CANNON is the global main.js sets after loading cannon-es (physics.js uses it the same way)
       const tb = c.ph.bodies[0], up = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y;
-      if(up < 0.6 || physDown(c)){ c.falling = true; c.act = 'fall'; c.actT = 99; c.ph.bal = 0; }   // off balance: he's going down
+      if(c.ph.getUp && c.ph.bal < 1){ /* still getting up */ }
+      else if(up < 0.6 || physDownC(c)){ c.falling = true; c.act = 'fall'; c.actT = 99; c.ph.bal = 0; }   // off balance: he's going down
       else if(c.ph.t > 0.4 && up > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W && tb.position.y > UPRIGHT_H) physOff(c);   // back on balance: back on the run
     }
     return;
