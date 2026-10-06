@@ -10,7 +10,7 @@ import { $, HW, clamp, rand } from './util.js';
 
 // ---------- state ----------
 export const S = {score:0, tds:0, drive:1, los:25, down:1, toGo:10, play:0, phase:'presnap', runMode:false,
-           clock:0, deadT:0, charging:false, chargeT:0, over:false, ctrl:QB, cpu:true, preT:0, overT:0, cam:'tv'};
+           clock:0, deadT:0, charging:false, chargeT:0, over:false, ctrl:QB, cpu:true, preT:0, overT:0, cam:'tv', prog:-Infinity};
 export const ball = {state:'pre', holder:null, fx:0, fy:0, tx:0, ty:0, t:0, dur:1, apex:1, thrownAt:0, target:null};
 export function selectPlay(i){
   S.play = i;
@@ -46,7 +46,7 @@ function place(p, x, y){
 export function setupPlay(){
   physClear();
   const L = S.los;
-  S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0;
+  S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity;
   OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); });
   place(WRs[0], -20, L-0.8); place(WRs[1], 20, L-0.8); place(WRs[2], -11, L-1.0);
   place(TE, 6.8, L-1.0); formation();

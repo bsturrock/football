@@ -1,7 +1,20 @@
 import { banner, downText, updateHUD } from './hud.js';
 import { rate } from './players.js';
+import { physBall } from './physics.js';
 import { S, setupPlay } from './state.js';
 import { MAX_DRIVES, clamp } from './util.js';
+
+// ---------- ball position and forward progress ----------
+// the ball's field position: the carried ball for a body runner (his ragdoll hand), else his animated position
+export function ballPos(c){
+  if(!c.ph) return c;
+  const b = physBall(c); return {x:b.x, y:50 - b.z};
+}
+// S.prog = furthest ball y this play (max over time, reset at snap in setupPlay); a QB dropping back isn't progress
+export function trackProgress(c){
+  if(c.role === 'QB' && !S.runMode) return;
+  const y = ballPos(c).y; if(y > S.prog) S.prog = y;
+}
 
 // ---------- downs ----------
 export function endPlay(kind, y, note){
@@ -10,6 +23,7 @@ export function endPlay(kind, y, note){
   if(kind === 'int'){ banner('INTERCEPTED', 'Drive over'); newDrive(); return; }
   if(kind === 'inc'){ S.down++; if(!checkDowns()) banner('INCOMPLETE', (note ? note + ' · ' : '') + downText()); updateHUD(); return; }
   if(y <= 0){ banner('SAFETY', 'Drive over'); newDrive(); return; }
+  if(note !== 'OUT OF BOUNDS' && S.prog > y) y = S.prog;   // forward progress: spot where the ball got furthest
   const spot = clamp(Math.round(y), 1, 99), gain = spot - S.los;
   S.los = spot;
   const head = note || (gain > 0 ? `+${gain} YARDS` : gain < 0 ? `LOSS OF ${-gain}` : 'NO GAIN');

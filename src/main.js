@@ -12,7 +12,7 @@ import { offenseAI } from './offense.js';
 import { physBall, physCount, physDown, physInit, physRender, physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DEF, OFF, QB, RB } from './players.js';
-import { endPlay, newGame, nextPlay } from './rules.js';
+import { ballPos, endPlay, newGame, nextPlay, trackProgress } from './rules.js';
 import { camera, cvs, renderer, scene } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
 import { tackleUpdate } from './tackling.js';
@@ -41,8 +41,10 @@ function liveUpdate(dt){
   if(run === 'hand' && ball.holder === QB && dist(QB, RB) < (PLAYS[S.play].mesh ? 1.9 : 1.3)) giveBall(RB);   // under center the QB extends the ball into the back's pocket
   const c = ball.holder;
   if(c === QB && !S.runMode && QB.y > S.los + 0.3){ S.runMode = true; S.handoffAt = S.clock; S.charging = false; routeGroup.visible = false; toast('Scramble!'); }
-  if(c.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
-  if(Math.abs(c.x) > HW){ endPlay('spot', c.y, 'OUT OF BOUNDS'); return; }
+  trackProgress(c);
+  const bp = ballPos(c);   // a body runner scores and goes out by the ball, not his hips
+  if(bp.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
+  if(Math.abs(bp.x) > HW){ endPlay('spot', bp.y, 'OUT OF BOUNDS'); return; }
   const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
   if(!(c === QB && run === 'hand')) tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
 }
