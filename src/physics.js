@@ -18,7 +18,7 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   bubble      p.ph.bubble: real-mass body, AI intent drives the legs (p.wx/p.wy), yaw held toward faceAt / heading
 //   tackle body p.ph, not bubble: ragdoll or tackler (tackling.js / blocking.js call physOn); lives until physOff
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
-//   over BODY_CAP (a tackle made bodies after the join pass): capTrim steps the farthest bubble body out, upright or not
+//   over BODY_CAP (a tackle made bodies after the join pass): capTrim steps bubble bodies out, upright ones first, then the farthest
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
 const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
@@ -235,6 +235,8 @@ function promote(p){
   ph.bubble = true; ph.clearT = 0; p.wx = p.vx; p.wy = p.vy;
   const b = p.bt; if(b) ALL.forEach(q => { if(q.bt === b) q.bt = null; });   // a line battle ends here; the blocker keeps his man (blk)
 }
+// where bubble slots are ranked from: the runner, else the snap spot
+const refPoint = () => ball.state === 'held' ? ball.holder : {x:0, y:S.los};
 function bubbleUpdate(dt){
   // the ball holder is a runner, not a bubble body: he goes back to tackle-body rules (tackleUpdate steers and releases him)
   const runner = ball.state === 'held' ? ball.holder : null;
@@ -244,7 +246,7 @@ function bubbleUpdate(dt){
   const gripped = new Set(); PHYS.forEach(q => { q.ph.grips.forEach(g => gripped.add(g.on)); if(q.ph.reach) gripped.add(q.ph.reach.on); });
   const rags = PHYS.filter(q => !q.ph.bubble && (q.ph.bal < 1 || q.ph.grips.length || gripped.has(q)));
   const near = (p, r) => rags.some(q => q !== p && dist(p, q) < r);
-  const ref = runner || {x:0, y:S.los};
+  const ref = refPoint();
   // leaving: clear of every live ragdoll for BUBBLE_CLEAR s, upright and slow (so he never pops or sinks)
   const stay = [];
   for(const p of bub){
@@ -271,8 +273,8 @@ function bubbleUpdate(dt){
 // hard cap: tackles add bodies after the join pass, so shed bubble bodies (farthest from the runner first) until the count fits
 function capTrim(){
   if(PHYS.length <= BODY_CAP) return;
-  const ref = ball.state === 'held' ? ball.holder : {x:0, y:S.los};
-  const bub = PHYS.filter(p => p.ph.bubble).sort((a, b) => dist(b, ref) - dist(a, ref));
+  const ref = refPoint(), up = p => upright(p.ph.bodies[0]) ? 0 : 1;   // upright ones step out first (no visible pop), farthest first within each
+  const bub = PHYS.filter(p => p.ph.bubble).sort((a, b) => up(a) - up(b) || dist(b, ref) - dist(a, ref));
   while(PHYS.length > BODY_CAP && bub.length) physOff(bub.shift());
 }
 let phAcc = 0;
