@@ -18,9 +18,11 @@ import { clamp, dist, rand } from './util.js';
 // Runner states (c = ball holder), every row has its transition in tackleUpdate:
 //   run        no fall; contact or off balance (up < 0.6, or down by contact) -> falling; back upright and slow -> physOff
 //   falling    c.falling, bal 0; down by contact -> endPlay; on turf untouched and unheld for GETUP_WAIT s -> getting up (getUps+1)
-//              not on the turf yet: keeps falling; ph.t over FALL_MAX_T, or GETUP_MAX get-ups used and on the turf -> endPlay
-//   getting up falling false, ph.getUp, bal rising 1.2/s; falling again (a tackle, a latch, down by contact) clears getUp; bal 1 clears getUp -> run
-const GETUP_WAIT = 0.3, GETUP_MAX = 3, FALL_MAX_T = 4, FALL_SETTLE = 0.4;   // s on the turf before he gets up, tries per body, play-ending fall age, s before a fresh body may get up
+//              not on the turf yet: keeps falling; falling for FALL_MAX_T s (c.fallAge), or GETUP_MAX get-ups used and on the turf -> endPlay
+//   getting up falling false, ph.getUp, bal rising 1.2/s (physStep); bal 1 clears getUp -> run (here, runner only); falling again (a tackle, a latch,
+//              down by contact) -> falling, with getUp cleared on the next tackleUpdate (one frame of bal rise, harmless)
+//   any state  ball dead (touchdown, out of bounds, endPlay elsewhere): tackleUpdate stops, physStep rests him, the next setup's physClear removes the body
+const GETUP_WAIT = 0.3, GETUP_MAX = 3, FALL_MAX_T = 4, FALL_SETTLE = 0.4;   // s on the turf before he gets up, tries per body, play-ending fall time, s before a fresh body may get up
 export const PLANT_A = 7;
 export const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
 function tackleNote(c){ return c === QB && !S.runMode ? 'SACKED' : null; }
@@ -74,17 +76,20 @@ function release(d, stun){ d.churn = false;
   physUngrip(d); if(d.ph){ d.ph.bal = 0; d.ph.ttl = d.ph.t + stun; }   // ripped off his feet, gets back up
 }
 export function tackleUpdate(c, dt){
+  if(!c.falling) c.fallAge = 0;
+  if(c.ph && c.ph.getUp && !c.falling && c.ph.bal >= 1) c.ph.getUp = false;   // up on his legs: the get-up is over (runner only; other bodies keep theirs)
   if(c.ph && c.ph.getUp && (c.falling || DEF.some(d => d.latch === c))) c.ph.getUp = false;   // tackled mid get-up: his legs don't come back
   if(c.falling){
     // until he's down, anyone who gets there piles on
     for(const d of DEF) if(!d.latch && !isBody(d) && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
+    c.fallAge += dt;
     const down = !!c.ph && physDown(c), by = down && physTouched(c), ups = c.ph ? c.ph.getUps || 0 : 0;   // physDown once per frame
     if(!down) c.fallT = 0;
     // on the turf with no defender on him for CONTACT_T: not down, he gets up and runs on (GETUP_MAX tries, then the play ends: never a hang)
     else if(!by && !DEF.some(d => d.latch === c) && c.ph.t > FALL_SETTLE && ups < GETUP_MAX && (c.fallT = (c.fallT || 0) + dt) > GETUP_WAIT){
       c.ph.getUps = ups + 1; c.falling = false; c.act = null; c.fallT = 0; c.ph.getUp = true; return;
     }
-    if(!c.ph || by || c.ph.t > FALL_MAX_T || ups >= GETUP_MAX && down) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
+    if(!c.ph || by || c.fallAge > FALL_MAX_T || ups >= GETUP_MAX && down) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
     return;
   }
   if(c.tripT > 0) c.tripT -= dt;
