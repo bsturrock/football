@@ -1,6 +1,7 @@
 import { runRoute, steerVel } from './movement.js';
 import { PLAYS } from './playbook.js';
 import { DEF } from './players.js';
+import { isBody } from './physics.js';
 import { S } from './state.js';
 import { HW, clamp } from './util.js';
 
@@ -19,7 +20,7 @@ function raceMargin(p, qx, qy){
   const tr = Math.hypot(qx - p.x, qy - p.y)/(p.spd*SPRINT);
   let m = 1.5;
   for(const d of DEF){
-    if(d.stun > 0 || d.ph) continue;
+    if(d.stun > 0 || isBody(d)) continue;
     const td = Math.hypot(qx - d.x, qy - d.y)/(d.spd + 0.2) + (d.bt ? 0.45 : 0);
     m = Math.min(m, td - tr);
   }

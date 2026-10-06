@@ -6,12 +6,14 @@ import { clamp } from './util.js';
 // sideways limit means a full-speed cut has to shed speed first. Rates are per player (yd/s²).
 export function steerVel(p, dvx, dvy, dt){
   const slow = p.slow || 1; dvx *= slow; dvy *= slow;   // tacklers hanging on
+  const bub = p.ph && p.ph.bubble;
+  if(bub && p.wx != null){ p.vx = p.wx; p.vy = p.wy; }   // a bubble body steers from what he wants (physics overwrites vx / vy with the real motion)
   const sp = Math.hypot(p.vx, p.vy);
   let ux, uy;
   if(sp > 0.3){ ux = p.vx/sp; uy = p.vy/sp; }
   else {
     const dl = Math.hypot(dvx, dvy);
-    if(dl < 0.05){ p.vx = p.vy = 0; p.accel = 0; return; }
+    if(dl < 0.05){ p.vx = p.vy = 0; p.accel = 0; if(bub) p.wx = p.wy = 0; return; }
     ux = dvx/dl; uy = dvy/dl;
   }
   const ex = dvx - p.vx, ey = dvy - p.vy;
@@ -24,6 +26,7 @@ export function steerVel(p, dvx, dvy, dt){
   p.latAcc = pl*k/dt;   // sideways acceleration: how hard he is cutting
   p.accel = dPar/dt;
   p.x += p.vx*dt; p.y += p.vy*dt;
+  if(bub){ p.wx = p.vx; p.wy = p.vy; }
   if(p.fire > 0) p.fire -= dt;
 }
 export function steer(p, tx, ty, speed, dt){
