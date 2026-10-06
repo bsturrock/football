@@ -143,7 +143,7 @@ Structural (PM, 2026-10-06): new src/ratings.js (play) exporting rateTeams, lack
 
 ### B-006-4 The runner follows his lead blocker, reads the open field and falls forward
 1. User sees: on Power the back tucks behind the pulling guard's hip; in the open field he sets up defenders; at contact he drives for the extra yard.
-2. Done when: on a pull play he stays within 1.2 yd of the puller's hip until the puller engages or he passes los+2; open-field vision noise (1-vision/99)*0.8 on ofMargin, sim vision 35 vs 95 mean yards 0.3+ lower; when latched and not down he steers straight upfield at 0.6*spd, yards after contact up 0.2+ over 100 plays; pushPlayRate stays <= 0.10; no new console line.
+2. Done when: on a pull play he stays within 1.2 yd of the puller's hip until the puller engages or he passes los+2; open-field vision noise (1-vision/99)*0.8 on ofMargin, sim vision 35 vs 95 mean yards 0.3+ lower; when latched or propped by bodies and not down he keeps driving his legs straight upfield at 0.6*spd (never stands still; user L-1006-116), yards after contact up 0.2+ over 100 plays; pushPlayRate stays <= 0.10; no new console line.
 4. Owner: play. src/carrier.js. Depends on B-006-3. No physics.js change (a visible ragdoll lean would be a physics item).
 8. Stateful: small table (following, free, contact).
 
@@ -162,8 +162,8 @@ Structural (PM, 2026-10-06): new src/ratings.js (play) exporting rateTeams, lack
 8. Stateful: yes, states table first (pursuing, avoiding, fighting, held).
 
 ### B-006-7 Sim run numbers land in the NFL bands
-2. Done when: 3 seeds x 100 plays pooled: ypc 3.9-4.7, stuffPct 15-25%, bigPct 7-13%, pushPlayRate <= 0.10; the user's 20-play playtest passes; bands are starting values tuned with the user.
-3. Rules: named constants only (ratings.js templates, carrier.js, defense.js), no knob moved more than 30%, before and after reported per knob.
+2. Done when: 3 seeds x 100 plays pooled: ypc 3.9-4.7, stuffPct 15-25%, bigPct 7-13%, pushPlayRate <= 0.10; a stalled pile is whistled within about 0.6 s and no pile runs past about 1 s (user L-1006-116: "stalled piles need to end quicker"); the user's 20-play playtest passes; bands are starting values tuned with the user.
+3. Rules: named constants only (ratings.js templates, carrier.js, defense.js, pile.js STALL_T and PUSH_MAX_T), no knob moved more than 30% (STALL_T and PUSH_MAX_T exempt: set to the stall targets), before and after reported per knob.
 4. Owner: ai (constants across play and ai files, PM call). Depends on B-006-4, B-006-6.
 
 ### B-006-8 Ratings are flat by default, so results come from mechanics
