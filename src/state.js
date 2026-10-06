@@ -40,7 +40,7 @@ function assignRoutes(){
   drawRoutes(); routeGroup.visible = true;
 }
 function place(p, x, y){
-  p.x = x; p.y = y; p.vx = p.vy = 0; p.stun = 0; p.latch = null; p.tkCool = 0; p.downP = 0; p.slow = 1; p.latAcc = 0; p.svx = 0; p.svy = 0; p.tripT = 0; p.reachCool = 0; p.bt = null; p.freeFrom = null; p.freeT = 0; p.beatT = 0; p.locked = false; p.accel = 0; p.falling = false;
+  p.x = x; p.y = y; p.vx = p.vy = 0; p.stun = 0; p.latch = null; p.tkCool = 0; p.downP = 0; p.slow = 1; p.latAcc = 0; p.svx = 0; p.svy = 0; p.tripT = 0; p.reachCool = 0; p.bt = null; p.freeFrom = null; p.freeT = 0; p.beatT = 0; p.locked = false; p.accel = 0; p.falling = false; p.slip = 0; p.grip = null; p.fire = 0; p.fireDelay = 0;
   p.act = null; p.actT = 0; p.eng = 0; p.faceAt = null; p.holeX = null; p.ofLane = null; p.ofT = 0; p.stam = 1; p.churn = false; p.rx = x; p.ry = y; p.face = p.team === 'O' ? Math.PI : 0;
 }
 export function setupPlay(){
@@ -71,11 +71,11 @@ export function setupPlay(){
   });
   const boxS = call.box ? SFs[Math.floor(Math.random()*2)] : null;
   if(boxS) place(boxS, boxS.side*4.5, L+6);
-  assignFits(call, blitzer, boxS);
+  assignFits(call, boxS);
   S.handoffAt = Infinity;
   drawFits();
   RB.auto = false;
-  OFF.forEach(o => { o.blk = null; o.scripted = false; o.lane = null; o.via = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o === TE ? 1.4 : o === RB ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  OFF.forEach(o => { o.blk = null; o.lane = null; o.via = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o === TE ? 1.4 : o === RB ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
   ball.state = 'pre'; ball.holder = null; ball.target = null;
   losLine.position.z = 50 - L;
   fdLine.position.z = 50 - Math.min(100, L + S.toGo); fdLine.visible = L + S.toGo < 100;

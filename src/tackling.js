@@ -1,5 +1,4 @@
 import { callout, toast } from './hud.js';
-import { hit } from './input.js';
 import { gripGap, gripStrain, physBall, physDown, physGrip, physOff, physOn, physUngrip } from './physics.js';
 import { DEF, QB } from './players.js';
 import { endPlay } from './rules.js';
@@ -66,7 +65,7 @@ function release(d, stun){ d.churn = false;
   d.latch = null; d.faceAt = null; d.stun = stun; d.act = 'dive'; d.actT = stun; d.tkCool = 1.5;
   physUngrip(d); if(d.ph){ d.ph.bal = 0; d.ph.ttl = d.ph.t + stun; }   // ripped off his feet, gets back up
 }
-export function tackleUpdate(c, dt, inp){
+export function tackleUpdate(c, dt){
   if(c.falling){
     // until he's down, anyone who gets there piles on
     for(const d of DEF) if(!d.latch && !d.ph && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
@@ -113,6 +112,7 @@ export function tackleUpdate(c, dt, inp){
   if(!holding){
     c.downP = Math.max(0, c.downP - dt*0.8);
     if(c.ph && !DEF.some(d => d.ph && (d.ph.grips.some(g => g.on === c) || (d.ph.reach && d.ph.reach.on === c)))){
+      // CANNON is the global main.js sets after loading cannon-es (physics.js uses it the same way)
       const tb = c.ph.bodies[0], up = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y;
       if(up < 0.6 || physDown(c)){ c.falling = true; c.act = 'fall'; c.actT = 99; c.ph.bal = 0; }   // off balance: he's going down
       else if(c.ph.t > 0.4 && up > 0.95 && tb.angularVelocity.length() < 2 && tb.position.y > 1.1) physOff(c);   // back on balance: back on the run

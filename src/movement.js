@@ -4,7 +4,6 @@ import { clamp } from './util.js';
 // Movement physics. The velocity change is split along the current heading (speed up / brake) and
 // across it (turn). Acceleration fades toward top speed, braking is harder than accelerating, and the
 // sideways limit means a full-speed cut has to shed speed first. Rates are per player (yd/s²).
-// (The trailing argument some callers still pass is ignored.)
 export function steerVel(p, dvx, dvy, dt){
   const slow = p.slow || 1; dvx *= slow; dvy *= slow;   // tacklers hanging on
   const sp = Math.hypot(p.vx, p.vy);
