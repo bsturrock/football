@@ -74,7 +74,7 @@ export function tackleUpdate(c, dt){
     else if(c.ph && !physDownC(c) && !DEF.some(d => d.latch === c) && c.ph.t > 0.4 && (c.ph.getUps || 0) < 3 && (c.fallT = (c.fallT || 0) + dt) > 0.3){
       c.ph.getUps = (c.ph.getUps || 0) + 1; c.falling = false; c.act = null; c.fallT = 0; c.ph.getUp = true; return;
     }
-    if(!c.ph || physDownC(c) || c.ph.t > 4 || (c.ph.getUps || 0) >= 3 && physDown(c))endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
+    if(!c.ph || physDownC(c) || c.ph.t > 4 || (c.ph.getUps || 0) >= 3 && physDown(c)) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
     return;
   }
   if(c.tripT > 0) c.tripT -= dt;
