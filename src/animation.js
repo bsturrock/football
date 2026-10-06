@@ -67,7 +67,10 @@ function animate(p, dt){
   J.shL.rotation.set(P.shL, 0, 0.12); J.shR.rotation.set(P.shR, 0, -0.12); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
   p.body.position.y = P.bob - P.drop + Math.abs(P.pitch)*0.15;
   p.body.rotation.x = P.pitch;
-  p.mesh.position.set(p.x, 0, 50 - p.y); p.mesh.rotation.y = p.face;
+  // drawn position eases to the simulated one: contact shoves and block pushes read as motion, not a twitch
+  const k2 = 1 - Math.exp(-dt*22);
+  p.rx = p.rx == null ? p.x : p.rx + (p.x - p.rx)*k2; p.ry = p.ry == null ? p.y : p.ry + (p.y - p.ry)*k2;
+  p.mesh.position.set(p.rx, 0, 50 - p.ry); p.mesh.rotation.y = p.face;
   p.mesh.updateMatrixWorld(true);
 }
 const tmpV = new THREE.Vector3();

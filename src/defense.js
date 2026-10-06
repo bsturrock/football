@@ -1,6 +1,7 @@
 import { battle, pancakeHit } from './blocking.js';
 import { burst } from './carrier.js';
 import { steer, steerVel } from './movement.js';
+import { PLAYS } from './playbook.js';
 import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs } from './players.js';
 import { S, ball } from './state.js';
 import { dist, rand } from './util.js';
@@ -133,7 +134,8 @@ export function defenseAI(d, dt){
   if(d.ph){ d.stun -= dt; return; }         // physical: the body moves him
   if(d.stun > 0){ d.stun -= dt; steer(d, d.x, d.y, 0, dt, 4); return; }
   if(d.fireDelay > 0){ d.fireDelay -= dt; return; }   // still in his stance, reading the ball
-  const c = ball.state === 'held' ? ball.holder : (ball.state === 'air' ? null : QB);
+  let c = ball.state === 'held' ? ball.holder : (ball.state === 'air' ? null : QB);
+  if(c === QB && S.runMode && PLAYS[S.play].run === 'hand') c = RB;   // handoff coming: defenders key the back, not the QB at the mesh
   let tx, ty, sp = d.spd, attack = false;
   if(ball.state === 'air'){
     if(S.clock - ball.thrownAt > d.react && Math.hypot(ball.tx - d.x, ball.ty - d.y) < 18){ tx = ball.tx; ty = ball.ty; }

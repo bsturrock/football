@@ -81,7 +81,14 @@ export function offenseAI(p, dt, inp){
   if(p.falling) return;                                   // going down: tackleUpdate moves him
   const c = ball.state === 'held' ? ball.holder : null, run = PLAYS[S.play].run;
   if(run){
-    if(p === RB && c !== RB){ runRoute(p, dt); return; }            // RB runs his path until he has the ball
+    if(p === RB && c !== RB){
+      // last few yards to the mesh: the back finds the QB (runs just past his near hip) so the exchange always happens
+      if(run === 'hand' && c === QB && dist(p, QB) < 3){
+        const side = Math.sign(p.x - QB.x) || 1, tx = QB.x + side*0.7, ty = QB.y - 0.2, l = Math.hypot(tx - p.x, ty - p.y) || 1;
+        steerVel(p, (tx - p.x)/l*p.spd, (ty - p.y)/l*p.spd, dt); return;
+      }
+      runRoute(p, dt); return;
+    }            // RB runs his path until he has the ball
     if(p === QB && c === QB && run === 'hand'){                      // handoff: open to the mesh, then extend to the back
       const m = PLAYS[S.play].mesh;
       const mx = m && m[0] - p.x, my = m && S.los + m[1] - p.y, ml = m && Math.hypot(mx, my);

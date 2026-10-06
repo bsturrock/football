@@ -43,7 +43,7 @@ function liveUpdate(dt){
   if(c.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
   if(Math.abs(c.x) > HW){ endPlay('spot', c.y, 'OUT OF BOUNDS'); return; }
   const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
-  tackleUpdate(c, dt, inp);
+  if(!(c === QB && run === 'hand')) tackleUpdate(c, dt, inp);   // the exchange happens: nobody tackles the QB at the mesh
 }
 let last = performance.now();
 function frame(now){

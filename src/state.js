@@ -41,7 +41,7 @@ function assignRoutes(){
 }
 function place(p, x, y){
   p.x = x; p.y = y; p.vx = p.vy = 0; p.stun = 0; p.latch = null; p.tkCool = 0; p.downP = 0; p.slow = 1; p.latAcc = 0; p.svx = 0; p.svy = 0; p.tripT = 0; p.reachCool = 0; p.bt = null; p.freeFrom = null; p.freeT = 0; p.beatT = 0; p.locked = false; p.accel = 0; p.falling = false;
-  p.act = null; p.actT = 0; p.eng = 0; p.faceAt = null; p.holeX = null; p.ofLane = null; p.ofT = 0; p.stam = 1; p.churn = false; p.face = p.team === 'O' ? Math.PI : 0;
+  p.act = null; p.actT = 0; p.eng = 0; p.faceAt = null; p.holeX = null; p.ofLane = null; p.ofT = 0; p.stam = 1; p.churn = false; p.rx = x; p.ry = y; p.face = p.team === 'O' ? Math.PI : 0;
 }
 export function setupPlay(){
   physClear();
