@@ -16,7 +16,8 @@ A CPU-vs-CPU NFL football sim: a coach sim where the user calls plays and never 
     - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
   - **Runner moves** Stiff-arm, spin, juke, truck, lowered shoulder at contact; press and cut off blocks, follow the lead blocker, fall forward. Today the carrier only picks lanes (carrier.js). Size M-L.
   - **Run playbook** Counter, trap, draw, RB blocking, QB carry-out fake; more than one defense. Size M.
-- **Contact feel** Hit-stop, camera shake, slow-mo on big hits, sound, whistle, replay. Nothing exists today. Size M.
+- **Contact feel** Viewpoint is a spectator in the sky box: no camera shake (user 2026-10-06, L-1006-072). Visceral feel comes from on-field animation, physics and sound, not the camera. Candidates: sound, whistle, hit-stop or slow-mo on big hits, replay. Nothing exists today. Size M.
+  - ? Do time effects (hit-stop, slow-mo) fit the sky-box spectator view, or only replays (asked 2026-10-06)
   - ? Which feel cues first, and is sound in scope now (asked 2026-10-06)
 - **CPU vs CPU** A run play already runs with no input (cpu.js, input.js). Left: remove human-control paths (Shift sprint, control ring), each side calls independently (offense now sees the defensive call), move snap and assignments out of input.js. Size M.
 - **Playcalling** Later: the user calls plays for CPU teams (user 2026-10-06).
