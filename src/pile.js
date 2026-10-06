@@ -16,9 +16,12 @@ import { dist } from './util.js';
 //   pushing   live with 1+ pusher driving
 //   whistle   stalled: endPlay('spot', S.prog, 'FORWARD PROGRESS'); the play is dead, the next setupPlay's pileReset clears it
 // Any state: ball dead -> no pileUpdate, and physDrive's drive expires within DRIVE_T s (physics.js), so nothing pushes a dead play.
-const PILE_R = 1.3, PUSH_JOIN = 2.0, PUSH_MAX = 3, PUSH_V = 2.0, PUSH_K = 1.5, FORM_T = 0.25, STALL_D = 0.3, STALL_T = 1.0, PUSHER_BAL = 0.5, PILE_BODIES = 2;
-export function pileReset(){ const keep = S.pile; S.pile = {state:'dead', t:0, formT:0, ref:null, pushers:0, whistles:0, frames:{dead:0, forming:0, live:0, pushing:0}};   // whistles and frames are session totals for the sim (kept across plays)
-  if(keep){ S.pile.whistles = keep.whistles; S.pile.frames = keep.frames; } }
+const PILE_R = 1.3, PUSH_JOIN = 2.0, PUSH_MAX = 3, PUSH_V = 3.0, PUSH_K = 1.5, FORM_T = 0.1, STALL_D = 0.3, STALL_T = 1.0, PUSHER_BAL = 0.5, PILE_BODIES = 2;
+// whistles, frames and pushes are session totals for the sim (kept across plays); a play that reached pushing adds {gain, dur} (ball yd from the first pushing frame to the last, s pushing)
+export function pileReset(){
+  const keep = S.pile; S.pile = {state:'dead', t:0, formT:0, ref:null, pushers:0, whistles:0, frames:{dead:0, forming:0, live:0, pushing:0}, pushes:[], cur:null};
+  if(keep){ S.pile.whistles = keep.whistles; S.pile.frames = keep.frames; S.pile.pushes = keep.pushes; if(keep.cur) S.pile.pushes.push({gain:keep.cur.gain, dur:keep.cur.dur}); }
+}
 const freeBody = p => p.ph && !p.falling && !p.latch && !p.bt && !(p.stun > 0) && p.ph.bal >= PUSHER_BAL && !physDown(p);
 function side(list, c, rate, dir){
   const ps = list.filter(p => p !== c && freeBody(p) && dist(p, c) < PUSH_JOIN).sort((a, b) => dist(a, c) - dist(b, c)).slice(0, PUSH_MAX);
@@ -41,4 +44,5 @@ export function pileUpdate(c, dt){
   if(P.formT < FORM_T){ P.state = 'forming'; return; }
   P.pushers = side(OFF, c, 'rStr', 1) + side(DEF, c, 'rPow', -1);
   P.state = P.pushers ? 'pushing' : 'live';
+  if(P.pushers){ const by = heldBallPos(c).y; P.cur = P.cur || {y0:by, gain:0, dur:0}; P.cur.gain = by - P.cur.y0; P.cur.dur += dt; }
 }
