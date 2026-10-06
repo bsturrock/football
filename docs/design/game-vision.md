@@ -28,6 +28,10 @@ Top-line test for all work: would this look right on an NFL broadcast, graphics 
     - **First up: RB vision and pursuit** The runner against the pursuit is the core of a run; reads and effort follow (user 2026-10-06, L-1006-081).
     - **Human mistakes** Players misread, overrun plays and take bad angles, more often at lower ratings, so big runs come out naturally (user 2026-10-06, L-1006-081).
     - **NFL-style ratings** Every player gets a fuller rating set (speed, acceleration, strength, agility, vision, tackling, block shedding, pursuit, play recognition) that drives behaviour (user 2026-10-06, L-1006-081).
+    - **RB reads blocks live** He presses the designed hole so defenders commit, reads the first unblocked defender in the gap, then hits it, bends, bounces or cuts back; follows the lead blocker's hip on power plays; finishes falling forward. Higher vision = more patience and better choices; low vision = wrong hole, running into his own linemen (user 2026-10-06, L-1006-082).
+    - **Pursuit with leverage** Each defender's angle comes from the runner's speed and his pursuit rating; keeps leverage (inside-out, edge contain, backside stays home for the cutback); goes around or fights through a blocker in his path; mistakes by rating: overpursuit, bad angle, caught in the wash (user 2026-10-06, L-1006-082).
+    - **Ratings 0-99** Position templates (power vs speed back, run-stuffing vs coverage LB) with random variation per player; both teams generated (user 2026-10-06, L-1006-082).
+    - **Judged by NFL numbers** The 100-play sim against NFL run numbers (about 4.3 yd per carry, about 1 in 5 runs stuffed at 0 or less, about 1 in 10 going 10+), plus the user's eye; targets tuned with the user (user 2026-10-06, L-1006-082).
     - **Effort and fatigue** Later, after the run core works (user 2026-10-06, L-1006-081).
   - **Runner moves** Stiff-arm, spin, juke, truck, lowered shoulder at contact; press and cut off blocks, follow the lead blocker, fall forward. Today the carrier only picks lanes (carrier.js). Size M-L.
   - **Run playbook** Counter, trap, draw, RB blocking, QB carry-out fake; more than one defense. Size M.
