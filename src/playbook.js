@@ -37,12 +37,12 @@ export const PLAYS = [
   {name:'Outside Zone Right', run:'toss', scheme:'zone', shift:3, hole:8.5,   // aim: tight end's outside hip; he reads bounce / cut back
    blocks:{WR0:'CB0', WR1:'CB1', WR2:'S0'},
    path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]]},
-  {name:'HB Dive', under:true, run:'hand', scheme:'zone', shift:0, hole:1.1, mesh:[0.3, -3.4],   // quick hit in the right A gap: everyone blocks the man in front
+  {name:'HB Dive', under:true, run:'hand', scheme:'zone', shift:0, hole:1.1, mesh:[-0.5, -2.6],   // quick hit in the right A gap: everyone blocks the man in front
    blocks:{WR0:'CB0', WR1:'CB1', WR2:'CB2'},
-   path:[[0.4,-3.2],[1.1,0.5],[1.1,8]]},
-  {name:'HB Stretch', under:true, run:'hand', scheme:'zone', shift:3, hole:8.5, mesh:[2.4, -3.2],   // outside zone from under center: aim at the TE's hip, read bounce / cut back
+   path:[[0.7,-3.0],[1.1,0.5],[1.1,8]]},   // passes on the QB's right, takes it on the way by
+  {name:'HB Stretch', under:true, run:'hand', scheme:'zone', shift:3, hole:8.5, mesh:[2.0, -2.8],   // outside zone from under center: aim at the TE's hip, read bounce / cut back
    blocks:{WR0:'CB0', WR1:'CB1', WR2:'S0'},
-   path:[[1.5,-5.5],[3,-3.6],[6.5,-1.8],[8.5,1.5],[8.5,8]]}
+   path:[[1.5,-5.5],[3.2,-3.9],[6.5,-1.8],[8.5,1.5],[8.5,8]]}
 ].filter(p => PASS_GAME || p.run);
 const playsEl = $('plays');
 PLAYS.forEach((p, i) => {
