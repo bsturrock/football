@@ -19,10 +19,13 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   tackle body p.ph, not bubble: ragdoll or tackler (tackling.js / blocking.js call physOn); lives until physOff
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
 //   over BODY_CAP (a tackle made bodies after the join pass): capTrim steps bubble bodies out, upright ones first, then the farthest
+//   getting up  tackle body, ph.getUp: bal rises 1.2/s; bal 1 and upright and slow -> physOff; for the ball holder tackleUpdate clears getUp (tackling.js runner states), other bodies keep it until physOff
+//   contact     p.hitT = phClock whenever an opposing body touches him or grips him (physTouch); physClear resets it; physDownC = on the turf and hitT within CONTACT_T
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
 const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
 export const UPRIGHT_Y = 0.95, UPRIGHT_W = 2, UPRIGHT_H = 1.1;
+const ELBOW_DOWN_Y = 0.1, CONTACT_T = 1.0;   // down: forearm's elbow end below ELBOW_DOWN_Y yd; a defender must have touched him within CONTACT_T s
 const YAW_K = 150, YAW_MAX = 1.5, HEADING_MIN = 0.4;   // yaw hold: spring gain, max error (rad), slowest speed (yd/s) that sets a heading
 export const isBody = p => !!p.ph && !p.ph.bubble;
 // name, rig pivot, parent, box size, center in pivot frame, mass share, joint limits [x],[y],[z] (rad,
@@ -89,7 +92,7 @@ export function physOn(p, o={}){
     b.addShape(new CANNON.Box(new CANNON.Vec3(sz[0]/2, sz[1]/2, sz[2]/2)));
     b.position.set(c.x, c.y, c.z); b.quaternion.copy(toC(tq));
     b.velocity.set(vx*k + sp.x*c.y, up, -(vy*k + sp.y*c.y)); b.angularVelocity.copy(w);
-    PW.addBody(b); return b;
+    b.pl = p; PW.addBody(b); return b;
   });
   const joints = PARTS.map((d, i) => {
     if(!d.p) return null;
@@ -115,7 +118,7 @@ export function physOff(p){
   p.ph = null; PHYS.splice(PHYS.indexOf(p), 1);
   if(p.act === 'dive' || p.act === 'down' || p.act === 'fall') p.act = null;
 }
-export function physClear(){ while(PHYS.length) physOff(PHYS[0]); }
+export function physClear(){ ALL.forEach(p => { p.hitT = undefined; }); while(PHYS.length) physOff(PHYS[0]); }   // contact times don't carry into the next play
 // grab: tackler's hands latch onto the closest part of the runner. maxForce = grip strength.
 export function physGrip(d, c, kind){ const D = physOn(d), C = physOn(c); if(D && C){ D.reach = {on:c, kind, t:0}; } }
 // distance from a world point to the nearest of his torso / thigh boxes
@@ -277,7 +280,7 @@ function capTrim(){
   const bub = PHYS.filter(p => p.ph.bubble).sort((a, b) => up(a) - up(b) || dist(b, ref) - dist(a, ref));
   while(PHYS.length > BODY_CAP && bub.length) physOff(bub.shift());
 }
-let phAcc = 0;
+let phAcc = 0, phClock = 0;
 export function physStep(dt){
   if(!PW) return;
   bubbleUpdate(dt); capTrim();
@@ -296,6 +299,7 @@ export function physStep(dt){
     for(const p of PHYS){
       const ph = p.ph, c = ball.state === 'held' ? ball.holder : null;
       physMuscles(p, ph);
+      for(const g of ph.grips) if(g.on.team !== p.team) g.on.hitT = phClock;   // his hands on the runner count as contact
       if(ph.reach){ ph.reach.t += PH_DT; physReach(p); }
       if(p.latch && p.latch.ph && S.phase === 'live'){   // tackler: plant against his motion and drive through him
         const r = p.latch.ph.bodies[0], t = ph.bodies[0], dx = r.position.x - t.position.x, dz = r.position.z - t.position.z, l = Math.hypot(dx, dz) || 1;
@@ -307,7 +311,8 @@ export function physStep(dt){
       else if(ph.bubble){ physLegs(p, ph, p.wx ?? p.vx, -(p.wy ?? p.vy), p.acc); physYaw(p, ph); }   // his intent, not what the collisions left of it
       else physLegs(p, ph, p.vx, -p.vy, p.acc);
     }
-    PW.step(PH_DT);
+    PW.step(PH_DT); phClock += PH_DT;
+    for(const q of PW.contacts){ const a = q.bi.pl, b = q.bj.pl; if(a && b && a.team !== b.team) a.hitT = b.hitT = phClock; }   // opposing bodies touching
     // speed rail: no part moves faster than a sprinter or gets launched skyward
     for(const p of PHYS) for(const b of p.ph.bodies){
       const v = b.velocity, sp = Math.hypot(v.x, v.y, v.z); if(sp > 10){ v.x *= 10/sp; v.y *= 10/sp; v.z *= 10/sp; }
@@ -318,18 +323,27 @@ export function physStep(dt){
   for(const p of PHYS){ const t = p.ph.bodies[0]; p.x = t.position.x; p.y = 50 - t.position.z;
     if(!(ball.state === 'held' && ball.holder === p)){ p.vx = t.velocity.x; p.vy = -t.velocity.z; } }
 }
-// he's down when anything but his feet touches the turf (knee, hand, elbow, hip, back, helmet)
+// geometry: down when any part but a hand or foot touches the turf (head, knee, elbow end of the forearm, upper arm,
+// thigh/hip, torso). Hand end of the forearm and the shins' foot end never count.
 export function physDown(p){
   const ph = p.ph; if(!ph) return false;
   for(let i = 0; i < PARTS.length; i++){
     const b = ph.bodies[i], n = PARTS[i].n, he = b.shapes[0].halfExtents;
-    if(n === 'snL' || n === 'snR'){ const top = b.pointToWorldFrame(new CANNON.Vec3(0, he.y, 0)); if(top.y < 0.14) return true; continue; }
+    if(n === 'snL' || n === 'snR' || n === 'faL' || n === 'faR'){   // one end only: knee end of the shin (0.14), elbow end of the forearm (ELBOW_DOWN_Y)
+      const end = b.pointToWorldFrame(new CANNON.Vec3(0, he.y, 0));   // local +y is the knee / elbow end
+      if(end.y < (n[0] === 's' ? 0.14 : ELBOW_DOWN_Y)) return true; continue;
+    }
     // lowest corner of the box
     const q = b.quaternion, ex = q.vmult(new CANNON.Vec3(he.x, 0, 0)), ey = q.vmult(new CANNON.Vec3(0, he.y, 0)), ez = q.vmult(new CANNON.Vec3(0, 0, he.z));
     if(b.position.y - Math.abs(ex.y) - Math.abs(ey.y) - Math.abs(ez.y) < 0.06) return true;
   }
   return false;
 }
+// a defender touched him within CONTACT_T s
+export const physTouch = p => { p.hitT = phClock; };   // a hand on him from an animated defender counts as contact
+export const physTouched = p => phClock - (p.hitT ?? -99) <= CONTACT_T;
+// the runner's down: a part is on the turf and he was touched (an untouched stumble isn't down, he gets up)
+export const physDownC = p => physDown(p) && physTouched(p);
 export const physBall = p => { const v = p.ph.bodies[PI_.faR].pointToWorldFrame(new CANNON.Vec3(0, -0.08, 0.13)); return tv.set(v.x, v.y, v.z); };
 function physMeshes(p){
   if(p.phM){ p.phM.forEach(m => m.visible = true); return p.phM; }
