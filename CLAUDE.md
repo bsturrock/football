@@ -15,13 +15,14 @@ Team process: a project-manager (PM) leads; workers build on their own branches 
 - Full check: the fast check, then load the page in headless Chrome (the agents' browser is off for now, user L-1006-070). Serve as in Run and serve (note the PID; stop it after); `<scratch>` is your session scratchpad (an existing directory). Then:
   `perl -e 'alarm 40; exec @ARGV' "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --user-data-dir=<scratch>/hl --use-angle=swiftshader --enable-unsafe-swiftshader --enable-logging=stderr --virtual-time-budget=8000 --dump-dom http://127.0.0.1:<port>/ > <scratch>/dom.html 2> <scratch>/err.log`
   Pass: `grep ':CONSOLE' <scratch>/err.log | grep -vE '\[vite\]|GPU stall'` prints nothing, and `grep -c '<canvas' <scratch>/dom.html` is 1 or more. Every console message (console.error and warn too) is logged as an INFO CONSOLE line, so any line but the vite and WebGL "GPU stall" noise is a failure. A module that fails to load (a 404, cdnjs unreachable) logs nothing; the missing `<canvas` catches it. Exit 142 is normal: Chrome stays up on the dev server's socket and the 40 s alarm ends it after the DOM is written. Whether a play runs (snap, pass or run, play ends) is the user's visual check: say in the done-report what to look at.
+- Sim check: serve and run the headless recipe with `?sim=100&seed=7` as the URL (the sim ends in about 15 s; the dump is written when it finishes, so raise the alarm if N is larger). Pass: `grep -o '<pre id="simout">[^<]*' <scratch>/dom.html` prints one JSON line (plays, yards, pileWindows, pushPlays, pushPlayRate, pushDurS, pushGainYd, bodiesMax, physMs); the same seed gives the same line. physMs reads null here (virtual time has no clock); use `?debug` in a real browser for frame and physics ms. `?sim` seeds Math.random for the whole page; a normal load is unchanged.
 - No smoke, trace, perf or docs check yet; skills skip those steps for this repo until they exist.
 
 ## Where things live
 
 | system | files |
 |---|---|
-| core | src/main.js, src/state.js, src/util.js |
+| core | src/main.js, src/state.js, src/util.js, src/sim.js |
 | render | src/scene.js, src/camera.js, src/animation.js, src/markers.js |
 | physics | src/physics.js, src/movement.js, src/blocking.js, src/tackling.js |
 | ai | src/offense.js, src/defense.js, src/cpu.js |
