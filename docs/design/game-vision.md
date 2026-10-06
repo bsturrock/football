@@ -165,6 +165,12 @@ Structural (PM, 2026-10-06): new src/ratings.js (play) exporting rateTeams, lack
 3. Rules: named constants only (ratings.js templates, carrier.js, defense.js), no knob moved more than 30%, before and after reported per knob.
 4. Owner: ai (constants across play and ai files, PM call). Depends on B-006-4, B-006-6.
 
+### B-006-8 Ratings are flat by default, so results come from mechanics
+1. User sees: every player at a position moves, blocks and tackles alike; no team is better than the other (user L-1006-093: "I just don't want ratings to be impacting results at the moment").
+2. Done when: FLAT_RATINGS = true atop ratings.js; with it on every player gets his position's template midpoint for each rating (RBp/RBs and LBs/LBc pooled to one midpoint), team shift 0 and the template mass; aliases then equal the old per-position means; `?ratings=on` (Pages and sim) restores rolled ratings exactly as today (seed-7 line identical to main's); tools/test-ratings.mjs covers both modes; no console line.
+4. Owner: play. src/ratings.js, tools/test-ratings.mjs. Depends on nothing.
+8. Note: rating-vs-rating checks in B-006-3..6 (high vs low vision, pursuit, recog) run with `?ratings=on` or forced ratings in the sim; with flat ratings mistakes still happen, at the average rate for everyone. B-006-7 tunes with flat ratings; turning ratings on later gets a re-check.
+
 ## Package: Run schemes
 
 Drafted 2026-10-06 for the Blocking > Physical line play assignment side (run playbook, formations, fronts, stunts, blocking rules); techniques (hands, leverage, who wins) wait for B-005-3; filed 2026-10-06 as B-007-1..13 (user L-1006-089: file and queue all; extra positions by full rosters and a depth chart).
