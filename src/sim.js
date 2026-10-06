@@ -25,7 +25,7 @@ export function runSim(n, step, g){
   const ballY = h => h.ph ? 50 - physBall(h).z : h.y;
   if(!window.CANNON){ out({error:'physics failed to load'}); return; }
   const yards = [], wins = [], physMs = [];
-  let pushPlays = 0, bodiesMax = 0, win = null;
+  let timeouts = 0, pushPlays = 0, bodiesMax = 0, win = null;
   const closeWin = () => {   // a window counts once it lasted WINDOW_T
     if(win && win.t >= WINDOW_T) wins.push({dur:win.t, gain:win.y1 - win.y0, off:win.off});
     win = null;
@@ -47,14 +47,16 @@ export function runSim(n, step, g){
       }
     }
     closeWin();
-    if(startY !== null) yards.push(endY - startY);
+    const timedOut = S.phase !== 'dead';   // hit PLAY_MAX_S: counted in timeouts, left out of yards
+    if(timedOut) timeouts++;
+    else if(startY !== null) yards.push(endY - startY);
     const played = wins.filter(w => w.play === undefined); played.forEach(w => { w.play = i; });
     if(played.some(w => w.off && w.gain >= PUSH_GAIN)) pushed = true;
     if(pushed) pushPlays++;
     nextPlay(); if(S.phase === 'over') newGame();   // a finished game starts the next one
   }
   const pushes = wins.filter(w => w.off && w.gain >= PUSH_GAIN);
-  out({plays:n, yards:{mean:mean(yards), median:med(yards)}, pileWindows:wins.length, pushPlays, pushPlayRate:+(pushPlays/n).toFixed(3),
+  out({plays:n, timeouts, yards:{mean:mean(yards), median:med(yards)}, pileWindows:wins.length, pushPlays, pushPlayRate:+(pushPlays/n).toFixed(3),
     pushDurS:{median:med(pushes.map(w => w.dur)), p90:pct(pushes.map(w => w.dur), 0.9)},
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null}});

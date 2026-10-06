@@ -4,7 +4,7 @@ import { separate } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
-import { debugTick, perf, toast, updateCallouts, warn } from './hud.js';
+import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
 import { steer } from './movement.js';
@@ -46,6 +46,7 @@ function liveUpdate(dt){
   const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
   if(!(c === QB && run === 'hand')) tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
 }
+const perf = {phys:0, bodies:0};   // last step's physics ms and body count (read by ?debug and the sim)
 // one render-free simulation step (the sim runner calls this too)
 export function step(dt){
   cpuTick(dt);
@@ -67,7 +68,7 @@ function frame(now){
   step(dt);
   updateCamera(dt); syncScene(dt); physRender(); updateCallouts(dt);
   renderer.render(scene, camera);
-  debugTick(raw);
+  debugTick(raw, perf.phys, perf.bodies);
   requestAnimationFrame(frame);
 }
 function start(data){
