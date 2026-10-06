@@ -21,6 +21,7 @@ Items and tasks (features are names, not ids; see ## Features):
 
 ## Bugs & fixes
 
+- **B-001** [docs] Live build: the user can play main from any computer via a private claude.ai artifact. Now the game runs only on a local vite port, not reachable off-network; expected a link that works anywhere. Publish index.html + src/*.js as-is (no build step; three r128 cdnjs, cannon-es jsdelivr, Google Fonts all on the artifact allowlist), verify a play runs, republish to the same URL after each main move. Trace: -. Size: S. Kind: tooling. Source: user L-1006-063. Status: open
 ## Backlog
 
 ## Moved
