@@ -1,8 +1,8 @@
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
-// Pile stats come from game state (bodies near the holder), not from any pile code.
+// Pile stats come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
 // physMs is null under --virtual-time-budget (performance.now does not advance during synchronous code); read it with a real clock
-const SIM_DT = 1/60, PILE_R = 1.3, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_DX = 8;   // box: defenders within BOX_DY of the line and BOX_DX of the center
+const SIM_DT = 1/60, PILE_R = 1.3, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_DX = 8, BOX_CX = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
 // sim.js first with no static imports here, so player ratings and masses (rolled at load) are seeded too.
@@ -21,13 +21,13 @@ function out(o){
 
 // g: the game objects, passed in by main.js so this file has no imports (it must load before any module that rolls random numbers)
 export function runSim(n, step, g){
-  const {physBall, physCount, physDown, perf, ALL, OFF, DEF, C, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball} = g;
+  const {physBall, physCount, physDown, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball} = g;
   const ballY = h => h.ph ? 50 - physBall(h).z : h.y;
   if(!window.CANNON){ out({error:'physics failed to load'}); return; }
   // forced choices: names match case-insensitively and are stored canonical; form and side wait for B-007-3/4
   const byName = (list, v) => v == null ? null : list.find(x => x.name.toLowerCase() === v.trim().toLowerCase());
   const force = {play:null, form:Q.get('form'), front:null, side:null};
-  for(const [key, list, label] of [['play', PLAYS, 'play'], ['front', DEF_CALLS, 'front']]){
+  for(const [key, list, label] of [['play', PLAYS.filter(p => p.run), 'play'], ['front', DEF_CALLS, 'front']]){
     if(!Q.has(key)) continue;
     const hit = byName(list, Q.get(key));
     if(!hit){ out({error:'unknown ' + label + ' ' + Q.get(key)}); return; }
@@ -56,13 +56,13 @@ export function runSim(n, step, g){
         const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; } endY = y;
         if(c === RB && !measured){   // the back gets the ball: count the box, and who is free in it
           measured = true;
-          const inBox = DEF.filter(d => Math.abs(d.y - S.los) <= BOX_DY && Math.abs(d.x - C.x) <= BOX_DX);
+          const inBox = DEF.filter(d => Math.abs(d.y - S.los) <= BOX_DY && Math.abs(d.x - BOX_CX) <= BOX_DX);
           boxes.push(inBox.length);
           frees.push(inBox.filter(d => d.stun <= 0 && !(d.eng > 0) && !d.bt && !OFF.some(o => o.blk === d)).length);
         }
         const cnt = physCount(); bodiesMax = Math.max(bodiesMax, cnt.players);
         if(cnt.players) physMs.push(perf.phys);
-        const near = ALL.filter(p => p !== c && p.ph && Math.hypot(p.x - c.x, p.y - c.y) < PILE_R);
+        const near = ALL.filter(p => p !== c && p.ph && !p.ph.bubble && Math.hypot(p.x - c.x, p.y - c.y) < PILE_R);
         if(!(c.ph && physDown(c)) && near.length >= 2){
           if(!win) win = {t:0, y0:y, y1:y, off:false};
           win.t += SIM_DT; win.y1 = y; if(near.some(p => OFF.includes(p))) win.off = true;

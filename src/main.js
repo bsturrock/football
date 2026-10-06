@@ -11,7 +11,7 @@ import { steer } from './movement.js';
 import { offenseAI } from './offense.js';
 import { physBall, physCount, physDown, physInit, physRender, physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
-import { ALL, C, DEF, OFF, QB, RB } from './players.js';
+import { ALL, DEF, OFF, QB, RB } from './players.js';
 import { endPlay, newGame, nextPlay } from './rules.js';
 import { camera, cvs, renderer, scene } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
@@ -78,7 +78,7 @@ function start(data){
   if(data && typeof data.score === 'number') Object.assign(S, {score:data.score, tds:data.tds||0, drive:data.drive||1, los:data.los||25, down:data.down||1, toGo:data.toGo||10});
   const q = new URLSearchParams(location.search);
   selectPlay(0); setupPlay();
-  if(q.has('sim')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, perf, ALL, OFF, DEF, C, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('sim')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   requestAnimationFrame(frame);
 }
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
