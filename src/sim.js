@@ -50,7 +50,7 @@ export function runSim(n, step, g){
     win = null;
   };
   const teamAvg = side => { const ps = ALL.filter(p => p.team === side), o = {}; KEYS.forEach(k => { o[k] = mean(ps.map(p => p.rt[k])); }); return o; };
-  let regens = 0;
+  let regens = 0; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
     let startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
@@ -74,6 +74,7 @@ export function runSim(n, step, g){
       }
     }
     closeWin();
+    if(S.read) reads.push(S.read);
     const timedOut = S.phase !== 'dead';   // hit PLAY_MAX_S: counted in timeouts, left out of yards
     if(timedOut) timeouts++;
     else if(startY !== null){
@@ -94,5 +95,6 @@ export function runSim(n, step, g){
     pushDurS:{median:med(pushes.map(w => w.dur)), p90:pct(pushes.map(w => w.dur), 0.9)},
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
+    read:{n:reads.length, wrongPct:reads.length ? +(100*reads.filter(r => r.wrong).length/reads.length).toFixed(1) : null, choices:reads.reduce((o, r) => { o[r.choice] = (o[r.choice] || 0) + 1; return o; }, {})},
     force, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, boxMean:mean(boxes), freeBox:mean(frees)});
 }

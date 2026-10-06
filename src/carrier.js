@@ -1,9 +1,10 @@
 import { runRoute, steerVel } from './movement.js';
 import { PLAYS } from './playbook.js';
-import { DEF } from './players.js';
+import { DEF, OFF } from './players.js';
 import { isBody } from './physics.js';
+import { lack } from './ratings.js';
 import { S } from './state.js';
-import { HW, clamp } from './util.js';
+import { HW, clamp, rand } from './util.js';
 
 // ---------- ball carrier AI ----------
 // Everything is a race: for a spot on the field, how much sooner does he get there than the quickest defender
@@ -40,6 +41,61 @@ function readHole(p, dt){
   const dx = best - p.x, dy = y + 1.5 - p.y, l = Math.hypot(dx, dy) || 1;
   steerVel(p, dx/l*sp, dy/l*sp, dt);
 }
+// ---------- zone read: press, read the key, commit (B-006-3) ----------
+// States (p.rd.st): press (slow half-step at the line so defenders commit) -> read (key re-picked 5x/s, heading for the designed hole)
+// -> committed (lane chosen once at los+1; runs it to its x or los+3) -> openField. Keyboard carrier and man schemes never come here.
+const PRESS_V = 0.7, PRESS_T = 0.15, PRESS_VIS = 0.35, PRESS_MAX = 0.6;    // press speed x spd; seconds = PRESS_T + PRESS_VIS*vision/99, capped
+const KEY_R = 3, KEY_Y0 = -1, KEY_Y1 = 5, KEY_EVERY = 0.2, KEY_UNTIL = 1.5;   // key: nearest unengaged defender within KEY_R of the hole x, y los+KEY_Y0..KEY_Y1
+const DECIDE_Y = 1, COMMIT_Y = 3, BEND = 2.2, BOUNCE = 5, CUTBACK = 4, EDGE = 1.5;
+const WRONG_P = 0.25, NOISE = 1, HOLE_COST = 0.05, KEY_PEN = 0.5, KEY_CLOSE = 1.6, KEY_LEAD = 0.3;
+const free = d => d.stun <= 0 && !isBody(d) && !(d.eng > 0) && !d.bt && !OFF.some(o => o.blk === d);
+function pickKey(hole){
+  let key = null, bd = KEY_R;
+  for(const d of DEF){
+    if(!free(d) || d.y < S.los + KEY_Y0 || d.y > S.los + KEY_Y1) continue;
+    const dx = Math.abs(d.x - hole); if(dx < bd){ bd = dx; key = d; }
+  }
+  return key;
+}
+function decide(p, hole, key, side){
+  const lim = HW - EDGE, kx = key ? key.x + key.vx*KEY_LEAD : null;
+  const away = key ? (Math.sign(hole - key.x) || side) : side;
+  const opts = {hit:hole, bend:key ? key.x + away*BEND : hole + side*BEND, bounce:hole + side*BOUNCE, cutback:hole - side*CUTBACK};
+  let best = null, bs = -1e9, noisy = null, ns = -1e9;
+  const vn = lack(p, 'vision')*NOISE;
+  for(const [name, raw] of Object.entries(opts)){
+    const x = clamp(raw, -lim, lim);
+    let sc = raceMargin(p, x, S.los + 1) + raceMargin(p, x, S.los + 3)*0.6 - Math.abs(x - hole)*HOLE_COST - Math.abs(x - p.x)*0.03;
+    if(kx !== null) sc -= Math.max(0, KEY_CLOSE - Math.abs(x - kx))*KEY_PEN;
+    if(sc > bs){ bs = sc; best = name; }
+    sc += vn*rand(-1, 1);
+    if(sc > ns){ ns = sc; noisy = name; }
+    opts[name] = x;
+  }
+  let pick = noisy;
+  if(Math.random() < WRONG_P*lack(p, 'vision')){ const rest = Object.keys(opts).filter(k => k !== best); pick = rest[Math.floor(Math.random()*rest.length)]; }
+  return {choice:pick, x:opts[pick], wrong:pick !== best};
+}
+function zoneRead(p, dt){
+  const play = PLAYS[S.play], hole = play.hole ?? 0, side = Math.sign(play.shift || hole) || 1;
+  const rd = p.rd || (p.rd = {st:'press', t:PRESS_T + PRESS_VIS*p.rt.vision/99, k:0, key:null, x:0});
+  if(rd.st !== 'committed'){
+    rd.k -= dt;
+    if(rd.k <= 0 && p.y < S.los + KEY_UNTIL){ rd.k = KEY_EVERY; rd.key = pickKey(hole); }
+    if(rd.st === 'press'){ rd.t -= dt; if(rd.t <= 0 || rd.t > PRESS_MAX) rd.st = 'read'; }
+    if(p.y >= S.los + DECIDE_Y){
+      const r = decide(p, hole, rd.key, side);
+      rd.st = 'committed'; rd.x = r.x;
+      S.read = {key:rd.key ? DEF.indexOf(rd.key) : -1, choice:r.choice, wrong:r.wrong};
+    }
+  }
+  if(rd.st === 'committed'){
+    const tx = rd.x, dx = tx - p.x, dy = S.los + COMMIT_Y - p.y, l = Math.hypot(dx, dy) || 1, sp = p.spd*burst(p, true, dt);
+    steerVel(p, dx/l*sp, dy/l*sp, dt); return;
+  }
+  const sp = p.spd*(rd.st === 'press' ? PRESS_V : 1), dx = hole - p.x, dy = S.los + 2.5 - p.y, l = Math.hypot(dx, dy) || 1;
+  steerVel(p, dx/l*sp, dy/l*sp, dt);
+}
 // open field: lanes from straight upfield to 90° either side, each scored by the worst race along it
 // (2, 4 and 6 yd out), plus ground gained, minus the sideline. Re-reads 10x a second, commits in between.
 function openField(p, dt){
@@ -66,5 +122,7 @@ function openField(p, dt){
 export function autoCarry(p, dt){
   const next = p.route[p.wp];
   if(next && next.y < S.los - 1){ runRoute(p, dt); return; }       // still on the designed path in the backfield
-  if(p.y < S.los + 1.5) readHole(p, dt); else openField(p, dt);
+  const rd = p.rd, zone = PLAYS[S.play].scheme === 'zone';
+  if(zone && p.y < S.los + COMMIT_Y && !(rd && rd.st === 'committed' && (p.y >= S.los + KEY_UNTIL && Math.abs(p.x - rd.x) < 1))) zoneRead(p, dt);
+  else if(!zone && p.y < S.los + 1.5) readHole(p, dt); else openField(p, dt);
 }
