@@ -29,6 +29,29 @@ const curve = (key, v) => { const [lo, hi, k] = CURVES[key]; return lo + (hi - l
 export const spdOf = r => curve('speed', r), accOf = r => curve('accel', r), turnOf = r => curve('agility', r);
 export const lack = (p, key) => 1 - p.rt[key]/99;
 
+// Legacy aliases (read by physics, blocking, tackling, defense): each is a weighted blend of ratings, mapped linearly from
+// its template range onto the range today's per-position roll used, so those modules see the same mean and spread as before.
+const ALIAS = {
+  rStr: {w:{strength:1}, side:'O', old:{OL:[70,90], TE:[60,80], RB:[55,70], WR:[40,60], QB:[35,45]}},
+  rAgi: {w:{agility:1}, side:'O', old:{OL:[55,80], TE:[60,75], RB:[60,75], WR:[60,80], QB:[45,55]}},
+  rBrk: {w:{strength:.5, agility:.5}, side:'O', old:{RB:[65,85], TE:[65,80], QB:[40,55], OL:[50,70], WR:[50,70]}},
+  rPow: {w:{strength:.5, shed:.5}, side:'D', old:{DE:[60,80], DT:[75,92], LB:[60,75], CB:[40,60], S:[50,65]}},
+  rSpd: {w:{speed:.5, agility:.5}, side:'D', old:{DE:[72,90], DT:[55,70], LB:[60,78], CB:[65,85], S:[60,80]}},
+  rTkl: {w:{tackling:1}, side:'D', old:{DE:[65,80], DT:[65,80], LB:[75,90], CB:[60,78], S:[70,85]}},
+  rAwr: {w:{recog:1}, side:'D', old:{DE:[55,80], DT:[55,80], LB:[65,90], CB:[55,80], S:[65,90]}}
+};
+const blend = (w, r) => KEYS.reduce((a, k, i) => a + (w[k] || 0)*r[i], 0);
+function legacy(p){
+  for(const [name, A] of Object.entries(ALIAS)){
+    if(A.side !== p.team) continue;
+    const subs = SPLIT[p.tpl] || [p.tpl], old = A.old[p.tpl];
+    const lo = subs.reduce((a, t) => a + blend(A.w, TEMPLATES[t].r.map(x => x[0])), 0)/subs.length;
+    const hi = subs.reduce((a, t) => a + blend(A.w, TEMPLATES[t].r.map(x => x[1])), 0)/subs.length;
+    const d = blend(A.w, KEYS.map(k => p.rt[k]));
+    p[name] = clamp99(old[0] + (d - lo)/(hi - lo)*(old[1] - old[0]));
+  }
+}
+
 const clamp99 = v => Math.max(0, Math.min(99, Math.round(v)));
 // players: [{team:'O'|'D', tpl:'OL'|'TE'|'WR'|'QB'|'RB'|'DE'|'DT'|'LB'|'CB'|'S'}]; draws from Math.random via util rand
 export function rateTeams(players){
@@ -40,8 +63,6 @@ export function rateTeams(players){
     const r = p.rt;
     p.spd = spdOf(r.speed); p.acc = accOf(r.accel); p.brake = p.acc*1.5; p.turn = turnOf(r.agility);
     p.mass = t.mass*rand(0.95, 1.05);
-    // old fields, derived so physics / blocking / tackling / defense keep working unchanged
-    if(p.team === 'O'){ p.rStr = r.strength; p.rAgi = r.agility; p.rBrk = (r.strength + r.agility)/2; }
-    else { p.rPow = (r.strength + r.shed)/2; p.rSpd = (r.speed + r.agility)/2; p.rTkl = r.tackling; p.rAwr = r.recog; }
+    legacy(p);
   });
 }
