@@ -151,8 +151,8 @@ export function defenseAI(d, dt){
     const free = o => d.freeFrom === o && d.freeT > 0;   // just beat this blocker: he can't re-engage yet
     const dc = dist(d, c);
     // a bubble body has no line battle: the physics world decides who gives way
-    const o = d.ph ? null : OFF.find(o => !o.ph && o.blk === d && o !== c && dist(o, d) < 1.3 && !free(o))
-           || (d.ph ? null : OFF.find(o => !o.ph && o !== c && o !== QB && dist(o, d) < 1.3 && dist(o, c) < dc && !free(o)));
+    const o = d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o.blk === d && o !== c && dist(o, d) < 1.3 && !free(o))
+           || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o !== c && o !== QB && dist(o, d) < 1.3 && dist(o, c) < dc && !free(o)));
     if(o){
       if(!d.bt || d.bt.o !== o){
         // first contact: a blocker arriving with a lot more momentum than the defender can absorb flattens him

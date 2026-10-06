@@ -1,5 +1,5 @@
 import { callout, toast } from './hud.js';
-import { gripGap, gripStrain, isBody, physBall, physDown, physGrip, physOff, physOn, physUngrip } from './physics.js';
+import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physGrip, physOff, physOn, physUngrip } from './physics.js';
 import { DEF, QB } from './players.js';
 import { endPlay } from './rules.js';
 import { S } from './state.js';
@@ -115,7 +115,7 @@ export function tackleUpdate(c, dt){
       // CANNON is the global main.js sets after loading cannon-es (physics.js uses it the same way)
       const tb = c.ph.bodies[0], up = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y;
       if(up < 0.6 || physDown(c)){ c.falling = true; c.act = 'fall'; c.actT = 99; c.ph.bal = 0; }   // off balance: he's going down
-      else if(c.ph.t > 0.4 && up > 0.95 && tb.angularVelocity.length() < 2 && tb.position.y > 1.1) physOff(c);   // back on balance: back on the run
+      else if(c.ph.t > 0.4 && up > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W && tb.position.y > UPRIGHT_H) physOff(c);   // back on balance: back on the run
     }
     return;
   }

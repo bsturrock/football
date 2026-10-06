@@ -19,6 +19,9 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   tackle body p.ph, not bubble: ragdoll or tackler (tackling.js / blocking.js call physOn); lives until physOff
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
 const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;
+// upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
+export const UPRIGHT_Y = 0.95, UPRIGHT_W = 2, UPRIGHT_H = 1.1;
+const YAW_K = 150, YAW_MAX = 1.5, HEADING_MIN = 0.4;   // yaw hold: spring gain, max error (rad), slowest speed (yd/s) that sets a heading
 export const isBody = p => !!p.ph && !p.ph.bubble;
 // name, rig pivot, parent, box size, center in pivot frame, mass share, joint limits [x],[y],[z] (rad,
 // rotation vector relative to the rig's rest pose), meshes
@@ -70,6 +73,7 @@ export function physOn(p, o={}){
     if(o.bal != null) ph.bal = Math.min(ph.bal, o.bal);
     return ph;
   }
+  p.mesh.position.set(p.x, 0, 50 - p.y); p.mesh.rotation.y = p.face;   // the rig is where he is now (the drawn rig trails, and a sim never draws)
   p.mesh.updateMatrixWorld(true);
   const M = p.mass*MASS_KG, vx = o.vx ?? p.vx, vy = o.vy ?? p.vy, up = o.up || 0, sp = o.spin || {x:0, y:0};
   const cap = 9, s = Math.hypot(vx, vy), k = s > cap ? cap/s : 1;
@@ -217,25 +221,28 @@ function physLegs(p, ph, vdx, vdz, drive, h=1.3, over=1.3){
 // body yaw is free (legs only damp it): a bubble body squares up to his man, else faces where he's going
 function physYaw(p, ph){
   const tb = ph.bodies[0], t = p.faceAt, wx = p.wx ?? 0, wy = p.wy ?? 0;
-  const want = t ? Math.atan2(t.x - p.x, p.y - t.y) : Math.hypot(wx, wy) > 0.4 ? Math.atan2(wx, -wy) : null;
+  const want = t ? Math.atan2(t.x - p.x, p.y - t.y) : Math.hypot(wx, wy) > HEADING_MIN ? Math.atan2(wx, -wy) : null;
   if(want == null) return;
   const f = tb.quaternion.vmult(new CANNON.Vec3(0, 0, 1)), e = want - Math.atan2(f.x, f.z);
-  tb.torque.y += tb.inertia.y*150*clamp(Math.atan2(Math.sin(e), Math.cos(e)), -1.5, 1.5);
+  tb.torque.y += tb.inertia.y*YAW_K*clamp(Math.atan2(Math.sin(e), Math.cos(e)), -YAW_MAX, YAW_MAX);
 }
 // ---------- bubble ----------
-const upright = tb => tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y > 0.95 && tb.angularVelocity.length() < 2 && tb.position.y > 1.1;
+const upright = tb => tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W && tb.position.y > UPRIGHT_H;
 function promote(p){
   const ph = physOn(p, {bal:1}); if(!ph) return;
   ph.bubble = true; ph.clearT = 0; p.wx = p.vx; p.wy = p.vy;
   const b = p.bt; if(b) ALL.forEach(q => { if(q.bt === b) q.bt = null; });   // a line battle ends here; the blocker keeps his man (blk)
 }
 function bubbleUpdate(dt){
+  // the ball holder is a runner, not a bubble body: he goes back to tackle-body rules (tackleUpdate steers and releases him)
+  const runner = ball.state === 'held' ? ball.holder : null;
+  if(runner && runner.ph && runner.ph.bubble){ runner.ph.bubble = false; runner.wx = runner.wy = null; }
   const bub = PHYS.filter(p => p.ph.bubble);
   if(!bub.length && S.phase !== 'live') return;
   const gripped = new Set(); PHYS.forEach(q => { q.ph.grips.forEach(g => gripped.add(g.on)); if(q.ph.reach) gripped.add(q.ph.reach.on); });
   const rags = PHYS.filter(q => !q.ph.bubble && (q.ph.bal < 1 || q.ph.grips.length || gripped.has(q)));
   const near = (p, r) => rags.some(q => q !== p && dist(p, q) < r);
-  const runner = ball.state === 'held' ? ball.holder : null, ref = runner || {x:0, y:S.los};
+  const ref = runner || {x:0, y:S.los};
   // leaving: clear of every live ragdoll for BUBBLE_CLEAR s, upright and slow (so he never pops or sinks)
   const stay = [];
   for(const p of bub){
@@ -249,13 +256,15 @@ function bubbleUpdate(dt){
     const a = cand.includes(o), b = cand.includes(o.blk);
     if(a !== b) cand.push(a ? o.blk : o);
   }
-  const allow = Math.max(0, BODY_CAP - (PHYS.length - stay.length));   // ragdolls and tackle bodies first
-  const rank = [...stay.map(p => [p, dist(p, ref)*KEEP_BIAS]), ...cand.map(p => [p, dist(p, ref)])].sort((a, b) => a[1] - b[1]);
-  let joins = 0;
-  rank.forEach(([p], i) => {
-    if(i < allow){ if(!p.ph && joins < BUBBLE_JOINS){ joins++; promote(p); } }
-    else if(p.ph && upright(p.ph.bodies[0])) physOff(p);   // over the cap: the farthest steps out
-  });
+  // slots: ragdolls and tackle bodies first; a bubble body that can't stand down yet (not upright) holds one too.
+  // The rest, nearest the runner first: a kept body steps out only for a nearer one; skipped joiners take no slot.
+  const fixed = stay.filter(p => !upright(p.ph.bodies[0])), movable = stay.filter(p => !fixed.includes(p));
+  let used = PHYS.length - movable.length, joins = 0;
+  const rank = [...movable.map(p => [p, dist(p, ref)*KEEP_BIAS]), ...cand.map(p => [p, dist(p, ref)])].sort((a, b) => a[1] - b[1]);
+  for(const [p] of rank){
+    if(p.ph){ if(used < BODY_CAP) used++; else physOff(p); }   // over the cap: the farthest steps out
+    else if(used < BODY_CAP && joins < BUBBLE_JOINS){ used++; joins++; promote(p); }
+  }
 }
 let phAcc = 0;
 export function physStep(dt){
@@ -268,7 +277,7 @@ export function physStep(dt){
     ph.rest = ph.bal <= 0 && !ph.getUp && (S.phase !== 'live' || physDown(p));
     if(ph.t > ph.ttl){ ph.getUp = true; ph.ttl = Infinity; }
     if(ph.getUp){ ph.bal = Math.min(1, ph.bal + dt*1.2); const tb = ph.bodies[0];
-      if(ph.bal >= 1 && tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y > 0.95 && tb.angularVelocity.length() < 2){ physOff(p); continue; } }
+      if(ph.bal >= 1 && tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W){ physOff(p); continue; } }
   }
   phAcc = Math.min(phAcc + dt, 0.05);
   while(phAcc >= PH_DT){
