@@ -1,5 +1,5 @@
 import { callout, toast } from './hud.js';
-import { gripGap, gripStrain, physBall, physDown, physGrip, physOff, physOn, physUngrip } from './physics.js';
+import { gripGap, gripStrain, isBody, physBall, physDown, physGrip, physOff, physOn, physUngrip } from './physics.js';
 import { DEF, QB } from './players.js';
 import { endPlay } from './rules.js';
 import { S } from './state.js';
@@ -68,13 +68,13 @@ function release(d, stun){ d.churn = false;
 export function tackleUpdate(c, dt){
   if(c.falling){
     // until he's down, anyone who gets there piles on
-    for(const d of DEF) if(!d.latch && !d.ph && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
+    for(const d of DEF) if(!d.latch && !isBody(d) && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
     if(!c.ph || physDown(c) || c.ph.t > 4) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
     return;
   }
   if(c.tripT > 0) c.tripT -= dt;
   for(const d of DEF){
-    if(d.latch || d.stun > 0 || d.tkCool > 0 || d.ph) continue;
+    if(d.latch || d.stun > 0 || d.tkCool > 0 || isBody(d)) continue;
     const dd = dist(d, c);
     if(d.bt){
       // blocked: can't tackle, but can reach out and grab a piece of him as he goes by

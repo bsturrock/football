@@ -1,6 +1,6 @@
 import { callout } from './hud.js';
 import { runRef } from './offense.js';
-import { physOn } from './physics.js';
+import { isBody, physOn } from './physics.js';
 import { ALL, TE } from './players.js';
 import { S } from './state.js';
 import { HW, clamp, dist, rand, sigmoid } from './util.js';
@@ -72,7 +72,7 @@ export function battle(d, o, c, dt){
 // blocker stays on his feet driving through, the defender is knocked off his and needs a moment to get up.
 const PANCAKE_AT = 6.5;
 export function pancakeHit(o, d){
-  if(o.ph || d.ph || !S.runMode) return false;
+  if(o.ph || isBody(d) || !S.runMode) return false;
   const l = dist(o, d) || 1, nx = (d.x - o.x)/l, ny = (d.y - o.y)/l;
   // the blocker's momentum into him beyond the defender's own momentum back into the block
   const into = o.vx*nx + o.vy*ny, back = -(d.vx*nx + d.vy*ny);

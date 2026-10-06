@@ -3,6 +3,7 @@ import { burst } from './carrier.js';
 import { steer, steerVel } from './movement.js';
 import { PLAYS } from './playbook.js';
 import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs } from './players.js';
+import { isBody } from './physics.js';
 import { S, ball } from './state.js';
 import { dist, rand } from './util.js';
 
@@ -120,7 +121,7 @@ function runFit(d, c){
       return inside();
     case 'support': {
       const f = DEF.find(o => o.job && o.job.role === 'force' && o.job.side === s);
-      const outflanked = !f || f.bt || f.stun > 0 || f.ph || (bx - f.x)*s > 0.5;
+      const outflanked = !f || f.bt || f.stun > 0 || isBody(f) || (bx - f.x)*s > 0.5;
       if(bx*s > 0 && outflanked) return contain(s);            // my side, force man beaten: I'm the force now
       return d.bt ? [px, py] : coverTarget(d);
     }
@@ -131,7 +132,7 @@ export function defenseAI(d, dt){
   if(d.tkCool > 0) d.tkCool -= dt;
   if(d.reachCool > 0) d.reachCool -= dt;
   if(d.latch) return;                       // riding the runner: tackleUpdate moves him
-  if(d.ph){ d.stun -= dt; return; }         // physical: the body moves him
+  if(isBody(d)){ d.stun -= dt; return; }    // ragdoll / tackler: the body moves him (a bubble body runs the AI below)
   if(d.stun > 0){ d.stun -= dt; steer(d, d.x, d.y, 0, dt); return; }
   if(d.fireDelay > 0){ d.fireDelay -= dt; return; }   // still in his stance, reading the ball
   let c = ball.state === 'held' ? ball.holder : (ball.state === 'air' ? null : QB);
@@ -149,8 +150,9 @@ export function defenseAI(d, dt){
   if(attack){
     const free = o => d.freeFrom === o && d.freeT > 0;   // just beat this blocker: he can't re-engage yet
     const dc = dist(d, c);
-    const o = OFF.find(o => o.blk === d && o !== c && dist(o, d) < 1.3 && !free(o))
-           || OFF.find(o => o !== c && o !== QB && dist(o, d) < 1.3 && dist(o, c) < dc && !free(o));
+    // a bubble body has no line battle: the physics world decides who gives way
+    const o = d.ph ? null : OFF.find(o => !o.ph && o.blk === d && o !== c && dist(o, d) < 1.3 && !free(o))
+           || (d.ph ? null : OFF.find(o => !o.ph && o !== c && o !== QB && dist(o, d) < 1.3 && dist(o, c) < dc && !free(o)));
     if(o){
       if(!d.bt || d.bt.o !== o){
         // first contact: a blocker arriving with a lot more momentum than the defender can absorb flattens him
