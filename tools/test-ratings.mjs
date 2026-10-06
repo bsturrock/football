@@ -1,5 +1,5 @@
 // node tools/test-ratings.mjs : ratings.js on fake players (no browser)
-import { rateTeams, TEMPLATES, KEYS, lack } from '../src/ratings.js';
+import { rateTeams, TEMPLATES, KEYS, lack, setFlatRatings } from '../src/ratings.js';
 import assert from 'node:assert';
 const mk = (team, tpl) => ({team, tpl});
 const roster = () => [mk('O','QB'), ...Array(5).fill().map(() => mk('O','OL')), ...Array(3).fill().map(() => mk('O','WR')), mk('O','TE'), mk('O','RB'),
@@ -11,6 +11,23 @@ const oldAlias = {  // [lo, hi] per alias
   WR:{rStr:[40,60], rAgi:[60,80], rBrk:[50,70]}, QB:{rStr:[35,45], rAgi:[45,55], rBrk:[40,55]},
   DE:{rPow:[60,80], rSpd:[72,90], rTkl:[65,80], rAwr:[55,80]}, DT:{rPow:[75,92], rSpd:[55,70], rTkl:[65,80], rAwr:[55,80]},
   LB:{rPow:[60,75], rSpd:[60,78], rTkl:[75,90], rAwr:[65,90]}, CB:{rPow:[40,60], rSpd:[65,85], rTkl:[60,78], rAwr:[55,80]}, S:{rPow:[50,65], rSpd:[60,80], rTkl:[70,85], rAwr:[65,90]}};
+// flat mode (default): identical midpoints, exact old alias means, template mass, no randomness
+setFlatRatings(true);
+{
+  const r0 = Math.random; Math.random = () => { throw new Error('flat mode must not draw'); };
+  const a = roster(), b = roster(); rateTeams(a); rateTeams(b); Math.random = r0;
+  const mean = (x, y) => (x + y)/2;
+  a.forEach((p, i) => {
+    assert.deepEqual(p.rt, b[i].rt);
+    const tt = p.tpl === 'RB' ? ['RBp','RBs'] : p.tpl === 'LB' ? ['LBs','LBc'] : [p.tpl];
+    KEYS.forEach((k, j) => assert.equal(p.rt[k], tt.reduce((s, n) => s + (TEMPLATES[n].r[j][0] + TEMPLATES[n].r[j][1])/2, 0)/tt.length));
+    assert.equal(p.mass, TEMPLATES[tt[0]].mass);
+    for(const k of Object.keys(oldAlias[p.tpl])) assert(Math.abs(p[k] - mean(...oldAlias[p.tpl][k])) < 1e-9, p.tpl + k + p[k]);
+  });
+  const o = a.filter(p => p.team === 'O' && p.tpl === 'WR'); assert.equal(o[0].spd, o[1].spd);
+  console.log('flat ok');
+}
+setFlatRatings(false);   // rolled mode below
 const sum = {}, N = 2000;
 for(let g = 0; g < N; g++){
   const ps = roster(); rateTeams(ps); assert.equal(ps.length, 22);

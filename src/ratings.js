@@ -48,13 +48,31 @@ function legacy(p){
     const lo = subs.reduce((a, t) => a + blend(A.w, TEMPLATES[t].r.map(x => x[0])), 0)/subs.length;
     const hi = subs.reduce((a, t) => a + blend(A.w, TEMPLATES[t].r.map(x => x[1])), 0)/subs.length;
     const d = blend(A.w, KEYS.map(k => p.rt[k]));
-    p[name] = clamp99(old[0] + (d - lo)/(hi - lo)*(old[1] - old[0]));
+    const v = old[0] + (d - lo)/(hi - lo)*(old[1] - old[0]);
+    p[name] = flat ? Math.max(0, Math.min(99, v)) : clamp99(v);
   }
+}
+
+// FLAT_RATINGS: every player gets his position's template midpoint (split templates pooled), team shift 0, template mass,
+// so results come from mechanics (user L-1006-093). `?ratings=on` (page or sim) or setFlatRatings(false) rolls ratings as before.
+export const FLAT_RATINGS = true;
+let flat = FLAT_RATINGS && !(typeof location !== 'undefined' && /[?&]ratings=on\b/.test(location.search));
+export const setFlatRatings = v => { flat = !!v; };
+const mid = (subs, i) => subs.reduce((a, t) => a + (TEMPLATES[t].r[i][0] + TEMPLATES[t].r[i][1])/2, 0)/subs.length;
+function rateFlat(p){
+  const subs = SPLIT[p.tpl] || [p.tpl];
+  p.sub = subs[0];
+  p.rt = {}; KEYS.forEach((k, i) => p.rt[k] = mid(subs, i));
+  const r = p.rt;
+  p.spd = spdOf(r.speed); p.acc = accOf(r.accel); p.brake = p.acc*1.5; p.turn = turnOf(r.agility);
+  p.mass = subs.reduce((a, t) => a + TEMPLATES[t].mass, 0)/subs.length;
+  legacy(p);
 }
 
 const clamp99 = v => Math.max(0, Math.min(99, Math.round(v)));
 // players: [{team:'O'|'D', tpl:'OL'|'TE'|'WR'|'QB'|'RB'|'DE'|'DT'|'LB'|'CB'|'S'}]; draws from Math.random via util rand
 export function rateTeams(players){
+  if(flat){ players.forEach(rateFlat); return; }
   const off = {O:Math.round(rand(-TEAM_OFFSET, TEAM_OFFSET)), D:Math.round(rand(-TEAM_OFFSET, TEAM_OFFSET))};
   players.forEach(p => {
     const sub = SPLIT[p.tpl] ? SPLIT[p.tpl][Math.random() < 0.5 ? 0 : 1] : p.tpl, t = TEMPLATES[sub];
