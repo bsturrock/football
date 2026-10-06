@@ -9,6 +9,7 @@ import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } fr
 import { routeGroup } from './markers.js';
 import { steer } from './movement.js';
 import { offenseAI } from './offense.js';
+import { pileUpdate } from './pile.js';
 import { physBall, physCount, physDown, physInit, physRender, physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DEF, OFF, QB, RB } from './players.js';
@@ -46,7 +47,10 @@ function liveUpdate(dt){
   if(bp.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
   if(Math.abs(bp.x) > HW){ endPlay('spot', bp.y, 'OUT OF BOUNDS'); return; }
   const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
-  if(!(c === QB && run === 'hand')) tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
+  if(!(c === QB && run === 'hand')){
+    tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
+    if(S.phase === 'live'){ trackProgress(c); pileUpdate(c, dt); }   // progress again after the tackle (no first-frame spot lag), then the pile push and stall whistle
+  }
 }
 const perf = {phys:0, bodies:0};   // last step's physics ms and body count (read by ?debug and the sim)
 // one render-free simulation step (the sim runner calls this too)

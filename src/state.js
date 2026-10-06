@@ -2,6 +2,7 @@ import { resetCam } from './camera.js';
 import { assignFits } from './defense.js';
 import { clearCallouts, hideBanner, updateHUD } from './hud.js';
 import { drawFits, drawRoutes, routeGroup } from './markers.js';
+import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { CBs, DEF, DL, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
@@ -46,7 +47,7 @@ function place(p, x, y){
 export function setupPlay(){
   physClear();
   const L = S.los;
-  S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity;
+  S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity; pileReset();
   OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); });
   place(WRs[0], -20, L-0.8); place(WRs[1], 20, L-0.8); place(WRs[2], -11, L-1.0);
   place(TE, 6.8, L-1.0); formation();
