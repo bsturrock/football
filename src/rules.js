@@ -1,4 +1,5 @@
 import { banner, downText, updateHUD } from './hud.js';
+import { rate } from './players.js';
 import { S, setupPlay } from './state.js';
 import { MAX_DRIVES, clamp } from './util.js';
 
@@ -33,4 +34,4 @@ export function nextPlay(){
   }
   setupPlay();
 }
-export function newGame(){ Object.assign(S, {score:0, tds:0, drive:1, los:25, down:1, toGo:10, over:false}); setupPlay(); }
+export function newGame(){ Object.assign(S, {score:0, tds:0, drive:1, los:25, down:1, toGo:10, over:false}); rate(); setupPlay(); }
