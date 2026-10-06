@@ -12,6 +12,7 @@ export function updateHUD(){
   $('drive').textContent = `${Math.min(S.drive, MAX_DRIVES)} / ${MAX_DRIVES}`;
   if(S.defCall) $('defcall').textContent = S.defCall.name;
 }
+export function warn(msg){ const el = $('warn'); el.textContent = msg; el.classList.add('on'); }   // persistent: stays until reload
 export function banner(h, p){ $('bannerH').textContent = h; $('bannerP').textContent = p || ''; $('banner').classList.add('on'); }
 export function hideBanner(){ $('banner').classList.remove('on'); }
 let toastTimer = 0;

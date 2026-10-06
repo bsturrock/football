@@ -3,11 +3,11 @@ import { selectPlay } from './state.js';
 import { $ } from './util.js';
 
 export const DEF_CALLS = [
-  {name:'Base',             note:'Linemen hold their gaps, linebackers read and fill', slant:0},
-  {name:'Slant Left',       note:'Whole line slants one gap to your left', slant:-1.8},
-  {name:'Slant Right',      note:'Whole line slants one gap to your right', slant:1.8},
-  {name:'Run Blitz',        note:'One linebacker shoots his gap at the snap', slant:0, blitz:true},
-  {name:'Eight in the Box', note:'A safety rolls down and the linebackers trigger fast', slant:0, box:true, fastLB:true}
+  {name:'Base',             note:'Linemen hold their gaps, linebackers read and fill'},
+  {name:'Slant Left',       note:'Whole line slants one gap to your left'},
+  {name:'Slant Right',      note:'Whole line slants one gap to your right'},
+  {name:'Run Blitz',        note:'One linebacker shoots his gap at the snap', blitz:true},
+  {name:'Eight in the Box', note:'A safety rolls down and the linebackers trigger fast', box:true}
 ];
 // ---------- playbook ----------
 // route points: [yards toward the middle, yards downfield from the line]

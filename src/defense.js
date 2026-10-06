@@ -64,7 +64,7 @@ const FITS = {   // DL0..3, LB0 (left), LB1 (right): [job, gap]
   'Run Blitz':        [['force','CL'], ['gap','AL'], ['gap','AR'], ['gap','CR'], ['gap','BL'], ['gap','BR']],
   'Eight in the Box': [['force','CL'], ['gap','AL'], ['gap','AR'], ['gap','CR'], ['gap','BL'], ['gap','BR']]
 };
-export function assignFits(call, blitzer, boxS){
+export function assignFits(call, boxS){
   const L = S.los, box = [...DL, ...LBs];
   FITS[call.name].forEach(([job, g], i) => { const d = box[i]; d.job = {role:job, gx:GAP[g], side:Math.sign(GAP[g])}; });
   const [sl, sr] = [...SFs].sort((a, b) => a.x - b.x);
@@ -132,7 +132,7 @@ export function defenseAI(d, dt){
   if(d.reachCool > 0) d.reachCool -= dt;
   if(d.latch) return;                       // riding the runner: tackleUpdate moves him
   if(d.ph){ d.stun -= dt; return; }         // physical: the body moves him
-  if(d.stun > 0){ d.stun -= dt; steer(d, d.x, d.y, 0, dt, 4); return; }
+  if(d.stun > 0){ d.stun -= dt; steer(d, d.x, d.y, 0, dt); return; }
   if(d.fireDelay > 0){ d.fireDelay -= dt; return; }   // still in his stance, reading the ball
   let c = ball.state === 'held' ? ball.holder : (ball.state === 'air' ? null : QB);
   if(c === QB && S.runMode && PLAYS[S.play].run === 'hand') c = RB;   // handoff coming: defenders key the back, not the QB at the mesh
@@ -167,5 +167,5 @@ export function defenseAI(d, dt){
   if(attack && !d.bt && c){   // hunting the runner: run through the target, never ease up approaching it
     const dx = tx - d.x, dy = ty - d.y, l = Math.hypot(dx, dy) || 1;
     steerVel(d, dx/l*sp, dy/l*sp, dt);
-  } else steer(d, tx, ty, sp, dt, 9);
+  } else steer(d, tx, ty, sp, dt);
 }

@@ -62,7 +62,7 @@ export function snap(){
     const OK = {LT, LG, C, RG, RT, TE, RB, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2]};
     const lbs = [...LBs].sort((a, b) => a.x - b.x), sfs = [...SFs].sort((a, b) => a.x - b.x);
     const DK = {DL0:DL[0], DL1:DL[1], DL2:DL[2], DL3:DL[3], LB0:lbs[0], LB1:lbs[1], CB0:CBs[0], CB1:CBs[1], CB2:CBs[2], S0:sfs[0], S1:sfs[1]};
-    for(const [o, d] of Object.entries(play.blocks || {})){ OK[o].blk = DK[d]; OK[o].scripted = true; }
+    for(const [o, d] of Object.entries(play.blocks || {})){ OK[o].blk = DK[d]; }
     if(play.scheme === 'zone') [...OL, TE].forEach(o => { o.lane = o.x + play.shift; o.blk = null; });
     // safety rolled down on the play side: the tight end climbs straight to him instead of zoning
     const boxS = SFs.find(f => f.fit && Math.sign(f.x) === Math.sign(play.shift || 0));

@@ -28,7 +28,7 @@ function driveAt(p, d, ref, dt){
   if(dist(p, d) < 1.4){ p.eng = 0.15; p.locked = true; }
   p.faceAt = d;
   // a blocker who just got beaten is off balance: he chases his man but usually can't recover
-  steer(p, d.x + vx/l*0.85, d.y + vy/l*0.85, p.spd*(p.beatT > 0 ? 0.55 : 1), dt, 10);
+  steer(p, d.x + vx/l*0.85, d.y + vy/l*0.85, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
 }
 const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
 // man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
@@ -55,7 +55,7 @@ function zoneBlock(p, dt){
     }
     p.blk = d;
   }
-  if(!d){ p.climbing = true; steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*0.9, dt, 10); return; }
+  if(!d){ p.climbing = true; steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*0.9, dt); return; }
   driveAt(p, d, ref, dt);
 }
 function runBlock(p, dt){
@@ -106,11 +106,11 @@ export function offenseAI(p, dt, inp){
   }
   if(p === S.ctrl && (p === c || inp.on)){
     const sp = p.spd*(p === c ? burst(p, keys.has('shift'), dt) : 1);
-    steerVel(p, inp.x*sp, inp.y*sp, dt, 12); return;
+    steerVel(p, inp.x*sp, inp.y*sp, dt); return;
   }
-  if(p.role === 'QB'){ steer(p, p.x, p.y, 0, dt, 6); return; }
+  if(p.role === 'QB'){ steer(p, p.x, p.y, 0, dt); return; }
   if(p.role === 'WR'){
-    if(ball.state === 'air' && p === ball.target){ steer(p, ball.tx, ball.ty, p.spd, dt, 10); return; }
+    if(ball.state === 'air' && p === ball.target){ steer(p, ball.tx, ball.ty, p.spd, dt); return; }
     if(S.runMode && c !== p){ runBlock(p, dt); return; }
     runRoute(p, dt); return;
   }
@@ -118,5 +118,5 @@ export function offenseAI(p, dt, inp){
   const r = olAssign(p), qx = QB.x - r.x, qy = QB.y - r.y, ql = Math.hypot(qx, qy) || 1;
   if(dist(p, r) < 1.4) p.eng = 0.15;
   p.faceAt = r;
-  steer(p, r.x + qx/ql*0.95, r.y + qy/ql*0.95, p.spd, dt, 10);
+  steer(p, r.x + qx/ql*0.95, r.y + qy/ql*0.95, p.spd, dt);
 }

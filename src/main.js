@@ -3,7 +3,7 @@ import { separate } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
-import { toast, updateCallouts } from './hud.js';
+import { toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
 import { steer } from './movement.js';
@@ -43,7 +43,7 @@ function liveUpdate(dt){
   if(c.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
   if(Math.abs(c.x) > HW){ endPlay('spot', c.y, 'OUT OF BOUNDS'); return; }
   const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
-  if(!(c === QB && run === 'hand')) tackleUpdate(c, dt, inp);   // the exchange happens: nobody tackles the QB at the mesh
+  if(!(c === QB && run === 'hand')) tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
 }
 let last = performance.now();
 function frame(now){
@@ -54,7 +54,7 @@ function frame(now){
   cpuTick(dt);
   if(S.phase === 'live') liveUpdate(dt);
   else if(S.phase === 'dead'){
-    ALL.forEach(p => steer(p, p.x, p.y, 0, dt, 4));
+    ALL.forEach(p => steer(p, p.x, p.y, 0, dt));
     S.deadT -= dt; if(S.deadT <= 0) nextPlay();
   }
   physStep(dt);
@@ -72,4 +72,7 @@ function start(data){
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
 const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
 (window.CANNON ? Promise.resolve(window.CANNON) : import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js'))
-  .then(m => { window.CANNON = m; physInit(); }, () => {}).then(boot);
+  .then(m => { window.CANNON = m; physInit(); }, err => {
+    console.error('physics failed to load', err);
+    warn('Physics failed to load: no ragdolls');
+  }).then(boot);
