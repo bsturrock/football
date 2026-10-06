@@ -10,9 +10,10 @@ import { dist, rand } from './util.js';
 
 // Human mistakes in pursuit. Per defender per play state (reset in assignFits):
 //   aim     AIM_K resampled every AIM_T s; < 1 undershoots the cut-off spot, > 1 overpursues
-//   holding AIM_K > HOLD_K when the runner cuts back: keep running to the old future spot for HOLD_T s
+//   holding runner cuts back while AIM_K > 1 (overrunning): with p HOLD_P*lack(pursuit) keep running to the old future spot for HOLD_T s;
+//           another flip while holding re-holds the newest spot
 //   bite    with p BITE_P*lack(recog) follows the first flow step BITE_T s longer
-const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_K = 1.35, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
+const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
 
 // pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
 // (solve |r + v·t| = s·t for the earliest t > 0); if he is faster, aim where he will be soon
@@ -92,7 +93,7 @@ export function assignFits(call, boxS){
   DEF.forEach(d => {
     d.read = d.mode === 'rush' && d.role === 'LB' ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
     d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null;
-    d.bite = Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;
+    d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
     d.fit = d.job.gx != null && (d.role === 'DL' || d.role === 'LB' || d === boxS) ? {x:d.job.gx, y:d.role === 'DL' ? L - 0.5 : L + 1.5} : null;
   });
@@ -113,7 +114,7 @@ function runFit(d, c){
   if(S.clock >= d.aimT){ d.aimK = 1 + lack(d, 'pursuit')*AIM_AMP*rand(-1, 1); d.aimT = S.clock + AIM_T; }
   const dir = Math.abs(c.svx) > 0.8 ? Math.sign(c.svx) : 0, e = d.levErr;
   let [px, py] = intercept(d, c, d.aimK);
-  if(dir && d.lastDir && dir !== d.lastDir && d.aimK > HOLD_K && d.lastAim) d.hold = {x:d.lastAim[0], y:d.lastAim[1], until:S.clock + HOLD_T};   // cutback: he is still running to the old spot
+  if(dir && d.lastDir && dir !== d.lastDir && d.aimK > 1 && d.lastAim && Math.random() < HOLD_P*lack(d, 'pursuit')) d.hold = {x:d.lastAim[0], y:d.lastAim[1], until:S.clock + HOLD_T};   // cutback: he is still running to the old spot
   if(dir) d.lastDir = dir;
   d.lastAim = [px, py];
   if(d.hold){ if(S.clock < d.hold.until){ px = d.hold.x; py = d.hold.y; } else d.hold = null; }
