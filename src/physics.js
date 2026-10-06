@@ -19,6 +19,8 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   tackle body p.ph, not bubble: ragdoll or tackler (tackling.js / blocking.js call physOn); lives until physOff
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
 //   over BODY_CAP (a tackle made bodies after the join pass): capTrim steps bubble bodies out, upright ones first, then the farthest
+//   getting up  tackle body, ph.getUp: bal rises 1.2/s; bal 1 clears getUp, upright and slow -> physOff; a new tackle clears getUp (tackling.js runner states)
+//   contact     p.hitT = phClock whenever an opposing body touches him or grips him (physTouch); physClear resets it; physDownC = on the turf and hitT within CONTACT_T
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
 const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
@@ -116,7 +118,7 @@ export function physOff(p){
   p.ph = null; PHYS.splice(PHYS.indexOf(p), 1);
   if(p.act === 'dive' || p.act === 'down' || p.act === 'fall') p.act = null;
 }
-export function physClear(){ while(PHYS.length) physOff(PHYS[0]); }
+export function physClear(){ ALL.forEach(p => { p.hitT = undefined; }); while(PHYS.length) physOff(PHYS[0]); }   // contact times don't carry into the next play
 // grab: tackler's hands latch onto the closest part of the runner. maxForce = grip strength.
 export function physGrip(d, c, kind){ const D = physOn(d), C = physOn(c); if(D && C){ D.reach = {on:c, kind, t:0}; } }
 // distance from a world point to the nearest of his torso / thigh boxes
@@ -289,7 +291,8 @@ export function physStep(dt){
     ph.rest = ph.bal <= 0 && !ph.getUp && (S.phase !== 'live' || physDown(p));
     if(ph.t > ph.ttl){ ph.getUp = true; ph.ttl = Infinity; }
     if(ph.getUp){ ph.bal = Math.min(1, ph.bal + dt*1.2); const tb = ph.bodies[0];
-      if(ph.bal >= 1 && tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W){ physOff(p); continue; } }
+      if(ph.bal >= 1 && tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W){ physOff(p); continue; }
+      if(ph.bal >= 1) ph.getUp = false; }   // up on his legs: no longer getting up
   }
   phAcc = Math.min(phAcc + dt, 0.05);
   while(phAcc >= PH_DT){
@@ -338,6 +341,7 @@ export function physDown(p){
   return false;
 }
 // a defender touched him within CONTACT_T s
+export const physTouch = p => { p.hitT = phClock; };   // a hand on him from an animated defender counts as contact
 export const physTouched = p => phClock - (p.hitT ?? -99) <= CONTACT_T;
 // the runner's down: a part is on the turf and he was touched (an untouched stumble isn't down, he gets up)
 export const physDownC = p => physDown(p) && physTouched(p);

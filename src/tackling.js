@@ -1,5 +1,5 @@
 import { callout, toast } from './hud.js';
-import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physDownC, physGrip, physOff, physOn, physUngrip } from './physics.js';
+import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physDownC, physGrip, physOff, physOn, physTouch, physTouched, physUngrip } from './physics.js';
 import { DEF, QB } from './players.js';
 import { endPlay } from './rules.js';
 import { S } from './state.js';
@@ -12,7 +12,15 @@ import { clamp, dist, rand } from './util.js';
 //   grab:    the tackler's hands lock onto him (arm = one hand, wrap = both), he plants and drives.
 // The runner keeps his legs (bal) and drives on; a grip only holds as much force as the tackler's hands,
 // so a strong runner tears out of an arm tackle. Takedown progress (tackler ratings vs break-tackle) bleeds
-// his balance; when it's gone he falls the way the forces on him send him. Down = anything but feet on turf.
+// his balance; when it's gone he falls the way the forces on him send him.
+// Down (NFL): any part but a hand or foot on the turf AND a defender touched him within CONTACT_T (physics.js). An untouched
+// runner on the turf is not down: he gets up and runs on.
+// Runner states (c = ball holder), every row has its transition in tackleUpdate:
+//   run        no fall; contact or off balance (up < 0.6, or down by contact) -> falling; back upright and slow -> physOff
+//   falling    c.falling, bal 0; down by contact -> endPlay; on turf untouched and unheld for GETUP_WAIT s -> getting up (getUps+1)
+//              not on the turf yet: keeps falling; ph.t over FALL_MAX_T, or GETUP_MAX get-ups used and on the turf -> endPlay
+//   getting up falling false, ph.getUp, bal rising 1.2/s; falling again (a tackle, a latch, down by contact) clears getUp; bal 1 clears getUp -> run
+const GETUP_WAIT = 0.3, GETUP_MAX = 3, FALL_MAX_T = 4, FALL_SETTLE = 0.4;   // s on the turf before he gets up, tries per body, play-ending fall age, s before a fresh body may get up
 export const PLANT_A = 7;
 export const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
 function tackleNote(c){ return c === QB && !S.runMode ? 'SACKED' : null; }
@@ -66,15 +74,17 @@ function release(d, stun){ d.churn = false;
   physUngrip(d); if(d.ph){ d.ph.bal = 0; d.ph.ttl = d.ph.t + stun; }   // ripped off his feet, gets back up
 }
 export function tackleUpdate(c, dt){
+  if(c.ph && c.ph.getUp && (c.falling || DEF.some(d => d.latch === c))) c.ph.getUp = false;   // tackled mid get-up: his legs don't come back
   if(c.falling){
     // until he's down, anyone who gets there piles on
     for(const d of DEF) if(!d.latch && !isBody(d) && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
-    if(c.ph && !physDown(c)) c.fallT = 0;
-    // on the turf with no defender on him for CONTACT_T: not down, he gets up and runs on (3 tries, then the play ends: never a hang)
-    else if(c.ph && !physDownC(c) && !DEF.some(d => d.latch === c) && c.ph.t > 0.4 && (c.ph.getUps || 0) < 3 && (c.fallT = (c.fallT || 0) + dt) > 0.3){
-      c.ph.getUps = (c.ph.getUps || 0) + 1; c.falling = false; c.act = null; c.fallT = 0; c.ph.getUp = true; return;
+    const down = !!c.ph && physDown(c), by = down && physTouched(c), ups = c.ph ? c.ph.getUps || 0 : 0;   // physDown once per frame
+    if(!down) c.fallT = 0;
+    // on the turf with no defender on him for CONTACT_T: not down, he gets up and runs on (GETUP_MAX tries, then the play ends: never a hang)
+    else if(!by && !DEF.some(d => d.latch === c) && c.ph.t > FALL_SETTLE && ups < GETUP_MAX && (c.fallT = (c.fallT || 0) + dt) > GETUP_WAIT){
+      c.ph.getUps = ups + 1; c.falling = false; c.act = null; c.fallT = 0; c.ph.getUp = true; return;
     }
-    if(!c.ph || physDownC(c) || c.ph.t > 4 || (c.ph.getUps || 0) >= 3 && physDown(c)) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
+    if(!c.ph || by || c.ph.t > FALL_MAX_T || ups >= GETUP_MAX && down) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
     return;
   }
   if(c.tripT > 0) c.tripT -= dt;
@@ -88,7 +98,7 @@ export function tackleUpdate(c, dt){
         const juke = clamp((c.latAcc - 4)/6, 0, 1);
         if(Math.random() < 0.6*(d.rTkl/80)*(1 - juke*0.5)*(70/c.rBrk)){
           c.vx *= 0.6; c.vy *= 0.6; c.tripT = 0.4;
-          callout(d, 'Got a hand on him', 'bad');
+          physTouch(c); callout(d, 'Got a hand on him', 'bad');
         }
       }
       continue;
@@ -119,9 +129,8 @@ export function tackleUpdate(c, dt){
     if(c.ph && !DEF.some(d => d.ph && (d.ph.grips.some(g => g.on === c) || (d.ph.reach && d.ph.reach.on === c)))){
       // CANNON is the global main.js sets after loading cannon-es (physics.js uses it the same way)
       const tb = c.ph.bodies[0], up = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y;
-      if(c.ph.getUp && c.ph.bal < 1){ /* still getting up */ }
-      else if(up < 0.6 || physDownC(c)){ c.falling = true; c.act = 'fall'; c.actT = 99; c.ph.bal = 0; }   // off balance: he's going down
-      else if(c.ph.t > 0.4 && up > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W && tb.position.y > UPRIGHT_H) physOff(c);   // back on balance: back on the run
+      if(physDownC(c) || !(c.ph.getUp && c.ph.bal < 1) && up < 0.6){ c.falling = true; c.act = 'fall'; c.actT = 99; c.ph.bal = 0; }   // off balance: he's going down; getting up, only a fresh touch puts him down again
+      else if(c.ph.t > FALL_SETTLE && up > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W && tb.position.y > UPRIGHT_H) physOff(c);   // back on balance: back on the run
     }
     return;
   }
