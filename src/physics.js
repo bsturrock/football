@@ -19,7 +19,7 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   tackle body p.ph, not bubble: ragdoll or tackler (tackling.js / blocking.js call physOn); lives until physOff
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
-const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;
+const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 2, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
 export const UPRIGHT_Y = 0.95, UPRIGHT_W = 2, UPRIGHT_H = 1.1;
 const YAW_K = 150, YAW_MAX = 1.5, HEADING_MIN = 0.4;   // yaw hold: spring gain, max error (rad), slowest speed (yd/s) that sets a heading
@@ -264,7 +264,7 @@ function bubbleUpdate(dt){
   const rank = [...movable.map(p => [p, dist(p, ref)*KEEP_BIAS]), ...cand.map(p => [p, dist(p, ref)])].sort((a, b) => a[1] - b[1]);
   for(const [p] of rank){
     if(p.ph){ if(used < BODY_CAP) used++; else physOff(p); }   // over the cap: the farthest steps out
-    else if(used < BODY_CAP && joins < BUBBLE_JOINS){ used++; joins++; promote(p); }
+    else if(used < BODY_CAP - BUBBLE_RESERVE && joins < BUBBLE_JOINS){ used++; joins++; promote(p); }
   }
 }
 let phAcc = 0;
