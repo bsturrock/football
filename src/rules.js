@@ -6,6 +6,7 @@ import { S, setupPlay } from './state.js';
 import { MAX_DRIVES, clamp } from './util.js';
 
 // ---------- ball position and forward progress ----------
+const PROG_TOUCH_T = 0.15;   // a touch without a grip credits progress for this long (a grip counts throughout): no credit for ground he gives up on his own
 // the ball's field position: the carried ball for a body runner (his ragdoll hand), else his animated position
 export function heldBallPos(c){
   if(!c.ph) return c;
@@ -16,7 +17,7 @@ export function heldBallPos(c){
 // The QB isn't tracked on a dropback or a designed run (the handoff or toss starts it); a scramble is.
 export function trackProgress(c){
   if(c.role === 'QB' && (!S.runMode || PLAYS[S.play].run)) return;
-  if(!DEF.some(d => d.latch === c) && !physTouched(c)){ S.prog = -Infinity; return; }   // contact = a grip or a recent hit (bodies pushing him back with no grip still credit progress)
+  if(!DEF.some(d => d.latch === c) && !physTouched(c, PROG_TOUCH_T)){ S.prog = -Infinity; return; }   // contact = a grip or a recent hit (bodies pushing him back with no grip still credit progress)
   const y = heldBallPos(c).y; if(y > S.prog) S.prog = y;
 }
 

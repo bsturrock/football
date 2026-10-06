@@ -346,7 +346,7 @@ export function physDown(p){
 }
 // a defender touched him within CONTACT_T s
 export const physTouch = p => { p.hitT = phClock; };   // a hand on him from an animated defender counts as contact
-export const physTouched = p => phClock - (p.hitT ?? -99) <= CONTACT_T;
+export const physTouched = (p, w = CONTACT_T) => phClock - (p.hitT ?? -99) <= w;   // w: how recent (rules.js asks for a shorter window)
 // the runner's down: a part is on the turf and he was touched (an untouched stumble isn't down, he gets up)
 export const physDownC = p => physDown(p) && physTouched(p);
 // pile.js drives a body through his legs for DRIVE_T s (vx, vy game yd/s; a = leg acceleration): a push is a wanted velocity, never a position

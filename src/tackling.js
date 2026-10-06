@@ -24,7 +24,7 @@ import { clamp, dist, rand } from './util.js';
 //   any state  ball dead (touchdown, out of bounds, endPlay elsewhere): tackleUpdate stops, physStep rests him, or a get-up in progress finishes (physOff when upright); the next setup's physClear removes what is left
 const GETUP_WAIT = 0.3, GETUP_MAX = 3, FALL_MAX_T = 4, FALL_SETTLE = 0.4;   // s on the turf before he gets up, tries per body, play-ending fall time, s before a fresh body may get up
 export const PLANT_A = 7;
-const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates' surge keeps him up: downP rate x max(PILE_HOLD_MIN, 1/(1 + K*offensive pushers)); the floor keeps downP reaching 1 within about 1.5 s
+const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates' surge keeps him up: downP rate x max(PILE_HOLD_MIN, 1/(1 + K*offensive pushers)); the floor 0.2 bounds the slowdown at 5x, and pile.js whistles (STALL_T 1.0 s stalled, PUSH_MAX_T 1.5 s of pushing) so the hold is never open-ended
 export const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
 function tackleNote(c){ return c === QB && !S.runMode ? 'SACKED' : null; }
 // a teammate already has him (or he's going down): no open-field duel, just get on him and finish it
