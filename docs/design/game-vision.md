@@ -9,6 +9,12 @@ A CPU-vs-CPU NFL football sim: a coach sim where the user calls plays and never 
 - **Run game** Current focus: build out the run game (user 2026-10-06).
   - **Tackling** Current focus (user 2026-10-06). Today: one rating roll (big hit / whiff / grab), then cannon-es ragdolls with grip constraints and a takedown meter (tackling.js, physics.js).
     - **Pile physics** Ragdolls collide with every player on the field: piles hit linemen, teammates push a pile, runners knocked into blockers. Today ragdolls pass through non-ragdoll players (physics.js:45, blocking.js:93). Size L.
+      - **Look** Bodies stack and collapse at the line, runner knocked back into his own blockers, pursuers pile on (user 2026-10-06, L-1006-074).
+      - **Push the pile** Teammates can drive the pile and runner forward for yards (user 2026-10-06, L-1006-074).
+      - **Physics bubble** Dynamic and emergent, not scripted; frame-rate cost accepted since graphics stay light (user 2026-10-06, L-1006-074). PM call: every player near a live ragdoll becomes a full physical body standing on his own legs (bal 1), still driven by his game intent through leg drive and muscles, so pushes, knock-backs and piles come out of real masses colliding; he leaves the bubble once clear and upright. Real-mass bodies avoid the old riding/launch look, which came from infinite-mass animated blockers.
+      ? Who pushes: any free offensive player near the pile, or only ones facing it; do defenders push back (asked 2026-10-06)
+      ? When is the runner down in a pile: NFL rule (knee, elbow or torso down, or forward progress stopped) vs today's any-part-touches (asked 2026-10-06)
+      ? Body cap: how many full bodies at once before the rest stay animated (asked 2026-10-06)
     - **Tackle variety** Form, angle and ankle tackles, strips and fumbles instead of three outcomes from one roll. Size M.
     - ? Down and spot rules: hand down not down, forward progress, whistle on a stood-up runner (asked 2026-10-06)
   - **Blocking** Current focus (user 2026-10-06). Today: kinematic set/move/resolve cycle on a rating sigmoid, one blocker per defender, contact decided by the defender (blocking.js, offense.js, defense.js).
