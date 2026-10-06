@@ -262,3 +262,6 @@ function physMeshes(p){
 export function physRender(){
   for(const p of PHYS) p.ph.bodies.forEach((b, i) => { const m = p.ph.meshes[i]; m.position.set(b.position.x, b.position.y, b.position.z); m.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w); });
 }
+
+// feature (sim-runner): body counters for the sim runner and the ?debug line
+export function physCount(){ return {players: PHYS.length, bodies: PW ? PW.bodies.length - 1 : 0}; }

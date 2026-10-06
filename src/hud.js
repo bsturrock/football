@@ -37,3 +37,13 @@ export function updateCallouts(dt){
 }
 let lastHint = '';
 export function setHint(html){ if(html !== lastHint){ $('hint').innerHTML = html; lastHint = html; } }
+// ?debug line: frame ms (smoothed), physics ms of the last step (smoothed), live body count
+const DEBUG = new URLSearchParams(location.search).has('debug');
+let dbgFrame = 0, dbgPhys = 0, dbgT = 0;
+export function debugTick(rawMs, physMs, bodies){
+  if(!DEBUG) return;
+  dbgFrame += (rawMs - dbgFrame)*0.1; dbgPhys += (physMs - dbgPhys)*0.1;
+  if((dbgT += rawMs) < 250) return; dbgT = 0;
+  const el = $('dbg'); el.hidden = false;
+  el.textContent = `frame ${dbgFrame.toFixed(1)} ms · phys ${dbgPhys.toFixed(1)} ms · bodies ${bodies}`;
+}
