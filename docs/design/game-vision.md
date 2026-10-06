@@ -14,11 +14,11 @@ Top-line test for all work: would this look right on an NFL broadcast, graphics 
       - **Look** Bodies stack and collapse at the line, runner knocked back into his own blockers, pursuers pile on (user 2026-10-06, L-1006-074).
       - **Push the pile** Teammates can drive the pile and runner forward for yards (user 2026-10-06, L-1006-074).
       - **Physics bubble** Dynamic and emergent, not scripted; frame-rate cost accepted since graphics stay light (user 2026-10-06, L-1006-074). PM call: every player near a live ragdoll becomes a full physical body standing on his own legs (bal 1), still driven by his game intent through leg drive and muscles, so pushes, knock-backs and piles come out of real masses colliding; he leaves the bubble once clear and upright. Real-mass bodies avoid the old riding/launch look, which came from infinite-mass animated blockers.
-      - ? Who pushes: any free offensive player near the pile, or only ones facing it; do defenders push back (asked 2026-10-06)
-      - ? When is the runner down in a pile: NFL rule (knee, elbow or torso down, or forward progress stopped) vs today's any-part-touches (asked 2026-10-06)
-      - ? Body cap: how many full bodies at once before the rest stay animated (asked 2026-10-06)
+      - **Tug-of-war** Any offensive player near the pile who isn't blocking joins and drives forward; defenders near it drive back; the pile moves toward the side with more push (user 2026-10-06, L-1006-076).
+      - **Down in a pile** NFL rule: knee, elbow, butt or torso down (a hand is not down), or the whistle when forward progress stops (pile stalled about 1 s); spot at forward progress (user 2026-10-06, L-1006-076).
+      - **Body cap** About 14 full bodies at once, the rest stay animated; measured and tuned on frame rate (user 2026-10-06, L-1006-076).
     - **Tackle variety** Form, angle and ankle tackles, strips and fumbles instead of three outcomes from one roll. Size M.
-    - ? Down and spot rules: hand down not down, forward progress, whistle on a stood-up runner (asked 2026-10-06)
+    - ? Down and spot outside piles: same NFL rule for every tackle, and a whistle when a runner is held up (asked 2026-10-06)
   - **Blocking** Current focus (user 2026-10-06). Today: kinematic set/move/resolve cycle on a rating sigmoid, one blocker per defender, contact decided by the defender (blocking.js, offense.js, defense.js).
     - **Physical line play** Hands, pad level and leverage drive who wins; double teams and combos to the second level; reach and down blocks; fronts and slants change fits. Size L.
     - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
