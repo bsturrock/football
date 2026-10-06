@@ -2,6 +2,8 @@
 
 A CPU-vs-CPU NFL football sim: a coach sim where the user calls plays and never controls a player. Graphics stay stylized; animations, interactions, physics and overall feel aim for realism while staying visceral and fun (user 2026-10-06, L-1006-067).
 
+Top-line test for all work: would this look right on an NFL broadcast, graphics aside? Gameplay, feel, animation and dynamics should look like real football (user 2026-10-06, L-1006-075).
+
 ## Map
 - **Coach sim** The user never inputs player controls; both teams are CPU-driven. Playcalling is the user's role, built later (user 2026-10-06).
   - ? When does keyboard control of the carrier/QB go away: now, or when playcalling arrives (asked 2026-10-06)
