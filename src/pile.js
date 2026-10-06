@@ -16,10 +16,10 @@ import { dist } from './util.js';
 //   pushing   live with 1+ pusher driving
 //   whistle   stalled: endPlay('spot', S.prog, 'FORWARD PROGRESS'); the play is dead, the next setupPlay's pileReset clears it
 // Any state: ball dead -> no pileUpdate, and physDrive's drive expires within DRIVE_T s (physics.js), so nothing pushes a dead play.
-const PILE_R = 1.3, PUSH_JOIN = 2.0, PUSH_MAX = 3, PUSH_V = 3.0, PUSH_K = 1.5, FORM_T = 0.1, STALL_D = 0.3, STALL_T = 1.0, PUSHER_BAL = 0.5, PILE_BODIES = 2;
+const PILE_R = 1.3, PUSH_JOIN = 2.0, PUSH_MAX = 3, PUSH_V = 4.0, PUSH_K = 2.5, FORM_T = 0.1, STALL_D = 0.3, STALL_T = 1.0, PUSHER_BAL = 0.5, PILE_BODIES = 2;
 // whistles, frames and pushes are session totals for the sim (kept across plays); a play that reached pushing adds {gain, dur} (ball yd from the first pushing frame to the last, s pushing)
 export function pileReset(){
-  const keep = S.pile; S.pile = {state:'dead', t:0, formT:0, ref:null, pushers:0, whistles:0, frames:{dead:0, forming:0, live:0, pushing:0}, pushes:[], cur:null};
+  const keep = S.pile; S.pile = {state:'dead', t:0, formT:0, ref:null, pushers:0, pushersO:0, whistles:0, frames:{dead:0, forming:0, live:0, pushing:0}, pushes:[], cur:null};
   if(keep){ S.pile.whistles = keep.whistles; S.pile.frames = keep.frames; S.pile.pushes = keep.pushes; if(keep.cur) S.pile.pushes.push({gain:keep.cur.gain, dur:keep.cur.dur}); }
 }
 const freeBody = p => p.ph && !p.falling && !p.latch && !p.bt && !(p.stun > 0) && p.ph.bal >= PUSHER_BAL && !physDown(p);
@@ -32,7 +32,7 @@ export function pileUpdate(c, dt){
   const P = S.pile || (pileReset(), S.pile);
   const held = S.phase === 'live' && c.ph && !c.falling && DEF.some(d => d.latch === c) && !physDownC(c) && Number.isFinite(S.prog);
   P.frames[P.state === 'whistle' ? 'dead' : P.state]++;
-  if(!held){ P.state = 'dead'; P.t = P.formT = P.pushers = 0; P.ref = null; return; }
+  if(!held){ P.state = 'dead'; P.t = P.formT = P.pushers = P.pushersO = 0; P.ref = null; return; }
   // stall: S.prog (furthest ball y while held) must gain STALL_D within STALL_T
   const y = S.prog;
   if(P.ref === null){ P.ref = y; P.t = 0; }
@@ -40,9 +40,9 @@ export function pileUpdate(c, dt){
   else if((P.t += dt) >= STALL_T){ P.state = 'whistle'; P.whistles++; endPlay('spot', S.prog, 'FORWARD PROGRESS'); return; }
   const bodies = ALL.filter(p => p !== c && isBody(p) && dist(p, c) < PILE_R).length;
   P.formT = bodies >= PILE_BODIES ? P.formT + dt : 0;
-  P.pushers = 0;
+  P.pushers = P.pushersO = 0;
   if(P.formT < FORM_T){ P.state = 'forming'; return; }
-  P.pushers = side(OFF, c, 'rStr', 1) + side(DEF, c, 'rPow', -1);
+  P.pushersO = side(OFF, c, 'rStr', 1); P.pushers = P.pushersO + side(DEF, c, 'rPow', -1);   // pushersO: tackling.js slows the fall for these
   P.state = P.pushers ? 'pushing' : 'live';
   if(P.pushers){ const by = heldBallPos(c).y; P.cur = P.cur || {y0:by, gain:0, dur:0}; P.cur.gain = by - P.cur.y0; P.cur.dur += dt; }
 }
