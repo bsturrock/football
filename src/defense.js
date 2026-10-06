@@ -13,6 +13,16 @@ import { dist, rand } from './util.js';
 //   holding runner cuts back while AIM_K > 1 (overrunning): with p HOLD_P*lack(pursuit) keep running to the old future spot for HOLD_T s;
 //           another flip while holding re-holds the newest spot
 //   bite    with p BITE_P*lack(recog) follows the first flow step BITE_T s longer
+// Leverage and blockers (B-006-6). Per defender per play: avoid = {st, o, until, sgn}, st 'avoid' | 'fight'
+//   pursuing  default: runFit target
+//   avoiding  a blocker sits in the AVOID_CONE within AVOID_DIST of his path (checked every AVOID_EVERY s) and he lost the FIGHT_P roll:
+//             steps around to his leverage side (outside for the force man, toward the ball for the rest) for AVOID_T s
+//   fighting  won the FIGHT_P = shed/99 - 0.3 roll: runs straight through the blocker, quick shed move on contact
+//   held      engaged (d.bt): the line battle owns him; avoid state cleared
+// Backside (ball away from his side, not past los+BACK_L): stays home near his gap unless the runner closes within BACK_D
+const AVOID_CONE = 30, AVOID_DIST = 2.5, AVOID_EVERY = 0.1, AVOID_T = 0.5, AVOID_STEP = 1.6, BACK_D = 3, BACK_L = 3, HOME_P = 0.5, FIGHT_QUICK = 0.15;
+const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
+const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
 const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
 
 // pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
@@ -92,7 +102,8 @@ export function assignFits(call, boxS){
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
     d.read = d.mode === 'rush' && d.role === 'LB' ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
-    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null;
+    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0;
+    d.home = Math.random() >= HOME_P*lack(d, 'pursuit');                // discipline: a poor pursuer abandons the backside early
     d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
     d.fit = d.job.gx != null && (d.role === 'DL' || d.role === 'LB' || d === boxS) ? {x:d.job.gx, y:d.role === 'DL' ? L - 0.5 : L + 1.5} : null;
@@ -118,16 +129,18 @@ function runFit(d, c){
   if(dir) d.lastDir = dir;
   d.lastAim = [px, py];
   if(d.hold){ if(S.clock < d.hold.until){ px = d.hold.x; py = d.hold.y; } else d.hold = null; }
-  const inside = () => [px - dir*0.8 + e, py];                 // pursue keeping inside leverage: no cutback behind him
+  const lev = levShade(d), inside = () => [px - dir*lev + e, py];                 // pursue keeping inside leverage: no cutback behind him
   const contain = side => dist(d, c) > 3
     ? [bx + side*1.5 + e, Math.max(L + 1, by + 1.5)]            // get outside and in front of him
-    : [px + side*0.5, py];                                      // close: attack his outside shoulder
+    : [px + side*lev*0.6, py];                                  // close: attack his outside shoulder
+  // backside: ball went away from my side and hasn't cleared los+BACK_L: stay home on the cutback unless he closes on me
+  if(d.home && (j.role === 'gap' || j.role === 'force') && bx*s < -1.5 && by < L + BACK_L && dist(d, c) > BACK_D) return [j.gx + (bx - j.gx)*0.25, L + 0.5];
   switch(j.role){
     case 'gap':
       if(by < L + 1.5 && Math.abs(bx - j.gx) < 2.5) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze
       return inside();
     case 'force':
-      if(bx*s < -2) return [px - dir*1 + e, Math.max(py, by)];  // ball went away: backside, take the cutback
+      if(bx*s < -2) return [px - dir*1 + e, Math.max(py, by)];  // ball went away and past los+3: backside chase
       return contain(s);
     case 'alley':
       if(bx*s > 1 || by > L + 1) return inside();               // ball committed to my side: fill the alley
@@ -144,6 +157,38 @@ function runFit(d, c){
   }
   return inside();
 }
+// A blocker in the cone ahead (within AVOID_DIST, AVOID_CONE of the path to the target): fight through (FIGHT_P) or step around.
+// The cone is looked at every AVOID_EVERY s; a decision holds for AVOID_T s.
+function avoidBlockers(d, c, tx, ty){
+  if(d.bt || d.ph){ d.avoid = null; return [tx, ty]; }        // held (or a body): the battle / physics owns him
+  const a = d.avoid;
+  if(a && S.clock < a.until){
+    if(a.st === 'fight') return [tx, ty];
+    return stepAround(d, a, tx, ty);
+  }
+  if(S.clock < d.avoidAt) return [tx, ty];
+  d.avoidAt = S.clock + AVOID_EVERY; d.avoid = null;
+  const hx = tx - d.x, hy = ty - d.y, hl = Math.hypot(hx, hy);
+  if(hl < 0.5) return [tx, ty];
+  let best = null, bd = AVOID_DIST;
+  for(const o of OFF){
+    if(o === c || o === QB || (o.ph && o.ph.bubble) || isBody(o) || (d.freeFrom === o && d.freeT > 0)) continue;
+    const ox = o.x - d.x, oy = o.y - d.y, od = Math.hypot(ox, oy);
+    if(od < bd && od > 0.01 && (ox*hx + oy*hy)/(od*hl) > COS_CONE){ best = o; bd = od; }
+  }
+  if(!best) return [tx, ty];
+  const fight = Math.random() < Math.max(0, Math.min(1, d.rt.shed/99 - 0.3));
+  const j = d.job, ox = best.x - d.x, oy = best.y - d.y;
+  const perp = [-hy/hl, hx/hl], toBlk = ox*perp[0] + oy*perp[1];
+  let sgn = j.role === 'force' ? Math.sign(j.side*perp[0]) || 1 : Math.sign((c.x - d.x)*perp[0]) || 1;   // leverage side
+  if(sgn*toBlk > 0.3) sgn = -sgn;                              // he sits on that side: go the other way
+  d.avoid = {st:fight ? 'fight' : 'avoid', o:best, until:S.clock + AVOID_T, sgn};
+  return fight ? [tx, ty] : stepAround(d, d.avoid, tx, ty);
+}
+function stepAround(d, a, tx, ty){
+  const hx = tx - d.x, hy = ty - d.y, hl = Math.hypot(hx, hy) || 1;
+  return [d.x + hx/hl*AVOID_STEP + -hy/hl*a.sgn*AVOID_STEP, d.y + hy/hl*AVOID_STEP + hx/hl*a.sgn*AVOID_STEP];
+}
 export function defenseAI(d, dt){
   if(d.tkCool > 0) d.tkCool -= dt;
   if(d.reachCool > 0) d.reachCool -= dt;
@@ -159,6 +204,7 @@ export function defenseAI(d, dt){
     else [tx, ty] = coverTarget(d);
   } else if(S.runMode && c && d.job){
     [tx, ty] = runFit(d, c); attack = true;
+    if(S.clock > S.handoffAt + d.read) [tx, ty] = avoidBlockers(d, c, tx, ty);
     if(S.clock > S.handoffAt + d.read) sp = (sp + 0.2)*burst(d, dist(d, c) > 3 && !d.bt, dt);   // same limited sprint the runner has
   } else if(d.mode === 'rush'){ tx = c ? c.x : QB.x; ty = c ? c.y : QB.y; attack = !!c; }
   else [tx, ty] = coverTarget(d);
@@ -175,6 +221,7 @@ export function defenseAI(d, dt){
         if(d.freeFrom !== o && pancakeHit(o, d)) return;
         // re-engaging a blocker he already beat: that blocker is off balance, so the next move comes quicker
         d.bt = {o, phase:'set', t:0, dur:d.freeFrom === o ? 0.1 : rand(0.2, 0.4), move:null};
+        if(d.avoid && d.avoid.st === 'fight') d.bt.dur = Math.min(d.bt.dur, FIGHT_QUICK);   // he came through on purpose: straight into his shed move
         o.bt = d.bt;
         if(d.freeFrom !== o) pop(o, d, d.bt);
       }
