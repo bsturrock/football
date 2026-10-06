@@ -1,5 +1,5 @@
 import { callout, toast } from './hud.js';
-import { gripGap, gripStrain, physBall, physDown, physGrip, physOff, physOn, physUngrip } from './physics.js';
+import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physGrip, physOff, physOn, physUngrip } from './physics.js';
 import { DEF, QB } from './players.js';
 import { endPlay } from './rules.js';
 import { S } from './state.js';
@@ -68,13 +68,13 @@ function release(d, stun){ d.churn = false;
 export function tackleUpdate(c, dt){
   if(c.falling){
     // until he's down, anyone who gets there piles on
-    for(const d of DEF) if(!d.latch && !d.ph && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
+    for(const d of DEF) if(!d.latch && !isBody(d) && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
     if(!c.ph || physDown(c) || c.ph.t > 4) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
     return;
   }
   if(c.tripT > 0) c.tripT -= dt;
   for(const d of DEF){
-    if(d.latch || d.stun > 0 || d.tkCool > 0 || d.ph) continue;
+    if(d.latch || d.stun > 0 || d.tkCool > 0 || isBody(d)) continue;
     const dd = dist(d, c);
     if(d.bt){
       // blocked: can't tackle, but can reach out and grab a piece of him as he goes by
@@ -115,7 +115,7 @@ export function tackleUpdate(c, dt){
       // CANNON is the global main.js sets after loading cannon-es (physics.js uses it the same way)
       const tb = c.ph.bodies[0], up = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y;
       if(up < 0.6 || physDown(c)){ c.falling = true; c.act = 'fall'; c.actT = 99; c.ph.bal = 0; }   // off balance: he's going down
-      else if(c.ph.t > 0.4 && up > 0.95 && tb.angularVelocity.length() < 2 && tb.position.y > 1.1) physOff(c);   // back on balance: back on the run
+      else if(c.ph.t > 0.4 && up > UPRIGHT_Y && tb.angularVelocity.length() < UPRIGHT_W && tb.position.y > UPRIGHT_H) physOff(c);   // back on balance: back on the run
     }
     return;
   }
