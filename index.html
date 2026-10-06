@@ -1,0 +1,1636 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Gridiron Drive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;800&family=Barlow:wght@400;600&display=swap">
+<style>
+/* Layout: full-bleed 3D field, broadcast-style score bug top-left, playbook / throw meter docked bottom-center */
+:root{
+  --bg:#0c1512; --panel:rgba(9,15,13,.84); --line:rgba(255,255,255,.14);
+  --fg:#eef3ee; --muted:#9db3a6; --accent:#ffd21f; --def:#ff7a6b; --good:#6be38f; --los:#3d8bff; --home:#d94a2b;
+  --display:"Saira Condensed","Arial Narrow",sans-serif; --body:"Barlow",system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);overflow:hidden;font-family:var(--body)}
+#game{position:fixed;inset:0}
+#game canvas{display:block;outline:none;cursor:crosshair}
+.hud{position:fixed;pointer-events:none;z-index:2}
+#top{top:calc(12px + env(safe-area-inset-top,0px));left:16px;right:16px;display:flex;flex-wrap:wrap;gap:8px}
+.board{display:flex;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;font-family:var(--display)}
+.team{background:var(--home);padding:6px 14px;display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.08em;font-size:18px}
+.team b{font-size:28px;font-variant-numeric:tabular-nums}
+.cell{padding:6px 14px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;gap:2px}
+.cell small{font-family:var(--body);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.cell b{font-size:22px;line-height:1;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.cell.down b{color:var(--accent)}
+.cell.defense b{color:var(--def)}
+#hint b{color:var(--def)}
+#dock{left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:10px}
+#plays{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;pointer-events:auto;max-width:960px}
+#plays .group{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);padding-inline:4px 2px}
+.play{font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:.04em;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 12px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.play kbd{font-family:var(--body);font-size:11px;font-weight:600;border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--muted)}
+.play[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.play[aria-pressed="true"] kbd{color:var(--accent);border-color:var(--accent)}
+.play:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.play.mode{pointer-events:auto;align-self:flex-start}
+#meter{width:min(320px,100%);display:flex;flex-direction:column;gap:4px}
+#meter .bar{height:10px;border-radius:5px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+#meter .fill{height:100%;width:0;background:linear-gradient(90deg,var(--fg),var(--accent))}
+#meter .ends{display:flex;justify-content:space-between;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+#hint{font-size:13px;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px;text-align:center;max-width:100%}
+#hint kbd{font-family:var(--body);font-weight:600;color:var(--accent)}
+#banner{left:16px;right:16px;top:26%;text-align:center;opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s}
+#banner.on{opacity:1;transform:none}
+#banner h1{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(40px,9vw,84px);letter-spacing:.04em;line-height:1;text-shadow:0 4px 24px rgba(0,0,0,.6);text-wrap:balance}
+#banner p{margin:8px 0 0;font-size:17px;font-weight:600;color:var(--accent);text-shadow:0 2px 10px rgba(0,0,0,.8)}
+#toast{left:16px;right:16px;top:calc(84px + env(safe-area-inset-top,0px));text-align:center;font-family:var(--display);font-weight:800;font-size:24px;letter-spacing:.06em;color:var(--accent);text-shadow:0 2px 12px rgba(0,0,0,.8);opacity:0;transition:opacity .25s}
+#toast.on{opacity:1}
+[hidden]{display:none!important}
+#labels{inset:0;z-index:1;overflow:hidden}
+.callout{position:absolute;left:0;top:0;white-space:nowrap;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg);text-shadow:0 1px 2px #000,0 0 8px rgba(0,0,0,.7)}
+.callout.bad{color:var(--def)}
+.callout.good{color:var(--good)}
+@media (prefers-reduced-motion:reduce){#banner,#toast{transition:none}}
+</style>
+
+<div id="game"></div>
+
+<div class="hud" id="top">
+  <div class="board">
+    <div class="team">HAWKS <b id="score">0</b></div>
+    <div class="cell down"><small>Down</small><b id="down">1st &amp; 10</b></div>
+    <div class="cell"><small>Ball on</small><b id="spot">OWN 25</b></div>
+    <div class="cell"><small>Drive</small><b id="drive">1 / 6</b></div>
+    <div class="cell defense"><small>Defense</small><b id="defcall">Base</b></div>
+  </div>
+  <button class="play mode" id="cpuBtn" type="button" aria-pressed="true"><kbd>C</kbd>CPU vs CPU</button>
+  <button class="play mode" id="camBtn" type="button"><kbd>V</kbd>Broadcast</button>
+</div>
+
+<div class="hud" id="banner"><h1 id="bannerH"></h1><p id="bannerP"></p></div>
+<div class="hud" id="toast"></div>
+<div class="hud" id="labels"></div>
+
+<div class="hud" id="dock">
+  <div id="plays"></div>
+  <div id="meter" hidden><div class="ends"><span>Bullet</span><span>Lob</span></div><div class="bar"><div class="fill" id="fill"></div></div></div>
+  <div id="hint"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+const HW = 26.665, MAX_DRIVES = 6, PX = 16;
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+const rand = (a,b) => a + Math.random()*(b-a);
+
+// ---------- renderer / scene ----------
+const wrap = $('game');
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+wrap.appendChild(renderer.domElement);
+const cvs = renderer.domElement; cvs.tabIndex = 0;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0c1512);
+scene.fog = new THREE.Fog(0x0c1512, 80, 180);
+const camera = new THREE.PerspectiveCamera(52, 1, 0.5, 500);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x2a4030, 0.95));
+const sun = new THREE.DirectionalLight(0xffffff, 0.55); sun.position.set(-20, 50, 20); scene.add(sun);
+function resize(){ const w = wrap.clientWidth, h = wrap.clientHeight; renderer.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+// game coords: x = lateral (yards from center), y = yard line (0 own goal, 100 opponent goal)
+const toWorld = (x, y, h=0) => new THREE.Vector3(x, h, 50 - y);
+
+// ---------- field ----------
+const fieldCanvas = document.createElement('canvas');
+fieldCanvas.width = Math.round(HW*2*PX); fieldCanvas.height = 120*PX;
+const fieldTex = new THREE.CanvasTexture(fieldCanvas);
+fieldTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+function drawField(){
+  const g = fieldCanvas.getContext('2d'), w = fieldCanvas.width;
+  const Y = yd => (110 - yd)*PX, X = x => (x + HW)*PX;
+  for(let yd = 0; yd < 100; yd += 5){ g.fillStyle = (yd/5)%2 ? '#2f7a3a' : '#2a6f35'; g.fillRect(0, Y(yd+5), w, 5*PX); }
+  g.fillStyle = '#9b2f1f'; g.fillRect(0, Y(0), w, 10*PX);
+  g.fillStyle = '#1f3c7a'; g.fillRect(0, 0, w, 10*PX);
+  g.fillStyle = '#fff';
+  for(let yd = 0; yd <= 100; yd += 5){ const t = (yd%50===0) ? 6 : 3; g.fillRect(0, Y(yd)-t/2, w, t); }
+  for(let yd = 1; yd < 100; yd++){ if(yd%5===0) continue;
+    for(const x of [-HW+0.4, -3.08, 3.08, HW-1.0]) g.fillRect(X(x), Y(yd)-1, 0.6*PX, 2); }
+  g.fillRect(0, 0, 6, fieldCanvas.height); g.fillRect(w-6, 0, 6, fieldCanvas.height);
+  g.fillRect(0, 0, w, 6); g.fillRect(0, fieldCanvas.height-6, w, 6);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = `600 ${2.2*PX}px "Saira Condensed","Arial Narrow",sans-serif`;
+  for(let yd = 10; yd < 100; yd += 10){
+    const label = String(yd <= 50 ? yd : 100 - yd);
+    for(const [x, rot] of [[-HW+9, Math.PI/2], [HW-9, -Math.PI/2]]){
+      g.save(); g.translate(X(x), Y(yd)); g.rotate(rot); g.fillText(label, 0, 0); g.restore();
+    }
+  }
+  g.font = `800 ${6*PX}px "Saira Condensed","Arial Narrow",sans-serif`;
+  g.fillStyle = 'rgba(255,255,255,.9)';
+  g.fillText('HAWKS', w/2, Y(-5)); g.fillText('WOLVES', w/2, Y(105));
+  fieldTex.needsUpdate = true;
+}
+drawField();
+if(document.fonts) document.fonts.ready.then(drawField);
+const field = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, 120), new THREE.MeshLambertMaterial({map:fieldTex}));
+field.rotation.x = -Math.PI/2; scene.add(field);
+const apron = new THREE.Mesh(new THREE.PlaneGeometry(220, 300), new THREE.MeshLambertMaterial({color:0x1a3a24}));
+apron.rotation.x = -Math.PI/2; apron.position.y = -0.02; scene.add(apron);
+// goalposts
+const postMat = new THREE.MeshLambertMaterial({color:0xf2c81e});
+for(const yd of [-10, 110]){
+  const z = 50 - yd, gp = new THREE.Group();
+  const up = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,3.3), postMat); up.position.set(0,1.65,0);
+  const cross = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,6.17), postMat); cross.rotation.z = Math.PI/2; cross.position.y = 3.3;
+  const l = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,10), postMat); l.position.set(-3.08, 8.3, 0);
+  const r = l.clone(); r.position.x = 3.08;
+  gp.add(up, cross, l, r); gp.position.z = z; scene.add(gp);
+}
+// line of scrimmage + first-down line
+const stripe = c => { const m = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, 0.35), new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:.9, depthWrite:false})); m.rotation.x = -Math.PI/2; m.position.y = 0.02; scene.add(m); return m; };
+const losLine = stripe(0x3d8bff), fdLine = stripe(0xffd21f);
+
+// ---------- players ----------
+// boxy jointed figure; every limb geometry hangs down from its pivot
+const box = (w, h, d, x=0, y=-h/2, z=0) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+const G = {
+  torso: box(0.75,0.7,0.42,0,0.37), pads: box(1.05,0.22,0.5,0,0.7), helmet: box(0.46,0.44,0.5,0,0.24),
+  stripe: box(0.08,0.46,0.54,0,0.25), mask: box(0.36,0.14,0.08,0,0.18,0.27),
+  upperArm: box(0.2,0.42,0.22), forearm: box(0.18,0.4,0.2),
+  thigh: box(0.28,0.5,0.3), shin: box(0.24,0.45,0.26), cleat: box(0.24,0.1,0.38,0,-0.5,0.06),
+  shadow: new THREE.CircleGeometry(0.62,20)
+};
+const shadowMat = new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:.28, depthWrite:false});
+const TEAM = {
+  O: {jersey:0xd94a2b, pants:0xf3efe6, helmet:0xb8361e, stripe:0xffffff, socks:0xd94a2b},
+  D: {jersey:0x1f3c7a, pants:0xc9cfdc, helmet:0x15295a, stripe:0xffd21f, socks:0x1f3c7a}
+};
+const SKIN = [0x5c3a1e, 0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d];
+const mats = {};
+const mat = c => mats[c] || (mats[c] = new THREE.MeshLambertMaterial({color:c}));
+const JOINTS = ['lean','twist','hipL','hipR','kneeL','kneeR','shL','shR','elL','elR','drop','pitch','bob'];
+function makePlayer(team, role){
+  const t = TEAM[team], skin = SKIN[Math.floor(Math.random()*SKIN.length)];
+  const g = new THREE.Group(), body = new THREE.Group();
+  const pivot = (parent, x, y, z=0) => { const p = new THREE.Group(); p.position.set(x, y, z); parent.add(p); return p; };
+  const add = (parent, geo, c) => parent.add(new THREE.Mesh(geo, mat(c)));
+  const torso = pivot(body, 0, 1.0);
+  add(torso, G.torso, t.jersey); add(torso, G.pads, t.jersey);
+  const head = pivot(torso, 0, 0.8);
+  add(head, G.helmet, t.helmet); add(head, G.stripe, t.stripe); add(head, G.mask, 0x222222);
+  const arm = side => { // side: +1 left (+x), -1 right (-x)
+    const sh = pivot(torso, side*0.5, 0.62); add(sh, G.upperArm, t.jersey);
+    const el = pivot(sh, 0, -0.42); add(el, G.forearm, skin);
+    return [sh, el];
+  };
+  const leg = side => {
+    const hip = pivot(body, side*0.2, 1.0); add(hip, G.thigh, t.pants);
+    const knee = pivot(hip, 0, -0.5); add(knee, G.shin, t.socks); add(knee, G.cleat, 0x1a1a1a);
+    return [hip, knee];
+  };
+  const [shL, elL] = arm(1), [shR, elR] = arm(-1), [hipL, kneeL] = leg(1), [hipR, kneeR] = leg(-1);
+  const sh = new THREE.Mesh(G.shadow, shadowMat); sh.rotation.x = -Math.PI/2; sh.position.y = 0.035;
+  g.add(body, sh); scene.add(g);
+  const pose = {}; JOINTS.forEach(j => pose[j] = 0);
+  return {team, role, skin, mesh:g, body, j:{torso, head, shL, elL, shR, elR, hipL, kneeL, hipR, kneeR}, pose,
+          x:0, y:0, vx:0, vy:0, spd:7, stun:0, acc:5, brake:7.5, turn:6, accel:0, stride:Math.random()*6, face:0, act:null, actT:0, eng:0};
+}
+const QB = makePlayer('O','QB');
+const LT = makePlayer('O','OL'), LG = makePlayer('O','OL'), C = makePlayer('O','OL'), RG = makePlayer('O','OL'), RT = makePlayer('O','OL');
+const WRs = [makePlayer('O','WR'), makePlayer('O','WR'), makePlayer('O','WR')];
+const TE = makePlayer('O','WR'), RB = makePlayer('O','WR');
+const OL = [LT, LG, C, RG, RT], RECV = [...WRs, TE, RB], ROUTE_KEYS = ['out','out','slot','te','rb'];
+const OFF = [QB, ...OL, ...RECV];
+const DL = [makePlayer('D','DL'), makePlayer('D','DL'), makePlayer('D','DL'), makePlayer('D','DL')];
+const LBs = [makePlayer('D','LB'), makePlayer('D','LB')];
+const CBs = [makePlayer('D','CB'), makePlayer('D','CB'), makePlayer('D','CB')];
+const SFs = [makePlayer('D','S'), makePlayer('D','S')];
+const DEF = [...DL, ...LBs, ...CBs, ...SFs], ALL = [...OFF, ...DEF];
+// ratings (kept for the whole game): blockers have strength / agility, defenders power / speed
+{
+  const R = (a, b) => Math.round(rand(a, b));
+  const rate = (p, a, b, c, e) => { if(p.team === 'O'){ p.rStr = R(a, b); p.rAgi = R(c, e); } else { p.rPow = R(a, b); p.rSpd = R(c, e); } };
+  OL.forEach(o => rate(o, 70, 90, 55, 80)); rate(TE, 60, 80, 60, 75); rate(RB, 55, 70, 60, 75);
+  WRs.forEach(w => rate(w, 40, 60, 60, 80)); rate(QB, 35, 45, 45, 55);
+  DL.forEach((d, i) => (i === 0 || i === 3) ? rate(d, 60, 80, 72, 90) : rate(d, 75, 92, 55, 70));   // ends: speed, tackles: power
+  LBs.forEach(b => rate(b, 60, 75, 60, 78)); CBs.forEach(c => rate(c, 40, 60, 65, 85)); SFs.forEach(s => rate(s, 50, 65, 60, 80));
+  // tackling: ball carriers have break-tackle (rBrk), defenders tackling (rTkl); mass in lb drives collisions
+  const MASS = {RB:215, WR:195, TE:250, QB:220, OL:310, DT:305, DE:270, LB:240, CB:195, S:205};
+  OFF.forEach(o => o.rBrk = o === RB ? R(65, 85) : o === TE ? R(65, 80) : o === QB ? R(40, 55) : R(50, 70));
+  DEF.forEach(d => d.rTkl = d.role === 'LB' ? R(75, 90) : d.role === 'S' ? R(70, 85) : d.role === 'CB' ? R(60, 78) : R(65, 80));
+  // awareness: how fast he reads the play and how cleanly he takes his angles
+  DEF.forEach(d => d.rAwr = d.role === 'LB' || d.role === 'S' ? R(65, 90) : R(55, 80));
+  // movement: [acceleration, cut/turn] in yd/s²; braking is 1.5x acceleration
+  const MOVE = {RB:[7.2,13], WR:[6.5,8.5], TE:[6,6.5], QB:[5,6.5], OL:[5.6,5.5], DT:[5.8,6], DE:[6.2,7], LB:[5.8,7.5], CB:[6.5,8.5], S:[6,8]};
+  ALL.forEach(p => {
+    const key = p === RB ? 'RB' : p === TE ? 'TE' : p.role === 'DL' ? (p === DL[0] || p === DL[3] ? 'DE' : 'DT') : p.role;
+    const [a, t] = MOVE[key];
+    p.acc = a*rand(0.92, 1.08); p.brake = p.acc*1.5; p.turn = t*rand(0.92, 1.08);
+    p.mass = MASS[key]*rand(0.95, 1.05);
+  });
+}
+
+// ---------- ball + markers ----------
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), new THREE.MeshLambertMaterial({color:0x7a3e1d}));
+ballMesh.scale.set(1, 1, 1.75); scene.add(ballMesh);
+const flat = (geo, c, op=1) => { const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:op, depthWrite:false})); m.rotation.x = -Math.PI/2; m.position.y = 0.05; scene.add(m); return m; };
+const ctrlRing = flat(new THREE.RingGeometry(0.75, 0.95, 32), 0xffd21f, .95);
+const aimRing = flat(new THREE.RingGeometry(0.9, 1.15, 32), 0xffffff, .9);
+const landRing = flat(new THREE.RingGeometry(1.1, 1.4, 32), 0xffd21f, .85);
+const ARC_N = 28;
+const arcGeo = new THREE.BufferGeometry(); arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((ARC_N+1)*3), 3));
+const arcLine = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({color:0xffffff, transparent:true, opacity:.55}));
+scene.add(arcLine);
+
+// route preview ribbons
+const routeMat = new THREE.MeshBasicMaterial({color:0xffe066, transparent:true, opacity:.6, depthWrite:false});
+const routeGroup = new THREE.Group(); scene.add(routeGroup);
+function seg(a, b, w, material=routeMat, group=routeGroup){
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+  if(len < 0.05) return;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, len), material);
+  m.rotation.order = 'YXZ'; m.rotation.x = -Math.PI/2; m.rotation.y = Math.atan2(-dx, dy);
+  m.position.copy(toWorld((a.x+b.x)/2, (a.y+b.y)/2, 0.04)); group.add(m);
+}
+// defensive call preview: red lines from each box defender to the gap he will attack
+const fitMat = new THREE.MeshBasicMaterial({color:0xff5a4a, transparent:true, opacity:.7, depthWrite:false});
+const fitGroup = new THREE.Group(); scene.add(fitGroup);
+const DEF_CALLS = [
+  {name:'Base',             note:'Linemen hold their gaps, linebackers read and fill', slant:0},
+  {name:'Slant Left',       note:'Whole line slants one gap to your left', slant:-1.8},
+  {name:'Slant Right',      note:'Whole line slants one gap to your right', slant:1.8},
+  {name:'Run Blitz',        note:'One linebacker shoots his gap at the snap', slant:0, blitz:true},
+  {name:'Eight in the Box', note:'A safety rolls down and the linebackers trigger fast', slant:0, box:true, fastLB:true}
+];
+function drawFits(){
+  fitGroup.children.forEach(c => c.geometry.dispose()); fitGroup.clear();
+  for(const d of DEF) if(d.fit) seg(d, d.fit, d.mode === 'rush' && d.role === 'LB' ? 0.4 : 0.25, fitMat, fitGroup);
+  fitGroup.visible = true;
+}
+function drawRoutes(){
+  routeGroup.children.forEach(c => c.geometry.dispose()); routeGroup.clear();
+  for(const w of RECV){
+    let prev = {x:w.x, y:w.y};
+    for(const p of w.route){ seg(prev, p, 0.3); prev = p; }
+    if(w.go) seg(prev, {x:prev.x + w.goDir.x*6, y:prev.y + w.goDir.y*6}, 0.3);
+  }
+}
+
+// ---------- playbook ----------
+// route points: [yards toward the middle, yards downfield from the line]
+const PASS_GAME = false;   // pass plays parked while the run game gets tuned; flip to bring them back
+const PLAYS = [
+  {name:'Slants',        out:{pts:[[0,3],[7,9]], go:true},    slot:{pts:[[0,3],[7,9]], go:true},
+                         te:{pts:[[0,10],[0,40]], go:true},   rb:{pts:[[-5,1],[-8,3]], go:false}},
+  {name:'Verticals',     out:{pts:[[-2,10],[-2,45]], go:true}, slot:{pts:[[1,10],[2,45]], go:true},
+                         te:{pts:[[0,10],[1,45]], go:true},   rb:{pts:[[-4,2],[-3,6]], go:false}},
+  {name:'Curl / Out',    out:{pts:[[0,13],[1,11]], go:false},  slot:{pts:[[0,6],[-9,6]], go:true},
+                         te:{pts:[[0,6],[1,5]], go:false},    rb:{pts:[[-5,1],[-8,3]], go:false}},
+  {name:'Post / Corner', out:{pts:[[0,12],[8,30]], go:true},   slot:{pts:[[0,10],[-9,22]], go:true},
+                         te:{pts:[[0,4],[14,6]], go:true},    rb:{pts:[[-6,2],[-8,12],[-8,35]], go:true}},
+  // run plays: RB path points are [field x, yards from the line]; hand = handoff, toss = pitch, keep = QB runs
+  // scheme 'zone': linemen + TE each own a lane (start x + shift) and block whoever shows up in it, else climb.
+  // scheme 'man': `blocks` names each blocker's defender; `pulls` are waypoints [x, yards from line] run first.
+  // defender keys: DL0-3 and LB0-1 / S0-1 numbered left to right, CB0-2 = cornerback on WR0-2
+  {name:'Inside Zone', run:'hand', scheme:'zone', shift:-1, hole:-1.1,
+   blocks:{WR0:'CB0', WR1:'CB1', WR2:'CB2'},
+   path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]]},
+  {name:'Power Left', run:'hand', scheme:'man', hole:-3.6,
+   blocks:{LT:'LB0', LG:'DL1', C:'DL2', RG:'DL0', RT:'LB1', TE:'DL3', WR0:'CB0', WR1:'CB1', WR2:'CB2'},
+   pulls:{RG:[[0.8,-1.8],[-2.6,-1.8]]},
+   path:[[-0.3,-3.6],[-2.8,-1.4],[-3.6,0.8],[-3.8,8]]},   // patient: press the line, cut off the kick-out
+  {name:'Outside Zone Right', run:'toss', scheme:'zone', shift:3, hole:8.5,   // aim: tight end's outside hip; he reads bounce / cut back
+   blocks:{WR0:'CB0', WR1:'CB1', WR2:'S0'},
+   path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]]},
+  {name:'QB Draw', run:'keep', scheme:'man', hole:0, passSet:0.7,
+   blocks:{LT:'DL0', LG:'DL1', RG:'DL2', RT:'DL3', C:'LB0', TE:'LB1', WR0:'CB0', WR1:'CB1', WR2:'CB2'}}
+].filter(p => PASS_GAME || p.run);
+const playsEl = $('plays');
+PLAYS.forEach((p, i) => {
+  if(i === 0 || (p.run && !PLAYS[i-1].run)){
+    const l = document.createElement('span'); l.className = 'group'; l.textContent = p.run ? 'Run' : 'Pass'; playsEl.appendChild(l);
+  }
+  const b = document.createElement('button'); b.className = 'play'; b.type = 'button'; b.id = 'play' + i;
+  b.innerHTML = `<kbd>${i+1}</kbd>${p.name}`;
+  b.addEventListener('click', () => { selectPlay(i); cvs.focus(); });
+  playsEl.appendChild(b);
+});
+
+// ---------- state ----------
+const S = {score:0, tds:0, drive:1, los:25, down:1, toGo:10, play:0, phase:'presnap', runMode:false,
+           clock:0, deadT:0, charging:false, chargeT:0, over:false, ctrl:QB, cpu:true, preT:0, overT:0, cam:'tv'};
+const ball = {state:'pre', holder:null, fx:0, fy:0, tx:0, ty:0, t:0, dur:1, apex:1, thrownAt:0, target:null};
+
+function selectPlay(i){
+  S.play = i;
+  PLAYS.forEach((_, j) => $('play'+j).setAttribute('aria-pressed', String(j===i)));
+  if(S.phase === 'presnap') assignRoutes();
+}
+function assignRoutes(){
+  const play = PLAYS[S.play];
+  RECV.forEach((w, i) => {
+    w.wp = 0; w.route = []; w.go = false; w.goDir = {x:0, y:1};
+    if(play.run) return;
+    const r = play[ROUTE_KEYS[i]], inward = -Math.sign(w.x);
+    w.route = r.pts.map(([dx, dy]) => ({x:clamp(w.x + dx*inward, -HW+1, HW-1), y:Math.min(109, S.los + dy)}));
+    w.go = r.go;
+  });
+  if(play.path){ RB.route = play.path.map(([x, dy]) => ({x:clamp(x, -HW+1, HW-1), y:Math.min(109, S.los + dy)})); RB.go = true; }
+  RECV.forEach(w => {
+    if(!w.route.length) return;
+    const b = w.route[w.route.length-1], a = w.route.length > 1 ? w.route[w.route.length-2] : {x:w.x, y:w.y};
+    const l = Math.hypot(b.x-a.x, b.y-a.y) || 1; w.goDir = {x:(b.x-a.x)/l, y:(b.y-a.y)/l};
+  });
+  drawRoutes(); routeGroup.visible = true;
+}
+function place(p, x, y){
+  p.x = x; p.y = y; p.vx = p.vy = 0; p.stun = 0; p.latch = null; p.tkCool = 0; p.downP = 0; p.slow = 1; p.latAcc = 0; p.svx = 0; p.svy = 0; p.tripT = 0; p.reachCool = 0; p.bt = null; p.freeFrom = null; p.freeT = 0; p.beatT = 0; p.locked = false; p.accel = 0; p.falling = false;
+  p.act = null; p.actT = 0; p.eng = 0; p.faceAt = null; p.holeX = null; p.ofLane = null; p.ofT = 0; p.stam = 1; p.churn = false; p.face = p.team === 'O' ? Math.PI : 0;
+}
+
+function setupPlay(){
+  physClear();
+  const L = S.los;
+  S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0;
+  place(QB, 0, L-4.5);
+  OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); o.spd = 6.6; });
+  place(WRs[0], -20, L-0.8); place(WRs[1], 20, L-0.8); place(WRs[2], -11, L-1.0);
+  place(TE, 6.8, L-1.0); place(RB, 1.8, L-4.5);
+  QB.spd = 7.0; WRs.forEach(w => w.spd = rand(7.5, 7.9)); TE.spd = 6.9; RB.spd = 7.6;
+  [-5, -1.2, 1.2, 5].forEach((x, i) => place(DL[i], x, L+1.1));
+  DL.forEach(d => { d.mode = 'rush'; d.spd = 6.0; });
+  CBs.forEach((c, i) => {
+    const w = WRs[i]; place(c, w.x - Math.sign(w.x)*0.6, L + (i===2 ? 5 : 6));
+    c.mode = 'cover'; c.assign = w; c.cushion = rand(1.0, 2.4); c.spd = rand(7.4, 7.8);
+  });
+  SFs.forEach((s, i) => { s.side = i ? 1 : -1; place(s, s.side*10, L+13); s.mode = 'deep'; s.spd = rand(7.3, 7.6); });
+  // react: delay before breaking on a thrown ball; read: delay after the handoff before chasing the runner
+  DEF.forEach(d => { d.fit = null; d.react = rand(0.15, 0.45); d.read = d.role === 'DL' ? rand(0.2, 0.35) : rand(0.25, 0.5); });
+
+  // defensive call -> run fits. Every defender gets a job (see RUN FITS below); placement is the alignment.
+  const call = S.defCall = DEF_CALLS[Math.floor(Math.random()*DEF_CALLS.length)];
+  const blitzer = call.blitz ? Math.floor(Math.random()*2) : -1;
+  LBs.forEach((b, i) => {
+    const side = i ? 1 : -1, blitz = i === blitzer;
+    place(b, side*3.5, blitz ? L+3.5 : L+5);
+    b.assign = i ? RB : TE; b.mode = blitz ? 'rush' : 'cover'; b.cushion = 0.6; b.spd = rand(6.9, 7.2);
+  });
+  const boxS = call.box ? SFs[Math.floor(Math.random()*2)] : null;
+  if(boxS) place(boxS, boxS.side*4.5, L+6);
+  assignFits(call, blitzer, boxS);
+  S.handoffAt = Infinity;
+  drawFits();
+  RB.auto = false;
+  OFF.forEach(o => { o.blk = null; o.scripted = false; o.lane = null; o.via = null; o.climbing = false; o.push = o.role === 'OL' ? 2.0 : o === TE ? 1.4 : o === RB ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  ball.state = 'pre'; ball.holder = null; ball.target = null;
+  losLine.position.z = 50 - L;
+  fdLine.position.z = 50 - Math.min(100, L + S.toGo); fdLine.visible = L + S.toGo < 100;
+  assignRoutes(); hideBanner(); clearCallouts(); updateHUD(); snapCam = true;
+}
+
+// ---------- HUD ----------
+const ord = n => ['1st','2nd','3rd','4th'][n-1] || n+'th';
+const downText = () => `${ord(S.down)} & ${S.los + S.toGo >= 100 ? 'Goal' : S.toGo}`;
+function updateHUD(){
+  $('score').textContent = S.score;
+  $('down').textContent = downText();
+  $('spot').textContent = S.los > 50 ? `OPP ${100-S.los}` : S.los < 50 ? `OWN ${S.los}` : '50';
+  $('drive').textContent = `${Math.min(S.drive, MAX_DRIVES)} / ${MAX_DRIVES}`;
+  if(S.defCall) $('defcall').textContent = S.defCall.name;
+}
+function banner(h, p){ $('bannerH').textContent = h; $('bannerP').textContent = p || ''; $('banner').classList.add('on'); }
+function hideBanner(){ $('banner').classList.remove('on'); }
+let toastTimer = 0;
+function toast(t){ const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 900); }
+// floating callouts that follow a player (line battle moves and results)
+const labels = [];
+function callout(p, text, cls=''){
+  return;   // floating player callouts are off; flip this line to bring them back
+  const el = document.createElement('div'); el.className = 'callout ' + cls; el.textContent = text;
+  $('labels').appendChild(el); labels.push({el, p, t:0, ttl:1.1});
+}
+function clearCallouts(){ labels.forEach(l => l.el.remove()); labels.length = 0; }
+function updateCallouts(dt){
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  for(let i = labels.length - 1; i >= 0; i--){
+    const l = labels[i]; l.t += dt;
+    if(l.t > l.ttl){ l.el.remove(); labels.splice(i, 1); continue; }
+    const v = toWorld(l.p.x, l.p.y, 2.9 + l.t*0.6).project(camera);
+    l.el.style.transform = `translate(${(v.x + 1)/2*w}px, ${(1 - v.y)/2*h}px) translate(-50%, -100%)`;
+    l.el.style.opacity = String(Math.min(1, (l.ttl - l.t)*3));
+  }
+}
+let lastHint = '';
+function setHint(html){ if(html !== lastHint){ $('hint').innerHTML = html; lastHint = html; } }
+
+// ---------- input ----------
+const keys = new Set();
+const MOVE_KEYS = ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' '];
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if(MOVE_KEYS.includes(k)) e.preventDefault();
+  keys.add(k);
+  if(k === 'c') setCpu(!S.cpu);
+  if(k === 'v') setCam(S.cam === 'tv' ? 'behind' : 'tv');
+  if(S.phase === 'presnap' && !S.cpu && k >= '1' && k <= String(PLAYS.length)) selectPlay(+k - 1);
+});
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+addEventListener('blur', () => keys.clear());
+function inputVec(){
+  let x = 0, y = 0;
+  if(keys.has('w') || keys.has('arrowup')) y++;
+  if(keys.has('s') || keys.has('arrowdown')) y--;
+  if(keys.has('a') || keys.has('arrowleft')) x--;
+  if(keys.has('d') || keys.has('arrowright')) x++;
+  const l = Math.hypot(x, y);
+  return l ? {x:x/l, y:y/l, on:true} : {x:0, y:0, on:false};
+}
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(0, 0), ground = new THREE.Plane(new THREE.Vector3(0,1,0), 0), hit = new THREE.Vector3();
+const aim = {x:0, y:50};
+cvs.addEventListener('pointermove', e => {
+  const r = cvs.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left)/r.width)*2 - 1, -((e.clientY - r.top)/r.height)*2 + 1);
+});
+cvs.addEventListener('contextmenu', e => e.preventDefault());
+cvs.addEventListener('pointerdown', e => {
+  cvs.focus();
+  if(e.button !== 0) return;
+  if(S.phase === 'over'){ newGame(); return; }
+  if(S.cpu) return;
+  if(S.phase === 'presnap'){ snap(); return; }
+  if(canThrow()){ S.charging = true; S.chargeT = 0; }
+});
+addEventListener('pointerup', () => { if(S.charging) throwBall(); });
+
+const canThrow = () => S.phase === 'live' && ball.state === 'held' && ball.holder === QB && !S.runMode;
+const charge = () => Math.min(1, S.chargeT/0.9);
+
+function snap(){
+  const run = PLAYS[S.play].run;
+  S.phase = 'live'; S.clock = 0; S.runMode = !!run;
+  S.ctrl = run && run !== 'keep' ? RB : QB;
+  pitch(C, QB, 0.3);
+  fitGroup.visible = false;
+  if(run === 'keep'){ S.handoffAt = PLAYS[S.play].passSet || 0; QB.auto = true; QB.route = [{x:0.4, y:S.los + 1.5}]; QB.wp = 0; }
+  if(run){
+    const play = PLAYS[S.play];
+    const OK = {LT, LG, C, RG, RT, TE, RB, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2]};
+    const lbs = [...LBs].sort((a, b) => a.x - b.x), sfs = [...SFs].sort((a, b) => a.x - b.x);
+    const DK = {DL0:DL[0], DL1:DL[1], DL2:DL[2], DL3:DL[3], LB0:lbs[0], LB1:lbs[1], CB0:CBs[0], CB1:CBs[1], CB2:CBs[2], S0:sfs[0], S1:sfs[1]};
+    for(const [o, d] of Object.entries(play.blocks || {})){ OK[o].blk = DK[d]; OK[o].scripted = true; }
+    if(play.scheme === 'zone') [...OL, TE].forEach(o => { o.lane = o.x + play.shift; o.blk = null; });
+    // safety rolled down on the play side: the tight end climbs straight to him instead of zoning
+    const boxS = SFs.find(f => f.fit && Math.sign(f.x) === Math.sign(play.shift || 0));
+    if(play.scheme === 'zone' && boxS){ TE.blk = boxS; TE.locked = true; OFF.forEach(o => { if(o !== TE && o.blk === boxS) o.blk = null; }); }
+    for(const [o, pts] of Object.entries(play.pulls || {})) OK[o].via = pts.map(([x, dy]) => ({x, y:S.los + dy}));
+  }
+}
+// short ball transfer between two players (snap, toss)
+function pitch(from, to, dur){ Object.assign(ball, {state:'pitch', pf:from, pt:to, t:0, pdur:dur, holder:null}); }
+function giveBall(p){
+  ball.state = 'held'; ball.holder = p;
+  if(p === RB && S.runMode){ RB.auto = true; S.handoffAt = S.clock; }
+}
+function throwArc(c, d){ return {speed: 30 - c*13, apex: 0.6 + c*5 + d*0.04}; }
+function throwTarget(){
+  let tx = aim.x, ty = aim.y; const dx = tx - QB.x, dy = ty - QB.y, d = Math.hypot(dx, dy);
+  if(d > 60){ tx = QB.x + dx/d*60; ty = QB.y + dy/d*60; }
+  return {tx, ty, d:Math.min(d, 60)};
+}
+function throwBall(){
+  S.charging = false;
+  if(!canThrow()) return;
+  const c = charge(), {tx, ty, d} = throwTarget(), arc = throwArc(c, d);
+  Object.assign(ball, {state:'air', holder:null, fx:QB.x, fy:QB.y, tx, ty, t:0,
+    dur:Math.max(0.3, d/arc.speed), apex:arc.apex, thrownAt:S.clock});
+  ball.target = RECV.reduce((a, b) => dist(b, {x:tx, y:ty}) < dist(a, {x:tx, y:ty}) ? b : a);
+  S.ctrl = ball.target; routeGroup.visible = false;
+  QB.act = 'throw'; QB.actT = 0.35;
+}
+function ballPos(t){
+  return {x: ball.fx + (ball.tx - ball.fx)*t, y: ball.fy + (ball.ty - ball.fy)*t,
+          h: 2.0 + (1.4 - 2.0)*t + 4*ball.apex*t*(1-t)};
+}
+function resolvePass(){
+  const L = {x:ball.tx, y:ball.ty};
+  const w = ball.target, dO = dist(w, L);
+  let dd = null, dD = 1e9;
+  for(const d of DEF){ if(d.stun > 0) continue; const k = dist(d, L); if(k < dD){ dD = k; dd = d; } }
+  const r = Math.random();
+  if(dO < 1.7){
+    if(dD < 1.3){
+      if(r < (dO < dD ? 0.6 : 0.25)) return catchBall(w, 'Contested catch!');
+      if(r < 0.85) return endPlay('inc', 0, 'Broken up');
+      return endPlay('int');
+    }
+    return catchBall(w, 'Caught!');
+  }
+  if(dD < 1.3) return r < 0.4 ? endPlay('int') : endPlay('inc', 0, 'Knocked down');
+  endPlay('inc');
+}
+function catchBall(w, msg){
+  S.handoffAt = S.clock;
+  ball.state = 'held'; ball.holder = w; S.runMode = true; S.ctrl = w; toast(msg);
+}
+
+// ---------- downs ----------
+function endPlay(kind, y, note){
+  S.phase = 'dead'; S.deadT = 2.2; S.charging = false;
+  if(kind === 'td'){ S.score += 7; S.tds++; banner('TOUCHDOWN', '+7 points'); newDrive(); return; }
+  if(kind === 'int'){ banner('INTERCEPTED', 'Drive over'); newDrive(); return; }
+  if(kind === 'inc'){ S.down++; if(!checkDowns()) banner('INCOMPLETE', (note ? note + ' · ' : '') + downText()); updateHUD(); return; }
+  if(y <= 0){ banner('SAFETY', 'Drive over'); newDrive(); return; }
+  const spot = clamp(Math.round(y), 1, 99), gain = spot - S.los;
+  S.los = spot;
+  const head = note || (gain > 0 ? `+${gain} YARDS` : gain < 0 ? `LOSS OF ${-gain}` : 'NO GAIN');
+  if(gain >= S.toGo){ S.down = 1; S.toGo = Math.min(10, 100 - spot); banner(head, 'First down · ' + downText()); }
+  else { S.down++; S.toGo -= gain; if(!checkDowns()) banner(head, downText()); }
+  updateHUD();
+}
+function checkDowns(){
+  if(S.down <= 4) return false;
+  banner('TURNOVER ON DOWNS', 'Drive over'); newDrive(); return true;
+}
+function newDrive(){
+  S.drive++; S.los = 25; S.down = 1; S.toGo = 10;
+  if(S.drive > MAX_DRIVES) S.over = true;
+  updateHUD();
+}
+const playIdx = n => PLAYS.findIndex(p => p.name === n);
+function cpuCall(){
+  const w = {'Inside Zone':1, 'Power Left':1, 'Outside Zone Right':1, 'QB Draw':0.4}, call = S.defCall.name;
+  if(S.toGo <= 2){ w['Inside Zone'] += 1.5; w['Power Left'] += 1.5; }
+  if(S.toGo >= 7){ w['Outside Zone Right'] += 1; w['QB Draw'] += 0.6; }
+  if(call === 'Slant Left'){ w['Outside Zone Right'] += 1.5; w['Power Left'] = Math.max(0.2, w['Power Left'] - 0.6); }   // run away from the slant
+  if(call === 'Slant Right') w['Power Left'] += 1.5;
+  if(call === 'Run Blitz'){ w['QB Draw'] += 1; w['Outside Zone Right'] += 0.5; }
+  if(call === 'Eight in the Box') w['Outside Zone Right'] += 1.5;                                                       // get outside the extra man
+  const names = Object.keys(w).filter(n => playIdx(n) >= 0), tot = names.reduce((a, n) => a + w[n], 0);
+  let r = Math.random()*tot; for(const n of names){ r -= w[n]; if(r <= 0) return playIdx(n); }
+  return playIdx(names[0]);
+}
+function cpuTick(dt){
+  if(!S.cpu) return;
+  if(S.phase === 'presnap'){
+    S.preT += dt;
+    if(S.preT > 1.0 && !S.called){ S.called = true; selectPlay(cpuCall()); toast('CPU: ' + PLAYS[S.play].name); }
+    if(S.preT > 2.4){ S.called = false; snap(); }
+  } else if(S.phase === 'over'){ S.overT += dt; if(S.overT > 5){ S.overT = 0; newGame(); } }
+}
+function setCpu(on){
+  S.cpu = on; $('cpuBtn').setAttribute('aria-pressed', String(on));
+  if(on && ball.holder){ ball.holder.auto = true; }
+}
+function setCam(m){ S.cam = m; $('camBtn').setAttribute('aria-pressed', String(m === 'tv')); snapCam = true; }
+function nextPlay(){
+  if(S.over){
+    S.phase = 'over';
+    banner('FINAL', `${S.score} points · ${S.tds} touchdown${S.tds===1?'':'s'} in ${MAX_DRIVES} drives · Click to play again`);
+    return;
+  }
+  setupPlay();
+}
+function newGame(){ Object.assign(S, {score:0, tds:0, drive:1, los:25, down:1, toGo:10, over:false}); setupPlay(); }
+
+// ---------- movement ----------
+// Movement physics. The velocity change is split along the current heading (speed up / brake) and
+// across it (turn). Acceleration fades toward top speed, braking is harder than accelerating, and the
+// sideways limit means a full-speed cut has to shed speed first. Rates are per player (yd/s²).
+// (The trailing argument some callers still pass is ignored.)
+function steerVel(p, dvx, dvy, dt){
+  const slow = p.slow || 1; dvx *= slow; dvy *= slow;   // tacklers hanging on
+  const sp = Math.hypot(p.vx, p.vy);
+  let ux, uy;
+  if(sp > 0.3){ ux = p.vx/sp; uy = p.vy/sp; }
+  else {
+    const dl = Math.hypot(dvx, dvy);
+    if(dl < 0.05){ p.vx = p.vy = 0; p.accel = 0; return; }
+    ux = dvx/dl; uy = dvy/dl;
+  }
+  const ex = dvx - p.vx, ey = dvy - p.vy;
+  const par = ex*ux + ey*uy, px = ex - par*ux, py = ey - par*uy;
+  const aMax = par > 0 ? p.acc*Math.max(0.2, 1 - (sp/(p.spd*1.15))**2) : p.brake;
+  const dPar = clamp(par, -aMax*dt, aMax*dt);
+  const pl = Math.hypot(px, py), lim = p.turn*dt, k = pl > lim ? lim/pl : 1;
+  p.vx += dPar*ux + px*k; p.vy += dPar*uy + py*k;
+  p.latAcc = pl*k/dt;   // sideways acceleration: how hard he is cutting
+  p.accel = dPar/dt;
+  p.x += p.vx*dt; p.y += p.vy*dt;
+}
+function steer(p, tx, ty, speed, dt){
+  const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
+  // arrive: never faster than what he can still brake from before the target
+  const s = d > 0.05 ? Math.min(speed, Math.sqrt(2*p.brake*d))/d : 0;
+  steerVel(p, dx*s, dy*s, dt);
+}
+function runRoute(w, dt){
+  if(w.wp < w.route.length){
+    const t = w.route[w.wp], n = w.route[w.wp + 1], d = Math.hypot(t.x - w.x, t.y - w.y);
+    if(!n && !w.go){ if(d < 0.7) w.wp++; steer(w, t.x, t.y, w.spd, dt); return; }   // a route that stops (curl): settle on the spot
+    // through waypoints at full speed, rounding each corner by aiming partway at the next one
+    if(d < 1.2) { w.wp++; runRoute(w, dt); return; }
+    const k = n ? clamp(1 - d/2.5, 0, 1)*0.6 : 0, ax = t.x + (n ? (n.x - t.x)*k : 0), ay = t.y + (n ? (n.y - t.y)*k : 0);
+    const l = Math.hypot(ax - w.x, ay - w.y) || 1;
+    steerVel(w, (ax - w.x)/l*w.spd, (ay - w.y)/l*w.spd, dt);
+  } else if(w.go) steer(w, w.x + w.goDir.x*5, w.y + w.goDir.y*5, w.spd, dt, 8);
+  else steer(w, w.x, w.y, 0, dt, 8);
+}
+// ---------- ball carrier AI ----------
+// Everything is a race: for a spot on the field, how much sooner does he get there than the quickest defender
+// who can still make a play? Defenders on the ground don't count; ones locked up with a blocker count late.
+const SPRINT = 1.12;
+// sprint is a burst, not a gear: ~1.7 s of full burst per play, recovers slowly when he's not using it
+function burst(p, want, dt){
+  if(p.stam == null) p.stam = 1;
+  const on = want && p.stam > 0;
+  p.stam = clamp(p.stam + (on ? -0.6 : 0.08)*dt, 0, 1);
+  return on ? SPRINT : 1;
+}
+function raceMargin(p, qx, qy){
+  const tr = Math.hypot(qx - p.x, qy - p.y)/(p.spd*SPRINT);
+  let m = 1.5;
+  for(const d of DEF){
+    if(d.stun > 0 || d.ph) continue;
+    const td = Math.hypot(qx - d.x, qy - d.y)/(d.spd + 0.2) + (d.bt ? 0.45 : 0);
+    m = Math.min(m, td - tr);
+  }
+  return m;
+}
+// at the line: read the blocking and take the gap he wins, staying close to the designed hole
+function readHole(p, dt){
+  const play = PLAYS[S.play], hole = play.hole ?? 0, y = S.los + 1;
+  let best = p.holeX ?? hole, bs = -1e9;
+  for(let x = hole - 5; x <= hole + 5; x += 0.5){
+    if(Math.abs(x) > HW - 1.5) continue;
+    const sc = raceMargin(p, x, y) + raceMargin(p, x, y + 3)*0.6 - Math.abs(x - hole)*0.05 - Math.abs(x - p.x)*0.03;
+    if(sc > bs + (x === p.holeX ? 0 : 0.08)){ bs = sc; best = x; }    // a little hysteresis: don't dance
+  }
+  p.holeX = best;
+  const sp = p.spd*burst(p, bs > 0.2, dt);
+  const dx = best - p.x, dy = y + 1.5 - p.y, l = Math.hypot(dx, dy) || 1;
+  steerVel(p, dx/l*sp, dy/l*sp, dt);
+}
+// open field: lanes from straight upfield to 90° either side, each scored by the worst race along it
+// (2, 4 and 6 yd out), plus ground gained, minus the sideline. Re-reads 10x a second, commits in between.
+function openField(p, dt){
+  p.ofT = (p.ofT || 0) - dt;
+  if(p.ofT <= 0){
+    p.ofT = 0.1;
+    let best = p.ofLane ?? 0, bs = -1e9;
+    for(let a = -90; a <= 90; a += 10){
+      const r = a*Math.PI/180, dx = Math.sin(r), dy = Math.cos(r);
+      let m = 1.5, side = 0;
+      for(const k of [2, 4, 6]){
+        const qx = p.x + dx*k, qy = p.y + dy*k;
+        m = Math.min(m, raceMargin(p, qx, qy));
+        if(Math.abs(qx) > HW - 1) side = 4;
+      }
+      const sc = m*3 + dy*1.6 - side - (a === p.ofLane ? 0 : 0.15);
+      if(sc > bs){ bs = sc; best = a; }
+    }
+    p.ofLane = best; p.ofMargin = bs;
+  }
+  const r = p.ofLane*Math.PI/180, sp = p.spd*burst(p, (p.ofMargin ?? 0) > 1, dt);
+  steerVel(p, Math.sin(r)*sp, Math.cos(r)*sp, dt);   // full commitment: cuts are as sharp as his feet allow
+}
+function autoCarry(p, dt){
+  const next = p.route[p.wp];
+  if(next && next.y < S.los - 1){ runRoute(p, dt); return; }       // still on the designed path in the backfield
+  if(p.y < S.los + 1.5) readHole(p, dt); else openField(p, dt);
+}
+// what blockers protect: the runner once he has the ball, otherwise the play's hole
+function runRef(){
+  const c = ball.state === 'held' ? ball.holder : null, play = PLAYS[S.play];
+  if(c && (c !== QB || !play.run || play.run === 'keep')) return c;
+  return {x:play.hole || 0, y:S.los + 1};
+}
+// nearest defender in front of the runner that no teammate is already blocking
+function pickBlock(p, ref){
+  let best = null, bd = 1e9;
+  for(const d of DEF){
+    if(d.stun > 0 || dist(d, ref) > 15 || d.y < ref.y - 3 || d.y < p.y - 1.5) continue;
+    if(OFF.some(o => o !== p && o.blk === d)) continue;
+    const k = dist(d, p); if(k < bd){ bd = k; best = d; }
+  }
+  return best;
+}
+// fit up on the defender's offense side, shaded toward the runner, so the drive goes forward and away from the hole
+function driveAt(p, d, ref, dt){
+  const vx = ref.x - d.x, vy = Math.min(ref.y - d.y, -0.6), l = Math.hypot(vx, vy) || 1;
+  if(dist(p, d) < 1.4){ p.eng = 0.15; p.locked = true; }
+  p.faceAt = d;
+  // a blocker who just got beaten is off balance: he chases his man but usually can't recover
+  steer(p, d.x + vx/l*0.85, d.y + vy/l*0.85, p.spd*(p.beatT > 0 ? 0.55 : 1), dt, 10);
+}
+const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
+// man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
+// defender (pancake) frees the blocker to go find someone else.
+function block(p, dt){
+  const ref = runRef();
+  let d = p.blk;
+  if(!d || d.stun > 0){ d = p.blk = pickBlock(p, ref); }
+  if(!d){ steer(p, ref.x + (p.x > ref.x ? 2.5 : -2.5), ref.y + 3, p.spd*0.85, dt); return; }  // nobody left: lead upfield
+  driveAt(p, d, ref, dt);
+}
+// zone: block whoever is in my lane at the line; if the lane is empty, climb to a linebacker in my area.
+// Once engaged, the man is mine for the rest of the play.
+function zoneBlock(p, dt){
+  const ref = runRef(), lane = p.lane;
+  let d = p.blk;
+  if(!(d && d.stun <= 0 && (p.locked || Math.abs(d.x - lane) < 3))){
+    d = null; p.locked = false; let bd = 1e9;
+    for(const e of DEF){
+      if(e.stun > 0 || claimed(p, e) || e.y < p.y - 1.5) continue;
+      const dx = Math.abs(e.x - lane), dy = e.y - S.los;
+      if(!((dy < 3.5 && dx < 1.8) || (p.climbing && dy < 9 && dx < 6))) continue;
+      const k = dist(e, p); if(k < bd){ bd = k; d = e; }
+    }
+    p.blk = d;
+  }
+  if(!d){ p.climbing = true; steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*0.9, dt, 10); return; }
+  driveAt(p, d, ref, dt);
+}
+function runBlock(p, dt){
+  const play = PLAYS[S.play];
+  if(play.run && p.via && p.via.length){                       // pulling: get through the waypoints first
+    const v = p.via[0];
+    if(Math.hypot(v.x - p.x, v.y - p.y) < 0.8) p.via.shift();
+    else {   // pulling: full speed through the waypoints (no arrive braking), quicker feet than a normal OL
+      const dx = v.x - p.x, dy = v.y - p.y, l = Math.hypot(dx, dy), a = p.acc, t = p.turn, s = p.spd*1.3;
+      p.acc *= 1.6; p.turn *= 1.8; steerVel(p, dx/l*s, dy/l*s, dt); p.acc = a; p.turn = t;
+      p.faceAt = p.blk; return;   // eyes on the kick-out man
+    }
+  }
+  if(play.run && p.lane != null) zoneBlock(p, dt); else block(p, dt);
+}
+function olAssign(p){
+  if(p !== C) return DL[[LT, LG, RG, RT].indexOf(p)];
+  const blitzer = LBs.find(b => b.mode === 'rush');
+  return blitzer || (dist(DL[1], QB) < dist(DL[2], QB) ? DL[1] : DL[2]);
+}
+function offenseAI(p, dt, inp){
+  p.faceAt = null;
+  if(p.falling) return;                                   // going down: tackleUpdate moves him
+  const c = ball.state === 'held' ? ball.holder : null, run = PLAYS[S.play].run;
+  if(run && run !== 'keep'){
+    if(p === RB && c !== RB){ runRoute(p, dt); return; }            // RB runs his path until he has the ball
+    if(p === QB && c === QB && run === 'hand'){ steer(p, RB.x, RB.y, 4, dt); return; }
+  }
+  if(p === c && p.auto){                                              // runner follows the path until you take over
+    if(inp.on) p.auto = false;
+    else {
+      if(p === QB && run === 'keep' && S.clock < (PLAYS[S.play].passSet || 0)){ steer(p, p.x, p.y, 0, dt); return; }   // sell the pass
+      autoCarry(p, dt);
+      return;
+    }
+  }
+  if(p === S.ctrl && (p === c || inp.on)){
+    const sp = p.spd*(p === c ? burst(p, keys.has('shift'), dt) : 1);
+    steerVel(p, inp.x*sp, inp.y*sp, dt, 12); return;
+  }
+  if(p.role === 'QB'){ steer(p, p.x, p.y, 0, dt, 6); return; }
+  if(p.role === 'WR'){
+    if(ball.state === 'air' && p === ball.target){ steer(p, ball.tx, ball.ty, p.spd, dt, 10); return; }
+    if(S.runMode && c !== p){ runBlock(p, dt); return; }
+    runRoute(p, dt); return;
+  }
+  const passSet = PLAYS[S.play].passSet;
+  if(S.runMode && !(passSet && S.clock < passSet)){ runBlock(p, dt); return; }   // draw: sell pass first
+  const r = olAssign(p), qx = QB.x - r.x, qy = QB.y - r.y, ql = Math.hypot(qx, qy) || 1;
+  if(dist(p, r) < 1.4) p.eng = 0.15;
+  p.faceAt = r;
+  steer(p, r.x + qx/ql*0.95, r.y + qy/ql*0.95, p.spd, dt, 10);
+}
+// pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
+// (solve |r + v·t| = s·t for the earliest t > 0); if he is faster, aim where he will be soon
+function intercept(d, c){
+  const rx = c.x - d.x, ry = c.y - d.y, vx = c.svx, vy = c.svy, s = d.spd + 0.2;
+  const a = vx*vx + vy*vy - s*s, b = 2*(rx*vx + ry*vy), cc = rx*rx + ry*ry;
+  let t = Infinity;
+  if(Math.abs(a) < 1e-6){ if(b < 0) t = -cc/b; }
+  else {
+    const disc = b*b - 4*a*cc;
+    if(disc >= 0) for(const r of [(-b - Math.sqrt(disc))/(2*a), (-b + Math.sqrt(disc))/(2*a)]) if(r > 0) t = Math.min(t, r);
+  }
+  // he can get there first: take the cut-off angle (up to 3 s out). He can't: aim just ahead of the runner,
+  // never at a spot far downfield (that sends him running away from the play)
+  t = isFinite(t) ? Math.min(t, 3) : Math.min(Math.hypot(rx, ry)/s, 0.6);
+  return [c.x + vx*t, c.y + vy*t];
+}
+function coverTarget(d){
+  if(d.mode === 'cover'){ const w = d.assign; return [w.x + w.vx*0.25, w.y + w.vy*0.25 + d.cushion]; }
+  if(d.mode === 'deep'){
+    const mine = RECV.filter(r => r.x*d.side > -3);
+    if(!mine.length) return [d.side*10, S.los + 13];
+    const deep = mine.reduce((a, b) => b.y > a.y ? b : a);
+    return [deep.x*0.7, Math.max(S.los + 12, deep.y + 5)];
+  }
+  return [QB.x, QB.y];
+}
+// ---------- RUN FITS ----------
+// Gaps, offense's view: A beside the center, B outside the guards, C outside the tackles, D outside the TE (right).
+const GAP = {AL:-1.1, BL:-3.3, CL:-5.6, AR:1.1, BR:3.3, CR:5.6, DR:8.2};
+// Jobs:
+//   gap     own one gap: fill it while the ball can still come there, then pursue inside-out (no cutback behind him)
+//   force   own the edge on one side: nothing gets outside him; squeeze the runner back in. Ball goes away: backside chase
+//   alley   safety between the force and the box: hold, then fill inside-out once the ball commits to his side
+//   deep    last line: stay deeper than the ball, mirror it, come downhill only when it's close
+//   support corner: cover his man; becomes the force if the force man is blocked, down or outflanked
+// Ratings decide how well: awareness = read time, read-step quality and angle discipline; speed = pursuit;
+// power / speed vs the blocker = shedding (line battle); tackling = the tackle.
+const FITS = {   // DL0..3, LB0 (left), LB1 (right): [job, gap]
+  'Base':             [['force','CL'], ['gap','AL'], ['gap','AR'], ['gap','CR'], ['gap','BL'], ['gap','BR']],
+  'Slant Left':       [['force','CL'], ['gap','BL'], ['gap','AL'], ['gap','BR'], ['gap','AR'], ['gap','CR']],
+  'Slant Right':      [['gap','BL'],   ['gap','AR'], ['gap','BR'], ['force','DR'], ['force','CL'], ['gap','AL']],
+  'Run Blitz':        [['force','CL'], ['gap','AL'], ['gap','AR'], ['gap','CR'], ['gap','BL'], ['gap','BR']],
+  'Eight in the Box': [['force','CL'], ['gap','AL'], ['gap','AR'], ['gap','CR'], ['gap','BL'], ['gap','BR']]
+};
+function assignFits(call, blitzer, boxS){
+  const L = S.los, box = [...DL, ...LBs];
+  FITS[call.name].forEach(([job, g], i) => { const d = box[i]; d.job = {role:job, gx:GAP[g], side:Math.sign(GAP[g])}; });
+  const [sl, sr] = [...SFs].sort((a, b) => a.x - b.x);
+  // right edge (TE side) belongs to a safety unless the front already put a man there
+  const rightForce = box.some(d => d.job.role === 'force' && d.job.side > 0);
+  if(boxS){
+    // eight in the box: the rolled-down safety is the force on his side, the other plays deep middle alone
+    boxS.job = {role:'force', gx:boxS.side > 0 ? GAP.DR : GAP.CL - 1.5, side:boxS.side};
+    if(boxS.side < 0) box.find(d => d.job.role === 'force' && d.job.side < 0).job = {role:'gap', gx:GAP.CL, side:-1};
+    const other = boxS === sl ? sr : sl; other.job = {role:'deep', side:0};
+    if(boxS.side < 0 && !rightForce) LBs[1].job = {role:'force', gx:GAP.DR, side:1};
+  } else {
+    sr.job = rightForce ? {role:'alley', gx:GAP.DR, side:1} : {role:'force', gx:GAP.DR + 1, side:1};
+    sl.job = {role:'deep', side:0};
+  }
+  CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
+  DEF.forEach(d => {
+    d.read = d.mode === 'rush' && d.role === 'LB' ? 0 : 0.6 - d.rAwr/250;   // awareness: 0.24 s (95) .. 0.38 s (55)
+    d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
+    d.fit = d.job.gx != null && (d.role === 'DL' || d.role === 'LB' || d === boxS) ? {x:d.job.gx, y:d.role === 'DL' ? L - 0.5 : L + 1.5} : null;
+  });
+  S.flow0 = RB.x;
+}
+// where the job sends him this frame
+function runFit(d, c){
+  const j = d.job, L = S.los, bx = c.x, by = c.y, s = j.side;
+  if(S.clock <= S.handoffAt + d.read){
+    // before the read: linemen attack their gap, second level read-steps with the backfield, the rest hold
+    const flow = ((ball.holder || RB).x - S.flow0)*(d.rAwr/100)*0.7;
+    if(d.role === 'DL') return [j.gx, L - 0.5];
+    if(j.role === 'gap' || j.role === 'force') return [j.gx + flow, L + (d.role === 'LB' ? 3.5 : 4)];
+    if(j.role === 'alley') return [j.gx*0.7 + flow*0.5, L + 7];
+    if(j.role === 'deep') return [flow*0.4, L + 12];
+    return coverTarget(d);
+  }
+  const [px, py] = intercept(d, c), dir = Math.abs(c.svx) > 0.8 ? Math.sign(c.svx) : 0, e = d.levErr;
+  const inside = () => [px - dir*0.8 + e, py];                 // pursue keeping inside leverage: no cutback behind him
+  const contain = side => dist(d, c) > 3
+    ? [bx + side*1.5 + e, Math.max(L + 1, by + 1.5)]            // get outside and in front of him
+    : [px + side*0.5, py];                                      // close: attack his outside shoulder
+  switch(j.role){
+    case 'gap':
+      if(by < L + 1.5 && Math.abs(bx - j.gx) < 2.5) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze
+      return inside();
+    case 'force':
+      if(bx*s < -2) return [px - dir*1 + e, Math.max(py, by)];  // ball went away: backside, take the cutback
+      return contain(s);
+    case 'alley':
+      if(bx*s > 1 || by > L + 1) return inside();               // ball committed to my side: fill the alley
+      return [bx*0.5 + j.gx*0.5, L + 6];
+    case 'deep':
+      if(dist(d, c) > 8) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it
+      return inside();
+    case 'support': {
+      const f = DEF.find(o => o.job && o.job.role === 'force' && o.job.side === s);
+      const outflanked = !f || f.bt || f.stun > 0 || f.ph || (bx - f.x)*s > 0.5;
+      if(bx*s > 0 && outflanked) return contain(s);            // my side, force man beaten: I'm the force now
+      return d.bt ? [px, py] : coverTarget(d);
+    }
+  }
+  return inside();
+}
+function defenseAI(d, dt){
+  if(d.tkCool > 0) d.tkCool -= dt;
+  if(d.reachCool > 0) d.reachCool -= dt;
+  if(d.latch) return;                       // riding the runner: tackleUpdate moves him
+  if(d.ph){ d.stun -= dt; return; }         // physical: the body moves him
+  if(d.stun > 0){ d.stun -= dt; steer(d, d.x, d.y, 0, dt, 4); return; }
+  const c = ball.state === 'held' ? ball.holder : (ball.state === 'air' ? null : QB);
+  let tx, ty, sp = d.spd, attack = false;
+  if(ball.state === 'air'){
+    if(S.clock - ball.thrownAt > d.react && Math.hypot(ball.tx - d.x, ball.ty - d.y) < 18){ tx = ball.tx; ty = ball.ty; }
+    else [tx, ty] = coverTarget(d);
+  } else if(S.runMode && c && d.job){
+    [tx, ty] = runFit(d, c); attack = true;
+    if(S.clock > S.handoffAt + d.read) sp = (sp + 0.2)*burst(d, dist(d, c) > 3 && !d.bt, dt);   // same limited sprint the runner has
+  } else if(d.mode === 'rush'){ tx = c ? c.x : QB.x; ty = c ? c.y : QB.y; attack = !!c; }
+  else [tx, ty] = coverTarget(d);
+  if(d.freeT > 0) d.freeT -= dt;
+  if(attack){
+    const free = o => d.freeFrom === o && d.freeT > 0;   // just beat this blocker: he can't re-engage yet
+    const dc = dist(d, c);
+    const o = OFF.find(o => o.blk === d && o !== c && dist(o, d) < 1.3 && !free(o))
+           || OFF.find(o => o !== c && o !== QB && dist(o, d) < 1.3 && dist(o, c) < dc && !free(o));
+    if(o){
+      if(!d.bt || d.bt.o !== o){
+        // first contact: a blocker arriving with a lot more momentum than the defender can absorb flattens him
+        if(d.freeFrom !== o && pancakeHit(o, d)) return;
+        // re-engaging a blocker he already beat: that blocker is off balance, so the next move comes quicker
+        d.bt = {o, phase:'set', t:0, dur:d.freeFrom === o ? 0.1 : rand(0.2, 0.4), move:null};
+        o.bt = d.bt;
+      }
+      d.eng = o.eng = 0.15; sp *= 0.12;
+      battle(d, o, c, dt);
+    } else d.bt = null;
+  } else d.bt = null;
+  if(attack && !d.bt && c){   // hunting the runner: run through the target, never ease up approaching it
+    const dx = tx - d.x, dy = ty - d.y, l = Math.hypot(dx, dy) || 1;
+    steerVel(d, dx/l*sp, dy/l*sp, dt);
+  } else steer(d, tx, ty, sp, dt, 9);
+}
+// ---------- line battle ----------
+// A battle is a loop of discrete moves:
+//   set (0.2-0.4s hand fighting) -> move (0.45s, swim or bull rush) -> resolved on the spot
+//   win: he bursts past.  lose: blocker takes control for a 0.8-1.4s recovery, then he sets up again.
+// Win chance comes from the rating matchup for that move (speed: rSpd vs rAgi, power: rPow vs rStr).
+// Run blocking favours the blocker (he fires out first); pass rush is an even fight.
+const MOVE_TIME = 0.45;
+const sigmoid = x => 1/(1 + Math.exp(-x));
+function battle(d, o, c, dt){
+  const b = d.bt; b.t += dt;
+  const ax = d.x - o.x, ay = d.y - o.y, al = Math.hypot(ax, ay) || 1;     // blocker -> defender
+  const cx = c.x - d.x, cy = c.y - d.y, cl = Math.hypot(cx, cy) || 1;     // defender -> ball
+  // blocker in control (run plays): drive him back and away from the hole to open the gap.
+  // How fast depends on the strength matchup: a good blocker on a weak defender moves him 2-3 yd/s.
+  const drive = f => {
+    if(!S.runMode) return;
+    const ref = runRef(), away = Math.sign(d.x - ref.x) || 1;
+    const px = ax/al + away*0.6, py = ay/al + 0.9, k = Math.hypot(px, py) || 1;
+    const m = o.push*f*clamp(1 + (o.rStr - d.rPow)/40, 0.3, 1.8)*dt;
+    d.x += px/k*m; d.y += py/k*m; o.x += px/k*m; o.y += py/k*m;
+  };
+  if(b.phase === 'set'){
+    drive(0.7);
+    if(b.t >= b.dur){
+      b.phase = 'move'; b.t = 0;
+      b.move = Math.random() < d.rSpd/(d.rSpd + d.rPow) ? 'speed' : 'power';
+      callout(d, b.move === 'speed' ? 'Swim' : 'Bull rush');
+    }
+    return;
+  }
+  if(b.phase === 'move'){
+    const speed = b.move === 'speed';
+    if(speed){   // swim / rip: work toward the blocker's ball-side shoulder
+      const sx = -ay/al, sy = ax/al, s = Math.sign(sx*cx + sy*cy) || 1;
+      d.x += sx*s*0.9*dt; d.y += sy*s*0.9*dt;
+    } else {     // bull rush: jolt the blocker back toward the ball
+      const f = 0.8*dt; d.x += cx/cl*f; d.y += cy/cl*f; o.x += cx/cl*f; o.y += cy/cl*f;
+    }
+    if(b.t < MOVE_TIME) return;
+    const diff = speed ? d.rSpd - o.rAgi : d.rPow - o.rStr;
+    const pWin = sigmoid(diff/(speed ? 9 : 12) + (S.runMode ? (o.role === 'OL' || o === TE ? -1.4 : 0.3) : 0));   // linemen fire out first; a receiver's stalk block gets shed   // speed: boom or bust
+    if(Math.random() < pWin){
+      d.freeFrom = o; d.freeT = 0.9; o.beatT = 0.9; d.bt = o.bt = null;
+      d.x += cx/cl*0.8; d.y += cy/cl*0.8;
+      callout(d, 'Beat him!', 'bad');
+      return;
+    }
+    // stuffed. A bull rush into a much stronger blocker can end up on its back.
+    if(!speed && d.role === 'DL' && o.rStr - d.rPow + rand(0, 40) > 58){   // only a much stronger blocker, only in the trenches
+      d.stun = 1.6; d.act = 'down'; d.actT = 1.6; d.fallDir = -1; d.bt = o.bt = null;
+      physOn(d, {vx:(d.x - o.x)*2.5, vy:(d.y - o.y)*2.5, up:0.3, bal:0, ttl:1.4});
+      callout(d, 'Pancaked!', 'good');
+      return;
+    }
+    callout(d, 'Stonewalled', 'good');
+    b.phase = 'recover'; b.t = 0; b.dur = rand(0.8, 1.4);
+    return;
+  }
+  // recover: blocker has the upper hand until the defender resets
+  drive(1.4);
+  if(b.t >= b.dur){ b.phase = 'set'; b.t = 0; b.dur = rand(0.2, 0.4); }
+}
+// Pancake on contact: the blocker's momentum into the defender, per defender mass, scaled by blocker strength
+// against defender power. A pulling guard or climbing tackle at speed into a linebacker or DB can put him on
+// his back; a lineman squared up at the line almost never does. Both become bodies for the collision: the
+// blocker stays on his feet driving through, the defender is knocked off his and needs a moment to get up.
+const PANCAKE_AT = 6.5;
+function pancakeHit(o, d){
+  if(o.ph || d.ph || !S.runMode) return false;
+  const l = dist(o, d) || 1, nx = (d.x - o.x)/l, ny = (d.y - o.y)/l;
+  // the blocker's momentum into him beyond the defender's own momentum back into the block
+  const into = o.vx*nx + o.vy*ny, back = -(d.vx*nx + d.vy*ny);
+  const close = into + Math.max(0, back);
+  const score = (o.mass*Math.max(0, into) - d.mass*Math.max(0, back))/d.mass*(o.rStr/80)/(d.rPow/70)*rand(0.8, 1.2);
+  if(score < PANCAKE_AT) return false;
+  const k = close*o.mass/(o.mass + d.mass)*1.6;                     // what the hit hands the defender
+  d.stun = 2.4; d.act = 'down'; d.actT = 2.4; d.fallDir = -1; d.bt = o.bt = null;
+  physOn(d, {bal:0, vx:d.vx + nx*k, vy:d.vy + ny*k, up:0.4, ttl:1.8});
+  physOn(o, {bal:1, ttl:0.4});                                      // he runs through it
+  callout(o, 'Pancake!', 'good');
+  return true;
+}
+// bodies push each other apart by mass, so a runner can squeeze past a blocked defender
+function separate(){
+  for(let i = 0; i < ALL.length; i++) for(let j = i+1; j < ALL.length; j++){
+    const a = ALL[i], b = ALL[j];
+    if(a.latch === b || b.latch === a || a.ph || b.ph) continue;   // physical bodies collide in the physics world
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+    if(d > 0 && d < 0.8){
+      const over = 0.8 - d, nx = dx/d, ny = dy/d, wa = b.mass/(a.mass + b.mass), wb = 1 - wa;
+      a.x -= nx*over*wa; a.y -= ny*over*wa; b.x += nx*over*wb; b.y += ny*over*wb;
+    }
+  }
+  for(const p of ALL){ p.x = clamp(p.x, -HW-4, HW+4); p.y = clamp(p.y, -11, 111); }
+}
+
+// ---------- loop ----------
+function liveUpdate(dt){
+  S.clock += dt;
+  if(S.charging) S.chargeT += dt;
+  const inp = S.cpu ? {x:0, y:0, on:false} : inputVec();
+  OFF.forEach(p => offenseAI(p, dt, inp));
+  DEF.forEach(d => defenseAI(d, dt));
+  separate();
+
+  const run = PLAYS[S.play].run;
+  if(ball.state === 'pitch'){
+    ball.t += dt/ball.pdur;
+    if(ball.t >= 1){
+      giveBall(ball.pt);
+      if(run === 'toss' && ball.holder === QB) pitch(QB, RB, 0.35);
+    }
+  }
+  else if(ball.state === 'air'){ ball.t += dt/ball.dur; if(ball.t >= 1){ resolvePass(); return; } }
+
+  if(ball.state !== 'held') return;
+  if(run === 'hand' && ball.holder === QB && dist(QB, RB) < 1.3) giveBall(RB);
+  const c = ball.holder;
+  if(c === QB && !S.runMode && QB.y > S.los + 0.3){ S.runMode = true; S.handoffAt = S.clock; S.charging = false; routeGroup.visible = false; toast('Scramble!'); }
+  if(c.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
+  if(Math.abs(c.x) > HW){ endPlay('spot', c.y, 'OUT OF BOUNDS'); return; }
+  const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
+  tackleUpdate(c, dt, inp);
+}
+
+// ---------- body physics ----------
+// Players who get hit become physical bodies (cannon-es): 10 solid parts with mass, joined at the
+// joints. Nothing is scripted: muscles drive each joint toward the pose the animation rig wants
+// (bracing, wrapping up, running) with limited strength, joint limits keep knees / elbows / shoulders
+// inside human ranges, and parts collide with the ground, with each other and with every other player.
+// `bal` is how much he's still on his feet: legs hold him up, keep him upright and drive him where
+// he wants to go. A tackle is just the tacklers' grips and leg drive beating that, and then gravity.
+const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
+// name, rig pivot, parent, box size, center in pivot frame, mass share, joint limits [x],[y],[z] (rad,
+// rotation vector relative to the rig's rest pose), meshes
+const PARTS = [
+  {n:'torso', j:'torso', size:[0.75,0.8,0.42], c:[0,0.37,0], m:0.5},
+  {n:'head',  j:'head',  p:'torso', size:[0.46,0.44,0.5], c:[0,0.24,0], m:0.08, lim:[[-0.6,0.6],[-1,1],[-0.5,0.5]]},
+  {n:'uaL', j:'shL', p:'torso', size:[0.2,0.42,0.22], c:[0,-0.21,0], m:0.03, lim:[[-3.1,1],[-1,1],[-0.3,1.8]]},
+  {n:'faL', j:'elL', p:'uaL', size:[0.18,0.4,0.2], c:[0,-0.2,0], m:0.025, lim:[[-2.5,0],[-0.15,0.15],[-0.15,0.15]]},
+  {n:'uaR', j:'shR', p:'torso', size:[0.2,0.42,0.22], c:[0,-0.21,0], m:0.03, lim:[[-3.1,1],[-1,1],[-1.8,0.3]]},
+  {n:'faR', j:'elR', p:'uaR', size:[0.18,0.4,0.2], c:[0,-0.2,0], m:0.025, lim:[[-2.5,0],[-0.15,0.15],[-0.15,0.15]]},
+  {n:'thL', j:'hipL', p:'torso', size:[0.28,0.5,0.3], c:[0,-0.25,0], m:0.1, lim:[[-2,0.6],[-0.6,0.6],[-0.3,0.9]]},
+  {n:'snL', j:'kneeL', p:'thL', size:[0.24,0.55,0.3], c:[0,-0.27,0.03], m:0.06, lim:[[0,2.5],[-0.1,0.1],[-0.1,0.1]]},
+  {n:'thR', j:'hipR', p:'torso', size:[0.28,0.5,0.3], c:[0,-0.25,0], m:0.1, lim:[[-2,0.6],[-0.6,0.6],[-0.9,0.3]]},
+  {n:'snR', j:'kneeR', p:'thR', size:[0.24,0.55,0.3], c:[0,-0.27,0.03], m:0.06, lim:[[0,2.5],[-0.1,0.1],[-0.1,0.1]]}
+];
+const PI_ = Object.fromEntries(PARTS.map((d, i) => [d.n, i]));
+let PW = null;                                   // physics world, created once cannon has loaded
+const PHYS = [];                                 // players currently physical
+const GRP = {ground:1, proxy:2, part:4};
+function physInit(){
+  PW = new CANNON.World({gravity: new CANNON.Vec3(0, -PH_G, 0)});
+  [qc, qd, qe] = [0, 0, 0].map(() => new CANNON.Quaternion()); [rv, rt, tw, dw] = [0, 0, 0, 0].map(() => new CANNON.Vec3());
+  PW.solver.iterations = 20; PW.allowSleep = false;
+  const turf = new CANNON.Material('turf'), body = new CANNON.Material('body');
+  // soft contact correction: overlapping bodies ease apart instead of exploding apart
+  const soft = {contactEquationStiffness:4e5, contactEquationRelaxation:4};
+  PW.addContactMaterial(new CANNON.ContactMaterial(turf, body, {friction:0.7, restitution:0, ...soft}));
+  PW.addContactMaterial(new CANNON.ContactMaterial(body, body, {friction:0.35, restitution:0, ...soft}));
+  PW.bodyMat = body;
+  const g = new CANNON.Body({mass:0, material:turf, collisionFilterGroup:GRP.ground, collisionFilterMask:GRP.part});
+  g.addShape(new CANNON.Plane()); g.quaternion.setFromEuler(-Math.PI/2, 0, 0); PW.addBody(g);
+  // ponytail: animated players have no collision body (blocks they ride on / get launched by looked worse);
+  // physical bodies only collide with each other and the turf. Add capsule proxies if piles need blockers in them.
+}
+const tq = new THREE.Quaternion(), tq2 = new THREE.Quaternion(), tv = new THREE.Vector3(), tv2 = new THREE.Vector3();
+const toC = q => new CANNON.Quaternion(q.x, q.y, q.z, q.w);
+const rigQ = (p, j, out) => p.j[j].getWorldQuaternion(out);
+const rigP = (p, j, out) => p.j[j].getWorldPosition(out);
+// opts: vx, vy (game velocity), up, spin {x, y} (game-space lean rate), bal (0 = off his feet), ttl
+function physOn(p, o={}){
+  if(!PW) return null;
+  if(p.ph){ if(o.bal != null) p.ph.bal = Math.min(p.ph.bal, o.bal); return p.ph; }
+  p.mesh.updateMatrixWorld(true);
+  const M = p.mass*MASS_KG, vx = o.vx ?? p.vx, vy = o.vy ?? p.vy, up = o.up || 0, sp = o.spin || {x:0, y:0};
+  const cap = 9, s = Math.hypot(vx, vy), k = s > cap ? cap/s : 1;
+  const w = new CANNON.Vec3(-sp.y, 0, -sp.x);   // lean rate as an angular velocity (top moves along spin)
+  const bodies = PARTS.map(d => {
+    rigQ(p, d.j, tq); rigP(p, d.j, tv);
+    const c = tv2.set(...d.c).applyQuaternion(tq).add(tv);
+    const b = new CANNON.Body({mass:M*d.m, material:PW.bodyMat, collisionFilterGroup:GRP.part, collisionFilterMask:GRP.ground|GRP.proxy|GRP.part,
+      linearDamping:0.05, angularDamping:0.2});
+    const sz = d.n === 'torso' ? [0.66, 0.8, 0.4] : d.size;    // torso collides a bit narrower than the pads look
+    b.addShape(new CANNON.Box(new CANNON.Vec3(sz[0]/2, sz[1]/2, sz[2]/2)));
+    b.position.set(c.x, c.y, c.z); b.quaternion.copy(toC(tq));
+    b.velocity.set(vx*k + sp.x*c.y, up, -(vy*k + sp.y*c.y)); b.angularVelocity.copy(w);
+    PW.addBody(b); return b;
+  });
+  const joints = PARTS.map((d, i) => {
+    if(!d.p) return null;
+    const a = bodies[PI_[d.p]], b = bodies[i];
+    rigP(p, d.j, tv);
+    const pa = new CANNON.Vec3(), pb = new CANNON.Vec3(), jw = new CANNON.Vec3(tv.x, tv.y, tv.z);
+    a.pointToLocalFrame(jw, pa); b.pointToLocalFrame(jw, pb);
+    const c = new CANNON.PointToPointConstraint(a, pa, b, pb); c.collideConnected = false; PW.addConstraint(c); return c;
+  });
+  p.body.visible = false;
+  p.ph = {bodies, joints, grips:[], bal:o.bal ?? 1, ttl:o.ttl ?? Infinity, t:0, M, meshes:physMeshes(p)};
+  PHYS.push(p);
+  return p.ph;
+}
+function physOff(p){
+  const ph = p.ph; if(!ph) return;
+  physUngrip(p); PHYS.filter(q => q.ph).forEach(q => q.ph.grips = q.ph.grips.filter(g => { if(g.on === p){ PW.removeConstraint(g.c); return false; } return true; }));
+  ph.joints.forEach(c => c && PW.removeConstraint(c)); ph.bodies.forEach(b => PW.removeBody(b));
+  ph.meshes.forEach(m => m.visible = false); p.body.visible = true;
+  p.ph = null; PHYS.splice(PHYS.indexOf(p), 1);
+  if(p.act === 'dive' || p.act === 'down' || p.act === 'fall') p.act = null;
+}
+function physClear(){ while(PHYS.length) physOff(PHYS[0]); }
+// grab: tackler's hands latch onto the closest part of the runner. maxForce = grip strength.
+function physGrip(d, c, kind){ const D = physOn(d), C = physOn(c); if(D && C){ D.reach = {on:c, kind, t:0}; } }
+// distance from a world point to the nearest of his torso / thigh boxes
+function surfDist(C, w){
+  let m = 1e9; const loc = new CANNON.Vec3();
+  for(const n of ['torso','thL','thR']){
+    const b = C.bodies[PI_[n]], he = b.shapes[0].halfExtents; b.pointToLocalFrame(w, loc);
+    m = Math.min(m, Math.hypot(Math.max(0, Math.abs(loc.x) - he.x), Math.max(0, Math.abs(loc.y) - he.y), Math.max(0, Math.abs(loc.z) - he.z)));
+  }
+  return m;
+}
+// hands lock on once they're actually on him (within a few inches of his body)
+function physReach(d){
+  const D = d.ph, R = D.reach, C = R.on.ph; if(!C) { D.reach = null; return; }
+  const hb = D.bodies[PI_.faL], hw = hb.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0)), hb2 = D.bodies[PI_.faR], hw2 = hb2.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0));
+  const tb = D.bodies[0];   // hands on him, or his body into him: either way he gets his arms around him
+  if(Math.min(surfDist(C, hw), surfDist(C, hw2)) < 0.3 || surfDist(C, tb.position) < 0.45){ D.reach = null; lockGrip(d, R.on, R.kind); }
+}
+function lockGrip(d, c, kind){
+  const D = d.ph, C = c.ph;
+  const hands = kind === 'wrap' ? ['faL', 'faR'] : ['faL'];
+  for(const h of hands){
+    const hb = D.bodies[PI_[h]], hw = hb.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0));
+    let best = null, bd = 1e9;
+    for(const n of ['torso','thL','thR']){ const b = C.bodies[PI_[n]], k = b.position.distanceTo(hw); if(k < bd){ bd = k; best = b; } }
+    const loc = new CANNON.Vec3(); best.pointToLocalFrame(hw, loc);
+    const he = best.shapes[0].halfExtents;   // hold the surface, not thin air
+    loc.set(clamp(loc.x, -he.x, he.x), clamp(loc.y, -he.y, he.y), clamp(loc.z, -he.z, he.z));
+    const g = new CANNON.PointToPointConstraint(hb, new CANNON.Vec3(0, -0.2, 0), best, loc);
+    // what his hands can hold (force); one hand holds a lot less than a runner's legs pull
+    const cap = d.mass*MASS_KG*(kind === 'wrap' ? 150 : ARM_GRIP)*(d.rTkl/80);
+    g.collideConnected = false; PW.addConstraint(g); D.grips.push({c:g, on:c, hb, best, loc, born:D.t, cap});
+  }
+}
+function physUngrip(d){ if(!d.ph) return; d.ph.grips.forEach(g => PW.removeConstraint(g.c)); d.ph.grips = []; }
+// how hard each grip is being pulled vs what the hands can hold (>1 = slipping)
+function gripStrain(d){
+  let m = 0; if(!d.ph) return 0;
+  for(const g of d.ph.grips){ if(d.ph.t - g.born < 0.35) continue;   // the hit itself isn't a pull
+    const c = g.c; m = Math.max(m, Math.hypot(c.equationX.multiplier, c.equationY.multiplier, c.equationZ.multiplier)/g.cap); }
+  return m;
+}
+// how far a grip has been torn open (yd): his drive pulling out of the tackler's hands
+function gripGap(d){
+  let m = 0; if(!d.ph) return 0;
+  for(const g of d.ph.grips){ if(d.ph.t - g.born < 0.35) continue;   // arms still closing around him
+    const a = g.hb.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0)), b = g.best.pointToWorldFrame(g.loc); m = Math.max(m, a.distanceTo(b)); }
+  return m;
+}
+let qc, qd, qe, rv, rt, tw, dw;   // cannon scratch values, made once cannon has loaded
+// rotation vector (axis * angle) of a cannon quaternion
+function rotVec(q, out){
+  let {x, y, z, w} = q; if(w < 0){ x = -x; y = -y; z = -z; w = -w; }
+  const s = Math.sqrt(x*x + y*y + z*z), a = 2*Math.atan2(s, w), k = s > 1e-6 ? a/s : 2;
+  return out.set(x*k, y*k, z*k);
+}
+function physMuscles(p, ph){
+  // athletes never go limp: braced while falling or fighting, still holding posture once down
+  const tone = ph.rest ? 0.55 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
+  PARTS.forEach((d, i) => {
+    if(!d.p) return;
+    const pb = ph.bodies[PI_[d.p]], cb = ph.bodies[i];
+    // current and wanted orientation of the part relative to its parent
+    pb.quaternion.conjugate(qc); qc.mult(cb.quaternion, qd);                       // qd = rel now
+    rigQ(p, PARTS[PI_[d.p]].j, tq); rigQ(p, d.j, tq2); tq.invert().multiply(tq2);    // rel wanted (rig)
+    qe.set(tq.x, tq.y, tq.z, tq.w); qd.conjugate(qc); qe.mult(qc, qe);             // error = want * now^-1 (parent frame)
+    rotVec(qe, rv);
+    // joint limits: how far outside the human range (rotation vector vs the rig's rest pose), parent frame
+    rotVec(qd, rt); let out = false;
+    for(const [ax, k] of [['x', 0], ['y', 1], ['z', 2]]){
+      const v = rt[ax], [lo, hi] = d.lim[k];
+      rt[ax] = v < lo ? lo - v : v > hi ? hi - v : 0; if(rt[ax]) out = true;
+    }
+    // everything into the child's own axes, so each axis uses its real inertia (a limb twists far easier
+    // about its length than it swings; one averaged inertia made that axis overshoot and spin)
+    pb.quaternion.vmult(rv, tw); cb.quaternion.conjugate(qc); qc.vmult(tw, rv);    // error, child frame
+    pb.quaternion.vmult(rt, tw); qc.vmult(tw, rt);                                  // limit push, child frame
+    cb.angularVelocity.vsub(pb.angularVelocity, dw); qc.vmult(dw, dw);             // relative spin, child frame
+    const I = cb.inertia, kd = 2*wn + (out ? 2*wL : 0);
+    tw.set(I.x*(wn*wn*rv.x + wL*wL*rt.x - kd*dw.x), I.y*(wn*wn*rv.y + wL*wL*rt.y - kd*dw.y), I.z*(wn*wn*rv.z + wL*wL*rt.z - kd*dw.z));
+    cb.quaternion.vmult(tw, tw);                                                    // to world
+    cb.torque.vadd(tw, cb.torque); pb.torque.vsub(tw, pb.torque);
+  });
+}
+// legs: hold him up, upright, and push him toward where he wants to go, all scaled by `bal`
+function physLegs(p, ph, vdx, vdz, drive, h=1.3, over=1.3){
+  const tb = ph.bodies[0], M = ph.M, bal = ph.bal;
+  if(bal <= 0) return;
+  // vertical: legs carry up to his weight, a bit more if he's sagging, never a launch
+  const fy = bal*(M*PH_G*clamp(1 + 3*(h - tb.position.y), 0, over) - M*6*tb.velocity.y);
+  // horizontal: leg drive toward the wanted velocity, limited by leg strength
+  let fx = M*8*(vdx - tb.velocity.x), fz = M*8*(vdz - tb.velocity.z);
+  const fl = Math.hypot(fx, fz), lim = M*drive; if(fl > lim){ fx *= lim/fl; fz *= lim/fl; }
+  tb.applyForce(new CANNON.Vec3(fx*bal, fy, fz*bal));
+  // upright: rotate the spine back toward vertical, leaning a little into where he's driving (yaw is free)
+  const spine = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0));
+  let ux = clamp(vdx*0.04, -0.3, 0.3), uz = clamp(vdz*0.04, -0.3, 0.3); const ul = Math.hypot(ux, 1, uz);
+  const ax = spine.y*uz/ul - spine.z*1/ul, ay = spine.z*ux/ul - spine.x*uz/ul, az = spine.x*1/ul - spine.y*ux/ul;   // spine × wanted
+  // per-axis in the torso's frame (x3 inertia: the limbs hang off it), yaw only damped
+  const wn = 9; tw.set(ax, 0, az); tb.quaternion.conjugate(qc); qc.vmult(tw, rv); qc.vmult(tb.angularVelocity, dw);
+  const I = tb.inertia, k = bal*3;
+  tw.set(k*I.x*(wn*wn*rv.x - 2*wn*dw.x), k*I.y*(wn*wn*rv.y - 2*wn*dw.y), k*I.z*(wn*wn*rv.z - 2*wn*dw.z));
+  tb.quaternion.vmult(tw, tw); tb.torque.vadd(tw, tb.torque);
+}
+let phAcc = 0;
+function physStep(dt){
+  if(!PW) return;
+  for(const p of [...PHYS]){
+    const ph = p.ph; ph.t += dt;
+    // dead ball or lying on the turf: stop fighting, let go, settle
+    if(S.phase !== 'live' && ph.grips.length && (ph.deadT = (ph.deadT || 0) + dt) > 0.25) physUngrip(p);
+    ph.rest = ph.bal <= 0 && !ph.getUp && (S.phase !== 'live' || physDown(p));
+    if(ph.t > ph.ttl){ ph.getUp = true; ph.ttl = Infinity; }
+    if(ph.getUp){ ph.bal = Math.min(1, ph.bal + dt*1.2); const tb = ph.bodies[0];
+      if(ph.bal >= 1 && tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y > 0.95 && tb.angularVelocity.length() < 2){ physOff(p); continue; } }
+  }
+  phAcc = Math.min(phAcc + dt, 0.05);
+  while(phAcc >= PH_DT){
+    phAcc -= PH_DT;
+    for(const p of PHYS){
+      const ph = p.ph, c = ball.state === 'held' ? ball.holder : null;
+      physMuscles(p, ph);
+      if(ph.reach){ ph.reach.t += PH_DT; physReach(p); }
+      if(p.latch && p.latch.ph && S.phase === 'live'){   // tackler: plant against his motion and drive through him
+        const r = p.latch.ph.bodies[0], t = ph.bodies[0], dx = r.position.x - t.position.x, dz = r.position.z - t.position.z, l = Math.hypot(dx, dz) || 1;
+        const F = ph.reach || p.grip === 'wrap' ? ph.M*p.acc*(p.rTkl/80)*1.25 : 0;   // arm tackle: just hanging on, dragging his weight
+        t.applyForce(new CANNON.Vec3(dx/l*F, 0, dz/l*F));
+        if(ph.reach) physLegs(p, ph, r.velocity.x + dx/l*3, r.velocity.z + dz/l*3, p.acc*1.2, 1.0, 1.0);   // still reaching: run through him
+        else physLegs(p, ph, 0, 0, PLANT_A*gripK(p), 1.0, 1.0);   // got him: plant, low pad level, can't lift him
+      } else if(p === c) physLegs(p, ph, p.vx, -p.vy, p.acc*(p.rBrk/75), 1.3, DEF.some(d => d.latch === p) ? 1.0 : 1.3);   // runner: where his steering wants to go
+      else physLegs(p, ph, p.vx, -p.vy, p.acc);
+    }
+    PW.step(PH_DT);
+    // speed rail: no part moves faster than a sprinter or gets launched skyward
+    for(const p of PHYS) for(const b of p.ph.bodies){
+      const v = b.velocity, sp = Math.hypot(v.x, v.y, v.z); if(sp > 10){ v.x *= 10/sp; v.y *= 10/sp; v.z *= 10/sp; }
+      if(v.y > 3) v.y = 3;
+      const w = b.angularVelocity, ws = w.length(); if(ws > 14){ w.x *= 14/ws; w.y *= 14/ws; w.z *= 14/ws; }
+    }
+  }
+  for(const p of PHYS){ const t = p.ph.bodies[0]; p.x = t.position.x; p.y = 50 - t.position.z;
+    if(!(ball.state === 'held' && ball.holder === p)){ p.vx = t.velocity.x; p.vy = -t.velocity.z; } }
+}
+// he's down when anything but his feet touches the turf (knee, hand, elbow, hip, back, helmet)
+function physDown(p){
+  const ph = p.ph; if(!ph) return false;
+  for(let i = 0; i < PARTS.length; i++){
+    const b = ph.bodies[i], n = PARTS[i].n, he = b.shapes[0].halfExtents;
+    if(n === 'snL' || n === 'snR'){ const top = b.pointToWorldFrame(new CANNON.Vec3(0, he.y, 0)); if(top.y < 0.14) return true; continue; }
+    // lowest corner of the box
+    const q = b.quaternion, ex = q.vmult(new CANNON.Vec3(he.x, 0, 0)), ey = q.vmult(new CANNON.Vec3(0, he.y, 0)), ez = q.vmult(new CANNON.Vec3(0, 0, he.z));
+    if(b.position.y - Math.abs(ex.y) - Math.abs(ey.y) - Math.abs(ez.y) < 0.06) return true;
+  }
+  return false;
+}
+const physBall = p => { const v = p.ph.bodies[PI_.faR].pointToWorldFrame(new CANNON.Vec3(0, -0.08, 0.13)); return tv.set(v.x, v.y, v.z); };   // in the ball hand
+function physMeshes(p){
+  if(p.phM){ p.phM.forEach(m => m.visible = true); return p.phM; }
+  const t = TEAM[p.team], skin = p.skin;
+  const MESH = {torso:[[G.torso,t.jersey],[G.pads,t.jersey]], head:[[G.helmet,t.helmet],[G.stripe,t.stripe],[G.mask,0x222222]],
+    uaL:[[G.upperArm,t.jersey]], faL:[[G.forearm,skin]], uaR:[[G.upperArm,t.jersey]], faR:[[G.forearm,skin]],
+    thL:[[G.thigh,t.pants]], snL:[[G.shin,t.socks],[G.cleat,0x1a1a1a]], thR:[[G.thigh,t.pants]], snR:[[G.shin,t.socks],[G.cleat,0x1a1a1a]]};
+  p.phM = PARTS.map(d => {   // rig geometry hangs from the joint; shift it so the part's center is the body origin
+    const g = new THREE.Group();
+    MESH[d.n].forEach(([geo, c]) => { const m = new THREE.Mesh(geo, mat(c)); m.position.set(-d.c[0], -d.c[1], -d.c[2]); g.add(m); });
+    scene.add(g); return g;
+  });
+  return p.phM;
+}
+function physRender(){
+  for(const p of PHYS) p.ph.bodies.forEach((b, i) => { const m = p.ph.meshes[i]; m.position.set(b.position.x, b.position.y, b.position.z); m.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w); });
+}
+
+// ---------- tackling ----------
+// Contact starts an attempt (ratings + momentum decide what the tackler gets), and from there it's bodies:
+//   big hit: the tackler launches through him and the runner is knocked off his feet; the collision does the rest
+//   slip:    the tackler dives and comes up empty
+//   grab:    the tackler's hands lock onto him (arm = one hand, wrap = both), he plants and drives.
+// The runner keeps his legs (bal) and drives on; a grip only holds as much force as the tackler's hands,
+// so a strong runner tears out of an arm tackle. Takedown progress (tackler ratings vs break-tackle) bleeds
+// his balance; when it's gone he falls the way the forces on him send him. Down = anything but feet on turf.
+const PLANT_A = 7;   // how hard a planted tackler can brake him (yd/s²)
+const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
+function tackleNote(c){ return c === QB && !S.runMode ? 'SACKED' : null; }
+// a teammate already has him (or he's going down): no open-field duel, just get on him and finish it
+function joinPile(d, c, dd){
+  const nx = (c.x - d.x)/dd, ny = (c.y - d.y)/dd;
+  d.latch = c; d.grip = 'wrap'; d.act = 'wrap'; d.actT = 99; d.faceAt = c;
+  physOn(d, {bal:c.falling ? 0 : 0.6, vx:d.vx + nx*2.6, vy:d.vy + ny*2.6, up:0.25});
+  physGrip(d, c, 'wrap');
+  callout(d, 'Piles on', 'bad');
+}
+function attemptTackle(d, c, dd){
+  if(c.falling || DEF.some(o => o !== d && o.latch === c)){ joinPile(d, c, dd); return; }
+  const nx = (c.x - d.x)/dd, ny = (c.y - d.y)/dd;               // tackler -> runner
+  const cs = Math.hypot(c.vx, c.vy);
+  // Momentum along the line of impact: the tackler's speed into the runner beyond what the runner carries
+  // away from him, against the runner's momentum back into the hit.
+  const cAway = c.vx*nx + c.vy*ny, dInto = d.vx*nx + d.vy*ny;
+  const hit = d.mass*Math.max(0, dInto - Math.max(0, cAway)), resist = c.mass*Math.max(0, -cAway);
+  const headOn = cs > 0.5 ? -(c.vx*nx + c.vy*ny)/cs : 0;          // 1: runner coming straight at him, -1: running away
+  d.face = Math.atan2(c.x - d.x, d.y - c.y);
+  const bigScore = (hit - resist)/c.mass*(d.rTkl/80) + rand(-1, 1);
+  if(bigScore > 3.0){
+    // he's knocked off his feet; the tackler launches through him, wraps, and the bodies collide for real
+    c.falling = true; c.act = 'fall'; c.actT = 99;
+    physOn(c, {bal:0});
+    d.latch = c; d.grip = 'wrap'; d.act = 'wrap'; d.actT = 99; d.faceAt = c;
+    physOn(d, {bal:0, vx:d.vx + nx*3.5, vy:d.vy + ny*3.5, up:0.5});   // launches through him
+    physGrip(d, c, 'wrap');
+    callout(d, 'BOOM!', 'bad'); toast('BIG HIT');
+    return;
+  }
+  const slide = Math.abs((c.vx - d.vx)*ny - (c.vy - d.vy)*nx);   // relative speed across the line of impact
+  const evade = c.rBrk*0.6 + slide*4 + (headOn < -0.3 ? 8 : 0) + rand(-12, 12);
+  const grab = d.rTkl + rand(-12, 12);
+  if(evade > grab + 12){
+    d.stun = 1.6; d.act = 'dive'; d.actT = 1.6; d.tkCool = 2;
+    physOn(d, {bal:0, vx:d.vx + nx*1.5, vy:d.vy + ny*1.5, up:1, ttl:1.2});   // dives at where he was and comes up empty
+    callout(d, slide > 4 ? 'Juked!' : 'Slipped it', 'good');
+    return;
+  }
+  d.latch = c; d.grip = headOn < -0.3 || grab < evade + 5 ? 'arm' : 'wrap';
+  d.act = 'wrap'; d.actT = 99; d.faceAt = c;
+  physOn(c, {bal:1});
+  physOn(d, {bal:0.8, vx:d.vx + nx*2.6, vy:d.vy + ny*2.6, up:0.25});   // shoots his hips and shoulder into him
+  physGrip(d, c, d.grip);
+  callout(d, d.grip === 'arm' ? 'Arm tackle' : 'Wrapped up', 'bad');
+}
+function release(d, stun){ d.churn = false;
+  d.latch = null; d.faceAt = null; d.stun = stun; d.act = 'dive'; d.actT = stun; d.tkCool = 1.5;
+  physUngrip(d); if(d.ph){ d.ph.bal = 0; d.ph.ttl = d.ph.t + stun; }   // ripped off his feet, gets back up
+}
+function tackleUpdate(c, dt, inp){
+  if(c.falling){
+    // until he's down, anyone who gets there piles on
+    for(const d of DEF) if(!d.latch && !d.ph && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
+    if(!c.ph || physDown(c) || c.ph.t > 4) endPlay('spot', c.ph ? 50 - physBall(c).z : c.y, tackleNote(c));   // ball spotted where he's down
+    return;
+  }
+  if(c.tripT > 0) c.tripT -= dt;
+  for(const d of DEF){
+    if(d.latch || d.stun > 0 || d.tkCool > 0 || d.ph) continue;
+    const dd = dist(d, c);
+    if(d.bt){
+      // blocked: can't tackle, but can reach out and grab a piece of him as he goes by
+      if(dd < 1.6 && !(d.reachCool > 0)){
+        d.reachCool = 1.0;
+        const juke = clamp((c.latAcc - 4)/6, 0, 1);
+        if(Math.random() < 0.6*(d.rTkl/80)*(1 - juke*0.5)*(70/c.rBrk)){
+          c.vx *= 0.6; c.vy *= 0.6; c.tripT = 0.4;
+          callout(d, 'Got a hand on him', 'bad');
+        }
+      }
+      continue;
+    }
+    if(dd > 1.3){
+      // open field (past the line, no blocker on him): a defender closing within 2 yd dives at him.
+      // The physics decides whether his hands get there; if not he comes up empty.
+      const close = ((c.x - d.x)*(d.vx - c.vx) + (c.y - d.y)*(d.vy - c.vy))/dd;
+      if(dd > 2 || close < 1 || c.y < S.los + 2) continue;
+    }
+    attemptTackle(d, c, dd);
+    if(S.phase !== 'live' || c.falling) return;
+  }
+  let holding = false;
+  for(const d of DEF){
+    if(d.latch !== c) continue;
+    if(d.ph && d.ph.reach){ if(d.ph.reach.t > 0.5){ release(d, 1.2); callout(c, 'Broke free!', 'good'); } else holding = true; continue; }
+    d.slip = Math.max(0, (d.slip || 0) + (gripStrain(d) > 1 ? dt : -dt*0.5));   // pulled harder than he can hold: hands sliding off
+    if(gripGap(d) > 0.45 || d.slip > 0.15){ d.slip = 0; release(d, 1.0); callout(c, 'Broke free!', 'good'); continue; }   // tore out of his hands
+    holding = true;
+    d.churn = d.grip === 'wrap' && !c.falling;   // driving his legs through him
+    c.downP += (d.grip === 'wrap' ? 3.4 : 0.7)*(d.rTkl/80)*dt;   // one hand alone rarely finishes him; it buys time for help
+  }
+  c.slow = c.tripT > 0 ? 0.7 : 1;
+  c.churn = holding;   // held up: legs keep pumping
+  if(!holding){
+    c.downP = Math.max(0, c.downP - dt*0.8);
+    if(c.ph && !DEF.some(d => d.ph && (d.ph.grips.some(g => g.on === c) || (d.ph.reach && d.ph.reach.on === c)))){
+      const tb = c.ph.bodies[0], up = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).y;
+      if(up < 0.6 || physDown(c)){ c.falling = true; c.act = 'fall'; c.actT = 99; c.ph.bal = 0; }   // off balance: he's going down
+      else if(c.ph.t > 0.4 && up > 0.95 && tb.angularVelocity.length() < 2 && tb.position.y > 1.1) physOff(c);   // back on balance: back on the run
+    }
+    return;
+  }
+  const lim = c.rBrk/80;
+  if(c.ph) c.ph.bal = 1 - 0.5*Math.min(1, c.downP/lim);           // legs buckling under the weight
+  if(c.downP >= lim){
+    c.falling = true; c.act = 'fall'; c.actT = 99;
+    if(c.ph) c.ph.bal = 0;                                         // legs gone: forces on him decide the fall
+    DEF.forEach(d => { if(d.latch === c && d.ph) d.ph.bal = 0; });
+  }
+}
+
+let snapCam = true;
+// TV broadcast: high on the home sideline, square to the field, offense moving left to right on screen,
+// panning with the ball and leading it a little in the direction it's going
+function tvCamera(dt){
+  if(camera.fov !== 26){ camera.fov = 26; camera.updateProjectionMatrix(); }
+  let fx, fy, lead = 0;
+  if(ball.state === 'air'){ const b = ballPos(Math.min(ball.t, 1)); fx = b.x; fy = b.y; }
+  else if(ball.state === 'held' && (S.runMode || ball.holder !== QB)){ const c = ball.holder; fx = c.x; fy = c.y; lead = clamp(c.vy*0.5, -2, 3); }
+  else { fx = 0; fy = S.los - 2; }
+  tmpPos.set(fx*0.3 + 50, 24, 50 - (fy + lead)); tmpLook.set(fx*0.3, 0, 50 - (fy + lead));
+  const k = snapCam ? 1 : 1 - Math.exp(-dt*2.5);
+  camPos.lerp(tmpPos, k); camLook.lerp(tmpLook, k); snapCam = false;
+  camera.position.copy(camPos); camera.lookAt(camLook);
+}
+const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), tmpPos = new THREE.Vector3(), tmpLook = new THREE.Vector3();
+function updateCamera(dt){
+  if(S.cam === 'tv'){ tvCamera(dt); return; }
+  if(camera.fov !== 52){ camera.fov = 52; camera.updateProjectionMatrix(); }
+  let fx, fy, h, back;
+  if(ball.state === 'air'){ const b = ballPos(Math.min(ball.t, 1)); fx = b.x*0.6; fy = b.y; h = 24; back = 22; }
+  else if(S.runMode && ball.state === 'held'){ const c = ball.holder; fx = c.x*0.7; fy = c.y + 4; h = 17; back = 17; }
+  else { fx = QB.x*0.4; fy = Math.max(QB.y, S.los - 6) + 9; h = 26; back = 24; }
+  tmpPos.set(fx, h, 50 - fy + back); tmpLook.set(fx, 0, 50 - fy - 4);
+  const k = snapCam ? 1 : 1 - Math.exp(-dt*3);
+  camPos.lerp(tmpPos, k); camLook.lerp(tmpLook, k); snapCam = false;
+  camera.position.copy(camPos); camera.lookAt(camLook);
+}
+
+// ---------- animation ----------
+// joint signs: negative hip/shoulder = swing forward, positive knee = bend, positive lean/pitch = tip forward
+function targetPose(p, sp){
+  // Gait: each leg's phase runs stance -> push-off -> swing -> reach. Thigh swings fore/aft around a slightly
+  // forward centre; the knee folds while the leg swings through (thigh moving forward, cos > 0, peak as it
+  // passes under the hip) and straightens as the thigh reaches forward for the next plant. Arms pump opposite
+  // the legs with elbows near 90°, the torso counter-rotates a touch, and there's a small float at mid-stride.
+  const r = Math.min(1, sp/6.5), s = Math.sin(p.stride), cs = Math.cos(p.stride);
+  const thigh = sn => -(0.95*sn + 0.25)*r, knee = cn => 0.12 + (0.15 + 1.7*Math.max(0, cn))*r;
+  const T = {lean:0.1 + 0.3*r + clamp(p.accel*0.035, -0.25, 0.3), twist:0.14*s*r,
+    hipL:thigh(s), hipR:thigh(-s), kneeL:knee(cs), kneeR:knee(-cs),
+    shL:1.0*s*r, shR:-1.0*s*r, elL:-0.3 - 1.15*r + 0.25*s*r, elR:-0.3 - 1.15*r - 0.25*s*r,
+    drop:0.04*r, pitch:0, bob:Math.abs(cs)*0.07*r};
+  const arms = (l, rt, el) => { T.shL = l; T.shR = rt; T.elL = T.elR = el; };
+  if(S.phase === 'presnap'){
+    if(p.role === 'OL' || p.role === 'DL') Object.assign(T, {lean:1.2, hipL:-1.3, hipR:-1.1, kneeL:1.7, kneeR:1.5, drop:0.42, shR:-1.25, elR:0, shL:-0.5, elL:-0.6});
+    else if(p === QB){ Object.assign(T, {lean:0.2, hipL:-0.3, hipR:-0.3, kneeL:0.5, kneeR:0.5, drop:0.08}); arms(-0.9, -0.9, -0.9); }
+    else { Object.assign(T, {lean:0.45, hipL:-0.55, hipR:-0.35, kneeL:0.9, kneeR:0.7, drop:0.15}); arms(-0.3, -0.3, -0.7); }
+    return T;
+  }
+  if(p.act === 'down'){ Object.assign(T, {pitch:p.fallDir*1.45, lean:0, hipL:0.2, hipR:-0.2, kneeL:0.3, kneeR:0.3, bob:0}); arms(-2.6, -2.4, -0.3); return T; }
+  if(p.act === 'dive'){ Object.assign(T, {pitch:1.4, lean:0.1, hipL:0.3, hipR:0.1, kneeL:0.3, kneeR:0.5, bob:0}); arms(p.ph ? -1.6 : -2.9, p.ph ? -1.6 : -2.9, p.ph ? -0.6 : -0.1); return T; }
+  if(p.act === 'wrap'){ arms(-1.5, -1.5, -1.3); T.lean = 0.7; T.drop = 0.25; T.bob = 0; return T; }   // hanging on to the runner
+  if(p.act === 'fall'){ arms(-1.3, -1.1, -0.9);   // brace: hands out in front, elbows soft
+    Object.assign(T, {lean:0, bob:0, kneeL:0.4, kneeR:0.2}); return T; }
+  if(p.act === 'celebrate'){ arms(-3.0, -3.0, -0.1); T.bob = Math.abs(Math.sin(performance.now()/120))*0.35; return T; }
+  const holding = ball.state === 'held' && ball.holder === p;
+  if(p === QB && S.charging){ T.twist = -0.7; T.shR = 2.6; T.elR = -1.4; T.shL = -1.3; T.elL = -0.3; }
+  else if(p === QB && p.act === 'throw'){ T.twist = 0.5; T.lean = 0.45; T.shR = -1.7; T.elR = -0.2; T.shL = 0.3; }
+  else if(holding && p === QB && !S.runMode) arms(-0.9, -0.9, -1.1);
+  else if(holding){ T.shR = -0.4 - 0.45*s*r; T.elR = -1.85 + 0.2*s*r; if(p.downP > 0.05) T.lean = 0.8; }   // ball tucked high and tight, the arm still pumps; drive the legs when someone is hanging on
+  else if(ball.state === 'air' && ball.t > 0.5 && Math.hypot(ball.tx - p.x, ball.ty - p.y) < 3.5 && (p === ball.target || p.team === 'D')) arms(-2.7, -2.7, -0.2);
+  else if(p.bt && p.team === 'D' && p.bt.phase === 'move' && p.bt.move === 'speed'){ T.shL = -1.3; T.shR = -2.9; T.elL = -0.5; T.elR = -0.2; T.twist = 0.4; }  // swim
+  else if(p.bt && p.team === 'D' && p.bt.phase === 'move'){ arms(-1.7, -1.7, -0.1); T.lean = 0.9; }                                // bull rush
+  else if(p.bt && p.team === 'D' && p.bt.phase === 'recover'){ arms(-1.0, -1.0, -0.8); T.lean = 0.2; }                             // knocked upright
+  else if(p.bt || p.eng > 0){ arms(-1.6, -1.6, -0.3); T.lean = Math.max(T.lean, 0.5); }
+  return T;
+}
+function animate(p, dt){
+  // a runner held up keeps churning his legs at full stride whatever his speed
+  const sp = p.churn && p.ph && !p.falling && !(p.latch && p.latch.falling) ? Math.max(5.5, Math.hypot(p.vx, p.vy)*1.3) : Math.hypot(p.vx, p.vy);
+  p.stride += sp > 0.3 ? 2*Math.PI*(1.1 + 0.16*sp)*dt : 0;   // cadence rises with speed (~2.2 strides/s flat out)
+  if(p.actT > 0){ p.actT -= dt; if(p.actT <= 0) p.act = null; }
+  if(p.eng > 0) p.eng -= dt; else if(p.team === 'O') p.bt = null;
+  if(p.beatT > 0) p.beatT -= dt;
+  const t = p.faceAt;   // blockers square up to their man instead of facing where they move
+  if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && (t || sp > 0.4)){
+    const d = (t ? Math.atan2(t.x - p.x, p.y - t.y) : Math.atan2(p.vx, -p.vy)) - p.face;
+    p.face += Math.atan2(Math.sin(d), Math.cos(d))*Math.min(1, dt*14);
+  }
+  const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*16), J = p.j;
+  for(const j of JOINTS) P[j] += (T[j] - P[j])*k;
+  J.torso.rotation.set(P.lean, P.twist, 0);
+  J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
+  J.shL.rotation.set(P.shL, 0, 0.12); J.shR.rotation.set(P.shR, 0, -0.12); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
+  p.body.position.y = P.bob - P.drop + Math.abs(P.pitch)*0.15;
+  p.body.rotation.x = P.pitch;
+  p.mesh.position.set(p.x, 0, 50 - p.y); p.mesh.rotation.y = p.face;
+  p.mesh.updateMatrixWorld(true);
+}
+const tmpV = new THREE.Vector3();
+const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(x, y, z));
+
+function syncScene(dt){
+  ALL.forEach(p => animate(p, dt));
+  // ball
+  if(ball.state === 'pre') ballMesh.position.copy(handPos(C, 0, 0.15, 0.55));
+  else if(ball.state === 'pitch'){
+    const k = Math.min(ball.t, 1);
+    const a = (ball.pf === C ? handPos(C, 0, 0.15, 0.55) : handPos(ball.pf, 0, 1.5, 0.45)).clone(), b = handPos(ball.pt, 0, 1.4, 0.4);
+    ballMesh.position.lerpVectors(a, b, k); ballMesh.position.y += Math.sin(k*Math.PI)*0.6;
+  } else if(ball.state === 'held'){
+    const c = ball.holder;
+    if(c === QB && S.charging) ballMesh.position.copy(handPos(c, -0.5, 2.3, -0.35));
+    else if(c === QB && !S.runMode) ballMesh.position.copy(handPos(c, 0, 1.5, 0.45));
+    else if(c.ph) ballMesh.position.copy(physBall(c));
+    else ballMesh.position.copy(c.j.elR.localToWorld(tmpV.set(0, -0.28, 0.13)));   // in the ball hand, moving with the arm
+  }
+  else if(ball.state === 'air'){
+    const a = ballPos(Math.min(ball.t, 1)), b = ballPos(Math.min(ball.t + 0.02, 1.02));
+    ballMesh.position.copy(toWorld(a.x, a.y, a.h)); ballMesh.lookAt(toWorld(b.x, b.y, b.h));
+  }
+  if(S.cpu){ routeGroup.visible = false; fitGroup.visible = false; }   // broadcast look: no playbook overlays
+  // markers
+  ctrlRing.visible = S.phase === 'live' || S.phase === 'presnap';
+  ctrlRing.position.set(S.ctrl.x, 0.05, 50 - S.ctrl.y);
+  landRing.visible = ball.state === 'air' && S.phase === 'live';
+  landRing.position.set(ball.tx, 0.05, 50 - ball.ty);
+  const aiming = canThrow();
+  aimRing.visible = arcLine.visible = aiming;
+  if(aiming){
+    const {tx, ty, d} = throwTarget(), arc = throwArc(S.charging ? charge() : 0, d);
+    aimRing.position.set(tx, 0.05, 50 - ty);
+    const pos = arcGeo.attributes.position.array;
+    for(let i = 0; i <= ARC_N; i++){
+      const k = i/ARC_N, x = QB.x + (tx - QB.x)*k, y = QB.y + (ty - QB.y)*k, h = 2.0 - 0.6*k + 4*arc.apex*k*(1-k);
+      pos[i*3] = x; pos[i*3+1] = h; pos[i*3+2] = 50 - y;
+    }
+    arcGeo.attributes.position.needsUpdate = true;
+  }
+  // dock
+  $('plays').hidden = S.phase !== 'presnap';
+  $('meter').hidden = !aiming;
+  $('fill').style.width = (S.charging ? charge()*100 : 0) + '%';
+  if(S.cpu && S.phase !== 'over') setHint(`CPU vs CPU · <b>${S.defCall ? S.defCall.name : ''}</b> · <kbd>C</kbd> take control · <kbd>V</kbd> camera`);
+  else if(S.phase === 'presnap') setHint(`<b>${S.defCall.name}:</b> ${S.defCall.note} · Pick a play <kbd>1–${PLAYS.length}</kbd> · <kbd>Click</kbd> to hike`);
+  else if(S.runMode && S.phase === 'live' && S.ctrl === RB && !(ball.state === 'held' && ball.holder === RB)) setHint('Handoff coming · <kbd>WASD</kbd> takes over once he has the ball');
+  else if(S.runMode && S.phase === 'live' && S.ctrl.auto) setHint('Following the play · <kbd>WASD</kbd> to take over, <kbd>Shift</kbd> to sprint');
+  else if(aiming || (ball.state === 'pitch' && !S.runMode)) setHint('<kbd>WASD</kbd> drop back · Aim with the mouse · <kbd>Hold</kbd> for more arc, release to throw');
+  else if(ball.state === 'air') setHint('<kbd>WASD</kbd> to adjust the receiver, or let him run to the ball');
+  else if(S.phase === 'live') setHint('<kbd>WASD</kbd> to run · <kbd>Shift</kbd> to sprint');
+  else if(S.phase === 'over') setHint('<kbd>Click</kbd> to start a new game');
+  else setHint('Next play…');
+}
+
+let last = performance.now();
+function frame(now){
+  const dt = clamp((now - last)/1000, 0, 0.05); last = now;
+  if(dt === 0){ requestAnimationFrame(frame); return; }
+  ray.setFromCamera(ndc, camera);
+  if(ray.ray.intersectPlane(ground, hit)){ aim.x = hit.x; aim.y = 50 - hit.z; }
+  cpuTick(dt);
+  if(S.phase === 'live') liveUpdate(dt);
+  else if(S.phase === 'dead'){
+    ALL.forEach(p => steer(p, p.x, p.y, 0, dt, 4));
+    S.deadT -= dt; if(S.deadT <= 0) nextPlay();
+  }
+  physStep(dt);
+  updateCamera(dt); syncScene(dt); physRender(); updateCallouts(dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+function start(data){
+  $('cpuBtn').addEventListener('click', () => { setCpu(!S.cpu); cvs.focus(); });
+  $('camBtn').addEventListener('click', () => { setCam(S.cam === 'tv' ? 'behind' : 'tv'); cvs.focus(); });
+  setCam(S.cam);
+  if(data && typeof data.score === 'number') Object.assign(S, {score:data.score, tds:data.tds||0, drive:data.drive||1, los:data.los||25, down:data.down||1, toGo:data.toGo||10});
+  selectPlay(0); setupPlay(); requestAnimationFrame(frame);
+}
+try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
+const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+(window.CANNON ? Promise.resolve(window.CANNON) : import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js'))
+  .then(m => { window.CANNON = m; physInit(); }, () => {}).then(boot);   // without physics the game still runs (no tackle bodies)
+})();
+</script>
+
+</body></html>
