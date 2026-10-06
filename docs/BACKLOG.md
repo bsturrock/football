@@ -21,6 +21,9 @@ Items and tasks (features are names, not ids; see ## Features):
 
 ## Bugs & fixes
 
+- **B-002** [physics] If cannon-es fails to load, physics silently turns off: main.js:77 swallows the import error (`() => {}`), so every tackle and fall skips the ragdoll with no message; expected a visible console error and HUD note. Repro: block cdn.jsdelivr.net, load the page, run a play: no ragdolls, no error. Where: src/main.js:75-77. Trace: -. Size: S. Kind: bug. Source: PM code review 2026-10-06 (L-1006-067). Status: open
+- **B-003** [core] place() does not reset slip, grip, fire or fireDelay between plays, so state can leak into the next snap; expected every per-play field reset in one place. Repro: read state.js:43-44 against the fields tackling.js and offense.js set; a stuck grip or fire flag carries over after a play ends mid-action. Where: src/state.js:42-45. Trace: -. Size: S. Kind: bug. Source: PM code review 2026-10-06 (L-1006-067). Status: open
+- **B-004** [core] Dead code and loose imports: o.scripted written never read (input.js:65), DEF_CALLS.slant and fastLB unread, unused blitzer arg in assignFits, unused hit import shadowed in tackling.js:2/35, global CANNON at tackling.js:116, unused inp in tackleUpdate, extra args to steer/steerVel (offense.js:31,109), TE and RB created with role WR (players.js:52), o.bt cleared in animation.js:56. Expected: removed or wired, no behaviour change. Where: those lines. Trace: -. Size: S. Kind: cleanup. Source: PM code review 2026-10-06 (L-1006-067). Status: open
 ## Backlog
 
 ## Moved
