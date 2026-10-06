@@ -8,6 +8,7 @@ import { $ } from './util.js';
 
 const playIdx = n => PLAYS.findIndex(p => p.name === n);
 function cpuCall(){
+  if(S.force && S.force.play) return playIdx(S.force.play);   // feature (sim-force)
   const w = {'Inside Zone':1, 'Power Left':1, 'Outside Zone Right':1, 'HB Dive':1, 'HB Stretch':1}, call = S.defCall.name;
   if(S.toGo <= 2){ w['Inside Zone'] += 1.5; w['Power Left'] += 1.5; w['HB Dive'] += 1.5; }
   if(S.toGo >= 7){ w['Outside Zone Right'] += 1; w['HB Stretch'] += 0.6; }

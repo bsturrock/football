@@ -61,7 +61,7 @@ export function setupPlay(){
   DEF.forEach(d => { d.fit = null; d.react = rand(0.15, 0.45); d.read = d.role === 'DL' ? rand(0.2, 0.35) : rand(0.25, 0.5); });
 
   // defensive call -> run fits. Every defender gets a job (see RUN FITS below); placement is the alignment.
-  const call = S.defCall = DEF_CALLS[Math.floor(Math.random()*DEF_CALLS.length)];
+  const rnd = DEF_CALLS[Math.floor(Math.random()*DEF_CALLS.length)], call = S.defCall = (S.force && S.force.front && DEF_CALLS.find(c => c.name === S.force.front)) || rnd;   // feature (sim-force)
   const blitzer = call.blitz ? Math.floor(Math.random()*2) : -1;
   LBs.forEach((b, i) => {
     const side = i ? 1 : -1, blitz = i === blitzer;
