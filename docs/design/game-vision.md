@@ -8,7 +8,7 @@ Top-line test for all work: would this look right on an NFL broadcast, graphics 
 - **Coach sim** The user never inputs player controls; both teams are CPU-driven. Playcalling is the user's role, built later (user 2026-10-06).
   - ? When does keyboard control of the carrier/QB go away: now, or when playcalling arrives (asked 2026-10-06)
 - **Realistic, visceral feel** Animation, contact, physics and movement read as real football; stylized graphics are fine (user 2026-10-06).
-- **Run game** Current focus: build out the run game (user 2026-10-06).
+- **Run game** Current focus: build out the run game (user 2026-10-06). Starting focus: tackling, blocking and player AI/behaviour (user 2026-10-06, L-1006-079).
   - **Tackling** Current focus (user 2026-10-06). Today: one rating roll (big hit / whiff / grab), then cannon-es ragdolls with grip constraints and a takedown meter (tackling.js, physics.js).
     - **Pile physics** Ragdolls collide with every player on the field: piles hit linemen, teammates push a pile, runners knocked into blockers. Today ragdolls pass through non-ragdoll players (physics.js:45, blocking.js:93). Size L.
       - **Look** Bodies stack and collapse at the line, runner knocked back into his own blockers, pursuers pile on (user 2026-10-06, L-1006-074).
@@ -24,6 +24,7 @@ Top-line test for all work: would this look right on an NFL broadcast, graphics 
   - **Blocking** Current focus (user 2026-10-06). Today: kinematic set/move/resolve cycle on a rating sigmoid, one blocker per defender, contact decided by the defender (blocking.js, offense.js, defense.js).
     - **Physical line play** Hands, pad level and leverage drive who wins; double teams and combos to the second level; reach and down blocks; fronts and slants change fits. Size L.
     - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
+  - **Player AI and behaviour** Starting focus (user 2026-10-06, L-1006-079): defender reads and keys, pursuit angles that respect blockers, RB vision (press, cut, follow blocks), effort and fatigue. Today: pursuit aims at an intercept point with an awareness error and no blocker avoidance (defense.js), RB scores lanes by race-to-spot (carrier.js).
   - **Runner moves** Stiff-arm, spin, juke, truck, lowered shoulder at contact; press and cut off blocks, follow the lead blocker, fall forward. Today the carrier only picks lanes (carrier.js). Size M-L.
   - **Run playbook** Counter, trap, draw, RB blocking, QB carry-out fake; more than one defense. Size M.
 - **Contact feel** Viewpoint is a spectator in the sky box: no camera shake (user 2026-10-06, L-1006-072). Visceral feel comes from on-field animation, physics and sound, not the camera. Candidates: sound, whistle, hit-stop or slow-mo on big hits, replay. Nothing exists today. Size M.
