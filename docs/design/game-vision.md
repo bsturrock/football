@@ -23,7 +23,9 @@ Top-line test for all work: would this look right on an NFL broadcast, graphics 
     - ? Down and spot outside piles: same NFL rule for every tackle, and a whistle when a runner is held up (asked 2026-10-06)
   - **Blocking** Current focus (user 2026-10-06). Today: kinematic set/move/resolve cycle on a rating sigmoid, one blocker per defender, contact decided by the defender (blocking.js, offense.js, defense.js).
     - **Physical line play** Hands, pad level and leverage drive who wins; double teams and combos to the second level; reach and down blocks; fronts and slants change fits. Size L.
-    - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
+      - **Rules first** Talk starts now with blocking rules per play and the run playbook (counter, trap, draw); techniques (hands, leverage) after B-005-3 shows what bodies cost and look like (user 2026-10-06, L-1006-084).
+      - **Today's schemes** Zone plays shift lanes (each lineman blocks whoever shows in his lane, else climbs); Power is a fixed defender list written against the base front, so it doesn't adjust to slants, blitzes or 8 in the box; no doubles or combos, no reach, down or kick-out technique (playbook.js:30-45).
+      - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
   - **Player AI and behaviour** Starting focus (user 2026-10-06, L-1006-079): defender reads and keys, pursuit angles that respect blockers, RB vision (press, cut, follow blocks), effort and fatigue. Today: pursuit aims at an intercept point with an awareness error and no blocker avoidance (defense.js), RB scores lanes by race-to-spot (carrier.js).
     - **First up: RB vision and pursuit** The runner against the pursuit is the core of a run; reads and effort follow (user 2026-10-06, L-1006-081).
     - **Human mistakes** Players misread, overrun plays and take bad angles, more often at lower ratings, so big runs come out naturally (user 2026-10-06, L-1006-081).
