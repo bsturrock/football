@@ -25,6 +25,7 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
 export const UPRIGHT_Y = 0.95, UPRIGHT_W = 2, UPRIGHT_H = 1.1;
+const PLANT_HOLD = 0.4;   // feature (pile-push): tackler's plant and drive x this while a pile pushes with more offensive than defensive pushers (the bigger side wins the surge)
 const DRIVE_T = 0.1;   // a drive lapses this long after the last physDrive call
 const ELBOW_DOWN_Y = 0.1, CONTACT_T = 1.0;   // down: forearm's elbow end below ELBOW_DOWN_Y yd; a defender must have touched him within CONTACT_T s
 const YAW_K = 150, YAW_MAX = 1.5, HEADING_MIN = 0.4;   // yaw hold: spring gain, max error (rad), slowest speed (yd/s) that sets a heading
@@ -304,10 +305,11 @@ export function physStep(dt){
       if(ph.reach){ ph.reach.t += PH_DT; physReach(p); }
       if(p.latch && p.latch.ph && S.phase === 'live'){   // tackler: plant against his motion and drive through him
         const r = p.latch.ph.bodies[0], t = ph.bodies[0], dx = r.position.x - t.position.x, dz = r.position.z - t.position.z, l = Math.hypot(dx, dz) || 1;
-        const F = ph.reach || p.grip === 'wrap' ? ph.M*p.acc*(p.rTkl/80)*1.25 : 0;   // arm tackle: just hanging on, dragging his weight
+        const sg = S.pile && S.pile.state === 'pushing' && S.pile.pushersO > S.pile.pushersD ? PLANT_HOLD : 1;   // feature (pile-push)
+        const F = ph.reach || p.grip === 'wrap' ? ph.M*p.acc*(p.rTkl/80)*1.25*sg : 0;   // arm tackle: just hanging on, dragging his weight
         t.applyForce(new CANNON.Vec3(dx/l*F, 0, dz/l*F));
         if(ph.reach) physLegs(p, ph, r.velocity.x + dx/l*3, r.velocity.z + dz/l*3, p.acc*1.2, 1.0, 1.0);   // still reaching: run through him
-        else physLegs(p, ph, 0, 0, PLANT_A*gripK(p), 1.0, 1.0);   // got him: plant, low pad level, can't lift him
+        else physLegs(p, ph, 0, 0, PLANT_A*gripK(p)*sg, 1.0, 1.0);   // got him: plant, low pad level, can't lift him
       } else if(ph.drv && ph.drv.until > phClock && S.phase === 'live' && p !== c){   // pile push: a wanted velocity and leg force from pile.js
         physLegs(p, ph, ph.drv.vx, -ph.drv.vy, ph.drv.a); if(ph.bubble) physYaw(p, ph);
       } else if(p === c) physLegs(p, ph, p.vx, -p.vy, p.acc*(p.rBrk/75), 1.3, DEF.some(d => d.latch === p) ? 1.0 : 1.3);   // runner: where his steering wants to go
