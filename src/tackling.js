@@ -21,7 +21,7 @@ import { clamp, dist, rand } from './util.js';
 //              not on the turf yet: keeps falling; falling for FALL_MAX_T s (c.fallAge), or GETUP_MAX get-ups used and on the turf -> endPlay
 //   getting up falling false, ph.getUp, bal rising 1.2/s (physStep); bal 1 clears getUp -> run (here, runner only); falling again (a tackle, a latch,
 //              down by contact) -> falling, with getUp cleared on the next tackleUpdate (one frame of bal rise, harmless)
-//   any state  ball dead (touchdown, out of bounds, endPlay elsewhere): tackleUpdate stops, physStep rests him, the next setup's physClear removes the body
+//   any state  ball dead (touchdown, out of bounds, endPlay elsewhere): tackleUpdate stops, physStep rests him, or a get-up in progress finishes (physOff when upright); the next setup's physClear removes what is left
 const GETUP_WAIT = 0.3, GETUP_MAX = 3, FALL_MAX_T = 4, FALL_SETTLE = 0.4;   // s on the turf before he gets up, tries per body, play-ending fall time, s before a fresh body may get up
 export const PLANT_A = 7;
 export const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
