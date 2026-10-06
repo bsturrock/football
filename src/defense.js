@@ -1,7 +1,7 @@
 import { battle, pancakeHit } from './blocking.js';
 import { burst } from './carrier.js';
 import { steer, steerVel } from './movement.js';
-import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs, box } from './players.js';
+import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs } from './players.js';
 import { S, ball } from './state.js';
 import { dist, rand } from './util.js';
 
@@ -30,6 +30,20 @@ function coverTarget(d){
     return [deep.x*0.7, Math.max(S.los + 12, deep.y + 5)];
   }
   return [QB.x, QB.y];
+}
+// First contact: pads pop. Momentum into the hit (mass x closing speed, scaled by blocker strength vs
+// defender power) decides who gets knocked back. A blocker who wins it on a run play goes straight to
+// driving his man; a defender who wins it gets to his move right away.
+function pop(o, d, bt){
+  const l = dist(o, d) || 1, nx = (d.x - o.x)/l, ny = (d.y - o.y)/l;
+  const mo = o.mass*Math.max(0, o.vx*nx + o.vy*ny)*(o.rStr/80), md = d.mass*Math.max(0, -(d.vx*nx + d.vy*ny))*(d.rPow/80);
+  const edge = (mo - md)/(o.mass + d.mass);                     // yd/s of momentum advantage
+  const knock = Math.min(0.45, Math.abs(edge)*0.15), loser = edge > 0 ? d : o, s = edge > 0 ? 1 : -1;
+  loser.x += nx*s*knock; loser.y += ny*s*knock;                 // jolted back
+  const cx = (o.mass*o.vx + d.mass*d.vx)/(o.mass + d.mass), cy = (o.mass*o.vy + d.mass*d.vy)/(o.mass + d.mass);
+  o.vx = d.vx = cx; o.vy = d.vy = cy;                           // locked up: they move together from here
+  if(edge > 0.8 && S.runMode){ bt.phase = 'recover'; bt.dur = rand(0.6, 1.0); }   // blocker won the get-off: drive him
+  else if(edge < -0.8) bt.dur = 0.05;                           // defender won it: straight into his move
 }
 // ---------- RUN FITS ----------
 // Gaps, offense's view: A beside the center, B outside the guards, C outside the tackles, D outside the TE (right).
@@ -118,6 +132,7 @@ export function defenseAI(d, dt){
   if(d.latch) return;                       // riding the runner: tackleUpdate moves him
   if(d.ph){ d.stun -= dt; return; }         // physical: the body moves him
   if(d.stun > 0){ d.stun -= dt; steer(d, d.x, d.y, 0, dt, 4); return; }
+  if(d.fireDelay > 0){ d.fireDelay -= dt; return; }   // still in his stance, reading the ball
   const c = ball.state === 'held' ? ball.holder : (ball.state === 'air' ? null : QB);
   let tx, ty, sp = d.spd, attack = false;
   if(ball.state === 'air'){
@@ -141,6 +156,7 @@ export function defenseAI(d, dt){
         // re-engaging a blocker he already beat: that blocker is off balance, so the next move comes quicker
         d.bt = {o, phase:'set', t:0, dur:d.freeFrom === o ? 0.1 : rand(0.2, 0.4), move:null};
         o.bt = d.bt;
+        if(d.freeFrom !== o) pop(o, d, d.bt);
       }
       d.eng = o.eng = 0.15; sp *= 0.12;
       battle(d, o, c, dt);

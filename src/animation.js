@@ -3,7 +3,7 @@ import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
 import { physBall } from './physics.js';
 import { PLAYS } from './playbook.js';
-import { ALL, C, JOINTS, QB, RB } from './players.js';
+import { ALL, C, JOINTS, QB, RB, TE } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
 import { $, clamp } from './util.js';
@@ -44,7 +44,8 @@ function targetPose(p, sp){
   else if(p.bt && p.team === 'D' && p.bt.phase === 'move' && p.bt.move === 'speed'){ T.shL = -1.3; T.shR = -2.9; T.elL = -0.5; T.elR = -0.2; T.twist = 0.4; }  // swim
   else if(p.bt && p.team === 'D' && p.bt.phase === 'move'){ arms(-1.7, -1.7, -0.1); T.lean = 0.9; }                                // bull rush
   else if(p.bt && p.team === 'D' && p.bt.phase === 'recover'){ arms(-1.0, -1.0, -0.8); T.lean = 0.2; }                             // knocked upright
-  else if(p.bt || p.eng > 0){ arms(-1.6, -1.6, -0.3); T.lean = Math.max(T.lean, 0.5); }
+  else if(p.fire > 0 && (p.role === 'OL' || p.role === 'DL' || p === TE)){ arms(-1.3, -1.3, -0.5); T.lean = 0.95; T.drop = 0.3; }   // out of the stance: low and violent
+  else if(p.bt || p.eng > 0){ arms(-1.6, -1.6, -0.25); T.lean = Math.max(T.lean, 0.7); T.drop = 0.18; }   // hands punched in, pads low
   return T;
 }
 function animate(p, dt){

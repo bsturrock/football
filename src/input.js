@@ -51,6 +51,9 @@ export const charge = () => Math.min(1, S.chargeT/0.9);
 export function snap(){
   const run = PLAYS[S.play].run;
   S.phase = 'live'; S.clock = 0; S.runMode = !!run;
+  // linemen fire out on the snap; the defensive line reacts to the ball a beat later (better awareness, quicker)
+  [...OL, TE].forEach(o => o.fire = 0.35);
+  DL.forEach(d => { d.fire = 0.35; d.fireDelay = 0.15 - d.rAwr/1000; });
   S.ctrl = run ? RB : QB;
   pitch(C, QB, PLAYS[S.play].under ? 0.15 : 0.3);   // under center: hand-to-hand snap
   fitGroup.visible = false;

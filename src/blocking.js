@@ -26,7 +26,7 @@ export function battle(d, o, c, dt){
     d.x += px/k*m; d.y += py/k*m; o.x += px/k*m; o.y += py/k*m;
   };
   if(b.phase === 'set'){
-    drive(0.7);
+    drive(1.0);
     if(b.t >= b.dur){
       b.phase = 'move'; b.t = 0;
       b.move = Math.random() < d.rSpd/(d.rSpd + d.rPow) ? 'speed' : 'power';
@@ -63,7 +63,7 @@ export function battle(d, o, c, dt){
     return;
   }
   // recover: blocker has the upper hand until the defender resets
-  drive(1.4);
+  drive(1.8);
   if(b.t >= b.dur){ b.phase = 'set'; b.t = 0; b.dur = rand(0.2, 0.4); }
 }
 // Pancake on contact: the blocker's momentum into the defender, per defender mass, scaled by blocker strength

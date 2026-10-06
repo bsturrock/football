@@ -17,18 +17,20 @@ export function steerVel(p, dvx, dvy, dt){
   }
   const ex = dvx - p.vx, ey = dvy - p.vy;
   const par = ex*ux + ey*uy, px = ex - par*ux, py = ey - par*uy;
-  const aMax = par > 0 ? p.acc*Math.max(0.2, 1 - (sp/(p.spd*1.15))**2) : p.brake;
+  const acc = p.acc*(p.fire > 0 ? 1.9 : 1);   // get-off: a lineman's first steps out of his stance are explosive
+  const aMax = par > 0 ? acc*Math.max(0.2, 1 - (sp/(p.spd*1.15))**2) : p.brake;
   const dPar = clamp(par, -aMax*dt, aMax*dt);
   const pl = Math.hypot(px, py), lim = p.turn*dt, k = pl > lim ? lim/pl : 1;
   p.vx += dPar*ux + px*k; p.vy += dPar*uy + py*k;
   p.latAcc = pl*k/dt;   // sideways acceleration: how hard he is cutting
   p.accel = dPar/dt;
   p.x += p.vx*dt; p.y += p.vy*dt;
+  if(p.fire > 0) p.fire -= dt;
 }
 export function steer(p, tx, ty, speed, dt){
   const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
   // arrive: never faster than what he can still brake from before the target
-  const s = d > 0.05 ? Math.min(speed, Math.sqrt(2*p.brake*d))/d : 0;
+  const s = d > 0.05 ? (p.fire > 0 ? speed : Math.min(speed, Math.sqrt(2*p.brake*d)))/d : 0;   // firing out: no easing into contact
   steerVel(p, dx*s, dy*s, dt);
 }
 export function runRoute(w, dt){
