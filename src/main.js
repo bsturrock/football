@@ -1,17 +1,18 @@
+import { runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
 import { syncScene } from './animation.js';
 import { separate } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
-import { toast, updateCallouts, warn } from './hud.js';
+import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
 import { steer } from './movement.js';
 import { offenseAI } from './offense.js';
-import { physInit, physRender, physStep } from './physics.js';
+import { physBall, physCount, physDown, physInit, physRender, physStep } from './physics.js';
 import { PLAYS } from './playbook.js';
 import { ALL, DEF, OFF, QB, RB } from './players.js';
-import { endPlay, nextPlay } from './rules.js';
+import { endPlay, newGame, nextPlay } from './rules.js';
 import { camera, cvs, renderer, scene } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
 import { tackleUpdate } from './tackling.js';
@@ -45,21 +46,29 @@ function liveUpdate(dt){
   const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
   if(!(c === QB && run === 'hand')) tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
 }
-let last = performance.now();
-function frame(now){
-  const dt = clamp((now - last)/1000, 0, 0.05); last = now;
-  if(dt === 0){ requestAnimationFrame(frame); return; }
-  ray.setFromCamera(ndc, camera);
-  if(ray.ray.intersectPlane(ground, hit)){ aim.x = hit.x; aim.y = 50 - hit.z; }
+const perf = {phys:0, bodies:0};   // last step's physics ms and body count (read by ?debug and the sim)
+// one render-free simulation step (the sim runner calls this too)
+export function step(dt){
   cpuTick(dt);
   if(S.phase === 'live') liveUpdate(dt);
   else if(S.phase === 'dead'){
     ALL.forEach(p => steer(p, p.x, p.y, 0, dt));
     S.deadT -= dt; if(S.deadT <= 0) nextPlay();
   }
+  const t0 = performance.now();
   physStep(dt);
+  perf.phys = performance.now() - t0; perf.bodies = physCount().players;
+}
+let last = performance.now();
+function frame(now){
+  const raw = now - last, dt = clamp(raw/1000, 0, 0.05); last = now;
+  if(dt === 0){ requestAnimationFrame(frame); return; }
+  ray.setFromCamera(ndc, camera);
+  if(ray.ray.intersectPlane(ground, hit)){ aim.x = hit.x; aim.y = 50 - hit.z; }
+  step(dt);
   updateCamera(dt); syncScene(dt); physRender(); updateCallouts(dt);
   renderer.render(scene, camera);
+  debugTick(raw, perf.phys, perf.bodies);
   requestAnimationFrame(frame);
 }
 function start(data){
@@ -67,7 +76,10 @@ function start(data){
   $('camBtn').addEventListener('click', () => { setCam(S.cam === 'tv' ? 'behind' : 'tv'); cvs.focus(); });
   setCam(S.cam);
   if(data && typeof data.score === 'number') Object.assign(S, {score:data.score, tds:data.tds||0, drive:data.drive||1, los:data.los||25, down:data.down||1, toGo:data.toGo||10});
-  selectPlay(0); setupPlay(); requestAnimationFrame(frame);
+  const q = new URLSearchParams(location.search);
+  selectPlay(0); setupPlay();
+  if(q.has('sim')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, perf, ALL, OFF, nextPlay, newGame, S, ball}); return; }   // headless: no frame loop
+  requestAnimationFrame(frame);
 }
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
 const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});

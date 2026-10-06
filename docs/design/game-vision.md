@@ -23,8 +23,23 @@ Top-line test for all work: would this look right on an NFL broadcast, graphics 
     - ? Down and spot outside piles: same NFL rule for every tackle, and a whistle when a runner is held up (asked 2026-10-06)
   - **Blocking** Current focus (user 2026-10-06). Today: kinematic set/move/resolve cycle on a rating sigmoid, one blocker per defender, contact decided by the defender (blocking.js, offense.js, defense.js).
     - **Physical line play** Hands, pad level and leverage drive who wins; double teams and combos to the second level; reach and down blocks; fronts and slants change fits. Size L.
-    - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
-  - **Player AI and behaviour** Starting focus (user 2026-10-06, L-1006-079): defender reads and keys, pursuit angles that respect blockers, RB vision (press, cut, follow blocks), effort and fatigue. Today: pursuit aims at an intercept point with an awareness error and no blocker avoidance (defense.js), RB scores lanes by race-to-spot (carrier.js).
+      - **Rules first** Talk starts now with blocking rules per play and the run playbook (counter, trap, draw); techniques (hands, leverage) after B-005-3 shows what bodies cost and look like (user 2026-10-06, L-1006-084).
+      - **Real NFL strategy** Where NFL practice gives the answer (blocking rules, combos, pullers, run playbook, adjusting to fronts), do what NFL teams do; only scope, order, cost or real taste splits go to the user (user 2026-10-06, L-1006-085).
+      - **Run playbook** The core NFL run families, about 9 plays: inside zone, outside zone, duo, power, counter, trap, iso, toss/sweep, draw (director per L-1006-085, 2026-10-06).
+      - **Formations** Add a fullback (I-form) and 2-TE sets beside today's 1-back sets (director per L-1006-085, 2026-10-06).
+      - **Defensive fronts** Real fronts (4-3 over and under, 3-4 odd, nickel, bear / 8-man box) plus stunts and blitzes, so the line must adjust (director per L-1006-085, 2026-10-06).
+      - **Blocking rules** Each blocker has a rule per play read against the front at the snap and re-read on a stunt (zone step; gap-down-backer; double team then climb when the LB commits; pull to kick out or wrap); mistakes by awareness rating (missed stunt, wrong man) (director per L-1006-085, 2026-10-06).
+      - **Today's schemes** Zone plays shift lanes (each lineman blocks whoever shows in his lane, else climbs); Power is a fixed defender list written against the base front, so it doesn't adjust to slants, blitzes or 8 in the box; no doubles or combos, no reach, down or kick-out technique (playbook.js:30-45).
+      - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
+  - **Player AI and behaviour** `packaged B-006` Starting focus (user 2026-10-06, L-1006-079): defender reads and keys, pursuit angles that respect blockers, RB vision (press, cut, follow blocks), effort and fatigue. Today: pursuit aims at an intercept point with an awareness error and no blocker avoidance (defense.js), RB scores lanes by race-to-spot (carrier.js).
+    - **First up: RB vision and pursuit** The runner against the pursuit is the core of a run; reads and effort follow (user 2026-10-06, L-1006-081).
+    - **Human mistakes** Players misread, overrun plays and take bad angles, more often at lower ratings, so big runs come out naturally (user 2026-10-06, L-1006-081).
+    - **NFL-style ratings** Every player gets a fuller rating set (speed, acceleration, strength, agility, vision, tackling, block shedding, pursuit, play recognition) that drives behaviour (user 2026-10-06, L-1006-081).
+    - **RB reads blocks live** He presses the designed hole so defenders commit, reads the first unblocked defender in the gap, then hits it, bends, bounces or cuts back; follows the lead blocker's hip on power plays; finishes falling forward. Higher vision = more patience and better choices; low vision = wrong hole, running into his own linemen (user 2026-10-06, L-1006-082).
+    - **Pursuit with leverage** Each defender's angle comes from the runner's speed and his pursuit rating; keeps leverage (inside-out, edge contain, backside stays home for the cutback); goes around or fights through a blocker in his path; mistakes by rating: overpursuit, bad angle, caught in the wash (user 2026-10-06, L-1006-082).
+    - **Ratings 0-99** Position templates (power vs speed back, run-stuffing vs coverage LB) with random variation per player; both teams generated (user 2026-10-06, L-1006-082).
+    - **Judged by NFL numbers** The 100-play sim against NFL run numbers (about 4.3 yd per carry, about 1 in 5 runs stuffed at 0 or less, about 1 in 10 going 10+), plus the user's eye; targets tuned with the user (user 2026-10-06, L-1006-082).
+    - **Effort and fatigue** Later, after the run core works (user 2026-10-06, L-1006-081).
   - **Runner moves** Stiff-arm, spin, juke, truck, lowered shoulder at contact; press and cut off blocks, follow the lead blocker, fall forward. Today the carrier only picks lanes (carrier.js). Size M-L.
   - **Run playbook** Counter, trap, draw, RB blocking, QB carry-out fake; more than one defense. Size M.
 - **Contact feel** Viewpoint is a spectator in the sky box: no camera shake (user 2026-10-06, L-1006-072). Visceral feel comes from on-field animation, physics and sound, not the camera. Candidates: sound, whistle, hit-stop or slow-mo on big hits, replay. Nothing exists today. Size M.
@@ -97,3 +112,137 @@ Structural (PM, 2026-10-06): new src/sim.js (core) and src/pile.js (physics), bo
 5. Depends on B-005-1, B-005-3, B-005-4, B-005-5.
 7. Test card seed: 20 CPU runs with ?debug, plus sim JSON on two seeds.
 8. Risks: push rate too high (knobs PUSH_JOIN, PUSH_V, caps, STALL_T). Stateful: yes, states table first.
+
+## Package: Player AI
+
+Drafted 2026-10-06 for the Player AI subtree (RB vision, pursuit, ratings); effort and fatigue out; filed as B-006, B-006-1..7 (user 2026-10-06, L-1006-086).
+
+Order: B-006-1 (ratings) now; B-006-2 (sim stats) after B-005-1 merges; B-006-3 (RB read) and B-006-5 (pursuit) in parallel after B-005-3 merges (both edit the gates it rewrites); B-006-4 after B-006-3, B-006-6 after B-006-5 (same files); B-006-7 (tuning) last. physics.js, blocking.js, tackling.js, movement.js are off-limits: ratings reach them through the old fields.
+
+Structural (PM, 2026-10-06): new src/ratings.js (play) exporting rateTeams, lack(p,key) = 1 - p.rt[key]/99 and the template table; field p.rt; teams generated at every newGame and every 20 sim plays; S.read debug state; AI items add sim keys additively; tunables as module constants (no src/data). Ratings are absolute across positions like NFL video games (a DT's speed rating is lower than a CB's), mapped to speed, acceleration and turning by one global curve per rating, calibrated so template midpoints match today's position speeds within about 5% (PM per the user's "0-99 like NFL video games", L-1006-082). No ratings display yet. Keyboard-carrier path untouched; all AI under CPU mode.
+
+### B-006-1 Every player gets nine 0-99 ratings from a position template
+1. User sees: backs differ (power vs speed), linebackers differ (stuffer vs coverage), each game has different teams; play looks the same on average.
+2. Done when: ratings.js is pure (no THREE) and node-testable on fake players: integers 0-99 inside template ranges plus team offset; p.rt = {speed, accel, strength, agility, vision, tackling, shed, pursuit, recog} on all 22; old fields derived (rStr = strength, rAgi = agility, rBrk = (strength+agility)/2 offense, rPow = (strength+shed)/2, rSpd = (speed+agility)/2 defense, rTkl = tackling, rAwr = recog) so the full check passes and 10 CPU plays look as before; newGame regenerates; same seed same ratings (draws via util rand); spd set once per game, not re-rolled per play.
+3. Numbers (table atop ratings.js; ranges speed/accel/strength/agility/vision/tackling/shed/pursuit/recog, team offset -4..+4): OL 40-60/45-65/70-92/50-75/45-70/20-35/40-60/30-50/55-80; TE 55-72/55-72/60-80/55-72/50-70/25-40/40-60/35-55/50-70; WR 70-92/68-90/35-55/70-90/55-75/20-35/30-45/35-55/50-70; QB 50-70/45-65/40-55/50-65/60-80/15-25/20-35/20-35/60-80; RB power 70-85/70-85/75-90/60-75/60-85/20-35/30-45/30-45/40-60; RB speed 85-97/82-95/50-68/80-95/60-85/20-35/30-45/30-45/40-60; DE 62-82/65-85/65-85/60-78/50-70/65-80/65-85/60-80/55-75; DT 45-62/50-68/78-95/40-60/45-65/65-80/75-92/50-70/55-75; LB stuff 60-75/60-75/70-88/55-70/60-80/80-95/65-85/65-85/70-90; LB cover 72-88/72-88/50-65/70-85/60-80/65-80/40-60/70-90/65-90; CB 80-95/78-92/35-55/78-92/45-65/60-78/25-45/65-85/55-80; S 72-88/70-86/50-65/68-84/55-75/70-85/40-60/70-85/65-90. RB and each LB 50/50 template; DL0/DL3 DE, DL1/DL2 DT. Starting guesses, tune in playtest.
+4. Owner: play. src/ratings.js (new, add to CLAUDE.md systems table), src/players.js, src/state.js (drop per-play spd), src/rules.js (newGame calls rateTeams).
+6. Out of scope: ratings UI, fatigue, using vision/recog/pursuit (later parts).
+8. Risks: rateTeams before the sim seed is installed. Stateful: no.
+
+### B-006-2 The sim prints NFL run-distribution stats and regenerates teams
+2. Done when: ?sim JSON gains ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards.p10/p90/max, teams; same seed same line; rateTeams every SIM_TEAM_EVERY 20 plays; normal load unchanged; done-report gives the pooled baseline for seeds 7, 8, 9 (100 plays each).
+4. Owner: core. src/sim.js. Depends on B-005-1 merged, B-006-1.
+
+### B-006-3 The runner presses, reads the first unblocked defender and picks his lane by vision
+1. User sees: the back slows a half-step at the line so defenders commit, then hits, bends, bounces or cuts back; a weak-vision back sometimes runs into his own linemen.
+2. Done when: S.read = {key, choice, wrong} once per play; on Inside and Outside Zone the choice follows what the key defender does, lane changes at most once after los+1; sim vision 95 vs 35 (same seed): median yards differ by 0.3+ and wrong share at 35 is 3x+ that at 95; default ratings within 25% of baseline; no new console line.
+3. Numbers (atop carrier.js): PRESS_V 0.7*spd for PRESS_T 0.15 + 0.35*vision/99 s (cap 0.6 s); key = nearest unengaged defender within 3 yd of the hole x, y los-1..los+5, re-picked 5x/s until los+1.5; options at los+1: hit (hole), bend (2.2 yd away from the key), bounce (5 yd to the edge, clamp HW-1.5), cutback (4 yd backside); score = raceMargin at los+1 and los+3 minus 0.05*|x-hole| plus noise (1-vision/99)*rand(-1,1); wrong hole with p 0.25*(1-vision/99); locked past los+1.5, then openField.
+4. Owner: play. src/carrier.js, src/state.js place() resets. Depends on B-006-1, B-006-2, B-005-3 merged.
+8. Stateful: yes, states table first (path, press, read, committed).
+
+### B-006-4 The runner follows his lead blocker, reads the open field and falls forward
+1. User sees: on Power the back tucks behind the pulling guard's hip; in the open field he sets up defenders; at contact he drives for the extra yard.
+2. Done when: on a pull play he stays within 1.2 yd of the puller's hip until the puller engages or he passes los+2; open-field vision noise (1-vision/99)*0.8 on ofMargin, sim vision 35 vs 95 mean yards 0.3+ lower; when latched and not down he steers straight upfield at 0.6*spd, yards after contact up 0.2+ over 100 plays; pushPlayRate stays <= 0.10; no new console line.
+4. Owner: play. src/carrier.js. Depends on B-006-3. No physics.js change (a visible ragdoll lean would be a physics item).
+8. Stateful: small table (following, free, contact).
+
+### B-006-5 Each defender's pursuit angle comes from his pursuit rating, with human mistakes
+1. User sees: sensible cut-off angles; a speed back outruns slow defenders; low-rated defenders overrun or take bad angles, so some runs break.
+2. Done when: intercept() uses the runner's smoothed velocity and d.spd, aim scaled by AIM_K resampled every 0.4 s; sim pursuit 95 vs 35: bigPct at 35 is 1.5x+ and ypc 0.3+ higher; overpursuit visible in some of 10 plays, not most; default within 25% of baseline.
+3. Numbers (atop defense.js): AIM_K = 1 + lack(d,'pursuit')*0.8*rand(-1,1); AIM_K over 1.35 holds the future spot 0.5 s after a cutback; d.read = 0.6 - recog/250; BITE_P 0.35*lack(d,'recog') follows the first flow step 0.3 s longer.
+4. Owner: ai. src/defense.js. Depends on B-006-1, B-006-2, B-005-3 merged.
+8. Stateful: small table (aim, holding, bite).
+
+### B-006-6 Defenders keep leverage, the backside stays home, and they go around or through blockers
+1. User sees: the force man keeps the edge, the backside defender stays home against the cutback, defenders slip or fight through blockers; poor ones get walled off.
+2. Done when: on Outside Zone a cutback meets a backside defender who stayed within 3 yd of the cutback lane until los+3; a blocker inside a 30 degree cone within 2.5 yd makes the defender step around to his leverage side, or fight through with FIGHT_P = shed/99 - 0.3; pursuit 35 shows stuffPct down and bigPct up; default within 25% of baseline, pushPlayRate <= 0.10.
+3. Numbers (atop defense.js): AVOID_CONE 30, AVOID_DIST 2.5, BACK_D 3, LEV_SHADE 0.8*(0.5 + pursuit/200); cone test precomputed every 0.1 s.
+4. Owner: ai. src/defense.js. Depends on B-006-5.
+8. Stateful: yes, states table first (pursuing, avoiding, fighting, held).
+
+### B-006-7 Sim run numbers land in the NFL bands
+2. Done when: 3 seeds x 100 plays pooled: ypc 3.9-4.7, stuffPct 15-25%, bigPct 7-13%, pushPlayRate <= 0.10; the user's 20-play playtest passes; bands are starting values tuned with the user.
+3. Rules: named constants only (ratings.js templates, carrier.js, defense.js), no knob moved more than 30%, before and after reported per knob.
+4. Owner: ai (constants across play and ai files, PM call). Depends on B-006-4, B-006-6.
+
+## Package: Run schemes
+
+Drafted 2026-10-06 for the Blocking > Physical line play assignment side (run playbook, formations, fronts, stunts, blocking rules); techniques (hands, leverage, who wins) wait for B-005-3; not filed until the user says yes.
+
+Order: B-?-1 (sim forcing) any time after B-005-1; B-?-2 (formations) after B-006-1; B-?-3 (fronts) after B-?-2 and B-005-3; B-?-5 (rules) after B-?-3, with B-?-4 (stunts) in parallel; B-?-6 then B-?-7 (same files); B-?-9, then B-?-10 and B-?-11; B-?-8 after B-?-4 and B-?-7; B-?-12 last. Smallest playable slice: 1, 2, 3, 5, 6, 9. Serial with Player AI in defense.js (B-006-5/6) and carrier.js (one line: S.hole).
+
+Structural (PM, 2026-10-06, per NFL practice L-1006-085): new src/formations.js (play), src/fronts.js (ai), src/blockrules.js (ai), each added to the CLAUDE.md systems table; PLAYS entries become {name, run, forms, path, hole, mesh?, delay?, rules}; DEF_CALLS become front + stunt; blocks/pulls move into rules; snap() assignment code moves to blockrules.js; S.flip, S.hole, S.blk (debug), p.pos; sim params ?play=&form=&front=&side=. Today's five plays fold into the nine families (Dive and Stretch become under-center Inside and Outside Zone); every play runs to either side via flip, CPU picks side at random until B-?-12. Front techniques are starting guesses; workers check them against standard NFL diagrams.
+
+Contract (B-?-2, B-?-3; read by every later item): field x is strength-relative (+x = TE side); OL keep LT..RT labels and rules say playside/backside. FORMATIONS {name, pers, under, qb, rb, fb?, te, te2?, wr[]} with dy behind the line, flex slots WR1 -> FB, WR2 -> TE2. FRONTS {name, box, slots: {DL0..DL3, LB0, LB1, CB2, S0, S1: {pos, tech|xy, depth, job, gap}}}. Rule vocabulary, an ordered priority list per blocker: ['gap',L], ['on'], ['down'], ['backer','mike'|'ps'|'any'], ['double',partner], ['climb'], ['reach'], ['pull','kick'|'wrap'|'trap'], ['pass'], ['crack'].
+
+### B-?-1 The headless sim can force a play, formation, front and side, and prints per-play and box stats
+2. Done when: ?play=&form=&front=&side=L|R override CPU choices under ?sim; JSON gains byPlay{name:{n,ypc,stuffPct}}, boxMean and freeBox (box = within 5 yd of the line and 8 yd of center; free = unblocked, unengaged when the back gets the ball); same seed same line; normal load unchanged.
+4. Owner: core. src/sim.js, src/main.js. Depends on B-005-1 merged.
+
+### B-?-2 The offense lines up in real formations, with I-form, 2-TE and either side
+1. User sees: I-form and two-tight-end sets beside one-back sets; the same play run left or right.
+2. Done when: 5 formations line up with bodies 0.8+ yd apart and p.pos set; flip -1 mirrors skill players and paths, OL stay; existing plays run on each formation with no console line; seed-7 sim on today's formations within 20% of before; FB mass 245, TE2 rated as TE.
+3. Numbers (formations.js, x from center, dy behind the line): 11 Gun = today's shotgun; 11 Under = today's singleback; 21 I = QB 1.2, FB 0 dy4.0, RB 0 dy6.8, TE 6.8, WR -20/20; 12 Under = QB 1.2, RB 0 dy6.5, TE 6.8, TE2 -6.8 dy1.0, WR -20/20; 22 Heavy = QB 1.2, FB 0 dy4.0, RB 0 dy6.8, TE 6.8, TE2 -6.8, WR0 -20. Flex bodies rated by p.pos (B-006-1 templates; FB template added there or POS_TUNE until then).
+4. Owner: play. src/formations.js (new), state.js, players.js, playbook.js (forms per play), animation.js (stance by pos). Depends on B-006-1 merged.
+8. Risks: code reading role for alignment must read pos.
+
+### B-?-3 The defense lines up in real fronts with fits per front
+1. User sees: different defensive looks; a bear stacks the box, a 3-4 stands four linebackers up.
+2. Done when: 4-3 over, 4-3 under, 3-4 odd, nickel, bear line up with no overlap; nickel reproduces today's alignment within 0.3 yd and today's fits (sim within 20%); box count nickel 6, 4-3 7, 3-4 7, bear 8; every defender has a job; forced fronts over 100 plays each ypc 3+ and no console line.
+3. Numbers (fronts.js): techniques 0 = C, 1 = G shaded 0.7 in, 2 = G, 3 = G shaded 0.8 out, 4 = T, 4i = T shaded 0.7 in, 5 = T shaded 0.8 out, 7 = TE shaded 0.8 in, 9 = TE shaded 1.0 out; DL depth 1.1, LB 4.5 (5.0 weak), stand-up edge 1.5. 4-3 over DL W5 W1 S3 S9; 4-3 under DL S5 S1 W3 W5, Sam on the TE; 3-4 odd NT 0, S5, W5 two-gap, OLBs at 9; bear W5 S2 W2 S9 plus rolled safety; 3-4 DL hold (two-gap) until the read, then shed ball-side. Today's DEF_CALLS stay as aliases until B-?-4.
+4. Owner: ai. src/fronts.js (new: table, alignDefense, gapX), defense.js (assignFits reads the front), state.js (front pick in setupPlay), playbook.js (DEF_CALLS), hud.js and animation.js hints. Depends on B-?-2, B-005-3 merged.
+
+### B-?-4 Fronts add stunts and blitzes
+1. User sees: an end looping behind a tackle, a linebacker shooting a gap, a safety coming down.
+2. Done when: Slant L/R, Tex, Loop, LB A-gap blitz, LB B-gap blitz, Safety C-gap blitz defined; each fires at snap + 0.2 s and leaves no gap uncovered; forced sim per stunt freeBox 0.4+ higher than the same front without it (before B-?-8); no console line.
+3. Numbers (STUNTS in fronts.js): twist and loop via waypoint, via.t 0.35 s; blitz LB mode rush, read 0, fireDelay 0.15 s; safety blitz from depth 7.
+4. Owner: ai. fronts.js, defense.js (runFit pre-read honours via), playbook.js. Depends on B-?-3.
+8. Stateful: yes, states table first (aligned, looping, in gap, free).
+
+### B-?-5 Each blocker's rule is read against the front at the snap
+1. User sees: linemen picking different men against different fronts; Power adjusts to slants, blitzes and 8 in the box.
+2. Done when: resolveBlocks(play, S.flip) runs in snap() and writes p.blk and S.blk; today's five plays against nickel resolve to today's targets (debug probe) and sim within 20%; against bear and 3-4 odd, Power and Inside Zone leave no two blockers on one man (no doubles yet) and no OL without a target while a defender is in the box; re-resolved once after the handoff, no per-frame cost.
+3. Rules (atop blockrules.js): COVERED_DX 1.0, COVERED_DY 2.5; first rule with a defender wins; down = nearest defender inside toward the hole; on = covered man; backer mike = LB nearest center, ps = nearest playside LB; reach = outside shade man; locked targets kept all play; WRs ['on'] the corner on their side.
+4. Owner: ai. src/blockrules.js (new), offense.js, input.js (snap), carrier.js (play.hole -> S.hole, one line), playbook.js (ports today's five plays to rules). Depends on B-?-2, B-?-3, B-005-3 merged, B-006-1.
+8. Stateful: small (locked, re-resolved).
+
+### B-?-6 Linemen double-team and climb when the linebacker commits
+1. User sees: two linemen driving one defender, then one peels to the linebacker.
+2. Done when: ['double',partner] puts two blockers on one DL; the inside man climbs to the nearest unblocked LB within 6 yd after 0.5 s engaged or when an LB is within 2.5 yd of the DL; Inside Zone uncovered OL doubles a covered neighbour playside first; Duo doubles both DTs; over 100 plays per play a climb on 70%+ of plays and freeBox 0.3 lower than single blocks.
+3. Rules: CLIMB_T 0.5, CLIMB_NEAR 2.5, CLIMB_RANGE 6; post man stays; no LB in range, he stays.
+4. Owner: ai. blockrules.js, offense.js (claimed, pickBlock allow shared targets). Depends on B-?-5.
+8. Stateful: yes, states table first (single, double, climbing, released).
+
+### B-?-7 Guards and tight ends pull to kick out or wrap, and a trap guard takes the penetrator
+1. User sees: the backside guard crossing to hit the end man, a second puller wrapping to the linebacker.
+2. Done when: kick = first defender outside the hole within los-1..los+3; wrap = nearest unblocked playside LB beyond los+1.5; trap = first DL past center on the pull side nobody blocks; puller at 1.3x speed through the waypoint; 70%+ reach their target within 1.2 s; freeBox no worse than today.
+3. Rules: PULL_V 1.3, path depth los-1.8 for 1.2 yd then up, KICK_X 0.5, WRAP_Y los+1.5, lock within 1.4 yd.
+4. Owner: ai. blockrules.js, offense.js (via waypoint in runBlock). Depends on B-?-6.
+8. Stateful: yes, states table first (set, pulling, engaged, free).
+
+### B-?-8 Blockers re-read on a stunt, and mistakes come from awareness
+1. User sees: linemen passing off a looping end; a low-awareness line sometimes misses a twist.
+2. Done when: a crossing stunt makes each blocker whose man left re-resolve after READ_O and pass off; recog 95 vs 35 on the same seed: freeBox at 35 0.3+ higher on stunts, S.blk logs missed events; non-stunt plays change under 10%.
+3. Rules: READ_O 0.45 - recog/250 s; MISS_P 0.5*lack(recog) (keeps his old man 0.4 s more); WRONG_P 0.15*lack(recog) (second-priority target at the snap); seeded random.
+4. Owner: ai. blockrules.js (reread), offense.js (every 0.1 s while a stunt is live). Depends on B-?-4, B-?-7, B-006-1.
+8. Stateful: yes, states table first (set, reading, passed off, missed).
+
+### B-?-9 Run playbook, batch 1: Inside Zone, Outside Zone, Duo, Iso
+2. Done when: each play in the contract format runs on every form in its list, both sides, no console line; forced sim per play over 100 plays ypc 2.0-7.0, none under 2.0 against nickel; S.blk matches the rules; Dive, Stretch and Outside Zone Right fold in as variants.
+3. Numbers (strength-relative): Inside Zone hole -1.1, forms 11 Gun, 11 Under, 12 Under, OL ['double',playside],['on']; Outside Zone hole 8.5, forms 11 Gun, 12 Under, 21 I, playside ['reach'], backside ['down']; Duo hole 1.1, forms 21 I, 12 Under, 22 Heavy, ['double']; Iso hole -1.1, forms 21 I, 22 Heavy, FB ['backer','mike'], OL ['on'].
+4. Owner: play. playbook.js, state.js (assignRoutes resolves path/hole with flip, writes S.hole). Depends on B-?-6.
+
+### B-?-10 Run playbook, batch 2: Power, Counter, Trap
+2. Done when: each play runs on its forms both sides, no console line; ypc 2.0-7.0 per play; S.blk shows kick, wrap and trap targets; Power vs bear and 3-4 odd leaves no OL without a target; Counter's first RB step goes away from the hole.
+3. Numbers: Power hole -3.6, BSG ['pull','kick'], BST ['down'], FB ['pull','wrap'], PST ['down'], TE ['on'], forms 21 I, 11 Under, 12 Under; Counter BSG ['pull','kick'], backside TE or FB ['pull','wrap'], rest ['down'], hole -3.6, forms 21 I, 12 Under; Trap playside G ['pull','trap'], others ['on'], hole 1.1, forms 11 Under, 21 I.
+4. Owner: play. playbook.js. Depends on B-?-7, B-?-9.
+
+### B-?-11 Run playbook, batch 3: Toss/Sweep and Draw
+2. Done when: Toss pitches with a kicking guard, FB wrap and WRs cracking the safety, ypc 2.0-7.0; Draw hands off 0.9 s after the snap, OL ['pass'] then ['on'], the defense reads pass until the handoff (DL 1.5+ yd past the line at handoff); no console line.
+3. Numbers: Toss hole 8.5, forms 11 Gun, 21 I, 12 Under; Draw hole 1.1, DRAW_DELAY 0.9 s, forms 11 Gun, 21 I.
+4. Owner: play. playbook.js, main.js (handoff timer reads play.delay), offense.js (pass-set branch), defense.js (read delay). Depends on B-?-7, B-?-9; serial after B-006-5/6 in defense.js.
+8. Stateful: yes, states table first (drop, hold, handoff, run).
+
+### B-?-12 The CPU picks play, formation and side against the front, down and distance
+2. Done when: over 300 sim plays all 9 families are called, none over 25%; Power and Counter are not called into a 3-4 odd or bear more than 1.3x their share; slant calls steer plays away.
+4. Owner: ai. src/cpu.js (cpuCall). Depends on B-?-10, B-?-11, B-?-1.
