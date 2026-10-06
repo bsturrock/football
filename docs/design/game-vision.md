@@ -31,7 +31,7 @@ Top-line test for all work: would this look right on an NFL broadcast, graphics 
       - **Blocking rules** Each blocker has a rule per play read against the front at the snap and re-read on a stunt (zone step; gap-down-backer; double team then climb when the LB commits; pull to kick out or wrap); mistakes by awareness rating (missed stunt, wrong man) (director per L-1006-085, 2026-10-06).
       - **Today's schemes** Zone plays shift lanes (each lineman blocks whoever shows in his lane, else climbs); Power is a fixed defender list written against the base front, so it doesn't adjust to slants, blitzes or 8 in the box; no doubles or combos, no reach, down or kick-out technique (playbook.js:30-45).
       - ? Line play: physics-driven bodies or a richer kinematic model with ragdoll moments (asked 2026-10-06)
-  - **Player AI and behaviour** Starting focus (user 2026-10-06, L-1006-079): defender reads and keys, pursuit angles that respect blockers, RB vision (press, cut, follow blocks), effort and fatigue. Today: pursuit aims at an intercept point with an awareness error and no blocker avoidance (defense.js), RB scores lanes by race-to-spot (carrier.js).
+  - **Player AI and behaviour** `packaged B-006` Starting focus (user 2026-10-06, L-1006-079): defender reads and keys, pursuit angles that respect blockers, RB vision (press, cut, follow blocks), effort and fatigue. Today: pursuit aims at an intercept point with an awareness error and no blocker avoidance (defense.js), RB scores lanes by race-to-spot (carrier.js).
     - **First up: RB vision and pursuit** The runner against the pursuit is the core of a run; reads and effort follow (user 2026-10-06, L-1006-081).
     - **Human mistakes** Players misread, overrun plays and take bad angles, more often at lower ratings, so big runs come out naturally (user 2026-10-06, L-1006-081).
     - **NFL-style ratings** Every player gets a fuller rating set (speed, acceleration, strength, agility, vision, tackling, block shedding, pursuit, play recognition) that drives behaviour (user 2026-10-06, L-1006-081).
@@ -115,13 +115,13 @@ Structural (PM, 2026-10-06): new src/sim.js (core) and src/pile.js (physics), bo
 
 ## Package: Player AI
 
-Drafted 2026-10-06 for the Player AI subtree (RB vision, pursuit, ratings); effort and fatigue out; not filed until the user says yes.
+Drafted 2026-10-06 for the Player AI subtree (RB vision, pursuit, ratings); effort and fatigue out; filed as B-006, B-006-1..7 (user 2026-10-06, L-1006-086).
 
-Order: B-?-1 (ratings) now; B-?-2 (sim stats) after B-005-1 merges; B-?-3 (RB read) and B-?-5 (pursuit) in parallel after B-005-3 merges (both edit the gates it rewrites); B-?-4 after B-?-3, B-?-6 after B-?-5 (same files); B-?-7 (tuning) last. physics.js, blocking.js, tackling.js, movement.js are off-limits: ratings reach them through the old fields.
+Order: B-006-1 (ratings) now; B-006-2 (sim stats) after B-005-1 merges; B-006-3 (RB read) and B-006-5 (pursuit) in parallel after B-005-3 merges (both edit the gates it rewrites); B-006-4 after B-006-3, B-006-6 after B-006-5 (same files); B-006-7 (tuning) last. physics.js, blocking.js, tackling.js, movement.js are off-limits: ratings reach them through the old fields.
 
 Structural (PM, 2026-10-06): new src/ratings.js (play) exporting rateTeams, lack(p,key) = 1 - p.rt[key]/99 and the template table; field p.rt; teams generated at every newGame and every 20 sim plays; S.read debug state; AI items add sim keys additively; tunables as module constants (no src/data). Ratings are absolute across positions like NFL video games (a DT's speed rating is lower than a CB's), mapped to speed, acceleration and turning by one global curve per rating, calibrated so template midpoints match today's position speeds within about 5% (PM per the user's "0-99 like NFL video games", L-1006-082). No ratings display yet. Keyboard-carrier path untouched; all AI under CPU mode.
 
-### B-?-1 Every player gets nine 0-99 ratings from a position template
+### B-006-1 Every player gets nine 0-99 ratings from a position template
 1. User sees: backs differ (power vs speed), linebackers differ (stuffer vs coverage), each game has different teams; play looks the same on average.
 2. Done when: ratings.js is pure (no THREE) and node-testable on fake players: integers 0-99 inside template ranges plus team offset; p.rt = {speed, accel, strength, agility, vision, tackling, shed, pursuit, recog} on all 22; old fields derived (rStr = strength, rAgi = agility, rBrk = (strength+agility)/2 offense, rPow = (strength+shed)/2, rSpd = (speed+agility)/2 defense, rTkl = tackling, rAwr = recog) so the full check passes and 10 CPU plays look as before; newGame regenerates; same seed same ratings (draws via util rand); spd set once per game, not re-rolled per play.
 3. Numbers (table atop ratings.js; ranges speed/accel/strength/agility/vision/tackling/shed/pursuit/recog, team offset -4..+4): OL 40-60/45-65/70-92/50-75/45-70/20-35/40-60/30-50/55-80; TE 55-72/55-72/60-80/55-72/50-70/25-40/40-60/35-55/50-70; WR 70-92/68-90/35-55/70-90/55-75/20-35/30-45/35-55/50-70; QB 50-70/45-65/40-55/50-65/60-80/15-25/20-35/20-35/60-80; RB power 70-85/70-85/75-90/60-75/60-85/20-35/30-45/30-45/40-60; RB speed 85-97/82-95/50-68/80-95/60-85/20-35/30-45/30-45/40-60; DE 62-82/65-85/65-85/60-78/50-70/65-80/65-85/60-80/55-75; DT 45-62/50-68/78-95/40-60/45-65/65-80/75-92/50-70/55-75; LB stuff 60-75/60-75/70-88/55-70/60-80/80-95/65-85/65-85/70-90; LB cover 72-88/72-88/50-65/70-85/60-80/65-80/40-60/70-90/65-90; CB 80-95/78-92/35-55/78-92/45-65/60-78/25-45/65-85/55-80; S 72-88/70-86/50-65/68-84/55-75/70-85/40-60/70-85/65-90. RB and each LB 50/50 template; DL0/DL3 DE, DL1/DL2 DT. Starting guesses, tune in playtest.
@@ -129,38 +129,38 @@ Structural (PM, 2026-10-06): new src/ratings.js (play) exporting rateTeams, lack
 6. Out of scope: ratings UI, fatigue, using vision/recog/pursuit (later parts).
 8. Risks: rateTeams before the sim seed is installed. Stateful: no.
 
-### B-?-2 The sim prints NFL run-distribution stats and regenerates teams
+### B-006-2 The sim prints NFL run-distribution stats and regenerates teams
 2. Done when: ?sim JSON gains ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards.p10/p90/max, teams; same seed same line; rateTeams every SIM_TEAM_EVERY 20 plays; normal load unchanged; done-report gives the pooled baseline for seeds 7, 8, 9 (100 plays each).
-4. Owner: core. src/sim.js. Depends on B-005-1 merged, B-?-1.
+4. Owner: core. src/sim.js. Depends on B-005-1 merged, B-006-1.
 
-### B-?-3 The runner presses, reads the first unblocked defender and picks his lane by vision
+### B-006-3 The runner presses, reads the first unblocked defender and picks his lane by vision
 1. User sees: the back slows a half-step at the line so defenders commit, then hits, bends, bounces or cuts back; a weak-vision back sometimes runs into his own linemen.
 2. Done when: S.read = {key, choice, wrong} once per play; on Inside and Outside Zone the choice follows what the key defender does, lane changes at most once after los+1; sim vision 95 vs 35 (same seed): median yards differ by 0.3+ and wrong share at 35 is 3x+ that at 95; default ratings within 25% of baseline; no new console line.
 3. Numbers (atop carrier.js): PRESS_V 0.7*spd for PRESS_T 0.15 + 0.35*vision/99 s (cap 0.6 s); key = nearest unengaged defender within 3 yd of the hole x, y los-1..los+5, re-picked 5x/s until los+1.5; options at los+1: hit (hole), bend (2.2 yd away from the key), bounce (5 yd to the edge, clamp HW-1.5), cutback (4 yd backside); score = raceMargin at los+1 and los+3 minus 0.05*|x-hole| plus noise (1-vision/99)*rand(-1,1); wrong hole with p 0.25*(1-vision/99); locked past los+1.5, then openField.
-4. Owner: play. src/carrier.js, src/state.js place() resets. Depends on B-?-1, B-?-2, B-005-3 merged.
+4. Owner: play. src/carrier.js, src/state.js place() resets. Depends on B-006-1, B-006-2, B-005-3 merged.
 8. Stateful: yes, states table first (path, press, read, committed).
 
-### B-?-4 The runner follows his lead blocker, reads the open field and falls forward
+### B-006-4 The runner follows his lead blocker, reads the open field and falls forward
 1. User sees: on Power the back tucks behind the pulling guard's hip; in the open field he sets up defenders; at contact he drives for the extra yard.
 2. Done when: on a pull play he stays within 1.2 yd of the puller's hip until the puller engages or he passes los+2; open-field vision noise (1-vision/99)*0.8 on ofMargin, sim vision 35 vs 95 mean yards 0.3+ lower; when latched and not down he steers straight upfield at 0.6*spd, yards after contact up 0.2+ over 100 plays; pushPlayRate stays <= 0.10; no new console line.
-4. Owner: play. src/carrier.js. Depends on B-?-3. No physics.js change (a visible ragdoll lean would be a physics item).
+4. Owner: play. src/carrier.js. Depends on B-006-3. No physics.js change (a visible ragdoll lean would be a physics item).
 8. Stateful: small table (following, free, contact).
 
-### B-?-5 Each defender's pursuit angle comes from his pursuit rating, with human mistakes
+### B-006-5 Each defender's pursuit angle comes from his pursuit rating, with human mistakes
 1. User sees: sensible cut-off angles; a speed back outruns slow defenders; low-rated defenders overrun or take bad angles, so some runs break.
 2. Done when: intercept() uses the runner's smoothed velocity and d.spd, aim scaled by AIM_K resampled every 0.4 s; sim pursuit 95 vs 35: bigPct at 35 is 1.5x+ and ypc 0.3+ higher; overpursuit visible in some of 10 plays, not most; default within 25% of baseline.
 3. Numbers (atop defense.js): AIM_K = 1 + lack(d,'pursuit')*0.8*rand(-1,1); AIM_K over 1.35 holds the future spot 0.5 s after a cutback; d.read = 0.6 - recog/250; BITE_P 0.35*lack(d,'recog') follows the first flow step 0.3 s longer.
-4. Owner: ai. src/defense.js. Depends on B-?-1, B-?-2, B-005-3 merged.
+4. Owner: ai. src/defense.js. Depends on B-006-1, B-006-2, B-005-3 merged.
 8. Stateful: small table (aim, holding, bite).
 
-### B-?-6 Defenders keep leverage, the backside stays home, and they go around or through blockers
+### B-006-6 Defenders keep leverage, the backside stays home, and they go around or through blockers
 1. User sees: the force man keeps the edge, the backside defender stays home against the cutback, defenders slip or fight through blockers; poor ones get walled off.
 2. Done when: on Outside Zone a cutback meets a backside defender who stayed within 3 yd of the cutback lane until los+3; a blocker inside a 30 degree cone within 2.5 yd makes the defender step around to his leverage side, or fight through with FIGHT_P = shed/99 - 0.3; pursuit 35 shows stuffPct down and bigPct up; default within 25% of baseline, pushPlayRate <= 0.10.
 3. Numbers (atop defense.js): AVOID_CONE 30, AVOID_DIST 2.5, BACK_D 3, LEV_SHADE 0.8*(0.5 + pursuit/200); cone test precomputed every 0.1 s.
-4. Owner: ai. src/defense.js. Depends on B-?-5.
+4. Owner: ai. src/defense.js. Depends on B-006-5.
 8. Stateful: yes, states table first (pursuing, avoiding, fighting, held).
 
-### B-?-7 Sim run numbers land in the NFL bands
+### B-006-7 Sim run numbers land in the NFL bands
 2. Done when: 3 seeds x 100 plays pooled: ypc 3.9-4.7, stuffPct 15-25%, bigPct 7-13%, pushPlayRate <= 0.10; the user's 20-play playtest passes; bands are starting values tuned with the user.
 3. Rules: named constants only (ratings.js templates, carrier.js, defense.js), no knob moved more than 30%, before and after reported per knob.
-4. Owner: ai (constants across play and ai files, PM call). Depends on B-?-4, B-?-6.
+4. Owner: ai (constants across play and ai files, PM call). Depends on B-006-4, B-006-6.
