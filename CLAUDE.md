@@ -25,7 +25,7 @@ Team process: a project-manager (PM) leads; workers build on their own branches 
 | core | src/main.js, src/state.js, src/util.js, src/sim.js |
 | render | src/scene.js, src/camera.js, src/animation.js, src/markers.js |
 | physics | src/physics.js, src/movement.js, src/blocking.js, src/tackling.js, src/pile.js |
-| ai | src/offense.js, src/defense.js, src/cpu.js |
+| ai | src/offense.js, src/defense.js, src/cpu.js, src/blockrules.js |
 | play | src/playbook.js, src/formations.js, src/fronts.js, src/rules.js, src/players.js, src/ratings.js, src/roster.js, src/carrier.js |
 | input | src/input.js |
 | ui | src/hud.js, index.html |
