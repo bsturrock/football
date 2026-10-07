@@ -1,7 +1,7 @@
 import { C, CBs, DEF, EXTRA, LBs, LG, LT, OFF, RG, RT, SFs, TE, WRs } from './players.js';
 import { lack } from './ratings.js';
 import { S } from './state.js';
-import { BOX_X, GRID_K as GK } from './formations.js';
+import { BOX_X, GRID_K as GK, OL_GAP } from './formations.js';
 import { dist } from './util.js';
 
 // ---------- block rules (B-007-6) ----------
@@ -72,6 +72,15 @@ export const READ_BASE = 0.45, READ_K = 250, MISS_P = 0.5, MISS_HOLD = 0.4, WRON
 export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = ENGAGE_R, COMMIT_V = 0.5, NEIGHBOUR_DX = 3*GK, BEHIND_Y = 1.5;   // NEIGHBOUR_DX: the next lineman is no further than this; BEHIND_Y: a blocker does not pick a man this far behind him   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
 export const COVER_EPS = 1e-3;   // B-030: a defender exactly COVERED_DX off (a float tie, e.g. the nickel guard) counts as covered, the same way in every covered test
 export const COVERED_DX = 1.0*GK, COVERED_DY = 2.5, REACH_DX = 3.5*GK, REACH_AIM = 2.0*GK, BOX_Y = 7, ANY_DX = 5*GK, LANE_DX = 1.8*GK, ZONE_KEEP = 3*GK, CLIMB_LANE_DX = 6*GK;   // ZONE_KEEP: offense.js zoneBlock drops an unengaged, unruled target this far from the lane
+// Scheme knowledge (B-032-2). At the snap every lineman, tight end and back-blocker (not a receiver) rolls one bust draw: chance BUST_MAX*(1-know/99)^2, know = his rating for the
+// play's family (FAMILY: scheme 'zone' -> p.rt.zone, 'man' -> p.rt.gap; p.rt.pass is kept for pass pro later). The draw is always taken (same seed, same stream), and S.bust gets
+// one {name, fam, know, kind} per rolled blocker: kind null = no bust. A bust shows only through its result:
+//   wrong   his rule would give him a man: he takes his next rule's man instead, else the man in the neighbour lane away from the hole; his own man stays free
+//   late    he is a puller (B-032-3 applies the delay)         noclimb / late   he is the climber of a double (half of the bust band each; B-032-3 applies it)
+//   none    busted but no other man to take: he blocks his man as usual
+// A busted blocker skips the recog stunt roll. p.bustWrong keeps his wrong man through the handoff re-read.
+export const BUST_MAX = 0.35;
+const FAMILY = {zone:'zone', man:'gap'};
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
 const bodyOf = n => ({LT, LG, C, RG, RT, TE, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2], FB:EXTRA.find(e => e.pos === 'FB'), TE2:EXTRA.find(e => e.pos === 'TE')})[n];
 const inBox = d => d.role === 'DL' || d.role === 'LB' || !!d.fit;
@@ -139,9 +148,10 @@ export function resolveBlocks(play, flip, again = false){
     const dir = side === 'playside' ? ps : -ps, i = linemen.indexOf(p) + dir*1;
     return linemen[i] && Math.abs(linemen[i].x - p.x) < NEIGHBOUR_DX ? linemen[i] : null;
   }};
-  const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rr && p.rr.state !== 'set'));   // engaged, pulling, or in a double (driving or climbing)
+  const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rr && p.rr.state !== 'set') || p.bustWrong);   // engaged, pulling, or in a double (driving or climbing)
   if(!again){ S.climbed = false; S.pulls = []; S.blkEv = []; OFF.forEach(o => { o.rr = null; }); }
   for(const b of bl) if(!keep(b.p)){ b.p.blk = null; b.p.ruled = false; b.p.dbl = null; if(!again){ b.p.via = null; b.p.pull = null; } }
+  if(!again) for(const b of bl) b.p.bustWrong = false;
   const claimed = new Set(OFF.map(o => o.blk).filter(Boolean));
   // a safety in the box, or a zone pick out of the lane window, would be dropped by zoneBlock on frame 1: mark those `ruled` so it plays
   // them until the man is down (p.locked stays "engaged", the one thing the after-handoff read keeps)
@@ -149,6 +159,8 @@ export function resolveBlocks(play, flip, again = false){
   const resv = new Map();   // a line man a doubler took before his post man did: d -> {post man, doubler}; the post man may still take him
   const take = (b, d, rule) => {
     const r = resv.get(d); if(r && r.post === b.p) b.p.dbl = {d, mate:r.doubler, post:true, t:0, state:'double'};
+    if(b.bust && !b.entry.kind && rule[0] === 'pull') b.entry.kind = 'late';
+    if(b.bust && !b.entry.kind && rule[0] === 'double') b.entry.kind = b.bust.half ? 'late' : 'noclimb';
     if(rule[0] === 'double'){
       const nb = ctx.neighbour(b.p, rule[1] || 'playside');
       b.p.dbl = {d, mate:nb, post:false, t:0, state:'double'}; b.p.ruled = true;
@@ -161,11 +173,28 @@ export function resolveBlocks(play, flip, again = false){
     }
     b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.ruled = true; };
   const free = b => DEF.filter(d => d.stun <= 0 && (!claimed.has(d) || (resv.get(d) || {}).post === b.p));
+  if(!again){
+    S.bust = [];
+    for(const b of bl){
+      if(b.o > 1) continue;   // receivers' blocks are no scheme job
+      const fam = FAMILY[play.scheme] || 'gap', know = b.p.rt[fam], chance = BUST_MAX*Math.pow(1 - know/99, 2), r = Math.random();
+      b.bust = r < chance ? {half:r < chance/2} : null;   // the draw is taken for every blocker, busted or not
+      b.entry = {name:b.name, fam, know, kind:null}; S.bust.push(b.entry);
+    }
+  }
   const stunting = !again && DEF.some(isCrosser); if(!again) S.blkStunt = stunting;   // only a play with a crossing stunt rolls awareness: other plays draw no random numbers
   for(let k = 0; k < 3; k++) for(const b of bl){
     if(b.p.blk || !b.spec[k]) continue;
+    if(b.bust && !b.entry.kind && b.spec[k] && allowed(b.spec[k]) && !['later', 'pass', 'pull', 'double'].includes(b.spec[k][0])){
+      const own = pick(b.spec[k], b.p, free(b), ctx), nx = b.spec[k + 1];
+      const others = free(b).filter(d => d !== own);   // his own man stays free
+      let d2 = nx && allowed(nx) && !['later', 'pass', 'pull', 'double'].includes(nx[0]) ? pick(nx, b.p, others, ctx) : null;
+      if(!d2) d2 = pick(['line'], {x:b.p.x, y:b.p.y, lane:(b.p.lane ?? b.p.x) - ps*OL_GAP}, others, ctx);
+      if(d2){ take(b, d2, ['wrong']); b.p.ruled = true; b.p.bustWrong = true; b.entry.kind = 'wrong'; continue; }
+      b.entry.kind = 'none';
+    }
     // B-007-12: a Draw pass-setter (first rule 'pass', held by offense.js) takes no wrong read
-    if(k === 0 && stunting && allowed(b.spec[0]) && allowed(b.spec[1]) && !b.o && b.spec[1] && b.spec[0][0] !== 'pass' && !['pull', 'double'].includes(b.spec[0][0]) && !['pull', 'double'].includes(b.spec[1][0]) && Math.random() < WRONG_P*lack(b.p, 'recog')){
+    if(k === 0 && stunting && !b.bust && allowed(b.spec[0]) && allowed(b.spec[1]) && !b.o && b.spec[1] && b.spec[0][0] !== 'pass' && !['pull', 'double'].includes(b.spec[0][0]) && !['pull', 'double'].includes(b.spec[1][0]) && Math.random() < WRONG_P*lack(b.p, 'recog')){
       const d2 = pick(b.spec[1], b.p, free(b), ctx);   // a wrong read: his second-priority man, when it is a different one
       if(d2 && d2 !== pick(b.spec[0], b.p, free(b), ctx)){ take(b, d2, b.spec[1]); wrong.push(b); continue; }
     }
