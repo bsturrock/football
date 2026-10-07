@@ -12,6 +12,11 @@ import { HW, clamp, dist, rand, sigmoid } from './util.js';
 // Win chance comes from the rating matchup for that move (speed: rSpd vs rAgi, power: rPow vs rStr).
 // Run blocking favours the blocker (he fires out first); pass rush is an even fight.
 const MOVE_TIME = 0.45;
+// B-020: a battle end gives the defender his own facing back, but only if it is the block's (never a tackle's faceAt: tackling.js sets that with d.latch)
+export function unface(d){
+  const t = d.faceAt, b = d.bt;
+  if(t && !d.latch && b && (t === b.o || t.blk === d)) d.faceAt = null;
+}
 export function battle(d, o, c, dt){
   const b = d.bt; b.t += dt;
   const ax = d.x - o.x, ay = d.y - o.y, al = Math.hypot(ax, ay) || 1;     // blocker -> defender
@@ -46,14 +51,14 @@ export function battle(d, o, c, dt){
     const diff = speed ? d.rSpd - o.rAgi : d.rPow - o.rStr;
     const pWin = sigmoid(diff/(speed ? 9 : 12) + (S.runMode ? (o.role === 'OL' || o === TE ? -1.4 : 0.3) : 0));   // linemen fire out first; a receiver's stalk block gets shed   // speed: boom or bust
     if(Math.random() < pWin){
-      d.freeFrom = o; d.freeT = 0.9; o.beatT = 0.9; d.bt = o.bt = null;
+      d.freeFrom = o; d.freeT = 0.9; o.beatT = 0.9; unface(d); d.bt = o.bt = null;
       d.x += cx/cl*0.8; d.y += cy/cl*0.8;
       callout(d, 'Beat him!', 'bad');
       return;
     }
     // stuffed. A bull rush into a much stronger blocker can end up on its back.
     if(!speed && d.role === 'DL' && o.rStr - d.rPow + rand(0, 40) > 58){   // only a much stronger blocker, only in the trenches
-      d.stun = 1.6; d.act = 'down'; d.actT = 1.6; d.fallDir = -1; d.bt = o.bt = null;
+      d.stun = 1.6; d.act = 'down'; d.actT = 1.6; d.fallDir = -1; unface(d); d.bt = o.bt = null;
       physOn(d, {vx:(d.x - o.x)*2.5, vy:(d.y - o.y)*2.5, up:0.3, bal:0, ttl:1.4});
       callout(d, 'Pancaked!', 'good');
       return;
@@ -80,7 +85,7 @@ export function pancakeHit(o, d){
   const score = (o.mass*Math.max(0, into) - d.mass*Math.max(0, back))/d.mass*(o.rStr/80)/(d.rPow/70)*rand(0.8, 1.2);
   if(score < PANCAKE_AT) return false;
   const k = close*o.mass/(o.mass + d.mass)*1.6;                     // what the hit hands the defender
-  d.stun = 2.4; d.act = 'down'; d.actT = 2.4; d.fallDir = -1; d.bt = o.bt = null;
+  d.stun = 2.4; d.act = 'down'; d.actT = 2.4; d.fallDir = -1; unface(d); d.bt = o.bt = null;
   physOn(d, {bal:0, vx:d.vx + nx*k, vy:d.vy + ny*k, up:0.4, ttl:1.8});
   physOn(o, {bal:1, ttl:0.4});                                      // he runs through it
   callout(o, 'Pancake!', 'good');

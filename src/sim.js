@@ -1,12 +1,13 @@
 import { KEYS } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { formByName } from './formations.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
+import { HOLD_R, bearing, faceLean, faceYaw, holdsBlocker } from './util.js';
 
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
 // Pile stats come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
 // physMs is null under --virtual-time-budget (performance.now does not advance during synchronous code); read it with a real clock
-const SIM_DT = 1/60, PILE_R = 1.3, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_DX = 8, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
+const SQUARE_DEG = 25, FACE_V = 0.4, FACE_RATE = 14, TURN_MAX = 2, SIM_DT = 1/60, PILE_R = 1.3, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_DX = 8, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
 // sim.js first and its only import is ratings.js (and via it util.js), neither of which rolls at load, so player ratings and masses (rolled at load) are seeded too.
@@ -60,6 +61,45 @@ export function runSim(n, step, g){
   if(force.front || force.pers || force.dpers || force.form || force.side) setupPlay();   // the first play was set up before the force existed
   const yards = [], spotYards = [], wins = [], physMs = [];
   const byPlay = {}, boxes = [], frees = [], calls = {}, byFront = {}, byCall = {}, tally = (o, k) => { o[k] = (o[k] || 0) + 1; };   // B-007-13: counts of the plays run, overall, per front, per defensive call
+  // B-020: animate() does not run here, so p.face never moves. Each defender gets a shadow face that turns by animate's rule
+  // (face += wrap(target - face)*min(1, dt*FACE_RATE); target = faceYaw, else his velocity heading when speed > FACE_V), reset each play to his p.face.
+  // Engaged frames (a battle, not a body, not stunned) score the shadow face against the bearing to his blocker or nearest double-teamer:
+  // errDeg = off square with the intended lean removed, leanDeg = the lean itself, sqPct = share of frames within SQUARE_DEG of square including the lean.
+  // Turn-back: from a battle ending (shed, step-around) until the shadow face is within SQUARE_DEG of his velocity heading, capped at TURN_MAX s.
+  const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0, hFrames:0, hSquare:0, hErr:0}, shadow = new Map(), turn = {shed:[], hold:[]};
+  const wrap = a => Math.atan2(Math.sin(a), Math.cos(a)), deg = r => r*180/Math.PI;
+  const facing = () => {
+    for(const d of DEF){
+      let m = shadow.get(d); if(!m){ m = {f:d.face, eng:false, hold:false, t:null, k:null}; shadow.set(d, m); }
+      const sp = Math.hypot(d.vx, d.vy), fy = faceYaw(d, ball, S), vy = sp > FACE_V ? Math.atan2(d.vx, -d.vy) : null, tgt = fy !== null ? fy : vy;
+      if(!d.ph && d.act !== 'down' && d.act !== 'dive' && d.act !== 'fall' && tgt !== null) m.f += wrap(tgt - m.f)*Math.min(1, SIM_DT*FACE_RATE);
+      const live = !d.ph && !d.latch && d.stun <= 0, eng = !!d.bt && live, hold = !d.bt && live && holdsBlocker(d, S);   // hold: the code is still turning him to his blocker with no battle object (util.js holdsBlocker)
+      if(eng || hold){
+        const qs = [...(d.bt ? [d.bt.o] : []), ...(d.faceAt ? [d.faceAt] : []), ...OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < HOLD_R)];
+        let e = Infinity, off = Infinity, lean = 0;
+        for(const q of qs){
+          const l = faceLean(d, q, ball, S), x = Math.abs(wrap(m.f - bearing(d, q) - l)), y = Math.abs(wrap(m.f - bearing(d, q)));
+          if(x < e){ e = x; off = y; lean = Math.abs(l); }
+        }
+        if(eng){
+          fc.frames++; fc.err += e; fc.lean += lean; if(deg(off) <= SQUARE_DEG) fc.square++;
+          fc.maxLean = Math.max(fc.maxLean, lean); fc.maxOff = Math.max(fc.maxOff, off);
+        } else { fc.hFrames++; fc.hErr += e; if(deg(off) <= SQUARE_DEG) fc.hSquare++; }
+      }
+      if(!eng && m.eng && live && d.freeT > 0.8){ m.t = 0; m.k = 'shed'; }   // he just shed his blocker (freeT is set to 0.9 then): time the turn back
+      else if(!hold && m.hold && !d.bt && live){ m.t = 0; m.k = 'hold'; }    // a hold just ended with no battle: time the turn back too
+      m.eng = eng; m.hold = hold;
+      if(m.t !== null){
+        if(!live) m.t = null;
+        else {
+          m.t += SIM_DT;
+          if(vy === null) m.t = null;   // standing still after the shed or the hold: no heading to turn back to, not a turn-back
+          else if(vy !== null && Math.abs(wrap(m.f - vy)) <= SQUARE_DEG*Math.PI/180){ turn[m.k].push(m.t); m.t = null; }
+          else if(m.t >= TURN_MAX){ turn[m.k].push(TURN_MAX); m.t = null; }
+        }
+      }
+    }
+  };
   let timeouts = 0, pushPlays = 0, bodiesMax = 0, win = null;
   const closeWin = () => {   // a window counts once it lasted WINDOW_T
     if(win && win.t >= WINDOW_T) wins.push({dur:win.t, gain:win.y1 - win.y0, off:win.off});
@@ -71,9 +111,10 @@ export function runSim(n, step, g){
   setRecog();
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
+    shadow.clear();
     let startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
-      step(SIM_DT); t += SIM_DT;
+      step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
       const c = ball.state === 'held' ? ball.holder : null;
       if(S.phase === 'live' && c){
         const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; tally(calls, pname); tally(byFront[S.front] || (byFront[S.front] = {}), pname); tally(byCall[S.defCall.name] || (byCall[S.defCall.name] = {}), pname); }   // B-007-13: call shares overall, per front, per defensive call
@@ -120,5 +161,5 @@ export function runSim(n, step, g){
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
-    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, slant:{'Slant Left':byCall['Slant Left'] || {}, 'Slant Right':byCall['Slant Right'] || {}}, boxMean:mean(boxes), freeBox:mean(frees), blkEv});
+    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, slant:{'Slant Left':byCall['Slant Left'] || {}, 'Slant Right':byCall['Slant Right'] || {}}, boxMean:mean(boxes), freeBox:mean(frees), blkEv, facing:{frames:fc.frames, sqPct:fc.frames ? +(100*fc.square/fc.frames).toFixed(1) : null, errDeg:fc.frames ? +deg(fc.err/fc.frames).toFixed(1) : null, leanDeg:fc.frames ? +deg(fc.lean/fc.frames).toFixed(1) : null, maxLeanDeg:+deg(fc.maxLean).toFixed(1), maxOffDeg:+deg(fc.maxOff).toFixed(1), heldFrames:fc.hFrames, sqPctWithHeld:fc.frames + fc.hFrames ? +(100*(fc.square + fc.hSquare)/(fc.frames + fc.hFrames)).toFixed(1) : null, errDegWithHeld:fc.frames + fc.hFrames ? +deg((fc.err + fc.hErr)/(fc.frames + fc.hFrames)).toFixed(1) : null, turnBack:{n:turn.shed.length, medianS:med(turn.shed), p90S:pct(turn.shed, 0.9)}, holdTurnBack:{n:turn.hold.length, medianS:med(turn.hold), p90S:pct(turn.hold, 0.9)}}});
 }
