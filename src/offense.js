@@ -40,7 +40,9 @@ function driveAt(p, d, ref, dt){
   let tx = d.x + side + vx/l*FIT_UP, ty = d.y + vy/l*FIT_UP;
   const o = side && d.bt && d.bt.o !== p ? d.bt.o : null;
   if(o){   // B-025: the locked pair owns the spot on its axis; the second man takes the ring spot beside it, not on it
-    const ux = o.x - d.x, uy = o.y - d.y, ul = Math.hypot(ux, uy) || 1, s = Math.sign(ux*(p.y - d.y) - uy*(p.x - d.x)) || 1, c = Math.cos(DBL_ARC*s), n = Math.sin(DBL_ARC*s);
+    const ux = o.x - d.x, uy = o.y - d.y, ul = Math.hypot(ux, uy) || 1;
+    if(p.dbl.ringO !== o){ p.dbl.ringO = o; p.dbl.ringS = Math.sign(ux*(p.y - d.y) - uy*(p.x - d.x)) || 1; }   // latched per battle blocker: the side can't flip when the pair swings round the axis; p.dbl is replaced when the double ends
+    const s = p.dbl.ringS, c = Math.cos(DBL_ARC*s), n = Math.sin(DBL_ARC*s);
     tx = d.x + (ux*c - uy*n)/ul*DBL_R; ty = d.y + (ux*n + uy*c)/ul*DBL_R;
   }
   steer(p, tx, ty, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
