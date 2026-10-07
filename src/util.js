@@ -17,7 +17,7 @@ export const sigmoid = x => 1/(1 + Math.exp(-x));
 // square yaw is PI (heading (0,1)), lean -L gives PI-L, heading (sin L, cos L), chest toward +x; the defender's square yaw is 0, lean -L
 // gives -L, heading (-sin L, -cos L), exactly opposite the blocker's. Pass sets, pullers, tacklers and physics bodies (the lean would change collisions, not just the look) face square.
 // animation.js and physics.js physYaw and sim.js all call faceYaw; ball is state.js's ball (the runner is its holder), S is state.js's S (runMode, clock).
-export const FACE_LEAN_MAX = 20*Math.PI/180, LEAN_LAT = 0.7, DBL_R = 1.0, HOLD_R = 1.26, LEAN_SIDE = 0.7, FACE_RATE = 14;   // HOLD_R: a defender keeps squaring to his assigned blocker through a gap in the battle while he stays this close (HOLD_R yd), for at most HOLD_T s after the battle dropped, and only while the blocker is in front of him (his move direction, when he moves faster than HOLD_V);  DBL_R: how far a second blocker can be and still count as double-teaming (defense.js nearBlocker, sim.js)
+export const FACE_LEAN_MAX = 20*Math.PI/180, LEAN_LAT = 0.7, DBL_R = 1.0, HOLD_R = 1.26, LEAN_SIDE = 0.7, FACE_RATE = 14;   // HOLD_R: how close a blocker and the defender he is assigned to must be to count as a pair for the lean (faceLean);  DBL_R: how far a second blocker can be and still count as double-teaming (defense.js nearBlocker, sim.js)
 export const bearing = (p, t) => Math.atan2(t.x - p.x, p.y - t.y);
 export function faceLean(p, t, ball, S){
   const blocker = p.team === 'O' ? p : t, defender = p.team === 'O' ? t : p;

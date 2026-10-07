@@ -21,8 +21,8 @@ export function unface(d){
 // toward its leverage axis (the defender's gap side, LEV_ANGLE off upfield) or, in a swim move, around the blocker's shoulder; the defender's spot is then the
 // blocker's plus CONTACT_D along the axis, pulled there at LOCK_K (1/s), split by mass. The defender never steers himself while the battle lives (defense.js).
 const CONTACT_D = BODY_W + 0.05, LOCK_K = 60, LEV_ANGLE = 18*Math.PI/180, LEV_RATE = 40*Math.PI/180, LEV_REACH = 70*Math.PI/180, SWIM_RATE = 70*Math.PI/180;
-const DRIVE_SET = 0.3, DRIVE_RECOVER = 0.5, DRIVE_RAMP_T = 0.3;   // B-023 rebalance: drive strength per phase (x o.push); the drive builds in over DRIVE_RAMP_T s so the first contact keeps the defender's charge
-const OL_BIAS = -0.4, REC_LO = 0.4, REC_HI = 0.8, SET_LO = 0.2, SET_HI = 0.4;   // the win-roll offset for a linemen's run block (was -1.4), the recovery and set times (s; were 0.8-1.4)
+const DRIVE_SET = 0.3, DRIVE_RECOVER = 0.7, DRIVE_RAMP_T = 0.3, CARRY_T = 0.3;   // B-023 rebalance: drive strength per phase (x o.push); the drive builds in over DRIVE_RAMP_T s; the pair first coasts on the momentum of the hit (b.cv, set by defense.js pop), fading over CARRY_T s, so a defender's charge carries before the drive takes over
+const OL_BIAS = -0.8, REC_LO = 0.4, REC_HI = 0.8, SET_LO = 0.2, SET_HI = 0.4;   // the win-roll offset for a linemen's run block (was -1.4), the recovery and set times (s; were 0.8-1.4)
 const wrapA = a => Math.atan2(Math.sin(a), Math.cos(a));
 function lock(d, o, b, dt, c){
   if(b.phase === 'move' && b.move === 'speed'){   // swim: work around the blocker's ball-side shoulder
@@ -43,6 +43,7 @@ export function battle(d, o, c, dt){
 }
 function battleStep(d, o, c, dt){
   const b = d.bt; b.t += dt; b.age = (b.age || 0) + dt;
+  if(b.cv && b.age < CARRY_T){ const k = (1 - b.age/CARRY_T)*dt; d.x += b.cv.x*k; d.y += b.cv.y*k; o.x += b.cv.x*k; o.y += b.cv.y*k; }   // B-023: coast on the hit
   const ramp = DRIVE_RAMP_T > 0 ? Math.min(1, b.age/DRIVE_RAMP_T) : 1;   // the first contact carries the defender's own charge: the drive builds in over DRIVE_RAMP_T s
   const ax = d.x - o.x, ay = d.y - o.y, al = Math.hypot(ax, ay) || 1;     // blocker -> defender
   const cx = c.x - d.x, cy = c.y - d.y, cl = Math.hypot(cx, cy) || 1;     // defender -> ball
