@@ -16,7 +16,7 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if(MOVE_KEYS.includes(k)) e.preventDefault();
   keys.add(k);
-  if(k === 'c') setCpu(!S.cpu);
+  if(k === 'c' && !S.drill) setCpu(!S.cpu);   // drill (B-019): the drill owns the snap and the CPU flag
   if(k === 'v') setCam(S.cam === 'tv' ? 'behind' : 'tv');
   if(S.phase === 'presnap' && !S.cpu && k >= '1' && k <= String(PLAYS.length)) selectPlay(+k - 1);
 });
@@ -41,6 +41,7 @@ cvs.addEventListener('contextmenu', e => e.preventDefault());
 cvs.addEventListener('pointerdown', e => {
   cvs.focus();
   if(e.button !== 0) return;
+  if(S.drill) return;   // drill (B-019): no click-to-snap or new game
   if(S.phase === 'over'){ newGame(); return; }
   if(S.cpu) return;
   if(S.phase === 'presnap'){ snap(); return; }
