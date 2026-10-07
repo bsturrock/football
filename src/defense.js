@@ -1,6 +1,7 @@
 import { battle, pancakeHit } from './blocking.js';
 import { burst } from './carrier.js';
 import { steer, steerVel } from './movement.js';
+import { FRONTS, gapX } from './fronts.js';
 import { PLAYS } from './playbook.js';
 import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs } from './players.js';
 import { isBody } from './physics.js';
@@ -66,38 +67,49 @@ function pop(o, d, bt){
   else if(edge < -0.8) bt.dur = 0.05;                           // defender won it: straight into his move
 }
 // ---------- RUN FITS ----------
-// Gaps, offense's view: A beside the center, B outside the guards, C outside the tackles, D outside the TE (right).
-const GAP = {AL:-1.1, BL:-3.3, CL:-5.6, AR:1.1, BR:3.3, CR:5.6, DR:8.2};
+// Which gap each defender owns comes from the front (src/fronts.js: d.spec, set when the front lines up). Gaps are named by strength
+// (AS = A gap on the tight end's side, CW = C gap on the other side); S.flip puts them on the field, so every fit below reads the
+// tight end's side and a flipped play is the mirror image.
 // Jobs:
 //   gap     own one gap: fill it while the ball can still come there, then pursue inside-out (no cutback behind him)
+//   two     two-gap lineman (3-4): hold his spot until the read, then shed to the gap the ball is on and fill like a gap man
 //   force   own the edge on one side: nothing gets outside him; squeeze the runner back in. Ball goes away: backside chase
 //   alley   safety between the force and the box: hold, then fill inside-out once the ball commits to his side
 //   deep    last line: stay deeper than the ball, mirror it, come downhill only when it's close
 //   support corner: cover his man; becomes the force if the force man is blocked, down or outflanked
 // Ratings decide how well: awareness = read time, read-step quality and angle discipline; speed = pursuit;
 // power / speed vs the blocker = shedding (line battle); tackling = the tackle.
-const FITS = {   // DL0..3, LB0 (left), LB1 (right): [job, gap]
-  'Base':             [['force','CL'], ['gap','AL'], ['gap','AR'], ['gap','CR'], ['gap','BL'], ['gap','BR']],
-  'Slant Left':       [['force','CL'], ['gap','BL'], ['gap','AL'], ['gap','BR'], ['gap','AR'], ['gap','CR']],
-  'Slant Right':      [['gap','BL'],   ['gap','AR'], ['gap','BR'], ['force','DR'], ['force','CL'], ['gap','AL']],
-  'Run Blitz':        [['force','CL'], ['gap','AL'], ['gap','AR'], ['gap','CR'], ['gap','BL'], ['gap','BR']],
-  'Eight in the Box': [['force','CL'], ['gap','AL'], ['gap','AR'], ['gap','CR'], ['gap','BL'], ['gap','BR']]
-};
 export function assignFits(call, boxS){
-  const L = S.los, box = [...DL, ...LBs];
-  FITS[call.name].forEach(([job, g], i) => { const d = box[i]; d.job = {role:job, gx:GAP[g], side:Math.sign(GAP[g])}; });
+  const L = S.los, f = S.flip, box = [...DL, ...LBs];
+  box.forEach(d => {
+    const sp = d.spec || {role:'gap', gap:'AS'}, g = gapX(sp.gaps ? sp.gaps[0] : sp.gap, f);
+    d.job = {role:sp.role, gx:g.x, side:g.side};
+    if(sp.role === 'two'){   // holds where he stands; the two gaps left to right on the field
+      const [a, b] = sp.gaps.map(n => gapX(n, f).x).sort((p, q) => p - q);
+      d.job = {role:'two', gx:d.x, gl:a, gr:b, side:Math.sign(d.x) || f};
+    }
+  });
   const [sl, sr] = [...SFs].sort((a, b) => a.x - b.x);
-  // right edge (TE side) belongs to a safety unless the front already put a man there
-  const rightForce = box.some(d => d.job.role === 'force' && d.job.side > 0);
+  const strongS = f > 0 ? sr : sl, weakS = strongS === sr ? sl : sr;
+  // the strong edge (tight end side) belongs to a safety unless the front already put a man there
+  const strongForce = box.some(d => d.job.role === 'force' && d.job.side === f);
   if(boxS){
-    // eight in the box: the rolled-down safety is the force on his side, the other plays deep middle alone
-    boxS.job = {role:'force', gx:boxS.side > 0 ? GAP.DR : GAP.CL - 1.5, side:boxS.side};
-    if(boxS.side < 0) box.find(d => d.job.role === 'force' && d.job.side < 0).job = {role:'gap', gx:GAP.CL, side:-1};
-    const other = boxS === sl ? sr : sl; other.job = {role:'deep', side:0};
-    if(boxS.side < 0 && !rightForce) LBs[1].job = {role:'force', gx:GAP.DR, side:1};
+    // rolled into the box: a bear's strong safety plays the alley behind the front's edge men; a safety rolled from the call (eight in
+    // the box) is the force on his side, the other plays deep middle alone
+    const strongBox = boxS === strongS, other = boxS === sl ? sr : sl;
+    other.job = {role:'deep', side:0};
+    if(FRONTS[call.front].roll) boxS.job = {role:'alley', gx:gapX('DS', f).x, side:f};
+    else {
+      boxS.job = {role:'force', gx:strongBox ? gapX('DS', f).x : -f*(Math.abs(gapX('CW', 1).x) + 1.5), side:boxS.side};
+      if(!strongBox){
+        const w = box.find(d => d.job.role === 'force' && d.job.side === -f);
+        if(w) w.job = {role:'gap', gx:w.job.gx, side:w.job.side};
+        if(!strongForce){ const lb = [...LBs].sort((a, b) => b.x*f - a.x*f)[0]; if(lb) lb.job = {role:'force', gx:gapX('DS', f).x, side:f}; }
+      }
+    }
   } else {
-    sr.job = rightForce ? {role:'alley', gx:GAP.DR, side:1} : {role:'force', gx:GAP.DR + 1, side:1};
-    sl.job = {role:'deep', side:0};
+    strongS.job = strongForce ? {role:'alley', gx:gapX('DS', f).x, side:f} : {role:'force', gx:gapX('DS', f).x + f, side:f};
+    weakS.job = {role:'deep', side:0};
   }
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
@@ -112,7 +124,7 @@ export function assignFits(call, boxS){
 }
 // where the job sends him this frame
 function runFit(d, c){
-  const j = d.job, L = S.los, bx = c.x, by = c.y, s = j.side;
+  let j = d.job; const L = S.los, bx = c.x, by = c.y;
   if(S.clock <= S.handoffAt + d.read + d.bite){
     // before the read: linemen attack their gap, second level read-steps with the backfield, the rest hold
     const flow = ((ball.holder || RB).x - S.flow0)*(d.rAwr/100)*0.7;
@@ -122,6 +134,8 @@ function runFit(d, c){
     if(j.role === 'deep') return [flow*0.4, L + 12];
     return coverTarget(d);
   }
+  if(j.role === 'two'){ const left = bx < d.x; j = {role:'gap', gx:left ? j.gl : j.gr, side:left ? -1 : 1}; }   // read done: shed to the ball-side gap
+  const s = j.side;
   if(S.clock >= d.aimT){ d.aimK = 1 + lack(d, 'pursuit')*AIM_AMP*rand(-1, 1); d.aimT = S.clock + AIM_T; }
   const dir = Math.abs(c.svx) > 0.8 ? Math.sign(c.svx) : 0, e = d.levErr;
   let [px, py] = intercept(d, c, d.aimK);
