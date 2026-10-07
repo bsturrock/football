@@ -7,7 +7,7 @@ import { bearing, faceYaw } from './util.js';
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
 // Pile stats come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
 // physMs is null under --virtual-time-budget (performance.now does not advance during synchronous code); read it with a real clock
-const SQUARE_DEG = 25, FACE_V = 0.4, SIM_DT = 1/60, PILE_R = 1.3, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_DX = 8, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
+const SQUARE_DEG = 25, DBL_R = 1.4, FACE_V = 0.4, SIM_DT = 1/60, PILE_R = 1.3, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_DX = 8, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
 // sim.js first and its only import is ratings.js (and via it util.js), neither of which rolls at load, so player ratings and masses (rolled at load) are seeded too.
@@ -69,8 +69,8 @@ export function runSim(n, step, g){
       if(!d.bt || d.ph || d.latch || d.stun > 0) continue;
       const sp = Math.hypot(d.vx, d.vy);
       if(!d.faceAt && sp <= FACE_V) continue;
-      const B = bearing(d, OFF.reduce((b, q) => q.blk === d && Math.hypot(q.x - d.x, q.y - d.y) < Math.hypot(b.x - d.x, b.y - d.y) ? q : b, d.bt.o));   // the nearer blocker of a double team
-      const h = d.faceAt ? faceYaw(d, d.faceAt, ball) : Math.atan2(d.vx, -d.vy), e = Math.abs(Math.atan2(Math.sin(h - B), Math.cos(h - B)));
+      const h = d.faceAt ? faceYaw(d, d.faceAt, ball) : Math.atan2(d.vx, -d.vy);   // error: off the bearing to the nearest of his blocker and any double-teamer within DBL_R
+      const e = Math.min(...[d.bt.o, ...OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < DBL_R)].map(q => Math.abs(Math.atan2(Math.sin(h - bearing(d, q)), Math.cos(h - bearing(d, q))))));
       fc.frames++; fc.err += e; if(e*180/Math.PI <= SQUARE_DEG) fc.square++; fc.maxLean = Math.max(fc.maxLean, e);
     }
   };

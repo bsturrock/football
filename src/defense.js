@@ -228,8 +228,15 @@ function stepAround(d, a, tx, ty){
   const hx = tx - d.x, hy = ty - d.y, hl = Math.hypot(hx, hy) || 1;
   return [d.x + hx/hl*AVOID_STEP + a.lat[0]*AVOID_STEP, d.y + hy/hl*AVOID_STEP + a.lat[1]*AVOID_STEP];
 }
-// B-020: who a blocked defender faces: his blocker, or the nearer of the men double-teaming him
-const nearBlocker = (d, o) => OFF.reduce((b, q) => q !== o && q.blk === d && !(q.ph && q.ph.bubble) && dist(q, d) < 1.6 && dist(q, d) < dist(b, d) ? q : b, o);
+// B-020: who a blocked defender faces: his blocker, or a man double-teaming him who is clearly nearer (NEAR_SWAP yd), and he
+// keeps his current man until another is that much nearer, so the facing never flips between two men at about the same distance
+const NEAR_SWAP = 0.25, DBL_R = 1.4, FRESH_T = 0.05;
+function nearBlocker(d, o){
+  const cand = q => q === o || (q.blk === d && !(q.ph && q.ph.bubble) && dist(q, d) < DBL_R);
+  let cur = d.faceAt && cand(d.faceAt) && d.bt.t > FRESH_T ? d.faceAt : o;   // a new battle starts on its own blocker
+  for(const q of OFF) if(q !== cur && cand(q) && dist(q, d) + NEAR_SWAP < dist(cur, d)) cur = q;
+  return cur;
+}
 export function defenseAI(d, dt){
   if(d.tkCool > 0) d.tkCool -= dt;
   if(d.reachCool > 0) d.reachCool -= dt;
