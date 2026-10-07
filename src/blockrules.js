@@ -41,9 +41,11 @@ import { dist } from './util.js';
 //   set       rule found no target                                          no pull (the next rule runs)
 //   pulling   target down (stun)                                            free: via cleared, p.blk re-picked by block()
 //   pulling   within ENGAGED of the target                                  engaged (reach = t; p.locked, kept all play)
+//   pulling   re-targeted (p.blk changed)                                    free (via cleared)
 //   engaged   target down                                                   free
+//   engaged   re-targeted (p.blk changed)                                    free
 //   free      (end)                                                         p.pull.state stays 'free' for the play
-export const PULL_V = 1.3, PULL_DEPTH = 1.8, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, KICK_X = 0.5, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
+export const PULL_V = 1.3, PULL_DEPTH = 1.8, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, PLAYSIDE_X = 1.5, KICK_X = 0.5, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
 // S.climbed: true once a climb happened this play; B-007-10's climb counter reads it.
 export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = 1.4, COMMIT_V = 0.5, NEIGHBOUR_DX = 3, BEHIND_Y = 1.5;   // NEIGHBOUR_DX: the next lineman is no further than this; BEHIND_Y: a blocker does not pick a man this far behind him   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
 export const COVERED_DX = 1.0, COVERED_DY = 2.5, REACH_DX = 3.5, REACH_AIM = 2.0, BOX_Y = 7, BOX_X = 8, ANY_DX = 5, LANE_DX = 1.8, ZONE_KEEP = 3;   // ZONE_KEEP: offense.js zoneBlock drops an unengaged, unruled target this far from the lane
@@ -70,7 +72,7 @@ function pick(rule, p, free, ctx){
       const lbs = free.filter(d => d.role === 'LB');
       if(rule[1] === 'mike') return nearest(lbs, d => Math.abs(d.x));
       if(rule[1] === 'near') return nearest(lbs, d => Math.abs(dx(d)) + (Math.sign(d.x) === ps ? 0.01 : 0));   // straight up from where I stand; a tie goes away from the hole, so a climber doesn't cross it
-      return nearest(lbs.filter(d => d.x*ps > -1.5), d => Math.abs(d.x - h));
+      return nearest(lbs.filter(d => d.x*ps > -PLAYSIDE_X), d => Math.abs(d.x - h));
     }
     case 'boxS': return free.find(d => d.fit && d.role === 'S' && Math.sign(d.x) === ps) || null;
     case 'double': {
@@ -84,8 +86,8 @@ function pick(rule, p, free, ctx){
       if(ctx.again || p.pull) return null;   // a pull is set at the snap only
       const dir = Math.sign(h - p.x) || ps;
       let d = null;
-      if(rule[1] === 'kick') d = nearest(line.filter(e => (e.x - h)*ps > 0 && e.y - los >= -KICK_BACK && e.y - los <= KICK_FWD), e => Math.abs(e.x - h));
-      else if(rule[1] === 'wrap') d = nearest(free.filter(e => e.role === 'LB' && e.x*ps > -1.5 && e.y - los > WRAP_Y), e => Math.hypot(dx(e), e.y - p.y));
+      if(rule[1] === 'kick') d = nearest(free.filter(e => inBox(e) && (e.x - h)*ps > 0 && e.y - los >= -KICK_BACK && e.y - los <= KICK_FWD), e => Math.abs(e.x - h));
+      else if(rule[1] === 'wrap') d = nearest(free.filter(e => e.role === 'LB' && e.x*ps > -PLAYSIDE_X && e.y - los > WRAP_Y), e => Math.hypot(dx(e), e.y - p.y));
       else if(rule[1] === 'trap') d = nearest(free.filter(e => e.role === 'DL' && (e.x - C.x)*dir > 0), e => Math.abs(e.x - C.x));
       if(!d) return null;
       return d;
