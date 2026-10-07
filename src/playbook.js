@@ -44,6 +44,27 @@ export const PLAYS = [
    blocks:{WR0:'CB0', WR1:'CB1', WR2:'S0'},
    path:[[1.5,-5.5],[3.2,-3.9],[6.5,-1.8],[8.5,1.5],[8.5,8]]}
 ].filter(p => PASS_GAME || p.run);
+// ---------- orientation ----------
+// The plays above are written for the base side (tight end right) and, for under-center plays, the QB under center. orient() rewrites
+// the live fields every other module reads (path, hole, shift, pulls, blocks, mesh, under) from that source: flip -1 mirrors paths and
+// holes and swaps left/right names (LT/RT, DL0/DL3, ...); the linemen stay where they are, so the blocker names swap instead.
+PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.pulls, blocks:p.blocks, mesh:p.mesh, under:!!p.under}; });
+const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
+// nDL, nLB: linemen and linebackers on the field (DLi -> DL(n-1-i), LBi -> LB(n-1-i); the safeties are always two)
+export function orient(play, under, flip, nDL, nLB){
+  const N = {DL:nDL, LB:nLB, S:2};
+  const key = k => { if(flip > 0) return k; const m = /^(DL|LB|S)(\d)$/.exec(k); return m ? m[1] + (N[m[1]] - 1 - m[2]) : (MIRROR[k] || k); };
+  const s = play.src, pt = ([x, dy]) => [x*flip, dy];
+  play.path = s.path && s.path.map(pt);
+  play.hole = s.hole === undefined ? undefined : s.hole*flip;
+  play.shift = s.shift === undefined ? undefined : s.shift*flip;
+  play.pulls = s.pulls && Object.fromEntries(Object.entries(s.pulls).map(([k, v]) => [key(k), v.map(pt)]));
+  play.blocks = s.blocks && Object.fromEntries(Object.entries(s.blocks).map(([k, v]) => [key(k), key(v)]));
+  play.under = under;
+  // under center the QB opens to a mesh point (a play written for shotgun gets one at the back's first path point)
+  const mesh = under ? (s.mesh || (s.path && [s.path[0][0], -2.8])) : null;
+  play.mesh = mesh ? pt(mesh) : undefined;
+}
 const playsEl = $('plays');
 PLAYS.forEach((p, i) => {
   if(i === 0 || (p.run && !PLAYS[i-1].run)){

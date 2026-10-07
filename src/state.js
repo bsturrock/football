@@ -4,14 +4,15 @@ import { clearCallouts, hideBanner, updateHUD } from './hud.js';
 import { drawFits, drawRoutes, routeGroup } from './markers.js';
 import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
-import { DEF_CALLS, PLAYS } from './playbook.js';
+import { chooseForm, lineUp } from './formations.js';
+import { DEF_CALLS, PLAYS, orient } from './playbook.js';
 import { CBs, DEF, DL, EXTRA, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
 import { DEFAULT_PERS, persName, subIn } from './roster.js';
 import { fdLine, losLine } from './scene.js';
 import { $, HW, clamp, rand } from './util.js';
 
 // ---------- state ----------
-export const S = {score:0, tds:0, drive:1, los:25, down:1, toGo:10, play:0, phase:'presnap', runMode:false,
+export const S = {flip:1, form:null, score:0, tds:0, drive:1, los:25, down:1, toGo:10, play:0, phase:'presnap', runMode:false,
            clock:0, deadT:0, charging:false, chargeT:0, over:false, ctrl:QB, cpu:true, preT:0, overT:0, cam:'tv', prog:-Infinity};
 export const ball = {state:'pre', holder:null, fx:0, fy:0, tx:0, ty:0, t:0, dur:1, apex:1, thrownAt:0, target:null};
 export function selectPlay(i){
@@ -19,16 +20,16 @@ export function selectPlay(i){
   PLAYS.forEach((_, j) => $('play'+j).setAttribute('aria-pressed', String(j===i)));
   if(S.phase === 'presnap'){ formation(); assignRoutes(); }
 }
-// backfield set for the called play: shotgun (back beside the QB) or under center with a singleback; a fullback or second tight end
-// (EXTRA, from the personnel) lines up beside the formation until B-007-3 gives each formation its own
+// the offense lines up in the formation (src/formations.js) for the called play, mirrored by S.flip; the play's own fields are
+// re-oriented to match (playbook.js orient)
 function formation(){
-  const L = S.los, under = PLAYS[S.play].under;
-  place(QB, 0, L - (under ? 1.2 : 4.5)); place(RB, under ? 0 : 1.8, L - (under ? 6.5 : 4.5));
-  EXTRA.forEach(e => { if(e.pos === 'FB') place(e, under ? 0 : -1.8, L - (under ? 4.0 : 4.5)); else place(e, -6.8, L - 1.0); });
+  const play = PLAYS[S.play], form = S.form = chooseForm(play.src.under, forced('form'), persName('off', forced('pers')));
+  orient(play, form.under, S.flip, DL.length, LBs.length); lineUp(form, S.los, S.flip, place, {OL, QB, RB, TE, WRs, EXTRA});
 }
 // personnel for the next play: forced by the sim (?pers=, ?dpers=), else the page URL, else 11 and nickel
 const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
-const want = (kind, key) => persName(kind, (S.force && S.force[key]) || URLQ.get(key) || DEFAULT_PERS[kind]) || DEFAULT_PERS[kind];
+const forced = key => (S.force && S.force[key]) || URLQ.get(key);
+const want = (kind, key) => persName(kind, forced(key) || DEFAULT_PERS[kind]) || DEFAULT_PERS[kind];
 function assignRoutes(){
   const play = PLAYS[S.play];
   RECV.forEach((w, i) => {
@@ -52,12 +53,13 @@ function place(p, x, y){
 }
 export function setupPlay(){
   physClear();
-  subIn(want('off', 'pers'), want('def', 'dpers'));   // dead ball: the personnel for this play take the field
+  const form0 = chooseForm(PLAYS[S.play].src.under, forced('form'), persName('off', forced('pers')));
+  subIn(form0.pers, want('def', 'dpers'));   // dead ball: the formation's personnel and the defense's take the field
   const L = S.los;
   S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity; S.read = null; pileReset();
-  OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); });
-  WRs.forEach((w, i) => place(w, [-20, 20, -11][i], i < 2 ? L-0.8 : L-1.0));
-  place(TE, 6.8, L-1.0); formation();
+  const sd = String(forced('side') || '').toUpperCase();   // one side per play (a play change before the snap keeps it): ?side=L|R, else the coin
+  S.flip = sd === 'L' ? -1 : sd === 'R' ? 1 : Math.random() < 0.5 ? -1 : 1;
+  formation();
   (DL.length === 4 ? [-5, -1.2, 1.2, 5] : [-4.5, 0, 4.5]).forEach((x, i) => place(DL[i], x, L+1.1));
   DL.forEach(d => { d.mode = 'rush'; });
   CBs.forEach((c, i) => {
@@ -84,7 +86,7 @@ export function setupPlay(){
   S.handoffAt = Infinity;
   drawFits();
   RB.auto = false;
-  OFF.forEach(o => { o.blk = null; o.lane = null; o.via = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o === TE ? 1.4 : o === RB ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  OFF.forEach(o => { o.blk = null; o.lane = null; o.via = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
   ball.state = 'pre'; ball.holder = null; ball.target = null;
   losLine.position.z = 50 - L;
   fdLine.position.z = 50 - Math.min(100, L + S.toGo); fdLine.visible = L + S.toGo < 100;

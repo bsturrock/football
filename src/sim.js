@@ -1,4 +1,5 @@
-import { KEYS } from './ratings.js';   // ratings.js, roster.js and util.js roll nothing at load, so importing them before seedRandom runs is safe
+import { KEYS } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
+import { formByName } from './formations.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
 
 // ---------- sim runner ----------
@@ -29,7 +30,7 @@ export function runSim(n, step, g){
   if(!window.CANNON){ out({error:'physics failed to load'}); return; }
   // forced choices: names match case-insensitively and are stored canonical; form and side wait for B-007-3/4
   const byName = (list, v) => v == null ? null : list.find(x => x.name.toLowerCase() === v.trim().toLowerCase());
-  const force = {play:null, form:Q.get('form'), front:null, side:null, pers:null, dpers:null};
+  const force = {play:null, form:null, front:null, side:null, pers:null, dpers:null};
   for(const [key, list, label] of [['play', PLAYS.filter(p => p.run), 'play'], ['front', DEF_CALLS, 'front']]){
     if(!Q.has(key)) continue;
     const hit = byName(list, Q.get(key));
@@ -42,13 +43,19 @@ export function runSim(n, step, g){
     if(!v){ out({error:'unknown ' + key + ' ' + Q.get(key)}); return; }
     force[key] = v;
   }
+  if(Q.has('form')){   // an offensive formation (formations.js); it brings its own personnel, so a ?pers= that disagrees is an error
+    const f = formByName(Q.get('form'));
+    if(!f){ out({error:'unknown form ' + Q.get('form')}); return; }
+    if(force.pers && force.pers !== f.pers){ out({error:'form ' + f.name + ' is personnel ' + f.pers + ', not ' + force.pers}); return; }
+    force.form = f.name;
+  }
   if(Q.has('side')){
     const sd = Q.get('side').toUpperCase();
     if(sd !== 'L' && sd !== 'R'){ out({error:'unknown side ' + Q.get('side')}); return; }
     force.side = sd;
   }
   S.force = force;   // read by cpu.js (play), state.js (front) and later formations and flip
-  if(force.front || force.pers || force.dpers) setupPlay();   // the first play was set up before the force existed
+  if(force.front || force.pers || force.dpers || force.form || force.side) setupPlay();   // the first play was set up before the force existed
   const yards = [], spotYards = [], wins = [], physMs = [];
   const byPlay = {}, boxes = [], frees = [];
   let timeouts = 0, pushPlays = 0, bodiesMax = 0, win = null;
