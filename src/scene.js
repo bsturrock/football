@@ -1,5 +1,8 @@
 import { $, HW, PX } from './util.js';
 
+// line widths in yards (NFL field lines are 4 in = 0.11 yd); thin meshes over the field, not texture pixels
+const YARD_LINE_W = 0.11;   // 5-yard lines, 50 and goal lines
+const STRIPE_W = 0.13;      // line of scrimmage and first-down stripes
 // ---------- renderer / scene ----------
 export const wrap = $('game');
 export const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -33,7 +36,6 @@ function drawField(){
   g.fillStyle = '#9b2f1f'; g.fillRect(0, Y(0), w, 10*PX);
   g.fillStyle = '#1f3c7a'; g.fillRect(0, 0, w, 10*PX);
   g.fillStyle = '#fff';
-  for(let yd = 0; yd <= 100; yd += 5){ const t = (yd%50===0) ? 6 : 3; g.fillRect(0, Y(yd)-t/2, w, t); }
   for(let yd = 1; yd < 100; yd++){ if(yd%5===0) continue;
     for(const x of [-HW+0.4, -3.08, 3.08, HW-1.0]) g.fillRect(X(x), Y(yd)-1, 0.6*PX, 2); }
   g.fillRect(0, 0, 6, fieldCanvas.height); g.fillRect(w-6, 0, 6, fieldCanvas.height);
@@ -56,6 +58,12 @@ if(document.fonts) document.fonts.ready.then(drawField);
 const field = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, 120), new THREE.MeshLambertMaterial({map:fieldTex}));
 field.rotation.x = -Math.PI/2;
 scene.add(field);
+// yard lines as meshes (a 0.11 yd line is under 2 px of the 16 px/yd texture and would alias); MSAA keeps them steady
+const lineMat = new THREE.MeshBasicMaterial({color:0xffffff, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
+for(let yd = 0; yd <= 100; yd += 5){
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, YARD_LINE_W), lineMat);
+  m.rotation.x = -Math.PI/2; m.position.set(0, 0.01, 50 - yd); scene.add(m);
+}
 const apron = new THREE.Mesh(new THREE.PlaneGeometry(220, 300), new THREE.MeshLambertMaterial({color:0x1a3a24}));
 apron.rotation.x = -Math.PI/2;
 apron.position.y = -0.02;
@@ -71,5 +79,5 @@ for(const yd of [-10, 110]){
   gp.add(up, cross, l, r); gp.position.z = z; scene.add(gp);
 }
 // line of scrimmage + first-down line
-const stripe = c => { const m = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, 0.35), new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:.9, depthWrite:false})); m.rotation.x = -Math.PI/2; m.position.y = 0.02; scene.add(m); return m; };
+const stripe = c => { const m = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, STRIPE_W), new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:.9, depthWrite:false})); m.rotation.x = -Math.PI/2; m.position.y = 0.02; scene.add(m); return m; };
 export const losLine = stripe(0x3d8bff), fdLine = stripe(0xffd21f);
