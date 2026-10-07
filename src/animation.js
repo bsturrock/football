@@ -63,7 +63,10 @@ let frameClock = null;   // ms; the ?frames check sets it so the fight wiggle is
 export const setFrameClock = t => { frameClock = t; };
 const nowMs = () => frameClock ?? performance.now();
 const engaged = p => !!p.bt || p.eng > 0;
-const partnerOf = p => p.team === 'D' ? (p.bt && p.bt.o) : ALL.find(d => d.team === 'D' && d.bt && d.bt.o === p);
+// B-037: a double team's second man (p.eng only, p.dbl.state 'double') is partnered with the defender too, for yaw, push and hands; the defender stays paired with his battle blocker bt.o
+const secondOf = p => p.team === 'O' && !p.bt && p.eng > 0 && p.dbl && p.dbl.state === 'double' && p.dbl.d && p.dbl.d.bt && p.dbl.d.bt.o && p.dbl.d.bt.o !== p ? p.dbl.d : null;
+const partnerOf = p => p.team === 'D' ? (p.bt && p.bt.o) : ALL.find(d => d.team === 'D' && d.bt && d.bt.o === p) || secondOf(p);
+const isSecond = (p, q) => !!q && p.team === 'O' && q.bt && q.bt.o !== p;
 const driving = p => p.team === 'O' ? (!!p.bt && p.bt.phase === 'recover') || Math.hypot(p.vx, p.vy) > DRIVE_V : !!p.bt && (p.bt.phase === 'move' || p.bt.phase === 'recover') && Math.hypot(p.vx, p.vy) > DRIVE_V;   // offense: by speed (also a double team's second man, p.eng only); defense: his battle's move or recover phase while moving
 // shoulder swing (about x, total with the torso's lean), sideways angle (about z) and elbow angle that put the hand at (lat, up, fwd) from the shoulder. The rig
 // turns the shoulder as Rx(swing)*Rz(side) and the forearm bends about the tilted x axis, so the hand is found by a few Newton steps on that forward chain
@@ -102,18 +105,26 @@ function handAt(p, q, side, hand){
   eV.set(u*Math.cos(qt) + f*Math.sin(qt), q.body.position.y + BODY_H + PAD_Y*Math.cos(ql) - PAD_D*Math.sin(ql), -u*Math.sin(qt) + f*Math.cos(qt));
   return p.mesh.worldToLocal(q.mesh.localToWorld(eV));
 }
+// the second doubler's hand target: the defender's near side (the side facing p), a SIDE_R out from his axis, the two hands HAND_IN either side of that point along his side
+const DBL_SPREAD = 0.3;   // yd
+const SIDE_R = SH_X - 0.02, sV = new THREE.Vector3();
+function handAtSide(p, q, side, hand){
+  const l = q.mesh.worldToLocal(sV.copy(p.mesh.position)), n = Math.hypot(l.x, l.z) || 1, nx = l.x/n, nz = l.z/n;
+  eV.set(nx*SIDE_R - nz*side*hand, q.body.position.y + BODY_H + PAD_Y, nz*SIDE_R + nx*side*hand);
+  return p.mesh.worldToLocal(q.mesh.localToWorld(eV));
+}
 function engagedPose(T, p, s, cs){
   const ph = p.x*1.7 + p.y*2.3, w = nowMs()/1000, fight = Math.sin(w*9 + ph), fight2 = Math.sin(w*7.3 + ph*1.9);
   const ph2 = p.bt && p.team === 'D' ? p.bt.phase : null, mv = p.bt && p.bt.move;
   const churn = driving(p) ? 1 : 0, ch = 0.3*churn;
   const low = {lean:0.8, drop:0.34, hipL:-1.05 + ch*s, hipR:-0.95 - ch*s, kneeL:1.55 + 0.3*churn*Math.max(0, cs), kneeR:1.45 + 0.3*churn*Math.max(0, -cs), twist:0, bob:0};
   Object.assign(T, low);
-  const q = partnerOf(p);
+  const q = partnerOf(p), sec = isSecond(p, q);
   // hands on the partner's chest plate at the drawn distance; l and r wiggle the swing (fighting the hands)
   const reach = (lean, l = 0, r = 0) => {
     const tw = p.pose.twist, ct = Math.cos(tw), st = Math.sin(tw), hand = p.team === 'O' ? HAND_IN : HAND_OUT;
     for(let side = 1; side >= -1; side -= 2){
-      const t = q ? handAt(p, q, side, hand) : eV.set(-side*hand, BODY_H, BLOCK_D - PAD_D);
+      const t = q ? (sec ? handAtSide(p, q, side, hand) : handAt(p, q, side, hand)) : eV.set(-side*hand, BODY_H, BLOCK_D - PAD_D);
       const sx = side*SH_X*ct, sz = -side*SH_X*st + SH_Y*Math.sin(lean), sy = BODY_H + p.body.position.y + SH_Y*Math.cos(lean);   // shoulder in the rig frame
       const x = t.x - sx, z = t.z - sz, y = t.y - sy;
       const a = armTo(lean, x*ct - z*st, y, x*st + z*ct);
@@ -160,13 +171,15 @@ function animate(p, dt){
   const k2 = 1 - Math.exp(-dt*22);
   p.rx = p.rx == null ? p.x : p.rx + (p.x - p.rx)*k2; p.ry = p.ry == null ? p.y : p.ry + (p.y - p.ry)*k2;
   // B-031: an engaged man is drawn square to his partner (the sim's p.face keeps the leverage angle): the leaned torso then lies along the pair axis, not off it
-  if(S.phase === 'presnap' || p.ph){ p.yawK = 0; p.pushX = p.pushY = 0; p.sq = null; }   // a new rep or a physics body: no stale yaw or push
+  if(S.phase === 'presnap' || p.ph){ p.yawK = 0; p.pushX = p.pushY = 0; p.sprX = p.sprY = 0; p.sq = null; }   // a new rep or a physics body: no stale yaw or push
   const q = p.engW > 0.01 && !p.ph && partnerOf(p);
   p.yawK = (p.yawK || 0) + (((q ? 1 : 0)) - (p.yawK || 0))*k;
   if(q) p.sq = Math.atan2(q.rx - p.rx, p.ry - q.ry) + (p.team === 'D' ? faceLean(p, q, ball, S) : 0);   // square to the partner; a defender keeps B-022's leverage lean
   // and drawn pushed back along the pair axis so the pair is BLOCK_D apart on screen while the sim keeps LOCK_D; the push blends with the yaw (about 0.1 s at engage and shed)
   if(q){ const ax = p.x - q.x, ay = p.y - q.y, al = Math.hypot(ax, ay) || 1; p.pushX = ax/al; p.pushY = ay/al; }
-  const off = (p.yawK || 0)*(BLOCK_D - LOCK_D)/2, ox = (p.pushX || 0)*off, oy = (p.pushY || 0)*off;
+  // B-037: the second doubler is also drawn DBL_SPREAD sideways, away from the first blocker, so the two sets of shoulders clear each other (the defender's drawn spot is his own push from his battle blocker only)
+  if(q && isSecond(p, q)){ const o = q.bt.o, tx = -(p.pushY || 0), ty = p.pushX || 0, sg = Math.sign(tx*(p.x - o.x) + ty*(p.y - o.y)) || 1; p.sprX = tx*sg; p.sprY = ty*sg; }
+  const off = (p.yawK || 0)*(BLOCK_D - LOCK_D)/2*(q && isSecond(p, q) ? 2 : 1), ox = (p.pushX || 0)*off + (p.sprX || 0)*(p.yawK || 0)*DBL_SPREAD, oy = (p.pushY || 0)*off + (p.sprY || 0)*(p.yawK || 0)*DBL_SPREAD;
   p.mesh.position.set(p.rx + ox, 0, 50 - (p.ry + oy)); p.mesh.rotation.y = p.yawK > 0.001 && p.sq != null ? p.face + p.yawK*Math.atan2(Math.sin(p.sq - p.face), Math.cos(p.sq - p.face)) : p.face;
   p.mesh.updateMatrixWorld(true);
 }
@@ -178,10 +191,11 @@ function animate(p, dt){
 //   handoffs: engaged-to-body hand-offs (an engaged man, yawK > HO_ENG, becomes a physics body). handoffTorso, handoffShoulder, handoffMax: the largest drawn jump on that frame (yd, xz, beyond the torso body's own motion) of his torso joint,
 //   of a shoulder joint (0.5 out to the side, so a facing snap shows), and the larger of the two (B-036: under 0.08)
 //   (the drills never promote a man: add &handoff=N to force one engaged man into a physics body every N frames)
+//   dblFrames, dblAnyPct, dblPadsPct, dblHeadPct (B-037): frames where the defender in a battle also has a second doubler; the share of them with any overlap / pads or torso in pads, torso or helmet / a helmet in a body, between the second man and the defender or the first blocker
 //   headHeadPct: helmet corner in the partner's helmet; armArmPct: an arm corner in the partner's arm; anyPct: any of the above
 const PD_SHRINK = 0.03, PD_HAND = 0.06;
 const HO_ENG = 0.3, HO_FULL = 0.95, HO_DT = 1/60, HO_JOINTS = ['torso', 'shL', 'shR'], hoPrev = new Map(), hoV = new THREE.Vector3(), hoV2 = new THREE.Vector3();
-const pd = {handoffs:0, hoTorso:0, hoShoulder:0, frames:0, dSim:[], dRen:[], headBody:0, padBody:0, armBody:0, headHead:0, armArm:0, any:0};
+const pd = {dbl:0, dblAny:0, dblPad:0, dblHead:0, handoffs:0, hoTorso:0, hoShoulder:0, frames:0, dSim:[], dRen:[], headBody:0, padBody:0, armBody:0, headHead:0, armArm:0, any:0};
 const pdParts = ['helmet', 'pads', 'torso', 'upperArm', 'forearm'].map(k => [k, G[k]]);
 const pdBox = new THREE.Box3(), pdV = new THREE.Vector3(), pdInv = new THREE.Matrix4();
 function pdMeshes(p){ const o = []; p.mesh.traverse(m => { const k = m.isMesh && pdParts.find(q => q[1] === m.geometry); if(k){ if(!m.geometry.boundingBox) m.geometry.computeBoundingBox(); o.push([k[0], m]); } }); return o; }
@@ -224,13 +238,18 @@ export function pairCheck(){
     if(!o || !o.mesh || !engaged(d)) continue;
     const ri = pdInside(d, o), rj = pdInside(o, d), n = k => (ri[k] + rj[k]) > 0;
     pd.frames++; pd.dSim.push(Math.hypot(d.x - o.x, d.y - o.y)); pd.dRen.push(Math.hypot(d.mesh.position.x - o.mesh.position.x, d.mesh.position.z - o.mesh.position.z));
+    const s2 = ALL.find(x => x.team === 'O' && x.mesh && x.mesh.visible && secondOf(x) === d);   // B-037: the doubled defender's second man, against the defender and against the first blocker
+    if(s2){
+      const a = pdInside(d, s2), b = pdInside(s2, d), c = pdInside(o, s2), e = pdInside(s2, o), m = k => (a[k] + b[k] + c[k] + e[k]) > 0;
+      pd.dbl++; pd.dblAny += m('head') || m('pad') || m('arm') || m('hh') || m('aa'); pd.dblPad += m('pad'); pd.dblHead += m('head');
+    }
     pd.headBody += n('head'); pd.padBody += n('pad'); pd.armBody += n('arm'); pd.headHead += n('hh'); pd.armArm += n('aa'); pd.any += n('head') || n('pad') || n('arm') || n('hh') || n('aa');
   }
 }
 export function pairReport(){
   const med = a => a.length ? Math.round(1000*a.slice().sort((x, y) => x - y)[a.length >> 1])/1000 : null, f = pd.frames || 1, pc = n => Math.round(1000*n/f)/10;
   const r3 = x => Math.round(1000*x)/1000;
-  return {handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
+  return {handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units

@@ -14,9 +14,12 @@ import { S, selectPlay, setupPlay } from './state.js';
 // ?drill=1v1 | line. One run-block rep after another on the game's own code: setupPlay lines the offense and the front up, snap() resolves
 // the block rules against the whole front, then only the drilled bodies run offenseAI / defenseAI / separate (the rest are hidden and parked
 // off the field). No drill-only blocking or defense logic. A rep is: line up (PRE_S), snap, play out (REP_S), line up again.
+// B-037 (double-pose): add &play=<play name> to force another play (a combo play forms doubles; the 1v1 and line views stay on the men over the linemen).
 // States: presnap --PRE_S--> live --REP_S--> presnap (new setupPlay). A mode switch restarts the rep from any state.
 const PRE_S = 1.2, REP_S = 4.5;
-const PLAY = 'Iso';   // a man-blocking run: every lineman takes the man on him (no doubles, no pulls); its handoff spot is the defense's fixed target
+const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (double-pose): ?play=<name> forces a play (e.g. Inside Zone: a combo, so doubles form); an unknown name falls back to Iso
+const FORCED = PLAYS.find(p => p.name.toLowerCase() === String(PLAY_Q).toLowerCase());
+const PLAY = FORCED ? FORCED.name : 'Iso';   // a man-blocking run: every lineman takes the man on him (no doubles, no pulls); its handoff spot is the defense's fixed target
 const OL_BY_NAME = {LT, LG, C, RG, RT};
 const NOTES = {
   '1v1': 'One lineman against the defender over him. Watch: does he stay square and locked on the man, how does the defender rotate or shed, does the block drive him back.',
@@ -45,7 +48,7 @@ function liveSnap(){
   // the defense needs a ball target: the Iso's handoff spot (RB.route[0], behind the line between the guards), held fixed; the ball and control ring are scaled to nothing in drillStart so nothing floats there
   const h = RB.route[0]; RB.x = RB.rx = h.x; RB.y = RB.ry = h.y; RB.vx = RB.vy = 0;
   giveBall(RB);   // as in a game: ball held, handoffAt set, the blockers re-read the front once more (it sees the parked men, so the clearing below comes after)
-  parts.off.forEach(o => { if(o.blk && !parts.def.includes(o.blk)) o.blk = null; o.dbl = null; });
+  parts.off.forEach(o => { if(o.blk && !parts.def.includes(o.blk)) o.blk = null; if(!FORCED) o.dbl = null; });   // B-037 (double-pose): a forced play keeps the doubles the block rules formed
 }
 export function setMode(m){
   mode = m; const u = new URL(location.href); u.searchParams.set('drill', m); history.replaceState(null, '', u);
