@@ -27,3 +27,21 @@ Blocks on the line should look and play like real football: blockers arrive with
 - While engaged (`p.eng > 0` or in a battle), the defender's `faceAt` is his blocker, so both face each other square; a drive back moves the pair without turning them; leverage shows as the shoulder offset, with at most a small cap (about 20 deg) on how far either turns off square; facing frees on shed or release.
 - Physics bodies (bubble yaw, physics.js:230) follow the same `faceAt`, so no extra physics work.
 - The drill page (B-019) is where the user judges before and after.
+
+## Package
+
+### B-? Blocked defenders face their blocker square and a drive back no longer turns the pair
+
+- Line: `[ai]`, `## Backlog`, Size M, Depends on: B-019 (the user's judging page; the sim half does not need it). Source: design blocking 2026-10-07 (user L-1007-064).
+- User sees: blocker and defender stay chest to chest through a drive; leverage shows as a slight shoulder turn (at most `FACE_LEAN_MAX` 20 deg); on a shed or a beaten blocker the defender turns back to the play within 0.3 s.
+- Rules: engaged = `d.bt && d.bt.o`; the defender's `faceAt` = his blocker, set in defense.js where the battle starts or holds (~:256-273), cleared in blocking.js where `d.bt = o.bt = null` (:49, :56, :83) only when `d.faceAt === d.bt.o` (never clear a tackle's `faceAt`). Not held by the 0.15 s `eng` decay. Double team: blockers face the one defender, defender faces the nearer blocker. Pancaked or stunned defenders keep today's behaviour (PM call). Pull and kick-out facing unchanged.
+- Lean: turn off square = `FACE_LEAN_MAX * clamp(lat / LEAN_LAT, -1, 1)`, `lat` the pair's sideways offset, `LEAN_LAT` 0.6 yd; direction pending the user (see Not ready). Computed by one shared helper in util.js that animation.js and physics.js `physYaw` both call (PM call: no new `p` field).
+- Measure: sim JSON gains `facing {frames, sqPct, errDeg, maxLeanDeg}` over engaged-defender frames (sim.js hook under this item; PM call). Pass `sqPct` >= 90, `errDeg` <= 12 at `?sim=100&seed=7` (starting guesses; before-number on main in the done-report). ypc, stuffPct, freeBox move no more than seed noise.
+- Stateful: yes (free, engaged, in a tackle): states-and-transitions table before code.
+- Files: src/defense.js, src/blocking.js, src/animation.js, src/util.js, src/sim.js (shared with B-006-7: build after it merges). Talks to physics.js `physYaw` (one helper call), tackling.js (shares `faceAt`).
+- Out: block poses, run-band tuning, B-012..B-018 (none absorbed: they touch assignments, not facing).
+- Unblocks: block-pose polish ("Look"), run-band tuning, B-012..B-018.
+
+### Not ready
+
+- Lean direction: proposed, blocker turns toward the runner side, defender the opposite way, so the pair leans into each other; or no lean at first (`FACE_LEAN_MAX` 0). User's call.
