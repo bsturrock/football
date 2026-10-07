@@ -80,7 +80,9 @@ export const COVERED_DX = 1.0*GK, COVERED_DY = 2.5, REACH_DX = 3.5*GK, REACH_AIM
 //   none    busted but no other man to take: he blocks his man as usual
 // A busted blocker skips the recog stunt roll. p.bustWrong keeps his wrong man through the handoff re-read.
 export const BUST_MAX = 0.35;
-const FAMILY = {zone:'zone', man:'gap'};
+const WRONG_RULES = ['on', 'line', 'down', 'reach', 'back', 'edge'];   // a wrong man is a line man: never a backer or safety (an easier tackle for the defense)
+let left = new Set();   // the men wrong-man busters left free this play: nobody else's snap or handoff read takes them (zoneBlock's lane pick may, later)
+export const FAMILY = {zone:'zone', man:'gap'};
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
 const bodyOf = n => ({LT, LG, C, RG, RT, TE, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2], FB:EXTRA.find(e => e.pos === 'FB'), TE2:EXTRA.find(e => e.pos === 'TE')})[n];
 const inBox = d => d.role === 'DL' || d.role === 'LB' || !!d.fit;
@@ -140,7 +142,7 @@ function blockers(rules, flip){
 }
 // again: after the handoff. Engaged men and pullers keep theirs; every other blocker (unengaged, not pulling) is read again against where the defense is now.
 export function resolveBlocks(play, flip, again = false){
-  const h = S.hole = play.hole ?? 0, rules = play.src.rules; if(!rules) return;
+  const h = S.hole = play.hole ?? 0, rules = play.src.rules; if(!again) S.bust = []; if(!rules) return;
   const los = S.los, ps = Math.sign(h) || 1, bl = blockers(rules, flip);
   const linemen = bl.filter(b => b.p.role === 'OL' || b.p === TE).map(b => b.p).sort((a, b) => a.x - b.x);
   const ctx = {los, h, ps, again, neighbour:(p, side) => {   // the lineman next to me on the playside or the backside, or the one named (a name mirrors with the play)
@@ -172,9 +174,11 @@ export function resolveBlocks(play, flip, again = false){
       pulls.push({name:b.name, kind:rule[1], p:b.p});
     }
     b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.ruled = true; };
-  const free = b => DEF.filter(d => d.stun <= 0 && (!claimed.has(d) || (resv.get(d) || {}).post === b.p));
+  if(!again) left = new Set();
+  // a covered blocker whose uncovered neighbour doubles onto his man (that neighbour's first-listed double rule would fire): he is that double's post man
+  const postMan = b => bl.some(c => c !== b && c.spec.some(r => r[0] === 'double' && allowed(r) && ctx.neighbour(c.p, r[1] || 'playside') === b.p && (r[2] === 'cov' || !DEF.some(d => d.stun <= 0 && Math.abs(d.x - c.p.x) <= COVERED_DX + COVER_EPS && d.y - los <= COVERED_DY))));
+  const free = b => DEF.filter(d => d.stun <= 0 && !left.has(d) && (!claimed.has(d) || (resv.get(d) || {}).post === b.p));
   if(!again){
-    S.bust = [];
     for(const b of bl){
       if(b.o > 1) continue;   // receivers' blocks are no scheme job
       const fam = FAMILY[play.scheme] || 'gap', know = b.p.rt[fam], chance = BUST_MAX*Math.pow(1 - know/99, 2), r = Math.random();
@@ -186,12 +190,16 @@ export function resolveBlocks(play, flip, again = false){
   for(let k = 0; k < 3; k++) for(const b of bl){
     if(b.p.blk || !b.spec[k]) continue;
     if(b.bust && !b.entry.kind && b.spec[k] && allowed(b.spec[k]) && !['later', 'pass', 'pull', 'double'].includes(b.spec[k][0])){
-      const own = pick(b.spec[k], b.p, free(b), ctx), nx = b.spec[k + 1];
+      const postOf = postMan(b), own = postOf ? null : pick(b.spec[k], b.p, free(b), ctx), nx = b.spec[k + 1];
+      if(postOf) b.entry.kind = b.bust.half ? 'late' : 'noclimb';   // provisional: cleared at the end when no double forms
+      else if(!own) b.bust = null;   // nobody on his rule: nothing to bust
+      else {
       const others = free(b).filter(d => d !== own);   // his own man stays free
-      let d2 = nx && allowed(nx) && !['later', 'pass', 'pull', 'double'].includes(nx[0]) ? pick(nx, b.p, others, ctx) : null;
+      let d2 = nx && allowed(nx) && WRONG_RULES.includes(nx[0]) ? pick(nx, b.p, others, ctx) : null;
       if(!d2) d2 = pick(['line'], {x:b.p.x, y:b.p.y, lane:(b.p.lane ?? b.p.x) - ps*OL_GAP}, others, ctx);
-      if(d2){ take(b, d2, ['wrong']); b.p.ruled = true; b.p.bustWrong = true; b.entry.kind = 'wrong'; continue; }
+      if(d2){ take(b, d2, ['wrong']); b.p.ruled = true; b.p.bustWrong = true; left.add(own); b.entry.kind = 'wrong'; continue; }
       b.entry.kind = 'none';
+      }
     }
     // B-007-12: a Draw pass-setter (first rule 'pass', held by offense.js) takes no wrong read
     if(k === 0 && stunting && !b.bust && allowed(b.spec[0]) && allowed(b.spec[1]) && !b.o && b.spec[1] && b.spec[0][0] !== 'pass' && !['pull', 'double'].includes(b.spec[0][0]) && !['pull', 'double'].includes(b.spec[1][0]) && Math.random() < WRONG_P*lack(b.p, 'recog')){
@@ -206,6 +214,7 @@ export function resolveBlocks(play, flip, again = false){
     const d = pick(['any'], b.p, free(b), ctx); if(d) take(b, d, ['any']);
   }
   for(const b of bl){ const m = b.p.dbl; if(m && !m.post && m.mate.blk !== m.d) b.p.dbl = null; }   // the post man took someone else: a single block after all
+  if(!again) for(const b of bl) if((b.entry && (b.entry.kind === 'late' || b.entry.kind === 'noclimb')) && !b.p.pull && !b.p.dbl) b.entry.kind = 'none';   // the double never formed (or was dropped): busted, nothing to bust
   if(!again) for(const b of bl){
     const d = b.p.blk;
     if(!b.o && d && isCrosser(d) && !b.p.pull && !b.p.dbl) b.p.rr = {state:'set', d, home:d.x, t:0, acc:0, miss:false};
