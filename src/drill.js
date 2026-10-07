@@ -1,13 +1,14 @@
 import { separate } from './blocking.js';
 import { defenseAI } from './defense.js';
 import { setDrillBar } from './hud.js';
-import { snap } from './input.js';
+import { giveBall, snap } from './input.js';
+import { ballMesh, ctrlRing } from './markers.js';
 import { offenseAI } from './offense.js';
 import { physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DL, LG, LT, OL, RB, RG, RT, C } from './players.js';
 import { camera } from './scene.js';
-import { S, ball, selectPlay, setupPlay } from './state.js';
+import { S, selectPlay, setupPlay } from './state.js';
 
 // ---------- blocking drill (B-019) ----------
 // ?drill=1v1 | line. One run-block rep after another on the game's own code: setupPlay lines the offense and the front up, snap() resolves
@@ -41,16 +42,18 @@ function liveSnap(){
   snap();
   const on = [...parts.off, ...parts.def];
   ALL.filter(p => !on.includes(p)).forEach((p, i) => { p.x = p.rx = -9 + i*0.9; p.y = p.ry = -10; p.vx = p.vy = 0; });   // dead ball behind the end line, 0.9 apart (separate() pushes under 0.8)
-  parts.off.forEach(o => { if(o.blk && !parts.def.includes(o.blk)) o.blk = null; o.dbl = null; });   // a man who was sent to someone off the drill picks the nearest drilled defender (offense.js pickBlock)
-  // the defense needs a ball target: the Iso's handoff spot (RB.route[0], behind the line between the guards), held fixed; the ball sits in his hand there
+  // the defense needs a ball target: the Iso's handoff spot (RB.route[0], behind the line between the guards), held fixed; the ball and control ring are scaled to nothing in drillStart so nothing floats there
   const h = RB.route[0]; RB.x = RB.rx = h.x; RB.y = RB.ry = h.y; RB.vx = RB.vy = 0;
-  ball.state = 'held'; ball.holder = RB; S.handoffAt = 0;
+  giveBall(RB);   // as in a game: ball held, handoffAt set, the blockers re-read the front once more (it sees the parked men, so the clearing below comes after)
+  parts.off.forEach(o => { if(o.blk && !parts.def.includes(o.blk)) o.blk = null; o.dbl = null; });
 }
 export function setMode(m){
   mode = m; const u = new URL(location.href); u.searchParams.set('drill', m); history.replaceState(null, '', u);
   setDrillBar(mode, NOTES[mode]); newRep();
 }
-export function drillStart(){ setDrillBar(mode, NOTES[mode], setMode); newRep(); }
+export function drillStart(){
+  S.drill = true; ballMesh.scale.setScalar(0); ctrlRing.scale.setScalar(0);   // the ball (in hidden hands) and the ring (under hidden QB/RB) would float on empty grass
+  setDrillBar(mode, NOTES[mode], setMode); newRep(); }
 export function drillTick(dt){
   t += dt;
   if(S.phase === 'presnap'){ if(t >= PRE_S) liveSnap(); }
