@@ -8,7 +8,7 @@ import { isBody } from './physics.js';
 import { S, ball } from './state.js';
 import { lack } from './ratings.js';
 import { GRID_K } from './formations.js';
-import { DBL_R, dist, holdsBlocker, rand } from './util.js';
+import { DBL_R, dist, rand } from './util.js';
 
 // Human mistakes in pursuit. Per defender per play state (reset in assignFits):
 //   aim     AIM_K resampled every AIM_T s; < 1 undershoots the cut-off spot, > 1 overpursues
@@ -25,6 +25,9 @@ import { DBL_R, dist, holdsBlocker, rand } from './util.js';
 const AVOID_CONE = 30, AVOID_DIST = 2.5, AVOID_EVERY = 0.1, AVOID_T = 0.5, AVOID_STEP = 1.6, BACK_D = 3, BACK_L = 3, HOME_P = 0.5, FIGHT_QUICK = 0.15;
 const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
+const BT_KEEP_D = 1.3;   // B-023: a battle that started inside ENGAGED_D survives until its blocker is this far (drive and steering open the gap past ENGAGED_D 50 times a second)
+const RUNNER_PAST_Y = 1.0;   // B-023: the runner this far (yd) downfield of a blocked defender: the blocks break down, he is released to pursue
+const TOW_V = 4, TOW_FREE_T = 0.4;   // B-023: a blocker who is not assigned to him (o.blk is another man: a climber, a puller, a stunt pass-off) moving faster than TOW_V yd/s is passing, not blocking: the battle ends and he cannot re-engage for TOW_FREE_T s
 const ENGAGED_D = 0.91;   // B-021: a defender locks onto a blocker this close (was 1.3, x0.7 body width)
 // B-021: run-fit windows on the old 2.2 yd line grid, carried onto the new one (x GRID_K): the backside stay-home line, the gap fill window, the contain offsets and the outflanked margin
 const BACK_HOME_X = 1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K, CHASE_X = 2*GRID_K, ALLEY_X = 1*GRID_K;   // CHASE_X: the ball is this far to the backside of the force man, he chases; ALLEY_X: the ball is this far to the alley man's side, he fills
@@ -269,25 +272,31 @@ export function defenseAI(d, dt){
     const free = o => d.freeFrom === o && d.freeT > 0;   // just beat this blocker: he can't re-engage yet
     const dc = dist(d, c);
     // a bubble body has no line battle: the physics world decides who gives way
-    const o = d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o.blk === d && o !== c && dist(o, d) < ENGAGED_D && !free(o))
-           || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o !== c && o !== QB && dist(o, d) < ENGAGED_D && dist(o, c) < dc && !free(o)));
-    if(o){
+    const past = S.runMode && c !== QB && c.y > d.y + RUNNER_PAST_Y;   // B-023: the ball is by him: no block holds him
+    const bo = d.bt && d.bt.o;   // B-023: his live battle's blocker stays his while he is still on him (bo.blk === d) or has nobody else, within BT_KEEP_D
+    const kept = bo && !past && !d.ph && !isBody(bo) && !free(bo) && bo !== c && bo !== QB && dist(bo, d) < BT_KEEP_D && (bo.blk === d || !bo.blk || bo.blk.stun > 0) ? bo : null;   // the nearer-the-ball fallback is for new contacts only: a blocker with another live assignment (a stunt re-read, a climber) lets go
+    const o = past ? null : kept || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o.blk === d && o !== c && dist(o, d) < ENGAGED_D && !free(o))
+           || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o !== c && o !== QB && dist(o, d) < ENGAGED_D && dist(o, c) < dc && !free(o))));
+    if(o && o.blk !== d && Math.hypot(o.vx, o.vy) > TOW_V){   // B-023: a blocker for somebody else running past him: end the battle, do not tow the defender along his route
+      if(!(d.freeT > TOW_FREE_T)){ d.freeFrom = o; d.freeT = TOW_FREE_T; }   // never shorten the hold on a blocker he just beat
+      d.towT = S.clock; d.bt = null;   // towT: the sim's jitterLost reason 'tow'
+    } else if(o){
       if(!d.bt || d.bt.o !== o){
         // first contact: a blocker arriving with a lot more momentum than the defender can absorb flattens him
         if(d.freeFrom !== o && pancakeHit(o, d)) return;
         // re-engaging a blocker he already beat: that blocker is off balance, so the next move comes quicker
-        d.bt = {o, phase:'set', t:0, dur:d.freeFrom === o ? 0.1 : rand(0.2, 0.4), move:null};
+        d.bt = {o, ang:Math.atan2(d.x - o.x, d.y - o.y), phase:'set', t:0, dur:d.freeFrom === o ? 0.1 : rand(0.2, 0.4), move:null};
         if(d.avoid && d.avoid.st === 'fight' && d.avoid.o === o) d.bt.dur = Math.min(d.bt.dur, FIGHT_QUICK);   // he came through on purpose: straight into his shed move
         o.bt = d.bt;
-        if(d.freeFrom !== o) pop(o, d, d.bt);
+        if(d.freeFrom !== o){ const cv = {x:d.vx, y:d.vy}; pop(o, d, d.bt); if(d.bt.phase !== 'recover') d.bt.cv = cv; }   // a blocker who wins the get-off (pop sets recover) takes the pair: no coast   // B-023: the defender's own charge (his velocity into the hit), which blocking.js carries for CARRY_T s
       }
-      d.eng = o.eng = 0.15; sp *= 0.12;
-      d.faceAt = d.lastBlk = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends
+      d.eng = o.eng = 0.15;
+      d.faceAt = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends
       battle(d, o, c, dt);
     } else d.bt = null;
   } else d.bt = null;
-  if(d.bt) d.btAt = S.clock;   // B-020: when his battle last ran, for holdsBlocker's HOLD_T
-  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch && !holdsBlocker(d, S)) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
+  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
+  if(d.bt) return;   // B-023: engaged, the battle (blocking.js lock) moves him; he does not steer himself
   if(attack && !d.bt && c){   // hunting the runner: run through the target, never ease up approaching it
     const dx = tx - d.x, dy = ty - d.y, l = Math.hypot(dx, dy) || 1;
     steerVel(d, dx/l*sp, dy/l*sp, dt);
