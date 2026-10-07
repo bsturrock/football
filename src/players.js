@@ -1,5 +1,5 @@
 import { scene } from './scene.js';
-import { rateTeams } from './ratings.js';
+import { bindSlots, rateRosters, subIn } from './roster.js';
 
 // ---------- players ----------
 // boxy jointed figure; every limb geometry hangs down from its pivot
@@ -17,6 +17,17 @@ export const TEAM = {
   D: {jersey:0x1f3c7a, pants:0xc9cfdc, helmet:0x15295a, stripe:0xffd21f, socks:0x1f3c7a}
 };
 const SKIN = [0x5c3a1e, 0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d];
+// jersey number on the back: one canvas texture per number, shared; a body swaps its map when a sub changes his number
+// three.js draws Math.random for object uuids; the number art does that on a private stream so a seeded ?sim line is the same with or without it
+let qk = 12345;
+const quiet = f => { const r = Math.random; Math.random = () => (qk = qk*16807 % 2147483647)/2147483647; try { return f(); } finally { Math.random = r; } };
+const numTex = {};
+const numTexture = n => numTex[n] || (numTex[n] = quiet(() => {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 48; const x = c.getContext('2d');
+  x.font = 'bold 42px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#fff'; x.fillText(String(n), 32, 26);
+  return new THREE.CanvasTexture(c);
+}));
+G.numPlane = quiet(() => new THREE.PlaneGeometry(0.5, 0.375));
 const mats = {};
 export const mat = c => mats[c] || (mats[c] = new THREE.MeshLambertMaterial({color:c}));
 export const JOINTS = ['lean','twist','hipL','hipR','kneeL','kneeR','shL','shR','elL','elR','drop','pitch','bob'];
@@ -27,6 +38,8 @@ function makePlayer(team, role){
   const add = (parent, geo, c) => parent.add(new THREE.Mesh(geo, mat(c)));
   const torso = pivot(body, 0, 1.0);
   add(torso, G.torso, t.jersey); add(torso, G.pads, t.jersey);
+  const numMat = quiet(() => new THREE.MeshBasicMaterial({map:numTexture(0), transparent:true, depthWrite:false}));
+  quiet(() => { const m = new THREE.Mesh(G.numPlane, numMat); m.position.set(0, 0.4, -0.216); m.rotation.y = Math.PI; torso.add(m); });
   const head = pivot(torso, 0, 0.8);
   add(head, G.helmet, t.helmet); add(head, G.stripe, t.stripe); add(head, G.mask, 0x222222);
   const arm = side => { // side: +1 left (+x), -1 right (-x)
@@ -43,21 +56,23 @@ function makePlayer(team, role){
   const sh = new THREE.Mesh(G.shadow, shadowMat); sh.rotation.x = -Math.PI/2; sh.position.y = 0.035;
   g.add(body, sh); scene.add(g);
   const pose = {}; JOINTS.forEach(j => pose[j] = 0);
-  return {team, role, skin, mesh:g, body, j:{torso, head, shL, elL, shR, elR, hipL, kneeL, hipR, kneeR}, pose,
+  return {team, role, skin, setNum:n => { numMat.map = numTexture(n); }, mesh:g, body, j:{torso, head, shL, elL, shR, elR, hipL, kneeL, hipR, kneeR}, pose,
           x:0, y:0, vx:0, vy:0, spd:7, stun:0, acc:5, brake:7.5, turn:6, accel:0, stride:Math.random()*6, face:0, act:null, actT:0, eng:0};
 }
+// Twenty-two fixed bodies (every body shares one geometry, so a sub adds nothing to the scene). subIn (src/roster.js) copies roster
+// records onto them between plays and refills the group arrays in place: WRs, EXTRA (a fullback or second tight end), RECV and ROUTE_KEYS
+// on offense; DL, LBs, CBs and SFs on defense. QB, LT..RT, TE and RB stay named slots; OFF, DEF and ALL never change.
 export const QB = makePlayer('O','QB');
 export const LT = makePlayer('O','OL'), LG = makePlayer('O','OL'), C = makePlayer('O','OL'), RG = makePlayer('O','OL'), RT = makePlayer('O','OL');
-export const WRs = [makePlayer('O','WR'), makePlayer('O','WR'), makePlayer('O','WR')];
+const FLEX = [makePlayer('O','WR'), makePlayer('O','WR'), makePlayer('O','WR')];   // WR, WR, WR | WR, WR, TE2 | WR, WR, FB | WR, TE2, FB
 export const TE = makePlayer('O','WR'), RB = makePlayer('O','WR');
-export const OL = [LT, LG, C, RG, RT], RECV = [...WRs, TE, RB], ROUTE_KEYS = ['out','out','slot','te','rb'];
-export const OFF = [QB, ...OL, ...RECV];
-export const DL = [makePlayer('D','DL'), makePlayer('D','DL'), makePlayer('D','DL'), makePlayer('D','DL')];
-export const LBs = [makePlayer('D','LB'), makePlayer('D','LB')];
-export const CBs = [makePlayer('D','CB'), makePlayer('D','CB'), makePlayer('D','CB')];
-export const SFs = [makePlayer('D','S'), makePlayer('D','S')];
-export const DEF = [...DL, ...LBs, ...CBs, ...SFs], ALL = [...OFF, ...DEF];
-// ratings: nine 0-99 per player from a position template (src/ratings.js); newGame draws them again
-ALL.forEach(p => p.tpl = p === RB ? 'RB' : p === TE ? 'TE' : p.role === 'DL' ? (p === DL[0] || p === DL[3] ? 'DE' : 'DT') : p.role);
-export const rate = () => rateTeams(ALL);
+export const OL = [LT, LG, C, RG, RT], WRs = [], EXTRA = [], RECV = [], ROUTE_KEYS = [];
+export const OFF = [QB, ...OL, ...FLEX, TE, RB];
+const DB = [...Array(4)].map(() => makePlayer('D','DL')).concat([...Array(2)].map(() => makePlayer('D','LB')), [...Array(3)].map(() => makePlayer('D','CB')), [...Array(2)].map(() => makePlayer('D','S')));
+export const DL = [], LBs = [], CBs = [], SFs = [];
+export const DEF = DB, ALL = [...OFF, ...DEF];
+// ratings: nine 0-99 per record from a position template (src/ratings.js), 46 records a team; newGame draws them again
+export const rate = () => rateRosters();
+bindSlots({QB, OL, TE, RB, flex:FLEX, WRs, EXTRA, RECV, ROUTE_KEYS, DEF:DB, DL, LBs, CBs, SFs});
 rate();
+subIn();   // default 11 personnel and nickel: today's twenty-two

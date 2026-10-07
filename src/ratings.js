@@ -43,7 +43,7 @@ const ALIAS = {
 const blend = (w, r) => KEYS.reduce((a, k, i) => a + (w[k] || 0)*r[i], 0);
 function legacy(p){
   for(const [name, A] of Object.entries(ALIAS)){
-    if(A.side !== p.team) continue;
+    if(A.side !== (p.unit || p.team)) continue;   // a roster record: his unit (offense or defense), his team only offsets
     const subs = SPLIT[p.tpl] || [p.tpl], old = A.old[p.tpl];
     const lo = subs.reduce((a, t) => a + blend(A.w, TEMPLATES[t].r.map(x => x[0])), 0)/subs.length;
     const hi = subs.reduce((a, t) => a + blend(A.w, TEMPLATES[t].r.map(x => x[1])), 0)/subs.length;
