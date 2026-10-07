@@ -47,7 +47,7 @@ function readHole(p, dt){
 const PRESS_V = 0.7, PRESS_T = 0.15, PRESS_VIS = 0.35, PRESS_MAX = 0.6;    // press speed x spd; seconds = PRESS_T + PRESS_VIS*vision/99, capped
 const KEY_R = 3, KEY_Y0 = -1, KEY_Y1 = 5, KEY_EVERY = 0.2, KEY_UNTIL = 1.5;   // key: nearest unengaged defender within KEY_R of the hole x, y los+KEY_Y0..KEY_Y1
 const DECIDE_Y = 1, COMMIT_Y = 3, BEND = 2.2, BOUNCE = 5, CUTBACK = 4, EDGE = 1.5;
-const WRONG_P = 0.25, NOISE = 1, HOLE_COST = 0.05, KEY_PEN = 0.5, KEY_CLOSE = 1.6, KEY_LEAD = 0.3;
+const WRONG_P = 0.25, NOISE = 1, HOLE_COST = 0.05, KEY_PEN = 1.2, KEY_CLOSE = 2.2, KEY_LEAD = 0.3;
 const free = d => d.stun <= 0 && !isBody(d) && !(d.eng > 0) && !d.bt && !OFF.some(o => o.blk === d);
 function pickKey(hole){
   let key = null, bd = KEY_R;
@@ -65,7 +65,7 @@ function decide(p, hole, key, side){
   const vn = lack(p, 'vision')*NOISE;
   for(const [name, raw] of Object.entries(opts)){
     const x = clamp(raw, -lim, lim);
-    let sc = raceMargin(p, x, S.los + 1) + raceMargin(p, x, S.los + 3)*0.6 - Math.abs(x - hole)*HOLE_COST - Math.abs(x - p.x)*0.03;
+    let sc = raceMargin(p, x, S.los + 1) + raceMargin(p, x, S.los + 3)*0.6 + raceMargin(p, x, S.los + 5)*0.4 - Math.abs(x - hole)*HOLE_COST - Math.abs(x - p.x)*0.015;
     if(kx !== null) sc -= Math.max(0, KEY_CLOSE - Math.abs(x - kx))*KEY_PEN;
     if(sc > bs){ bs = sc; best = name; }
     sc += vn*rand(-1, 1);

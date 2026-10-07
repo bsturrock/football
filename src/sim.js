@@ -74,11 +74,11 @@ export function runSim(n, step, g){
       }
     }
     closeWin();
-    if(S.read) reads.push(S.read);
     const timedOut = S.phase !== 'dead';   // hit PLAY_MAX_S: counted in timeouts, left out of yards
     if(timedOut) timeouts++;
     else if(startY !== null){
       yards.push(endY - startY);
+      if(S.read) reads.push({...S.read, y:endY - startY});
       spotYards.push((S.drive === drive0 ? S.los : endY) - startY);   // where endPlay spotted it (forward progress included); a drive change (score, turnover, safety) resets los, so those use the last ball y
       const b = byPlay[pname] || (byPlay[pname] = {ys:[], stuff:0}); b.ys.push(endY - startY); if(endY - startY <= STUFF_YD) b.stuff++;
     }
@@ -95,6 +95,6 @@ export function runSim(n, step, g){
     pushDurS:{median:med(pushes.map(w => w.dur)), p90:pct(pushes.map(w => w.dur), 0.9)},
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
-    read:{n:reads.length, wrongPct:reads.length ? +(100*reads.filter(r => r.wrong).length/reads.length).toFixed(1) : null, choices:reads.reduce((o, r) => { o[r.choice] = (o[r.choice] || 0) + 1; return o; }, {})},
+    read:{n:reads.length, wrongPct:reads.length ? +(100*reads.filter(r => r.wrong).length/reads.length).toFixed(1) : null, choices:reads.reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => !r.wrong).map(r => r.y))},
     force, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, boxMean:mean(boxes), freeBox:mean(frees)});
 }
