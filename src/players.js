@@ -1,15 +1,21 @@
 import { scene } from './scene.js';
+import { BODY_H, BODY_W } from './util.js';
 import { bindSlots, rateRosters, subIn } from './roster.js';
 
 // ---------- players ----------
 // boxy jointed figure; every limb geometry hangs down from its pivot
-export const box = (w, h, d, x=0, y=-h/2, z=0) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+// B-021: the rig is drawn at 1 unit = 1 yd but its numbers below are the old 2.3 yd figure; one scale pair turns them into an NFL body
+// (about 2.1 yd with helmet, 0.7 yd at the pads). BODY_H scales every vertical size and offset, BODY_W every width, depth and sideways offset.
+// physics.js applies the same pair to its boxes (PARTS) so mesh and collider stay one shape.
+export { BODY_H, BODY_W };   // the pair itself lives in util.js
+export const box = (w, h, d, x=0, y=-h/2, z=0) => new THREE.BoxGeometry(w*BODY_W, h*BODY_H, d*BODY_W).translate(x*BODY_W, y*BODY_H, z*BODY_W);
+export const bodyV = ([x, y, z]) => [x*BODY_W, y*BODY_H, z*BODY_W];   // a rig-unit offset or size (x, y, z) in yards
 export const G = {
   torso: box(0.75,0.7,0.42,0,0.37), pads: box(1.05,0.22,0.5,0,0.7), helmet: box(0.46,0.44,0.5,0,0.24),
   stripe: box(0.08,0.46,0.54,0,0.25), mask: box(0.36,0.14,0.08,0,0.18,0.27),
   upperArm: box(0.2,0.42,0.22), forearm: box(0.18,0.4,0.2),
   thigh: box(0.28,0.5,0.3), shin: box(0.24,0.45,0.26), cleat: box(0.24,0.1,0.38,0,-0.5,0.06),
-  shadow: new THREE.CircleGeometry(0.62,20)
+  shadow: new THREE.CircleGeometry(0.62*BODY_W,20)
 };
 const shadowMat = new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:.28, depthWrite:false});
 export const TEAM = {
@@ -27,19 +33,19 @@ const numTexture = n => numTex[n] || (numTex[n] = quiet(() => {
   x.font = 'bold 42px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#fff'; x.fillText(String(n), 32, 26);
   return new THREE.CanvasTexture(c);
 }));
-G.numPlane = quiet(() => new THREE.PlaneGeometry(0.5, 0.375));
+G.numPlane = quiet(() => new THREE.PlaneGeometry(0.5*BODY_W, 0.375*BODY_H));
 const mats = {};
 export const mat = c => mats[c] || (mats[c] = new THREE.MeshLambertMaterial({color:c}));
 export const JOINTS = ['lean','twist','hipL','hipR','kneeL','kneeR','shL','shR','elL','elR','drop','pitch','bob'];
 function makePlayer(team, role){
   const t = TEAM[team], skin = SKIN[Math.floor(Math.random()*SKIN.length)];
   const g = new THREE.Group(), body = new THREE.Group();
-  const pivot = (parent, x, y, z=0) => { const p = new THREE.Group(); p.position.set(x, y, z); parent.add(p); return p; };
+  const pivot = (parent, x, y, z=0) => { const p = new THREE.Group(); p.position.set(...bodyV([x, y, z])); parent.add(p); return p; };
   const add = (parent, geo, c) => parent.add(new THREE.Mesh(geo, mat(c)));
   const torso = pivot(body, 0, 1.0);
   add(torso, G.torso, t.jersey); add(torso, G.pads, t.jersey);
   const numMat = quiet(() => new THREE.MeshBasicMaterial({map:numTexture(0), transparent:true, depthWrite:false}));
-  quiet(() => { const m = new THREE.Mesh(G.numPlane, numMat); m.position.set(0, 0.4, -0.216); m.rotation.y = Math.PI; torso.add(m); });
+  quiet(() => { const m = new THREE.Mesh(G.numPlane, numMat); m.position.set(...bodyV([0, 0.4, -0.216])); m.rotation.y = Math.PI; torso.add(m); });
   const head = pivot(torso, 0, 0.8);
   add(head, G.helmet, t.helmet); add(head, G.stripe, t.stripe); add(head, G.mask, 0x222222);
   const arm = side => { // side: +1 left (+x), -1 right (-x)

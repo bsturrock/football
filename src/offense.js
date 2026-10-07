@@ -1,5 +1,6 @@
-import { BEHIND_Y, PULL_V, PULL_VIA_R, climbCheck, pullCheck, rereadCheck } from './blockrules.js';
+import { BEHIND_Y, CLIMB_LANE_DX, ENGAGE_R, LANE_DX, ZONE_KEEP, PULL_V, PULL_VIA_R, climbCheck, pullCheck, rereadCheck } from './blockrules.js';
 import { autoCarry, burst } from './carrier.js';
+import { GRID_K } from './formations.js';
 import { keys } from './input.js';
 import { runRoute, steer, steerVel } from './movement.js';
 import { PLAYS } from './playbook.js';
@@ -9,7 +10,9 @@ import { dist } from './util.js';
 
 const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
-const DBL_SHOULDER = 0.45;   // two blockers on one defender: each takes a shoulder this far off his centre
+const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
+const FIT_UP = 0.6;   // B-021: a blocker aims this far in front of his man's centre (was 0.85, x0.7 body width)
+const DBL_SHOULDER = 0.32;   // B-021: was 0.45, x0.7   // two blockers on one defender: each takes a shoulder this far off his centre
 // what blockers protect: the runner once he has the ball, otherwise the play's hole
 export function runRef(){
   const c = ball.state === 'held' ? ball.holder : null, play = PLAYS[S.play];
@@ -29,11 +32,11 @@ function pickBlock(p, ref){
 // fit up on the defender's offense side, shaded toward the runner, so the drive goes forward and away from the hole
 function driveAt(p, d, ref, dt){
   const vx = ref.x - d.x, vy = Math.min(ref.y - d.y, -0.6), l = Math.hypot(vx, vy) || 1;
-  if(dist(p, d) < 1.4){ p.eng = 0.15; p.locked = true; }
+  if(dist(p, d) < ENGAGE_R){ p.eng = 0.15; p.locked = true; }
   p.faceAt = d;
   const side = p.dbl && p.dbl.state === 'double' && p.dbl.d === d ? (Math.sign(p.x - d.x) || 1)*DBL_SHOULDER : 0;   // two men on one defender take a shoulder each
   // a blocker who just got beaten is off balance: he chases his man but usually can't recover
-  steer(p, d.x + side + vx/l*0.85, d.y + vy/l*0.85, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
+  steer(p, d.x + side + vx/l*FIT_UP, d.y + vy/l*FIT_UP, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
 }
 const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
 // man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
@@ -42,7 +45,7 @@ function block(p, dt){
   const ref = runRef();
   let d = p.blk;
   if(!d || d.stun > 0){ d = p.blk = pickBlock(p, ref); }
-  if(!d){ steer(p, ref.x + (p.x > ref.x ? 2.5 : -2.5), ref.y + 3, p.spd*0.85, dt); return; }  // nobody left: lead upfield
+  if(!d){ steer(p, ref.x + (p.x > ref.x ? LEAD_X : -LEAD_X), ref.y + 3, p.spd*0.85, dt); return; }  // nobody left: lead upfield
   driveAt(p, d, ref, dt);
 }
 // zone: block whoever is in my lane at the line; if the lane is empty, climb to a linebacker in my area.
@@ -50,12 +53,12 @@ function block(p, dt){
 function zoneBlock(p, dt){
   const ref = runRef(), lane = p.lane;
   let d = p.blk;
-  if(!(d && d.stun <= 0 && (p.locked || p.ruled || Math.abs(d.x - lane) < 3))){
+  if(!(d && d.stun <= 0 && (p.locked || p.ruled || Math.abs(d.x - lane) < ZONE_KEEP))){
     d = null; p.locked = false; p.ruled = false; let bd = 1e9;
     for(const e of DEF){
       if(e.stun > 0 || claimed(p, e) || e.y < p.y - BEHIND_Y) continue;
       const dx = Math.abs(e.x - lane), dy = e.y - S.los;
-      if(!((dy < 3.5 && dx < 1.8) || (p.climbing && dy < 9 && dx < 6))) continue;
+      if(!((dy < 3.5 && dx < LANE_DX) || (p.climbing && dy < 9 && dx < CLIMB_LANE_DX))) continue;
       const k = dist(e, p); if(k < bd){ bd = k; d = e; }
     }
     p.blk = d;
@@ -135,7 +138,7 @@ export function offenseAI(p, dt, inp){
   if(S.runMode){ runBlock(p, dt); return; }
   if(drawHold()){ p.blk = null; p.ruled = false; p.dbl = null; p.rr = null; }   // Draw: no run target in the pass set; the handoff re-read picks the man on him
   const r = olAssign(p), qx = QB.x - r.x, qy = QB.y - r.y, ql = Math.hypot(qx, qy) || 1;
-  if(dist(p, r) < 1.4) p.eng = 0.15;
+  if(dist(p, r) < ENGAGE_R) p.eng = 0.15;
   p.faceAt = r;
   const k = 0.95 + (drawHold() ? DRAW_SET : 0);
   steer(p, r.x + qx/ql*k, r.y + qy/ql*k, p.spd, dt);

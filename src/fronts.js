@@ -1,17 +1,21 @@
+import { GRID_K as K, OL_GAP } from './formations.js';
 // ---------- defensive fronts (B-007-4) ----------
-// Pure data and functions (no imports): playbook.js lists the calls, state.js lines the front up, defense.js turns each defender's
+// Pure data and functions (imports only formations.js's OL_GAP, also pure): playbook.js lists the calls, state.js lines the front up, defense.js turns each defender's
 // spec into a run-fit job. Everything is written in STRENGTH coordinates: +x is the strong side (the tight end's side), -x the weak
 // side. S.flip (1: tight end right) mirrors it onto the field, so side=L and side=R are mirror images.
-// Techniques (x from the center, the OL stand at 0, +-2.2, +-4.4 and the tight end at +-6.8):
-//   0 = C, 1 = G shaded 0.7 in, 2 = G, 3 = G shaded 0.8 out, 4 = T, 4i = T shaded 0.7 in, 5 = T shaded 0.8 out,
-//   7 = TE shaded 0.8 in, 9 = TE shaded 1.0 out
-export const TECH = {'0':0, '1':1.5, '2':2.2, '3':3.0, '4':4.4, '4i':3.7, '5':5.2, '7':6.0, '9':7.8};
+// Techniques (x from the center, the OL stand at 0, +-OL_GAP, +-2 OL_GAP and the tight end at +-3 OL_GAP):
+//   0 = C, 1 = G shaded 0.45 in, 2 = G, 3 = G shaded 0.5 out, 4 = T, 4i = T shaded 0.45 in, 5 = T shaded 0.5 out,
+//   7 = TE shaded 0.5 in, 9 = TE shaded 0.6 out
+// B-021: the line grid is formations.js's OL_GAP (1.35 yd, was 2.2): guards at 1 gap, tackles at 2, the tight end at 3. K (formations.js GRID_K) scales a number written
+// on the old 2.2 grid (the nickel and linebacker x's below) onto it; the techniques are rebuilt from the grid and the body width (shade = about
+// a half body, 0.45-0.5 yd, was 0.7-0.8).
+export const TECH = {'0':0, '1':OL_GAP - 0.45, '2':OL_GAP, '3':OL_GAP + 0.5, '4':2*OL_GAP, '4i':2*OL_GAP - 0.45, '5':2*OL_GAP + 0.5, '7':3*OL_GAP - 0.5, '9':3*OL_GAP + 0.6};
 const tx = t => { const s = String(t); if(s === "0") return 0; const neg = s[0] === "W", v = TECH[s.slice(1)]; if(v === undefined) throw new Error('technique ' + t); return neg ? -v : v; };
-export const DL_DEPTH = 1.1, LB_DEPTH = 4.5, LB_DEPTH_WEAK = 5.0, EDGE_DEPTH = 1.5;   // yards past the line; weak side = x < 0
-export const SS_ROLL = {x:4.5, d:6};   // the rolled-down safety (bear, eight in the box), strength x
+export const DL_DEPTH = 0.8, LB_DEPTH = 4.5, LB_DEPTH_WEAK = 5.0, EDGE_DEPTH = 1.5;   // yards past the line; weak side = x < 0
+export const SS_ROLL = {x:4.5*K, d:6};   // the rolled-down safety (bear, eight in the box), strength x
 // gaps, offense's view: A beside the center, B outside the guards, C outside the tackles, D outside the tight end. Names carry the
 // strength: 'AS' = A gap strong, 'CW' = C gap weak. x is on the field.
-const GAP_X = {A:1.1, B:3.3, C:5.6, D:8.2};
+export const GAP_X = {A:0.5*OL_GAP, B:1.5*OL_GAP, C:2.5*OL_GAP, D:3*OL_GAP + 0.8};
 export function gapX(name, flip){
   const w = name[1] === 'W', side = (w ? -1 : 1)*flip;
   return {x:side*GAP_X[name[0]], side};
@@ -20,12 +24,12 @@ export function gapX(name, flip){
 // strong-is-right field. A two-gap lineman has two gaps ['BW','CW']: he holds until the read, then sheds to the one the ball is on.
 // Jobs (defense.js): gap, force, alley, deep, support, two.
 const T = (t, role, gap) => [tx(t), role, gap];
-const B = (t, d, role, gap) => [typeof t === 'number' ? t : tx(t), d, role, gap];
+const B = (t, d, role, gap) => [typeof t === 'number' ? t*K : tx(t), d, role, gap];
 export const FRONTS = {
   // today's alignment: four down at -5 -1.2 1.2 5, two backers at +-3.5 depth 5. The call decides the fits (ALIAS below).
   nickel: {pers:'nickel', box:6, note:'Four down, two backers, five defensive backs',
-    dl:[[-5, 'force', 'CW'], [-1.2, 'gap', 'AW'], [1.2, 'gap', 'AS'], [5, 'gap', 'CS']],
-    lb:[[-3.5, 5, 'gap', 'BW'], [3.5, 5, 'gap', 'BS']]},
+    dl:[[-5*K, 'force', 'CW'], [-1.2*K, 'gap', 'AW'], [1.2*K, 'gap', 'AS'], [5*K, 'gap', 'CS']],
+    lb:[[-3.5*K, 5, 'gap', 'BW'], [3.5*K, 5, 'gap', 'BS']]},
   over: {pers:'base', box:7, note:'Line shifts strong; Sam on the edge, Will weak',
     dl:[T('W5', 'force', 'CW'), T('W1', 'gap', 'AW'), T('S3', 'gap', 'BS'), T('S9', 'force', 'DS')],
     lb:[B(-3.3, LB_DEPTH_WEAK, 'gap', 'BW'), B(0.8, LB_DEPTH, 'gap', 'AS'), B(4.6, LB_DEPTH, 'gap', 'CS')]},
@@ -48,13 +52,13 @@ export const ALIAS = {
 };
 // a personnel that does not match the table (?dpers= forced onto a nickel call): a plain job by where he stands
 const gapNear = (x, a, b) => (Math.abs(x) < a ? 'A' : Math.abs(x) < b ? 'B' : 'C') + (x < 0 ? 'W' : 'S');
-const LBX = [null, null, [-3.5, 3.5], [-4.5, 0, 4.5], [-6.5, -2.2, 2.2, 6.5]];
+const LBX = [null, null, [-3.5, 3.5], [-4.5, 0, 4.5], [-6.5, -2.2, 2.2, 6.5]].map(r => r && r.map(x => x*K));
 
 // Backers refit to the linemen: they take exactly the gaps the linemen leave open, matched by x (weak to strong); a side with no
 // force gets one from its outermost backer (weak CW, strong DS); backers left over spill to the gap by where they stand. `lbs` =
 // [{x, d, role?, gap?}]; a backer already a 'force' (a stand-up edge man) keeps his job. Used for a personnel the call's table was
 // not written for, and after a slant moved the line.
-const GAPS = ['CW', 'BW', 'AW', 'AS', 'BS', 'CS'], GAP_STR = {CW:-5.6, BW:-3.3, AW:-1.1, AS:1.1, BS:3.3, CS:5.6};
+const GAPS = ['CW', 'BW', 'AW', 'AS', 'BS', 'CS'], GAP_STR = {CW:-GAP_X.C, BW:-GAP_X.B, AW:-GAP_X.A, AS:GAP_X.A, BS:GAP_X.B, CS:GAP_X.C};
 function reshapeBackers(dl, lbs, strongForce = true){
   const keep = lbs.filter(b => b.role === 'force');
   const covered = new Set([...dl, ...keep].flatMap(s => [].concat(s.gap))), forces = [...dl, ...keep].filter(s => s.role === 'force').map(s => String(s.gap));
@@ -78,7 +82,7 @@ function reshapeBackers(dl, lbs, strongForce = true){
     const b = free.reduce((a, c) => Math.abs(c.x - GAP_STR[g]) < Math.abs(a.x - GAP_STR[g]) ? c : a);
     b.gap = g; free.splice(free.indexOf(b), 1);
   });
-  free.forEach(b => { b.gap = gapNear(b.x, 1.5, 5.5); });   // spill: more backers than open gaps
+  free.forEach(b => { b.gap = gapNear(b.x, 1.5*K, 5.5*K); });   // spill: more backers than open gaps
   return [...keep, ...lb];
 }
 
@@ -164,7 +168,7 @@ export function alignDefense(fr, call, flip, L, bodies, place, blitzer = -1){
   let dl = fr.dl.map((s, i) => ({x:s[0], d:DL_DEPTH, role:alias ? alias[i][0] : s[1], gap:alias ? alias[i][1] : s[2]}));
   let lb = fr.lb.map((s, i) => ({x:s[0], d:s[1], role:alias ? alias[4 + i][0] : s[2], gap:alias ? alias[4 + i][1] : s[3]}));
   if(DL.length !== dl.length){   // nickel with a 3-man personnel: legacy spacing; weak end forces, the nose holds both A gaps, the strong end takes C
-    dl = [[-4.5, 'force', 'CW'], [0, 'two', ['AW', 'AS']], [4.5, 'gap', 'CS']].map(([x, role, gap]) => ({x, d:DL_DEPTH, role, gap}));
+    dl = [[-4.5, 'force', 'CW'], [0, 'two', ['AW', 'AS']], [4.5, 'gap', 'CS']].map(([x, role, gap]) => ({x:x*K, d:DL_DEPTH, role, gap}));
   }
   if(LBs.length !== lb.length) lb = reshapeBackers(dl, LBX[LBs.length].map(x => ({x, d:5})));
   if(call.stunt) lb = planStunt(call.stunt, dl, lb, flip);

@@ -92,13 +92,14 @@ export function pancakeHit(o, d){
   return true;
 }
 // bodies push each other apart by mass, so a runner can squeeze past a blocked defender
+const SEP_R = 0.56;   // B-021: bodies closer than this are pushed apart (was 0.8, x0.7 body width)
 export function separate(){
   for(let i = 0; i < ALL.length; i++) for(let j = i+1; j < ALL.length; j++){
     const a = ALL[i], b = ALL[j];
     if(a.latch === b || b.latch === a || a.ph || b.ph) continue;   // physical bodies collide in the physics world
     const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-    if(d > 0 && d < 0.8){
-      const over = 0.8 - d, nx = dx/d, ny = dy/d, wa = b.mass/(a.mass + b.mass), wb = 1 - wa;
+    if(d > 0 && d < SEP_R){
+      const over = SEP_R - d, nx = dx/d, ny = dy/d, wa = b.mass/(a.mass + b.mass), wb = 1 - wa;
       a.x -= nx*over*wa; a.y -= ny*over*wa; b.x += nx*over*wb; b.y += ny*over*wb;
     }
   }

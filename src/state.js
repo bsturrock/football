@@ -5,7 +5,7 @@ import { drawFits, drawRoutes, routeGroup } from './markers.js';
 import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
 import { chooseForm, formByName, lineUp } from './formations.js';
-import { FRONTS, SS_ROLL, alignDefense } from './fronts.js';
+import { FRONTS, GAP_X, SS_ROLL, alignDefense } from './fronts.js';
 import { DEF_CALLS, PLAYS, orient } from './playbook.js';
 import { CBs, DEF, DL, EXTRA, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
 import { persName, subIn } from './roster.js';
@@ -100,7 +100,7 @@ export function setupPlay(keep = false){
   LBs.forEach((b, i) => {
     b.assign = i < 2 ? (i ? RB : TE) : (EXTRA[i-2] || RB); b.mode = i === blitzer ? 'rush' : 'cover'; b.cushion = 0.6;
   });
-  DEF.forEach(d => { d.job = {role:'gap', gx:clamp(d.x, -5.6, 5.6), side:Math.sign(d.x) || 1}; });   // a default job for a body the front has no slot for; assignFits overwrites the rest
+  DEF.forEach(d => { d.job = {role:'gap', gx:clamp(d.x, -GAP_X.C, GAP_X.C), side:Math.sign(d.x) || 1}; });   // a default job for a body the front has no slot for; assignFits overwrites the rest
   const boxS = keep ? S.boxS : S.boxS = fr.roll ? SFs.find(s => s.side === S.flip) : call.box ? SFs[Math.floor(Math.random()*2)] : null;   // a safety who rolls into the box: the strong one in a bear
   if(boxS) place(boxS, boxS.side*SS_ROLL.x, L + SS_ROLL.d);
   S.box = inBox + (boxS ? 1 : 0);

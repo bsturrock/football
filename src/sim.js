@@ -1,16 +1,16 @@
 import { KEYS } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
-import { formByName } from './formations.js';
+import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
-import { HOLD_R, bearing, faceLean, faceYaw, holdsBlocker } from './util.js';
+import { HOLD_R, PILE_R, bearing, faceLean, faceYaw, holdsBlocker } from './util.js';
 
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
 // Pile stats come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
 // physMs is null under --virtual-time-budget (performance.now does not advance during synchronous code); read it with a real clock
-const SQUARE_DEG = 25, FACE_V = 0.4, FACE_RATE = 14, TURN_MAX = 2, SIM_DT = 1/60, PILE_R = 1.3, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_DX = 8, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
+const SQUARE_DEG = 25, FACE_V = 0.4, FACE_RATE = 14, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
-// sim.js first and its only import is ratings.js (and via it util.js), neither of which rolls at load, so player ratings and masses (rolled at load) are seeded too.
+// sim.js first and its imports (ratings.js, formations.js, roster.js, util.js) are pure and roll nothing at load, so player ratings and masses (rolled at load) are seeded too.
 const Q = new URLSearchParams(location.search);
 if(Q.has('sim')) seedRandom(Number(Q.get('seed')) || 1);
 function seedRandom(seed){

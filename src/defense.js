@@ -7,6 +7,7 @@ import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs } from './players.js';
 import { isBody } from './physics.js';
 import { S, ball } from './state.js';
 import { lack } from './ratings.js';
+import { GRID_K } from './formations.js';
 import { DBL_R, dist, holdsBlocker, rand } from './util.js';
 
 // Human mistakes in pursuit. Per defender per play state (reset in assignFits):
@@ -24,6 +25,9 @@ import { DBL_R, dist, holdsBlocker, rand } from './util.js';
 const AVOID_CONE = 30, AVOID_DIST = 2.5, AVOID_EVERY = 0.1, AVOID_T = 0.5, AVOID_STEP = 1.6, BACK_D = 3, BACK_L = 3, HOME_P = 0.5, FIGHT_QUICK = 0.15;
 const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
+const ENGAGED_D = 0.91;   // B-021: a defender locks onto a blocker this close (was 1.3, x0.7 body width)
+// B-021: run-fit windows on the old 2.2 yd line grid, carried onto the new one (x GRID_K): the backside stay-home line, the gap fill window, the contain offsets and the outflanked margin
+const BACK_HOME_X = 1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K, CHASE_X = 2*GRID_K, ALLEY_X = 1*GRID_K;   // CHASE_X: the ball is this far to the backside of the force man, he chases; ALLEY_X: the ball is this far to the alley man's side, he fills
 const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
 
 // pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
@@ -164,26 +168,26 @@ function runFit(d, c){
   if(d.hold){ if(S.clock < d.hold.until){ px = d.hold.x; py = d.hold.y; } else d.hold = null; }
   const lev = levShade(d), inside = () => [px - dir*lev + e, py];                 // pursue keeping inside leverage: no cutback behind him
   const contain = side => dist(d, c) > 3
-    ? [bx + side*1.5 + e, Math.max(L + 1, by + 1.5)]            // get outside and in front of him
-    : [px + side*0.5, py];                                      // close: attack his outside shoulder
+    ? [bx + side*CONTAIN_X + e, Math.max(L + 1, by + 1.5)]            // get outside and in front of him
+    : [px + side*CONTAIN_SHOULDER, py];                                      // close: attack his outside shoulder
   // backside: ball went away from my side and hasn't cleared los+BACK_L: stay home on the cutback unless he closes on me
-  if(d.home && PLAYS[S.play].run && (j.role === 'gap' || j.role === 'force') && bx*s < -1.5 && by < L + BACK_L && dist(d, c) > BACK_D) return [j.gx + (bx - j.gx)*0.25, L + 0.5];
+  if(d.home && PLAYS[S.play].run && (j.role === 'gap' || j.role === 'force') && bx*s < -BACK_HOME_X && by < L + BACK_L && dist(d, c) > BACK_D) return [j.gx + (bx - j.gx)*0.25, L + 0.5];
   switch(j.role){
     case 'gap':
-      if(by < L + 1.5 && Math.abs(bx - j.gx) < 2.5) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze
+      if(by < L + 1.5 && Math.abs(bx - j.gx) < FILL_DX) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze
       return inside();
     case 'force':
-      if(bx*s < -2) return [px - dir*1 + e, Math.max(py, by)];  // ball went away and past los+3: backside chase
+      if(bx*s < -CHASE_X) return [px - dir*1 + e, Math.max(py, by)];  // ball went away and past los+3: backside chase
       return contain(s);
     case 'alley':
-      if(bx*s > 1 || by > L + 1) return inside();               // ball committed to my side: fill the alley
+      if(bx*s > ALLEY_X || by > L + 1) return inside();               // ball committed to my side: fill the alley
       return [bx*0.5 + j.gx*0.5, L + 6];
     case 'deep':
       if(dist(d, c) > 8) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it
       return inside();
     case 'support': {
       const f = DEF.find(o => o.job && o.job.role === 'force' && o.job.side === s);
-      const outflanked = !f || f.bt || f.stun > 0 || isBody(f) || (bx - f.x)*s > 0.5;
+      const outflanked = !f || f.bt || f.stun > 0 || isBody(f) || (bx - f.x)*s > OUTFLANKED_X;
       if(bx*s > 0 && outflanked) return contain(s);            // my side, force man beaten: I'm the force now
       return d.bt ? [px, py] : coverTarget(d);
     }
@@ -265,8 +269,8 @@ export function defenseAI(d, dt){
     const free = o => d.freeFrom === o && d.freeT > 0;   // just beat this blocker: he can't re-engage yet
     const dc = dist(d, c);
     // a bubble body has no line battle: the physics world decides who gives way
-    const o = d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o.blk === d && o !== c && dist(o, d) < 1.3 && !free(o))
-           || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o !== c && o !== QB && dist(o, d) < 1.3 && dist(o, c) < dc && !free(o)));
+    const o = d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o.blk === d && o !== c && dist(o, d) < ENGAGED_D && !free(o))
+           || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o !== c && o !== QB && dist(o, d) < ENGAGED_D && dist(o, c) < dc && !free(o)));
     if(o){
       if(!d.bt || d.bt.o !== o){
         // first contact: a blocker arriving with a lot more momentum than the defender can absorb flattens him

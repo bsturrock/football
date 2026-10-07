@@ -3,7 +3,7 @@ import { toast } from './hud.js';
 import { fitGroup, routeGroup } from './markers.js';
 import { resolveBlocks } from './blockrules.js';
 import { PLAYS } from './playbook.js';
-import { C, DEF, DL, EXTRA, LG, LT, OL, QB, RB, RECV, RG, RT, TE } from './players.js';
+import { BODY_W, C, DEF, DL, EXTRA, LG, LT, OL, QB, RB, RECV, RG, RT, TE } from './players.js';
 import { endPlay, newGame } from './rules.js';
 import { cvs } from './scene.js';
 import { S, ball, selectPlay } from './state.js';
@@ -98,15 +98,15 @@ export function resolvePass(){
   let dd = null, dD = 1e9;
   for(const d of DEF){ if(d.stun > 0) continue; const k = dist(d, L); if(k < dD){ dD = k; dd = d; } }
   const r = Math.random();
-  if(dO < 1.7){
-    if(dD < 1.3){
+  if(dO < 1.7*BODY_W){   // B-021: catch and contest radii are body size, x0.7 (1.7 -> 1.19, 1.3 -> 0.91)
+    if(dD < 1.3*BODY_W){
       if(r < (dO < dD ? 0.6 : 0.25)) return catchBall(w, 'Contested catch!');
       if(r < 0.85) return endPlay('inc', 0, 'Broken up');
       return endPlay('int');
     }
     return catchBall(w, 'Caught!');
   }
-  if(dD < 1.3) return r < 0.4 ? endPlay('int') : endPlay('inc', 0, 'Knocked down');
+  if(dD < 1.3*BODY_W) return r < 0.4 ? endPlay('int') : endPlay('inc', 0, 'Knocked down');
   endPlay('inc');
 }
 function catchBall(w, msg){
