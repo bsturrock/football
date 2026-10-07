@@ -61,8 +61,20 @@ function reshapeBackers(dl, lbs, strongForce = true){
   const lb = lbs.filter(b => b.role !== 'force').map(b => ({x:b.x, d:b.d, role:'gap', gap:null})).sort((a, b) => a.x - b.x), free = [...lb];
   if(!forces.some(g => g.endsWith('W')) && free.length){ const w = free.shift(); w.role = 'force'; w.gap = 'CW'; covered.add('CW'); }
   if(strongForce && !forces.some(g => g.endsWith('S')) && free.length){ const st = free.pop(); st.role = 'force'; st.gap = 'DS'; }
-  GAPS.filter(g => !covered.has(g)).forEach(g => {
-    if(!free.length) return;
+  const open = GAPS.filter(g => !covered.has(g));   // weak to strong, like the free backers
+  if(open.length >= free.length){   // every backer gets one: the order-preserving match with the least total walk, so nobody crosses the formation
+    const best = (i, j) => {
+      if(i === free.length) return {cost:0, pick:[]};
+      let r = null;
+      for(let k = j; k <= open.length - (free.length - i); k++){
+        const sub = best(i + 1, k + 1), cost = Math.abs(free[i].x - GAP_STR[open[k]]) + sub.cost;
+        if(!r || cost < r.cost) r = {cost, pick:[open[k], ...sub.pick]};
+      }
+      return r;
+    };
+    best(0, 0).pick.forEach((g, i) => { free[i].gap = g; });
+    free.length = 0;
+  } else open.forEach(g => {   // more backers than open gaps: each gap takes its nearest backer, the rest spill
     const b = free.reduce((a, c) => Math.abs(c.x - GAP_STR[g]) < Math.abs(a.x - GAP_STR[g]) ? c : a);
     b.gap = g; free.splice(free.indexOf(b), 1);
   });
@@ -73,7 +85,7 @@ function reshapeBackers(dl, lbs, strongForce = true){
 // ---------- stunts and blitzes (B-007-5) ----------
 // A call may carry `stunt` (a key of STUNTS). planStunt rewrites the fit specs the front produced, in strength coordinates, so that
 // after the stunt every gap AW..CS still has a defender and each side still has a force. Kinds:
-//   slant   the whole line takes the next gap toward the slant side (dir -1 = field left); the backers refit to what it opened
+//   slant   the whole line takes the next gap toward the slant side (dir -1 = weak side, +1 = strong); the backers refit to what it opened
 //   twist   the two strong-side linemen trade gaps: one crashes straight to the other's gap, the other loops behind him through a
 //           waypoint (Tex: the tackle crashes, the end loops; Loop: the end crashes, the tackle loops)
 //   blitz   the backer nearest the A or B gap (a coin picks the side) shoots it; whoever held that gap takes the gap he left
@@ -106,7 +118,7 @@ export function planStunt(name, dl, lb, flip, rnd = Math.random){
   const st = STUNTS[name];
   if(!st) throw new Error('stunt ' + name);
   if(st.kind === 'slant'){
-    const dir = st.dir*flip;
+    const dir = st.dir;   // strength-relative: Slant Left (-1) goes weak, Slant Right (+1) strong
     dl.forEach(s => {
       const old = s.gap;
       s.gap = Array.isArray(s.gap) ? s.gap.map(g => shiftGap(g, dir)) : shiftGap(s.gap, dir);
@@ -130,8 +142,8 @@ export function planStunt(name, dl, lb, flip, rnd = Math.random){
     if(!cand.length) return lb;
     const b = cand.reduce((p, q) => Math.abs(q.x - GAP_STR[g]) < Math.abs(p.x - GAP_STR[g]) ? q : p), v = b.gap;
     if(v !== g){
-      const holder = [...dl, ...lb].find(s => s !== b && [].concat(s.gap).includes(g));
-      if(holder) holder.gap = Array.isArray(holder.gap) ? holder.gap.map(x => x === g ? v : x) : v;
+      const others = [...dl, ...lb].filter(s => s !== b), holder = others.find(s => [].concat(s.gap).includes(g));
+      if(holder && !others.some(s => [].concat(s.gap).includes(v))) holder.gap = Array.isArray(holder.gap) ? holder.gap.map(x => x === g ? v : x) : v;
       b.gap = g;
     }
     b.stunt = {blitz:true};

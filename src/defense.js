@@ -115,7 +115,7 @@ export function assignFits(call, boxS){
     if(call.stunt && STUNTS[call.stunt].kind === 'safety'){   // strong safety blitz: down to depth 7, through the strong C gap
       const sj = safetyJob(strongForce);
       strongS.job = {role:sj.role, gx:gapX(sj.gap, f).x, side:f};
-      strongS.x = gapX(sj.gap, f).x + f; strongS.y = L + SAFETY_D;
+      strongS.x = gapX(sj.gap, f).x + f; strongS.y = L + SAFETY_D; strongS.rx = strongS.x; strongS.ry = strongS.y;   // the drawn mesh follows, no glide
       strongS.stunt = {st:'aligned', via:null, t0:0, blitz:true}; strongS.mode = 'rush';
     }
   }

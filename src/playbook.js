@@ -6,8 +6,8 @@ import { $ } from './util.js';
 // fits are fronts.js ALIAS); the rest are real fronts with their own personnel (4-3 base, 3-4 odd) and fits. blitz / box flags as before.
 export const DEF_CALLS = [
   {name:'Base',             front:'nickel', note:'Linemen hold their gaps, linebackers read and fill'},
-  {name:'Slant Left',       front:'nickel', stunt:'Slant L', note:'Whole line slants one gap toward the left, the backers fill what it opens'},
-  {name:'Slant Right',      front:'nickel', stunt:'Slant R', note:'Whole line slants one gap toward the right, the backers fill what it opens'},
+  {name:'Slant Left',       front:'nickel', stunt:'Slant L', note:'Whole line slants one gap to the weak side, the backers fill what it opens'},
+  {name:'Slant Right',      front:'nickel', stunt:'Slant R', note:'Whole line slants one gap to the strong side, the backers fill what it opens'},
   {name:'Run Blitz',        front:'nickel', note:'One linebacker shoots his gap at the snap', blitz:true},
   {name:'Eight in the Box', front:'nickel', note:'A safety rolls down and the linebackers trigger fast', box:true},
   {name:'Nickel',           front:'nickel', note:'Four down, two linebackers, three corners'},
