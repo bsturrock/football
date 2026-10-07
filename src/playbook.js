@@ -26,7 +26,7 @@ export const DEF_CALLS = [
 // (hole to -x for Power, tight end +x) and mirrored by flip. The corner / safety rules are the receivers' stalk blocks.
 const WR_ON = {WR0:[['corner']], WR1:[['corner']], WR2:[['corner']]}, WR_DEEP = {WR0:[['corner']], WR1:[['corner']], WR2:[['deep']]};
 const EXTRAS = {FB:[['backer','ps'],['any']], TE2:[['on'],['reach']]};
-const OL_INSIDE = [['on'],['down'],['backer','ps']], OL_OUTSIDE = [['reach'],['on'],['backer','ps']];
+const OL_INSIDE = [['line'],['down'],['backer','near']], OL_OUTSIDE = [['reach'],['on'],['backer','near']];
 const INSIDE = {LT:OL_INSIDE, LG:OL_INSIDE, C:OL_INSIDE, RG:OL_INSIDE, RT:OL_INSIDE, TE:[['boxS'],['on'],['down']], ...EXTRAS, ...WR_ON};
 const OUTSIDE = {LT:OL_OUTSIDE, LG:OL_OUTSIDE, C:OL_OUTSIDE, RG:OL_OUTSIDE, RT:OL_OUTSIDE, TE:[['boxS'],['reach'],['on']], ...EXTRAS, ...WR_DEEP};
 // route points: [yards toward the middle, yards downfield from the line]
