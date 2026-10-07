@@ -27,6 +27,8 @@ export const DEF_CALLS = [
 const WR_ON = {WR0:[['corner']], WR1:[['corner']], WR2:[['corner']]}, WR_DEEP = {WR0:[['corner']], WR1:[['corner']], WR2:[['deep']]};
 const EXTRAS = {FB:[['backer','ps'],['any']], TE2:[['on'],['reach']]};
 const OL_ZONE_DBL = [['double','playside'],['on'],['down']];
+export const DRAW_DELAY = 0.9;   // B-007-12: seconds from the snap to the Draw handoff
+const DRAW_OL = [['pass'],['on'],['down']];   // 'pass' is held by offense.js (pass set until the handoff); the handoff re-read takes the man on him
 const DUO_OL = [['double','playside'],['double','backside'],['on']], ISO_OL = [['on'],['down'],['backer','near']];
 // Inside Zone: a lineman with nobody on him doubles the covered man beside him on the playside, else everyone blocks the man on him
 const INSIDE_DBL = {LT:OL_ZONE_DBL, LG:OL_ZONE_DBL, C:OL_ZONE_DBL, RG:OL_ZONE_DBL, RT:OL_ZONE_DBL, TE:[['boxS'],['on'],['down']], ...EXTRAS, ...WR_ON};
@@ -76,6 +78,17 @@ export const PLAYS = [
    rules:OUTSIDE_ZONE,
    path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]],
    alt:{under:{run:'hand', mesh:[2.0,-2.8], path:[[1.5,-5.5],[3.2,-3.9],[6.5,-1.8],[8.5,1.5],[8.5,8]]}}},   // from under center: the old Stretch (handoff)
+  // B-007-12 batch 3. Toss: the QB pitches, the backside guard pulls to kick the edge, the fullback wraps to the backer, the strong receiver cracks the safety
+  {name:'Toss', run:'toss', scheme:'man', hole:8.5, forms:['11 Gun', '21 I', '12 Under'],
+   rules:{LT:[['down']], LG:[['pull','kick'],['down']], C:[['reach'],['on'],['down']], RG:[['reach'],['on']], RT:[['reach'],['on']], TE:[['boxS'],['reach'],['on']],
+          FB:[['pull','wrap'],['backer','ps'],['any']], TE2:[['on'],['down']], WR0:[['corner']], WR1:[['deep'],['corner']], WR2:[['corner']]},
+   pulls:{LG:[]},
+   path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]]},
+  // Draw: a pass set for DRAW_DELAY s (the defense reads pass), then the handoff and the OL turn to the man on them. offense.js holds the pass set until the handoff, main.js times it,
+  // defense.js keeps the line rushing and the backers dropping until the handoff plus the read
+  {name:'Draw', run:'hand', scheme:'man', hole:1.1, delay:DRAW_DELAY, forms:['11 Gun', '21 I'], mesh:[0.6,-5.4],
+   rules:{LT:DRAW_OL, LG:DRAW_OL, C:DRAW_OL, RG:DRAW_OL, RT:DRAW_OL, TE:[['pass'],['on'],['down']], FB:[['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
+   path:[[1.1,-2.5],[1.1,0.5],[1.1,8]]},
   {name:'Duo', run:'hand', scheme:'man', hole:1.1, forms:['21 I', '12 Under', '22 Heavy'], mesh:[-0.5,-2.6],   // double teams at the point of attack, back picks his gap
    rules:{LT:DUO_OL, LG:DUO_OL, C:DUO_OL, RG:DUO_OL, RT:DUO_OL, TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
    path:[[0.7,-3.0],[1.1,0.5],[1.1,8]]},
@@ -88,7 +101,7 @@ export const PLAYS = [
 // the live fields every other module reads (path, hole, shift, pulls, blocks, mesh, under) from that source: flip -1 mirrors paths and
 // holes and swaps left/right blocker names (LT/RT, ...); the linemen stay where they are, so the blocker names swap instead. The rules
 // (play.src.rules) are mirrored by resolveBlocks and read the defenders by where they stand, so they have no names to swap.
-PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.pulls, rules:p.rules, mesh:p.mesh, run:p.run, alt:p.alt}; });
+PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.pulls, rules:p.rules, mesh:p.mesh, run:p.run, alt:p.alt, delay:p.delay}; });
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
 export function orient(play, under, flip){
   const key = k => flip > 0 ? k : MIRROR[k] || k;
@@ -98,7 +111,7 @@ export function orient(play, under, flip){
   play.hole = s.hole === undefined ? undefined : s.hole*flip;
   play.shift = s.shift === undefined ? undefined : s.shift*flip;
   play.pulls = s.pulls && Object.fromEntries(Object.entries(s.pulls).map(([k, v]) => [key(k), v.map(pt)]));
-  play.under = under;
+  play.under = under; play.delay = s.delay;
   // under center the QB opens to a mesh point (a play written for shotgun gets one at the back's first path point)
   const mesh = under ? (s.mesh || (s.path && [s.path[0][0], -2.8])) : null;
   play.mesh = mesh ? pt(mesh) : undefined;

@@ -236,11 +236,15 @@ export function defenseAI(d, dt){
   if(d.stun > 0){ d.stun -= dt; steer(d, d.x, d.y, 0, dt); return; }
   if(d.fireDelay > 0){ d.fireDelay -= dt; return; }   // still in his stance, reading the ball
   let c = ball.state === 'held' ? ball.holder : (ball.state === 'air' ? null : QB);
-  if(c === QB && S.runMode && PLAYS[S.play].run === 'hand') c = RB;   // handoff coming: defenders key the back, not the QB at the mesh
+  const draw = PLAYS[S.play].delay && S.runMode;   // B-007-12 Draw: the defense reads pass until the handoff and its read delay, then the run fit
+  const passRead = draw && S.clock <= S.handoffAt + d.read;
+  if(c === QB && S.runMode && PLAYS[S.play].run === 'hand' && !passRead) c = RB;   // handoff coming: defenders key the back, not the QB at the mesh
   let tx, ty, sp = d.spd, attack = false;
   if(ball.state === 'air'){
     if(S.clock - ball.thrownAt > d.react && Math.hypot(ball.tx - d.x, ball.ty - d.y) < 18){ tx = ball.tx; ty = ball.ty; }
     else [tx, ty] = coverTarget(d);
+  } else if(passRead && c){   // pass read: the line rushes the passer, everybody else drops into his coverage
+    if(d.role === 'DL' || d.mode === 'rush'){ tx = QB.x; ty = QB.y; attack = true; } else [tx, ty] = coverTarget(d);
   } else if(S.runMode && c && d.job){
     [tx, ty] = runFit(d, c); attack = true;
     if(S.clock > S.handoffAt + d.read) [tx, ty] = avoidBlockers(d, c, tx, ty);
