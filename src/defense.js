@@ -19,9 +19,11 @@ import { DBL_R, dist, rand } from './util.js';
 //   pursuing  default: runFit target
 //   avoiding  a blocker sits in the AVOID_CONE within AVOID_DIST of his path (checked every AVOID_EVERY s) and he lost the FIGHT_P roll:
 //             steps around to his leverage side (outside for the force man and a support man who took the force job, toward the ball for the rest) for AVOID_T s
-//   fighting  won the FIGHT_P = shed/99 - 0.3 roll: runs straight through the blocker, quick shed move on contact
+//   fighting  won the FIGHT_P = shed/99 - 0.3 roll: runs straight through the blocker, quick shed move on contact. A force man or acting force whose blocker sits on his
+//             outside (leverage side) always fights through, whatever the roll: he never gives up the edge
 //   held      engaged (d.bt): the line battle owns him; avoid state cleared
-// Backside (ball away from his side, not past los+BACK_L): stays home near his gap unless the runner closes within BACK_D
+// Backside (ball away from his side, not past los+BACK_L): stays home near his gap unless the runner closes within BACK_D. Designed runs only (PLAYS[S.play].run),
+//   gap and force roles only, and only men who passed the d.home roll (a poor pursuer abandons the backside early)
 const AVOID_CONE = 30, AVOID_DIST = 2.5, AVOID_EVERY = 0.1, AVOID_T = 0.5, AVOID_STEP = 1.6, BACK_D = 3, BACK_L = 3, HOME_P = 0.5, FIGHT_QUICK = 0.15;
 const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
