@@ -10,6 +10,7 @@ import { dist } from './util.js';
 
 const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
+const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
 const FIT_UP = 0.6;   // B-021: a blocker aims this far in front of his man's centre (was 0.85, x0.7 body width)
 const DBL_SHOULDER = 0.32;   // B-021: was 0.45, x0.7   // two blockers on one defender: each takes a shoulder this far off his centre
 // what blockers protect: the runner once he has the ball, otherwise the play's hole
@@ -44,7 +45,7 @@ function block(p, dt){
   const ref = runRef();
   let d = p.blk;
   if(!d || d.stun > 0){ d = p.blk = pickBlock(p, ref); }
-  if(!d){ steer(p, ref.x + (p.x > ref.x ? 2.5 : -2.5), ref.y + 3, p.spd*0.85, dt); return; }  // nobody left: lead upfield
+  if(!d){ steer(p, ref.x + (p.x > ref.x ? LEAD_X : -LEAD_X), ref.y + 3, p.spd*0.85, dt); return; }  // nobody left: lead upfield
   driveAt(p, d, ref, dt);
 }
 // zone: block whoever is in my lane at the line; if the lane is empty, climb to a linebacker in my area.

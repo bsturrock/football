@@ -1,6 +1,8 @@
 import { runRoute, steerVel as steer0 } from './movement.js';
 import { PLAYS } from './playbook.js';
-import { ALL, C, DEF, LG, LT, OFF, RG, RT } from './players.js';
+import { GRID_K } from './formations.js';
+import { PILE_R } from './pile.js';
+import { ALL, BODY_W, C, DEF, LG, LT, OFF, RG, RT } from './players.js';
 import { isBody, physBall, physDown, physTouched } from './physics.js';
 import { lack } from './ratings.js';
 import { S } from './state.js';
@@ -37,7 +39,7 @@ function raceMargin(p, qx, qy){
 function readHole(p, dt){
   const hole = S.hole ?? 0, y = S.los + 1;
   let best = p.holeX ?? hole, bs = -1e9;
-  for(let x = hole - 5; x <= hole + 5; x += 0.5){
+  for(let x = hole - 5*GRID_K; x <= hole + 5*GRID_K; x += 0.5*GRID_K){
     if(Math.abs(x) > HW - 1.5) continue;
     const sc = raceMargin(p, x, y) + raceMargin(p, x, y + 3)*0.6 - Math.abs(x - hole)*0.05 - Math.abs(x - p.x)*0.03;
     if(sc > bs + (x === p.holeX ? 0 : 0.08)){ bs = sc; best = x; }    // a little hysteresis: don't dance
@@ -53,9 +55,10 @@ function readHole(p, dt){
 // S.read starts as {key:-1, choice:null, wrong:null} (no decision yet) and is overwritten at the decision; a back stuffed first keeps choice null.
 // Keyboard carrier and man schemes never come here.
 const PRESS_V = 0.7, PRESS_T = 0.15, PRESS_VIS = 0.35, PRESS_MAX = 0.6;    // press speed x spd; seconds = PRESS_T + PRESS_VIS*vision/99, capped
-const KEY_R = 3, KEY_Y0 = -1, KEY_Y1 = 5, KEY_EVERY = 0.2;   // key: nearest unengaged defender within KEY_R of the hole x, y los+KEY_Y0..KEY_Y1
-const DECIDE_Y = 1, LOCK_Y = 1.5, COMMIT_Y = 3, AIM_Y = 2.5, RACE3 = 0.6, RACE5 = 0.4, LAT_COST = 0.015, BEND = 2.2, BOUNCE = 5, CUTBACK = 4, EDGE = 1.5;
-const WRONG_P = 0.175, NOISE = 0.035, HOLE_COST = 0.05, KEY_PEN = 1.2, KEY_CLOSE = 2.2, KEY_LEAD = 0.3;   // NOISE: score noise amplitude x (1-vision/99); any lane but the noiseless best counts as wrong (B-006-7 tunes it)
+// B-021: the lane distances below were written on the old 2.2 yd line grid; GRID_K (x0.61) carries KEY_R, BEND, BOUNCE, CUTBACK, KEY_CLOSE, the hole scan and the lane tolerance to the 1.35 yd one. Per-yard score costs, EDGE (a sideline margin) and the y offsets stay.
+const KEY_R = 3*GRID_K, KEY_Y0 = -1, KEY_Y1 = 5, KEY_EVERY = 0.2;   // key: nearest unengaged defender within KEY_R of the hole x, y los+KEY_Y0..KEY_Y1
+const DECIDE_Y = 1, LOCK_Y = 1.5, COMMIT_Y = 3, AIM_Y = 2.5, RACE3 = 0.6, RACE5 = 0.4, LAT_COST = 0.015, BEND = 2.2*GRID_K, BOUNCE = 5*GRID_K, CUTBACK = 4*GRID_K, EDGE = 1.5;
+const WRONG_P = 0.175, NOISE = 0.035, HOLE_COST = 0.05, KEY_PEN = 1.2, KEY_CLOSE = 2.2*GRID_K, KEY_LEAD = 0.3;   // NOISE: score noise amplitude x (1-vision/99); any lane but the noiseless best counts as wrong (B-006-7 tunes it)
 const free = d => d.stun <= 0 && !isBody(d) && !(d.eng > 0) && !d.bt && !OFF.some(o => o.blk === d);
 function pickKey(hole){
   let key = null, bd = KEY_R;
@@ -98,7 +101,7 @@ function zoneRead(p, dt){
       S.read = {key:rd.key ? DEF.indexOf(rd.key) : -1, choice:r.choice, wrong:r.wrong};
     }
   }
-  if(rd.st === 'committed' && ((p.y >= S.los + LOCK_Y && Math.abs(p.x - rd.x) < 1) || p.y >= S.los + COMMIT_Y)) rd.st = 'open';
+  if(rd.st === 'committed' && ((p.y >= S.los + LOCK_Y && Math.abs(p.x - rd.x) < GRID_K) || p.y >= S.los + COMMIT_Y)) rd.st = 'open';
   if(rd.st === 'open'){ openField(p, dt); return; }
   if(rd.st === 'committed'){
     const tx = rd.x, dx = tx - p.x, dy = S.los + COMMIT_Y - p.y, l = Math.hypot(dx, dy) || 1, sp = p.spd*burst(p, true, dt);
@@ -136,13 +139,13 @@ function openField(p, dt){
 // p.rd.fs, one runner per play (place() clears p.rd): free (no puller, or he has engaged or the back is past los+FOLLOW_Y) <-> following; done (the puller stood under FOLLOW_STALL_V for FOLLOW_STALL_T s without engaging: never follows again)
 // (a pulling blocker is ahead; the back tucks FOLLOW_BEHIND yd behind his hip at his pace, closing a gap at up to sprint) ; contact (a defender latched, or touched with
 // 2+ bodies within PILE_R, and not down) keeps at least DRIVE_V x spd of wanted velocity upfield (rd.cn, see steerVel above), whatever his lane says. Contact ends when the grip and the bodies are gone.
-const STALL_V = 0.25, FOLLOW_STALL_V = 1, FOLLOW_STALL_T = 0.5, FOLLOW_BEHIND = 0.6, FOLLOW_Y = 2, FOLLOW_NEAR = 3.5, DRIVE_V = 0.6, PILE_R = 1.3;
+const STALL_V = 0.25, FOLLOW_STALL_V = 1, FOLLOW_STALL_T = 0.5, FOLLOW_BEHIND = 0.6, FOLLOW_Y = 2, FOLLOW_NEAR = 3.5, DRIVE_V = 0.6;   // PILE_R: pile.js
 const pullerOf = () => { const k = Object.keys(PLAYS[S.play].pulls || {})[0]; return ({LT, LG, C, RG, RT})[k] || null; };   // the first puller the play names
 const ballY = p => p.ph ? 50 - physBall(p).z : p.y;
 function followPuller(p, dt){
   const rd = p.rd, q = rd.pull;
   if(!q || rd.fs === 'done' || p.y > S.los + FOLLOW_Y || q.y < p.y - FOLLOW_BEHIND) return false;   // no puller, done with him, or he is behind the back
-  if(q.eng > 0 || q.bt || q.falling || (!(q.via && q.via.length) && q.blk && dist(q, q.blk) < 1.6)) return false;   // he has his man: the back takes the hole he made
+  if(q.eng > 0 || q.bt || q.falling || (!(q.via && q.via.length) && q.blk && dist(q, q.blk) < 1.6*BODY_W)) return false;   // he has his man: the back takes the hole he made
   const sp = Math.hypot(q.vx, q.vy);
   rd.fst = sp < FOLLOW_STALL_V ? (rd.fst || 0) + dt : 0;
   if(rd.fst > FOLLOW_STALL_T){ rd.fs = 'done'; return false; }   // stopped without engaging (held on a body): the back goes on alone
