@@ -22,8 +22,8 @@ import { dist } from './util.js';
 //   deep     the safety nearest me;  corner  the corner covering me;  any  nearest man in the box within ANY_DX of me (nobody is sent across the formation)
 // Double team (B-007-7). Per blocker p.dbl = {d, mate, post, t, state}, absent = single. States: double (two men drive d) -> climbing (the climber has gone to a
 // linebacker, the post man is single again) or released (d is down, or the pair was never completed). The climber leaves after CLIMB_T engaged on d, or at once
-// (once engaged) when a linebacker is within CLIMB_NEAR of d, for the nearest unblocked linebacker within CLIMB_RANGE of him; none in range, he stays on d.
-export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = 1.4;
+// (once engaged) when a linebacker is within CLIMB_NEAR of d or of him, or one within CLIMB_RANGE has committed (downhill at COMMIT_V of his run speed), for the nearest unblocked linebacker within CLIMB_RANGE of him; none in range, he stays on d.
+export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = 1.4, COMMIT_V = 0.5;   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
 export const COVERED_DX = 1.0, COVERED_DY = 2.5, REACH_DX = 3.5, REACH_AIM = 2.0, BOX_Y = 7, BOX_X = 8, ANY_DX = 5, LANE_DX = 1.8, ZONE_KEEP = 3;   // ZONE_KEEP: offense.js zoneBlock drops an unengaged, unruled target this far from the lane
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
 const bodyOf = n => ({LT, LG, C, RG, RT, TE, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2], FB:EXTRA.find(e => e.pos === 'FB'), TE2:EXTRA.find(e => e.pos === 'TE')})[n];
@@ -114,7 +114,8 @@ export function climbCheck(p, dt){
   if(d.stun > 0 || p.blk !== d || m.mate.blk !== d){ m.state = 'released'; return; }
   if(dist(p, d) < ENGAGED) m.t += dt;
   const backer = e => e.role === 'LB' && e.stun <= 0 && !OFF.some(o => o !== p && o.blk === e);   // unblocked: the tight end's edge man is not one to climb to
-  const near = m.t > 0 && DEF.some(e => backer(e) && dist(e, d) < CLIMB_NEAR);
+  const commit = e => dist(e, d) < CLIMB_NEAR || dist(e, p) < CLIMB_NEAR || (dist(e, p) < CLIMB_RANGE && e.vy < -COMMIT_V*e.spd);
+  const near = m.t > 0 && DEF.some(e => backer(e) && commit(e));
   if(m.t < CLIMB_T && !near) return;
   const lb = nearest(DEF.filter(e => backer(e) && dist(e, p) < CLIMB_RANGE && e.y >= p.y - 1.5), e => dist(e, p));
   if(!lb) return;

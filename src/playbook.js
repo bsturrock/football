@@ -46,8 +46,8 @@ export const PLAYS = [
   // scheme 'zone': linemen + TE each own a lane (start x + shift) and block whoever shows up in it, else climb.
   // scheme 'man': linemen keep the defender the rules gave them; `pulls` are waypoints [x, yards from line] run first.
   // `rules`: blocker -> rule list (blockrules.js)
-  {name:'Inside Zone', run:'hand', scheme:'zone', shift:-1, hole:-1.1,   // an uncovered lineman doubles a covered neighbour playside first (B-007-7)
-   rules:{...INSIDE, LT:OL_DOUBLE, LG:OL_DOUBLE, C:OL_DOUBLE, RG:OL_DOUBLE, RT:OL_DOUBLE},
+  {name:'Inside Zone', run:'hand', scheme:'zone', shift:-1, hole:-1.1,   // OL_DOUBLE (double, then singles) is ready for it but costs ypc until tuning is allowed (B-007-7)
+   rules:INSIDE,
    path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]]},
   {name:'Power Left', run:'hand', scheme:'man', hole:-3.6,
    rules:{LT:[['backer','ps']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['edge']], RT:[['backer','mike']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
