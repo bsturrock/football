@@ -6,7 +6,7 @@ import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
 import { chooseForm, lineUp } from './formations.js';
 import { DEF_CALLS, PLAYS, orient } from './playbook.js';
-import { CBs, DEF, DL, EXTRA, LBs, OFF, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
+import { CBs, DEF, DL, EXTRA, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
 import { DEFAULT_PERS, persName, subIn } from './roster.js';
 import { fdLine, losLine } from './scene.js';
 import { $, HW, clamp, rand } from './util.js';
@@ -24,8 +24,7 @@ export function selectPlay(i){
 // re-oriented to match (playbook.js orient)
 function formation(){
   const play = PLAYS[S.play], form = S.form = chooseForm(play.src.under, forced('form'), persName('off', forced('pers')));
-  const sd = String(forced('side') || '').toUpperCase(); S.flip = sd === 'L' ? -1 : 1;
-  orient(play, form.under, S.flip); lineUp(form, S.los, S.flip, place);
+  orient(play, form.under, S.flip, DL.length, LBs.length); lineUp(form, S.los, S.flip, place, {OL, QB, RB, TE, WRs, EXTRA});
 }
 // personnel for the next play: forced by the sim (?pers=, ?dpers=), else the page URL, else 11 and nickel
 const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
@@ -58,6 +57,8 @@ export function setupPlay(){
   subIn(form0.pers, want('def', 'dpers'));   // dead ball: the formation's personnel and the defense's take the field
   const L = S.los;
   S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity; S.read = null; pileReset();
+  const sd = String(forced('side') || '').toUpperCase();   // one side per play (a play change before the snap keeps it): ?side=L|R, else the coin
+  S.flip = sd === 'L' ? -1 : sd === 'R' ? 1 : Math.random() < 0.5 ? -1 : 1;
   formation();
   (DL.length === 4 ? [-5, -1.2, 1.2, 5] : [-4.5, 0, 4.5]).forEach((x, i) => place(DL[i], x, L+1.1));
   DL.forEach(d => { d.mode = 'rush'; });

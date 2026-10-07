@@ -49,9 +49,12 @@ export const PLAYS = [
 // the live fields every other module reads (path, hole, shift, pulls, blocks, mesh, under) from that source: flip -1 mirrors paths and
 // holes and swaps left/right names (LT/RT, DL0/DL3, ...); the linemen stay where they are, so the blocker names swap instead.
 PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.pulls, blocks:p.blocks, mesh:p.mesh, under:!!p.under}; });
-const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG', DL0:'DL3', DL3:'DL0', DL1:'DL2', DL2:'DL1', LB0:'LB1', LB1:'LB0', S0:'S1', S1:'S0'};
-export function orient(play, under, flip){
-  const s = play.src, key = k => flip < 0 ? (MIRROR[k] || k) : k, pt = ([x, dy]) => [x*flip, dy];
+const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
+// nDL, nLB: linemen and linebackers on the field (DLi -> DL(n-1-i), LBi -> LB(n-1-i); the safeties are always two)
+export function orient(play, under, flip, nDL, nLB){
+  const N = {DL:nDL, LB:nLB, S:2};
+  const key = k => { if(flip > 0) return k; const m = /^(DL|LB|S)(\d)$/.exec(k); return m ? m[1] + (N[m[1]] - 1 - m[2]) : (MIRROR[k] || k); };
+  const s = play.src, pt = ([x, dy]) => [x*flip, dy];
   play.path = s.path && s.path.map(pt);
   play.hole = s.hole === undefined ? undefined : s.hole*flip;
   play.shift = s.shift === undefined ? undefined : s.shift*flip;

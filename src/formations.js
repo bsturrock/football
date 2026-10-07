@@ -1,6 +1,5 @@
-import { EXTRA, OL, QB, RB, TE, WRs } from './players.js';
-
 // ---------- offensive formations ----------
+// Pure data and functions (no imports), so sim.js can validate ?form= before the bodies exist; lineUp is handed the bodies.
 // x is yards from the center on the base (right-hand) side; dy is yards behind the line. flip -1 mirrors every skill player
 // (QB, backs, TE, WR) across the center; the five linemen stay. A formation names its personnel (roster.js PERSONNEL.off), so subIn
 // puts its fullback and second tight end on the field. `under`: the QB is under center (otherwise shotgun).
@@ -20,8 +19,9 @@ export function chooseForm(under, name, pers){
   const pool = FORMS.filter(f => f.pers === (pers || '11'));
   return pool.find(f => f.under === under) || pool[0];
 }
-// put the eleven on the field; `place(body, x, y)` is state.js's (it also resets the body)
-export function lineUp(form, los, flip, place){
+// put the eleven on the field; `place(body, x, y)` is state.js's (it also resets the body); B = {OL, QB, RB, TE, WRs, EXTRA} from players.js
+export function lineUp(form, los, flip, place, B){
+  const {OL, QB, RB, TE, WRs, EXTRA} = B;
   OL.forEach((o, i) => place(o, (i-2)*2.2, los - 0.7));
   place(QB, 0, los - form.qb);
   place(RB, form.rb[0]*flip, los - form.rb[1]);
