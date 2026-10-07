@@ -3,6 +3,33 @@ import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
 import { BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './util.js';
 
+// ---------- SIM OUTPUT FIELDS (the one line in <pre id="simout">; CLAUDE.md "Sim check" points here) ----------
+// Run: ?sim=N&seed=S (same seed, same line). Force params: &play=<run play>&front=<defensive call> (case-insensitive; an unknown or pass play gives {"error":...}), &form=&side=L|R
+// (echoed only until B-007-3/4), &olrecog=N (every OL and TE recog, re-applied after each team regen), &pers=11|12|21|22 and &dpers=nickel|base|odd (aliases 4-2-5, 4-3-4, 3-4-4; also work
+// on a normal page load; unknown gives {"error":...}). The dump is written when the sim finishes: ~35-40 s for N=100 under swiftshader (~0.4 s a play; N=300 wants alarm 180+).
+// Fields:
+//   plays, timeouts, ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards {mean, median, p10, p90, max}
+//   spotYards {mean, median}: the spot endPlay ended at minus los; a score or turnover uses the last ball y
+//   teams {regens, every, O, D}: mean ratings; rateTeams runs every SIM_TEAM_EVERY = 20 plays, a no-op under flat ratings
+//   pileWindows, pushPlays, pushPlayRate, pushDurS, pushGainYd; pile {whistles, frames per state, pushPlays, pushGainYd, pushDurS}: pile.js's own record of plays that reached pushing (session totals)
+//   bodiesMax: total physics body count; pile counters count tackle/ragdoll bodies only (p.ph && !p.ph.bubble)
+//   physMs {median/p95}: NOT reliable here (performance.now does not advance in one synchronous task): never compare; use ?debug in a real browser for frame and physics ms
+//   read {n: zone plays decided, noDecision: stuffed before deciding, wrongPct: share not the noiseless best lane, choices {name: {n, ypc}}, wrongYpc, rightYpc} (from S.read)
+//   force; byPlay; boxMean; freeBox
+//   blkEv {stuntPlays: plays with a crossing stunt (slants count) at the snap, passed, missed, wrong}: blockers' stunt re-read events from S.blkEv
+//   calls {play: n}, byFront {front: {play: n}}, slant {'Slant Left','Slant Right': {play: n}}: what the CPU called (B-007-13)
+//   with &pers/&dpers: force.pers/dpers, field {off, def} (position counts on the last play) and roster {O, D, ids unique, on}
+//   facing {frames, sqPct, errDeg, leanDeg, maxLeanDeg, maxOffDeg, heldFrames, sqPctWithHeld, errDegWithHeld, turnBack {n, medianS, p90S}, holdTurnBack {n, medianS, p90S}} (B-020):
+//     a shadow face per defender turned by animate's rule (the sim never runs animate); sqPct/errDeg/leanDeg over battle frames (sqPct within 25 deg of square, errDeg off-square with the
+//     intended lean removed); turnBack: seconds from a shed until the shadow face is within 25 deg of his velocity heading (still frames dropped).
+//     B-023: the hold-through-a-gap rule is gone, so heldFrames is 0, sqPctWithHeld = sqPct, errDegWithHeld = errDeg and holdTurnBack.n is 0.
+//   jitter {D, O: frames, turnDegPerFrame, reversalsPerS, posJitterYd, leanStepDeg, bearStepDeg, leanFlipsPerS, byErr {frameShare, turnShare} by error under JIT_SMALL_DEG / to JIT_ONSET_DEG / over;
+//     D only: bigTurnOnsets {perS, mode, jump, slow}, modeSwitchesPerS (per engaged second)} (B-022)
+//   jitterLost {lost {reason: n}, flickerBack}: a defender's faceAt target lost (it goes with his battle); reasons (B-023) stun | freeT (a shed) | ended (any other end); flickerBack: re-engaged within JIT_FLICKER_S
+//   pair {frames, minD, medD, p90D, overlapPct, farPct} (B-023): the centre distance between a defender and his blocker over live battle frames (yd); overlapPct: share under BODY_W; farPct: share over PAIR_FAR 1.0
+//   battles {formed, set, move, recover} (B-023): battle objects formed, and how many reached each phase
+//   fire {n, medYd, p10Yd, p90Yd, backPct} (B-023): each DL's depth gain (yd, > 0 = forward) from the first live frame to his first battle forming; backPct: share pushed back
+
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
 // Pile stats come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
