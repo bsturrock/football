@@ -20,10 +20,18 @@ import { dist } from './util.js';
 //   double   ['double','playside'|'backside'|<blocker name>]: I have nobody on me, so I join the neighbour on that side against the line man covering him (the neighbour is the post man and keeps him; I
 //            am the climber). Not offered when I am covered, or when the neighbour is already in a double
 //   deep     the safety nearest me;  corner  the corner covering me;  any  nearest man in the box within ANY_DX of me (nobody is sent across the formation)
-// Double team (B-007-7). Per blocker p.dbl = {d, mate, post, t, state}, absent = single. States: double (two men drive d) -> climbing (the climber has gone to a
-// linebacker, the post man is single again) or released (d is down, or the pair was never completed). The climber leaves after CLIMB_T engaged on d, or at once
-// (once engaged) when a linebacker is within CLIMB_NEAR of d or of him, or one within CLIMB_RANGE has committed (downhill at COMMIT_V of his run speed), for the nearest unblocked linebacker within CLIMB_RANGE of him; none in range, he stays on d.
-export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = 1.4, COMMIT_V = 0.5;   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
+// Double team (B-007-7). Per blocker p.dbl = {d, mate, post, t, state}; absent = single. The climber is the uncovered man who joins, the post man the covered neighbour who keeps d.
+// A double is set at the snap only (the handoff re-read keeps a double or a climber that is not released).
+//   state     event                                                             next
+//   single    double rule finds the covered neighbour's man (snap)              climber: double; neighbour: post, double
+//   single    the post man took someone else at the snap (pair never completed) single (dbl cleared)
+//   double    climber engaged on d CLIMB_T, or engaged and a free LB within CLIMB_NEAR of d or of him, or one in CLIMB_RANGE moving downhill at COMMIT_V of his speed,
+//             and a free LB within CLIMB_RANGE   climber: climbing (blk = the LB); post man: released (single on d)
+//   double    no free LB in range                                               double (stays, asked again every frame)
+//   double    d is down, or either man was re-targeted                          both released (the zone/man code re-picks)
+//   climbing  the LB is down                                                    released (zoneBlock re-picks)
+// S.climbed: true once a climb happened this play; B-007-10's climb counter reads it.
+export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = 1.4, COMMIT_V = 0.5, NEIGHBOUR_DX = 3, BEHIND_Y = 1.5;   // NEIGHBOUR_DX: the next lineman is no further than this; BEHIND_Y: a blocker does not pick a man this far behind him   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
 export const COVERED_DX = 1.0, COVERED_DY = 2.5, REACH_DX = 3.5, REACH_AIM = 2.0, BOX_Y = 7, BOX_X = 8, ANY_DX = 5, LANE_DX = 1.8, ZONE_KEEP = 3;   // ZONE_KEEP: offense.js zoneBlock drops an unengaged, unruled target this far from the lane
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
 const bodyOf = n => ({LT, LG, C, RG, RT, TE, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2], FB:EXTRA.find(e => e.pos === 'FB'), TE2:EXTRA.find(e => e.pos === 'TE')})[n];
@@ -54,7 +62,7 @@ function pick(rule, p, free, ctx){
     case 'double': {
       const nb = !ctx.again && ctx.neighbour(p, rule[1] || 'playside');   // a double is set at the snap only
       if(!nb || nb.dbl || nb.via && nb.via.length) return null;
-      if(DEF.some(d => d.stun <= 0 && d.role === 'DL' && Math.abs(dx(d)) <= COVERED_DX + 1e-6 && d.y - los <= COVERED_DY)) return null;   // covered: he has a man of his own
+      if(DEF.some(d => d.stun <= 0 && Math.abs(dx(d)) <= COVERED_DX + 1e-6 && d.y - los <= COVERED_DY)) return null;   // covered: he has a man of his own
       const held = nb.blk && nb.blk.stun <= 0 && (nb.blk.role === 'DL' || nb.blk.y - los <= COVERED_DY) ? nb.blk : null;
       return held || nearest(line.filter(d => Math.abs(d.x - nb.x) <= COVERED_DX + 1e-6), d => Math.abs(d.x - nb.x));
     }
@@ -76,9 +84,9 @@ export function resolveBlocks(play, flip, again = false){
   const los = S.los, ps = Math.sign(h) || 1, bl = blockers(rules, flip);
   const linemen = bl.filter(b => b.p.role === 'OL' || b.p === TE).map(b => b.p).sort((a, b) => a.x - b.x);
   const ctx = {los, h, ps, again, neighbour:(p, side) => {   // the lineman next to me on the playside or the backside, or the one named (a name mirrors with the play)
-    if(side !== 'playside' && side !== 'backside') return bodyOf(flip > 0 ? side : MIRROR[side] || side) || null;
+    if(side !== 'playside' && side !== 'backside'){ const n = bodyOf(flip > 0 ? side : MIRROR[side] || side); return n && n !== p && linemen.includes(n) ? n : null; }
     const dir = side === 'playside' ? ps : -ps, i = linemen.indexOf(p) + dir*1;
-    return linemen[i] && Math.abs(linemen[i].x - p.x) < 3 ? linemen[i] : null;
+    return linemen[i] && Math.abs(linemen[i].x - p.x) < NEIGHBOUR_DX ? linemen[i] : null;
   }};
   const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released'));   // engaged, pulling, or in a double (driving or climbing)
   if(!again) S.climbed = false;
@@ -109,15 +117,17 @@ export function resolveBlocks(play, flip, again = false){
 }
 // the climber's check, every frame from offense.js: leave the double for the nearest unblocked linebacker when it is time
 export function climbCheck(p, dt){
-  const m = p.dbl; if(!m || m.post || m.state !== 'double') return;
+  const m = p.dbl; if(!m || m.post) return;
+  if(m.state === 'climbing'){ if(p.blk !== m.lb || m.lb.stun > 0) m.state = 'released'; return; }   // the LB is down (or he was re-targeted)
+  if(m.state !== 'double') return;
   const d = m.d;
-  if(d.stun > 0 || p.blk !== d || m.mate.blk !== d){ m.state = 'released'; return; }
+  if(d.stun > 0 || p.blk !== d || m.mate.blk !== d){ m.state = 'released'; if(m.mate.dbl) m.mate.dbl.state = 'released'; return; }
   if(dist(p, d) < ENGAGED) m.t += dt;
   const backer = e => e.role === 'LB' && e.stun <= 0 && !OFF.some(o => o !== p && o.blk === e);   // unblocked: the tight end's edge man is not one to climb to
   const commit = e => dist(e, d) < CLIMB_NEAR || dist(e, p) < CLIMB_NEAR || (dist(e, p) < CLIMB_RANGE && e.vy < -COMMIT_V*e.spd);
   const near = m.t > 0 && DEF.some(e => backer(e) && commit(e));
   if(m.t < CLIMB_T && !near) return;
-  const lb = nearest(DEF.filter(e => backer(e) && dist(e, p) < CLIMB_RANGE && e.y >= p.y - 1.5), e => dist(e, p));
+  const lb = nearest(DEF.filter(e => backer(e) && dist(e, p) < CLIMB_RANGE && e.y >= p.y - BEHIND_Y), e => dist(e, p));
   if(!lb) return;
-  p.blk = lb; p.ruled = true; m.state = 'climbing'; if(m.mate.dbl) m.mate.dbl.state = 'released'; S.climbed = true;
+  p.blk = lb; p.ruled = true; m.state = 'climbing'; m.lb = lb; if(m.mate.dbl) m.mate.dbl.state = 'released'; S.climbed = true;
 }

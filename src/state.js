@@ -92,7 +92,7 @@ export function setupPlay(){
   S.handoffAt = Infinity;
   drawFits();
   RB.auto = false;
-  OFF.forEach(o => { o.blk = null; o.ruled = false; o.lane = null; o.via = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  OFF.forEach(o => { o.blk = null; o.dbl = null; o.ruled = false; o.lane = null; o.via = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
   ball.state = 'pre'; ball.holder = null; ball.target = null;
   losLine.position.z = 50 - L;
   fdLine.position.z = 50 - Math.min(100, L + S.toGo); fdLine.visible = L + S.toGo < 100;
