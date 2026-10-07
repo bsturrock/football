@@ -15,6 +15,7 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 // physics bubble: players near a live ragdoll become full bodies (ph.bubble) so ragdolls and piles hit them.
 // States per player (all in bubbleUpdate / physOn / physOff):
 //   animated    p.ph null, no collision body
+//   ph.vis      B-036 visual offset of the engaged pose (set in physOn when he was drawn; physRender eases it out over VIS_TAU, clears it after VIS_END; gone with ph on physOff/physClear)
 //   bubble      p.ph.bubble: real-mass body, AI intent drives the legs (p.wx/p.wy), yaw held toward faceAt / heading
 //   tackle body p.ph, not bubble: ragdoll or tackler (tackling.js / blocking.js call physOn); lives until physOff
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
@@ -399,11 +400,9 @@ function physMeshes(p){
   });
   return p.phM;
 }
-// the torso joint's world position (xz in game-draw space) from the body: the same point the animated rig's torso joint gives (frames check, B-036)
-export function physTorso(p, out){
-  const d = PARTS.find(q => q.n === 'torso'), b = p.ph.bodies[0];
-  tq2.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w);
-  const c = tv2.set(...d.c).applyQuaternion(tq2), m = p.ph.meshes[0];
+// a rig joint's world position from its body (the frames check compares it with the animated rig's joint, B-036); uses the mesh, which carries the visual yaw
+export function physJoint(p, j, out){
+  const i = PARTS.findIndex(q => q.j === j), m = p.ph.meshes[i], c = tv2.set(...PARTS[i].c).applyQuaternion(m.quaternion);
   return out.set(m.position.x - c.x, m.position.y - c.y, m.position.z - c.z);
 }
 const VIS_TAU = 0.12, VIS_END = 0.7, vq = new THREE.Quaternion(), vY = new THREE.Vector3(0, 1, 0), vp = new THREE.Vector3();
