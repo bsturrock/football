@@ -20,7 +20,7 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
 //   over BODY_CAP (a tackle made bodies after the join pass): capTrim steps bubble bodies out, upright ones first, then the farthest
 //   getting up  tackle body, ph.getUp: bal rises 1.2/s; bal 1 and upright and slow -> physOff; for the ball holder tackleUpdate clears getUp (tackling.js runner states), other bodies keep it until physOff
-//   contact     p.hitT = phClock whenever an opposing body touches him or grips him (physTouch); physClear resets it; physDownC = on the turf and hitT within CONTACT_T
+//   contact     p.hitT = phClock whenever an opposing body touches him or grips him (physTouch); physClear resets it; physDownC = on the turf (or physPropped, B-008: resting on other bodies) and hitT within CONTACT_T
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
 const BUBBLE_IN = 2.5*BODY_W, BUBBLE_OUT = 4*BODY_W, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
@@ -345,12 +345,12 @@ function physMeasure(p, ph, dt){
   ph.touched = physTouched(p);
   ph.fallT = ph.bal <= 0 && !ph.getUp ? (ph.fallT || 0) + dt : 0;   // time off his feet, on the turf or not (a body propped on others settles too)
   const slow = Math.hypot(t.velocity.x, t.velocity.y, t.velocity.z) < PROP_V;
-  ph.propFor = !physDown(p) && t.position.y < PROP_Y*BODY_H && slow && phClock - (ph.propT ?? -99) < PROP_FRESH ? (ph.propFor || 0) + dt : 0;
+  ph.propFor = ph.bal <= 0 && !physDown(p) && t.position.y < PROP_Y*BODY_H && slow && phClock - (ph.propT ?? -99) < PROP_FRESH ? (ph.propFor || 0) + dt : 0;
 }
 // settle: roll the spine toward the horizontal plane (its own heading kept), damped
 function physSettle(ph){
   const tb = ph.bodies[0], s = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)), h = Math.hypot(s.x, s.z);
-  if(h < 0.05) return;   // lying on his back or front (spine straight up is the only case left: nothing to roll toward)
+  if(h < 0.05) return;   // spine near vertical: no horizontal heading to roll toward (the heading could seed a nudge; left out, it tips over by itself)
   const ax = s.y*s.z/h - 0, az = -s.y*s.x/h;   // spine x (heading, 0): rotation axis, in x and z
   tw.set(ax, 0, az); tb.quaternion.conjugate(qc); qc.vmult(tw, rv); qc.vmult(tb.angularVelocity, dw);
   const I = tb.inertia; tw.set(I.x*(SETTLE_K*rv.x - 2*6*dw.x), I.y*(SETTLE_K*rv.y - 2*6*dw.y), I.z*(SETTLE_K*rv.z - 2*6*dw.z));
@@ -376,6 +376,9 @@ export function physDown(p){
 export const physTouch = p => { p.hitT = phClock; };   // a hand on him from an animated defender counts as contact
 export const physTouched = (p, w = CONTACT_T) => phClock - (p.hitT ?? -99) <= w;   // w: how recent (rules.js asks for a shorter window)
 // the runner's down: a part is on the turf and he was touched (an untouched stumble isn't down, he gets up)
+// sim.js reads body state only through these (B-008/B-010): pose {fallT s off his feet, spineY torso up-axis y (1 upright, 0 flat), topY torso top yd, touched}, and the torso's horizontal speed yd/s
+export const physPose = p => ({fallT:p.ph.fallT || 0, spineY:p.ph.spineY, topY:p.ph.topY, touched:p.ph.touched});
+export const physSpeed = p => p.ph ? Math.hypot(p.ph.bodies[0].velocity.x, p.ph.bodies[0].velocity.z) : 0;
 export const physPropped = p => !!p.ph && (p.ph.propFor || 0) >= PROP_T;
 export const physDownC = p => (physDown(p) || physPropped(p)) && physTouched(p);
 // pile.js drives a body through his legs for DRIVE_T s (vx, vy game yd/s; a = leg acceleration): a push is a wanted velocity, never a position

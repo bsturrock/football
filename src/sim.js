@@ -58,7 +58,7 @@ function out(o){
 
 // g: the game objects, passed in by main.js so this file's only import is ratings.js (it must load before any module that rolls random numbers)
 export function runSim(n, step, g){
-  const {physBall, physCount, physDown, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball} = g;
+  const {physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball} = g;
   const ballY = h => h.ph ? 50 - physBall(h).z : h.y;
   if(!window.CANNON){ out({error:'physics failed to load'}); return; }
   // forced choices: names match case-insensitively and are stored canonical; form and side wait for B-007-3/4
@@ -185,9 +185,9 @@ export function runSim(n, step, g){
   };
   const stillMax = [], flat = {n:0, ok:0}, heights = [], playLen = []; let stillPlays = 0;
   let hMax = 0;
-  const fallen = () => { for(const p of ALL) if(p.ph && !p.ph.bubble && p.ph.fallT >= STAY_T && (physDown(p) || p.ph.topY < BODY_H)){   // fallen bodies: tilt and height
-    flat.n++; if(Math.abs(p.ph.spineY) < Math.sin(FLAT_DEG*Math.PI/180)) flat.ok++;
-    hMax = Math.max(hMax, p.ph.topY);
+  const fallen = () => { for(const p of ALL) if(p.ph && !p.ph.bubble && physPose(p).fallT >= STAY_T && (physDown(p) || physPose(p).topY < BODY_H)){   // fallen bodies: tilt and height
+    const q = physPose(p); flat.n++; if(Math.abs(q.spineY) < Math.sin(FLAT_DEG*Math.PI/180)) flat.ok++;
+    hMax = Math.max(hMax, q.topY);
   } };
   let timeouts = 0, pushPlays = 0, bodiesMax = 0, win = null;
   const closeWin = () => {   // a window counts once it lasted WINDOW_T
@@ -221,7 +221,7 @@ export function runSim(n, step, g){
         const cnt = physCount(); bodiesMax = Math.max(bodiesMax, cnt.players);
         if(cnt.players) physMs.push(perf.phys);
         liveT += SIM_DT;
-        if(c.ph && c.ph.touched && Math.hypot(c.ph.bodies[0].velocity.x, c.ph.bodies[0].velocity.z) < STILL_V){ stillT += SIM_DT; stillBest = Math.max(stillBest, stillT); } else stillT = 0;
+        if(c.ph && physPose(c).touched && physSpeed(c) < STILL_V){ stillT += SIM_DT; stillBest = Math.max(stillBest, stillT); } else stillT = 0;
         const near = ALL.filter(p => p !== c && p.ph && !p.ph.bubble && Math.hypot(p.x - c.x, p.y - c.y) < PILE_R);
         if(!(c.ph && physDown(c)) && near.length >= 2){
           if(!win) win = {t:0, y0:y, y1:y, off:false};
