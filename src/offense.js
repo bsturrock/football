@@ -7,6 +7,8 @@ import { C, DEF, DL, LBs, LG, LT, OFF, QB, RB, RG, RT } from './players.js';
 import { S, ball } from './state.js';
 import { dist } from './util.js';
 
+const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
+const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
 const DBL_SHOULDER = 0.45;   // two blockers on one defender: each takes a shoulder this far off his centre
 // what blockers protect: the runner once he has the ball, otherwise the play's hole
 export function runRef(){
@@ -83,9 +85,11 @@ function olAssign(p){
   return blitzer || (dist(DL[1], QB) < dist(DL[2], QB) ? DL[1] : DL[2]);
 }
 // B-007-12 Draw: main.js keeps S.runMode false until the handoff, so the line, tight end and extra backs take the pass-set branch at the bottom (olAssign) and
-// the defense plays pass; the handoff's re-read then gives them the man on them. States: drop (clock < delay, QB drops, RB holds) -> handoff (clock >= delay, RB
-// reaches the QB, runMode on) -> run.
-const DRAW_LEAD = 0.6, DRAW_SET = 1.8;   // DRAW_SET: the line sets this much deeper than a pass set, so the rush runs upfield into it   // the back leaves his hold this long before the handoff time so he is at the QB's hip then
+// the defense plays pass; the handoff's re-read then gives them the man on them. States (S.handoffAt === Infinity while in drop):
+//   drop     clock < delay: QB drops, RB holds, OL pass set, defense pass read -> handoff at clock >= delay and the RB at the QB (runMode on, blockers re-resolve)
+//   drop     a throw in the delay (known, accepted): ball in the air, runMode stays false until the catch (no handoff)
+//   drop     a scramble (QB past the line): handoffAt set, drawHold ends, the play runs as a scramble
+//   handoff  giveBall(RB) -> run: normal run fit after the defenders' read delay
 const drawHold = () => { const d = PLAYS[S.play].delay; return d && S.handoffAt === Infinity ? d : 0; };
 export function offenseAI(p, dt, inp){
   p.faceAt = null;

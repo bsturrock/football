@@ -10,7 +10,7 @@ const playIdx = n => PLAYS.findIndex(p => p.name === n);
 // B-007-10: marked edit, weights for the new run plays
 function cpuCall(){
   if(S.force && S.force.play) return playIdx(S.force.play);   // feature (sim-force)
-  const w = {'Inside Zone':1, 'Power':1, 'Outside Zone':1, 'Duo':1, 'Iso':1, 'Counter':1, 'Trap':1, 'Toss':1, 'Draw':0.5}, call = S.defCall.name;
+  const w = {'Inside Zone':1, 'Power':1, 'Outside Zone':1, 'Duo':1, 'Iso':1, 'Counter':1, 'Trap':1, 'Toss':1, 'Draw':0.5 /* B-007-12 */}, call = S.defCall.name;
   if(S.toGo <= 2){ w['Inside Zone'] += 1.5; w['Power'] += 1.5; w['Duo'] += 1.5; w['Iso'] += 1; w['Trap'] += 1; }   // B-007-11
   if(call === 'Slant Left') w['Counter'] += 1; if(call === 'Slant Right') w['Trap'] += 0.5;   // B-007-11: counter against the over-pursuit
   if(S.toGo >= 7){ w['Outside Zone'] += 1.6; }

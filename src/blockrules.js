@@ -153,7 +153,8 @@ export function resolveBlocks(play, flip, again = false){
   const stunting = !again && DEF.some(isCrosser); if(!again) S.blkStunt = stunting;   // only a play with a crossing stunt rolls awareness: other plays draw no random numbers
   for(let k = 0; k < 3; k++) for(const b of bl){
     if(b.p.blk || !b.spec[k]) continue;
-    if(k === 0 && stunting && !b.o && b.spec[1] && !['pull', 'double'].includes(b.spec[0][0]) && !['pull', 'double'].includes(b.spec[1][0]) && Math.random() < WRONG_P*lack(b.p, 'recog')){
+    // B-007-12: a Draw pass-setter (first rule 'pass', held by offense.js) takes no wrong read
+    if(k === 0 && stunting && !b.o && b.spec[1] && b.spec[0][0] !== 'pass' && !['pull', 'double'].includes(b.spec[0][0]) && !['pull', 'double'].includes(b.spec[1][0]) && Math.random() < WRONG_P*lack(b.p, 'recog')){
       const d2 = pick(b.spec[1], b.p, free(b), ctx);   // a wrong read: his second-priority man, when it is a different one
       if(d2 && d2 !== pick(b.spec[0], b.p, free(b), ctx)){ take(b, d2, b.spec[1]); wrong.push(b); continue; }
     }
