@@ -61,19 +61,20 @@ function decide(p, hole, key, side){
   const lim = HW - EDGE, kx = key ? key.x + key.vx*KEY_LEAD : null;
   const away = key ? (Math.sign(hole - key.x) || side) : side;
   const opts = {hit:hole, bend:key ? key.x + away*BEND : hole + side*BEND, bounce:hole + side*BOUNCE, cutback:hole - side*CUTBACK};
-  let best = null, bs = -1e9, noisy = null, ns = -1e9;
+  let best = null, bs = -1e9, noisy = null, ns = -1e9, worst = null, ws = 1e9;
   const vn = lack(p, 'vision')*NOISE;
   for(const [name, raw] of Object.entries(opts)){
     const x = clamp(raw, -lim, lim);
     let sc = raceMargin(p, x, S.los + 1) + raceMargin(p, x, S.los + 3)*0.6 + raceMargin(p, x, S.los + 5)*0.4 - Math.abs(x - hole)*HOLE_COST - Math.abs(x - p.x)*0.015;
     if(kx !== null) sc -= Math.max(0, KEY_CLOSE - Math.abs(x - kx))*KEY_PEN;
     if(sc > bs){ bs = sc; best = name; }
+    if(sc < ws){ ws = sc; worst = name; }
     sc += vn*rand(-1, 1);
     if(sc > ns){ ns = sc; noisy = name; }
     opts[name] = x;
   }
   let pick = noisy;
-  if(Math.random() < WRONG_P*lack(p, 'vision')){ const rest = Object.keys(opts).filter(k => k !== best); pick = rest[Math.floor(Math.random()*rest.length)]; }
+  if(Math.random() < WRONG_P*lack(p, 'vision')){ pick = worst; }   // a misread is the worst lane: into his own blockers
   return {choice:pick, x:opts[pick], wrong:pick !== best};
 }
 function zoneRead(p, dt){
