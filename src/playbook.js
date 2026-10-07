@@ -6,14 +6,19 @@ import { $ } from './util.js';
 // fits are fronts.js ALIAS); the rest are real fronts with their own personnel (4-3 base, 3-4 odd) and fits. blitz / box flags as before.
 export const DEF_CALLS = [
   {name:'Base',             front:'nickel', note:'Linemen hold their gaps, linebackers read and fill'},
-  {name:'Slant Left',       front:'nickel', note:'Whole line slants one gap to the weak side'},
-  {name:'Slant Right',      front:'nickel', note:'Whole line slants one gap to the strong side'},
+  {name:'Slant Left',       front:'nickel', stunt:'Slant L', note:'Whole line slants one gap toward the left, the backers fill what it opens'},
+  {name:'Slant Right',      front:'nickel', stunt:'Slant R', note:'Whole line slants one gap toward the right, the backers fill what it opens'},
   {name:'Run Blitz',        front:'nickel', note:'One linebacker shoots his gap at the snap', blitz:true},
   {name:'Eight in the Box', front:'nickel', note:'A safety rolls down and the linebackers trigger fast', box:true},
   {name:'Nickel',           front:'nickel', note:'Four down, two linebackers, three corners'},
   {name:'4-3 Over',         front:'over',   note:'Line shifts to the tight end, Sam on the edge'},
   {name:'4-3 Under',        front:'under',  note:'Line shifts away from the tight end, Sam on him'},
   {name:'3-4 Odd',          front:'odd',    note:'Three linemen hold two gaps, four linebackers stand up'},
+  {name:'Tex',              front:'under',  stunt:'Tex',  note:'Strong tackle crashes outside, the end loops behind him into the gap'},
+  {name:'Loop',             front:'over',   stunt:'Loop', note:'Strong end crashes inside, the tackle loops behind him to the edge'},
+  {name:'LB A-Gap Blitz',   front:'under',  stunt:'LB A-Gap Blitz', note:'A linebacker shoots an A gap at the snap'},
+  {name:'LB B-Gap Blitz',   front:'odd',    stunt:'LB B-Gap Blitz', note:'A linebacker shoots a B gap at the snap'},
+  {name:'Safety Blitz',     front:'nickel', stunt:'Safety Blitz', note:'The strong safety comes down through the C gap'},
   {name:'Bear',             front:'bear',   note:'Eight in the box: stacked middle, a safety rolled down', box:true}
 ];
 // ---------- playbook ----------

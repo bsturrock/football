@@ -43,8 +43,6 @@ export const FRONTS = {
 export const ALIAS = {
   'Base':             [['force', 'CW'], ['gap', 'AW'], ['gap', 'AS'], ['gap', 'CS'], ['gap', 'BW'], ['gap', 'BS']],
   'Nickel':           [['force', 'CW'], ['gap', 'AW'], ['gap', 'AS'], ['gap', 'CS'], ['gap', 'BW'], ['gap', 'BS']],
-  'Slant Left':       [['force', 'CW'], ['gap', 'BW'], ['gap', 'AW'], ['gap', 'BS'], ['gap', 'AS'], ['gap', 'CS']],
-  'Slant Right':      [['gap', 'BW'], ['gap', 'AS'], ['gap', 'BS'], ['force', 'DS'], ['force', 'CW'], ['gap', 'AW']],
   'Run Blitz':        [['force', 'CW'], ['gap', 'AW'], ['gap', 'AS'], ['gap', 'CS'], ['gap', 'BW'], ['gap', 'BS']],
   'Eight in the Box': [['force', 'CW'], ['gap', 'AW'], ['gap', 'AS'], ['gap', 'CS'], ['gap', 'BW'], ['gap', 'BS']]
 };
@@ -52,24 +50,99 @@ export const ALIAS = {
 const gapNear = (x, a, b) => (Math.abs(x) < a ? 'A' : Math.abs(x) < b ? 'B' : 'C') + (x < 0 ? 'W' : 'S');
 const LBX = [null, null, [-3.5, 3.5], [-4.5, 0, 4.5], [-6.5, -2.2, 2.2, 6.5]];
 
-// Backers of a personnel the call's table was not written for: they take exactly the gaps the linemen leave open, matched by x
-// (weak to strong); a side with no force gets one from its outermost backer (weak CW, strong DS); backers left over spill to the
-// gap by where they stand.
+// Backers refit to the linemen: they take exactly the gaps the linemen leave open, matched by x (weak to strong); a side with no
+// force gets one from its outermost backer (weak CW, strong DS); backers left over spill to the gap by where they stand. `lbs` =
+// [{x, d, role?, gap?}]; a backer already a 'force' (a stand-up edge man) keeps his job. Used for a personnel the call's table was
+// not written for, and after a slant moved the line.
 const GAPS = ['CW', 'BW', 'AW', 'AS', 'BS', 'CS'], GAP_STR = {CW:-5.6, BW:-3.3, AW:-1.1, AS:1.1, BS:3.3, CS:5.6};
-function reshapeBackers(dl, xs){
-  const covered = new Set(dl.flatMap(s => [].concat(s.gap))), forces = dl.filter(s => s.role === 'force').map(s => String(s.gap));
-  const lb = xs.map(x => ({x, d:5, role:'gap', gap:null})).sort((a, b) => a.x - b.x), free = [...lb];
-  if(!forces.some(g => g.endsWith('W'))){ const w = free.shift(); w.role = 'force'; w.gap = 'CW'; covered.add('CW'); }
-  if(!forces.some(g => g.endsWith('S'))){ const st = free.pop(); st.role = 'force'; st.gap = 'DS'; }
+function reshapeBackers(dl, lbs, strongForce = true){
+  const keep = lbs.filter(b => b.role === 'force');
+  const covered = new Set([...dl, ...keep].flatMap(s => [].concat(s.gap))), forces = [...dl, ...keep].filter(s => s.role === 'force').map(s => String(s.gap));
+  const lb = lbs.filter(b => b.role !== 'force').map(b => ({x:b.x, d:b.d, role:'gap', gap:null})).sort((a, b) => a.x - b.x), free = [...lb];
+  if(!forces.some(g => g.endsWith('W')) && free.length){ const w = free.shift(); w.role = 'force'; w.gap = 'CW'; covered.add('CW'); }
+  if(strongForce && !forces.some(g => g.endsWith('S')) && free.length){ const st = free.pop(); st.role = 'force'; st.gap = 'DS'; }
   GAPS.filter(g => !covered.has(g)).forEach(g => {
     if(!free.length) return;
     const b = free.reduce((a, c) => Math.abs(c.x - GAP_STR[g]) < Math.abs(a.x - GAP_STR[g]) ? c : a);
     b.gap = g; free.splice(free.indexOf(b), 1);
   });
   free.forEach(b => { b.gap = gapNear(b.x, 1.5, 5.5); });   // spill: more backers than open gaps
-  return lb;
+  return [...keep, ...lb];
 }
 
+// ---------- stunts and blitzes (B-007-5) ----------
+// A call may carry `stunt` (a key of STUNTS). planStunt rewrites the fit specs the front produced, in strength coordinates, so that
+// after the stunt every gap AW..CS still has a defender and each side still has a force. Kinds:
+//   slant   the whole line takes the next gap toward the slant side (dir -1 = field left); the backers refit to what it opened
+//   twist   the two strong-side linemen trade gaps: one crashes straight to the other's gap, the other loops behind him through a
+//           waypoint (Tex: the tackle crashes, the end loops; Loop: the end crashes, the tackle loops)
+//   blitz   the backer nearest the A or B gap (a coin picks the side) shoots it; whoever held that gap takes the gap he left
+//   safety  the strong safety comes down from depth 7 through the strong C gap (the force when the front has none on that side)
+// Stunt states, per defender (d.stunt = {st, via, t0, blitz}; defense.js drives it, stuntStep is the transition table):
+//   aligned  event S.clock >= STUNT_T              -> looping (has a via) or gap
+//   looping  event VIA_T s since the waypoint began, or within 0.5 yd of it -> gap
+//   gap      event handoff made (S.clock > S.handoffAt), or GAP_MAX s in the gap -> free
+//   free     normal run fit on his new gap (terminal)
+export const STUNT_T = 0.2, VIA_T = 0.35, VIA_DEPTH = 2.2, VIA_NEAR = 0.5, GAP_MAX = 1.5, BLITZ_READ = 0, BLITZ_DELAY = 0.15, SAFETY_D = 7;
+export const STUNTS = {
+  'Slant L':        {kind:'slant', dir:-1},
+  'Slant R':        {kind:'slant', dir:1},
+  'Tex':            {kind:'twist', first:'inner'},
+  'Loop':           {kind:'twist', first:'outer'},
+  'LB A-Gap Blitz': {kind:'blitz', gap:'A'},
+  'LB B-Gap Blitz': {kind:'blitz', gap:'B'},
+  'Safety Blitz':   {kind:'safety', gap:'CS', d:SAFETY_D}
+};
+const ORDER = ['DW', 'CW', 'BW', 'AW', 'AS', 'BS', 'CS', 'DS'];
+const shiftGap = (g, dir) => ORDER[Math.max(1, Math.min(ORDER.length - 2, ORDER.indexOf(g) + dir))];   // the line never slants past the C gaps
+export function stuntStep(s, t, nearVia, released){
+  if(s.st === 'aligned' && t >= STUNT_T){ s.st = s.via ? 'looping' : 'gap'; s.t0 = t; }
+  else if(s.st === 'looping' && (t - s.t0 >= VIA_T || nearVia)){ s.st = 'gap'; s.t0 = t; }
+  else if(s.st === 'gap' && (released || t - s.t0 >= GAP_MAX)) s.st = 'free';
+  return s.st;
+}
+// dl, lb: spec lists in strength coordinates ({x, d, role, gap}); edited in place (lb entries may be replaced: returns the lb list)
+export function planStunt(name, dl, lb, flip, rnd = Math.random){
+  const st = STUNTS[name];
+  if(!st) throw new Error('stunt ' + name);
+  if(st.kind === 'slant'){
+    const dir = st.dir*flip;
+    dl.forEach(s => {
+      const old = s.gap;
+      s.gap = Array.isArray(s.gap) ? s.gap.map(g => shiftGap(g, dir)) : shiftGap(s.gap, dir);
+      if(s.role === 'force' && String(s.gap) !== String(old)) s.role = 'gap';   // an edge man who moved in is a gap man now
+      s.stunt = {};
+    });
+    return reshapeBackers(dl, lb, false);   // the strong force stays the safety's (assignFits) when no box man holds it
+  }
+  if(st.kind === 'twist'){
+    const [a, b] = [...dl].sort((p, q) => q.x - p.x).slice(0, 2).sort((p, q) => p.x - q.x);   // inner, outer on the strong side
+    if(!b) return lb;
+    [a.gap, b.gap] = [b.gap, a.gap]; [a.role, b.role] = [b.role, a.role];
+    const [crash, loop] = st.first === 'inner' ? [a, b] : [b, a];
+    crash.stunt = {};
+    loop.stunt = {via:{x:crash.x, dy:VIA_DEPTH}};
+    return lb;
+  }
+  if(st.kind === 'blitz'){
+    const g = st.gap + (rnd() < 0.5 ? 'S' : 'W');
+    const cand = lb.filter(b => b.role === 'gap' && typeof b.gap === 'string');
+    if(!cand.length) return lb;
+    const b = cand.reduce((p, q) => Math.abs(q.x - GAP_STR[g]) < Math.abs(p.x - GAP_STR[g]) ? q : p), v = b.gap;
+    if(v !== g){
+      const holder = [...dl, ...lb].find(s => s !== b && [].concat(s.gap).includes(g));
+      if(holder) holder.gap = Array.isArray(holder.gap) ? holder.gap.map(x => x === g ? v : x) : v;
+      b.gap = g;
+    }
+    b.stunt = {blitz:true};
+    return lb;
+  }
+  return lb;   // safety: not in the box, see safetyJob
+}
+// the blitzing safety's job: the strong C gap, as the force when no box defender is the strong force
+export const safetyJob = strongForce => ({role:strongForce ? 'gap' : 'force', gap:STUNTS['Safety Blitz'].gap});
+
+const fieldStunt = (st, flip) => st.via ? {via:{x:st.via.x*flip, dy:st.via.dy}} : st;
 // Line the front up. `bodies` = {DL, LBs}; place(body, x, y) is state.js's. Sets d.spec = {role, gap | gaps} on every box
 // defender; DL and LBs are filled left to right on the field. blitzer = index among the LBs (left to right) that starts closer.
 // Returns the number of linemen and backers in the box (a rolled safety adds one: bear 8).
@@ -81,9 +154,10 @@ export function alignDefense(fr, call, flip, L, bodies, place, blitzer = -1){
   if(DL.length !== dl.length){   // nickel with a 3-man personnel: legacy spacing; weak end forces, the nose holds both A gaps, the strong end takes C
     dl = [[-4.5, 'force', 'CW'], [0, 'two', ['AW', 'AS']], [4.5, 'gap', 'CS']].map(([x, role, gap]) => ({x, d:DL_DEPTH, role, gap}));
   }
-  if(LBs.length !== lb.length) lb = reshapeBackers(dl, LBX[LBs.length]);
+  if(LBs.length !== lb.length) lb = reshapeBackers(dl, LBX[LBs.length].map(x => ({x, d:5})));
+  if(call.stunt) lb = planStunt(call.stunt, dl, lb, flip);
   const side = list => list.map(s => ({...s, ax:s.x*flip})).sort((a, b) => a.ax - b.ax);
-  side(dl).forEach((s, i) => { const d = DL[i]; place(d, s.ax, L + s.d); d.spec = Array.isArray(s.gap) ? {role:s.role, gaps:s.gap} : {role:s.role, gap:s.gap}; });
-  side(lb).forEach((s, i) => { const d = LBs[i]; place(d, s.ax, L + (i === blitzer ? 3.5 : s.d)); d.spec = {role:s.role, gap:s.gap}; });
+  side(dl).forEach((s, i) => { const d = DL[i]; place(d, s.ax, L + s.d); d.spec = Array.isArray(s.gap) ? {role:s.role, gaps:s.gap} : {role:s.role, gap:s.gap}; if(s.stunt) d.spec.stunt = fieldStunt(s.stunt, flip); });
+  side(lb).forEach((s, i) => { const d = LBs[i]; place(d, s.ax, L + (i === blitzer ? 3.5 : s.d)); d.spec = {role:s.role, gap:s.gap}; if(s.stunt) d.spec.stunt = fieldStunt(s.stunt, flip); });
   return fr.box;
 }
