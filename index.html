@@ -54,6 +54,11 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);overflow:hid
 .callout{position:absolute;left:0;top:0;white-space:nowrap;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg);text-shadow:0 1px 2px #000,0 0 8px rgba(0,0,0,.7)}
 .callout.bad{color:var(--def)}
 .callout.good{color:var(--good)}
+a.play{text-decoration:none}
+#drillbar{top:calc(12px + env(safe-area-inset-top,0px));left:16px;right:16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+#drillbar .play{pointer-events:auto}
+#drillnote{font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 12px;max-width:560px}
+body.drill #top,body.drill #dock{display:none}
 @media (prefers-reduced-motion:reduce){#banner,#toast{transition:none}}
 </style>
 
@@ -69,6 +74,14 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);overflow:hid
   </div>
   <button class="play mode" id="cpuBtn" type="button" aria-pressed="true"><kbd>C</kbd>CPU vs CPU</button>
   <button class="play mode" id="camBtn" type="button"><kbd>V</kbd>Broadcast</button>
+  <a class="play mode" id="drillLink" href="?drill=1v1">Blocking drill</a>
+</div>
+
+<div class="hud" id="drillbar" hidden>
+  <button class="play mode" type="button" data-mode="1v1" aria-pressed="true">1 v 1</button>
+  <button class="play mode" type="button" data-mode="line" aria-pressed="false">Line</button>
+  <a class="play mode" href="./">Back to the game</a>
+  <div id="drillnote"></div>
 </div>
 
 <div class="hud" id="banner"><h1 id="bannerH"></h1><p id="bannerP"></p></div>

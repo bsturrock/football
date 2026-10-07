@@ -4,6 +4,7 @@ import { separate } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
+import { drillCamera, drillStart, drillTick } from './drill.js';
 import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
@@ -66,14 +67,14 @@ export function step(dt){
   physStep(dt);
   perf.phys = performance.now() - t0; perf.bodies = physCount().players;
 }
-let last = performance.now();
+let last = performance.now(), tick = step, camStep = updateCamera;   // ?drill swaps both (src/drill.js)
 function frame(now){
   const raw = now - last, dt = clamp(raw/1000, 0, 0.05); last = now;
   if(dt === 0){ requestAnimationFrame(frame); return; }
   ray.setFromCamera(ndc, camera);
   if(ray.ray.intersectPlane(ground, hit)){ aim.x = hit.x; aim.y = 50 - hit.z; }
-  step(dt);
-  updateCamera(dt); syncScene(dt); physRender(); updateCallouts(dt);
+  tick(dt);
+  camStep(dt); syncScene(dt); physRender(); updateCallouts(dt);
   renderer.render(scene, camera);
   debugTick(raw, perf.phys, perf.bodies);
   requestAnimationFrame(frame);
@@ -86,6 +87,7 @@ function start(data){
   const q = new URLSearchParams(location.search);
   selectPlay(0); setupPlay();
   if(q.has('sim')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart(); }   // B-019: the blocking drill, no game flow
   requestAnimationFrame(frame);
 }
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
