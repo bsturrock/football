@@ -10,7 +10,7 @@ const playIdx = n => PLAYS.findIndex(p => p.name === n);
 // B-007-10: marked edit, weights for the new run plays
 function cpuCall(){
   if(S.force && S.force.play) return playIdx(S.force.play);   // feature (sim-force)
-  const w = {'Inside Zone':1, 'Power':1, 'Outside Zone':1, 'Duo':1, 'Iso':1, 'Counter':1, 'Trap':1}, call = S.defCall.name;
+  const w = {'Inside Zone':1, 'Power':1, 'Outside Zone':1, 'Duo':1, 'Iso':1, 'Counter':1, 'Trap':1, 'Toss':1, 'Draw':0.5}, call = S.defCall.name;
   if(S.toGo <= 2){ w['Inside Zone'] += 1.5; w['Power'] += 1.5; w['Duo'] += 1.5; w['Iso'] += 1; w['Trap'] += 1; }   // B-007-11
   if(call === 'Slant Left') w['Counter'] += 1; if(call === 'Slant Right') w['Trap'] += 0.5;   // B-007-11: counter against the over-pursuit
   if(S.toGo >= 7){ w['Outside Zone'] += 1.6; }
@@ -18,6 +18,9 @@ function cpuCall(){
   if(call === 'Slant Right') w['Power'] += 1.5;
   if(call === 'Run Blitz'){ w['Outside Zone'] += 1.3; }   // get outside the blitzer
   if(call === 'Eight in the Box'){ w['Outside Zone'] += 2.5; }                                                       // get outside the extra man
+  if(S.toGo >= 7){ w['Toss'] += 0.8; w['Draw'] += 0.8; }   // B-007-12
+  if(call === 'Eight in the Box' || call === 'Bear'){ w['Draw'] += 1; }   // B-007-12: a draw against a defense sitting down
+  if(S.toGo <= 2){ w['Toss'] = 0.3; w['Draw'] = 0.3; }   // B-007-12
   const names = Object.keys(w).filter(n => playIdx(n) >= 0), tot = names.reduce((a, n) => a + w[n], 0);
   let r = Math.random()*tot; for(const n of names){ r -= w[n]; if(r <= 0) return playIdx(n); }
   return playIdx(names[0]);

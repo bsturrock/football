@@ -82,12 +82,19 @@ function olAssign(p){
   const blitzer = LBs.find(b => b.mode === 'rush');
   return blitzer || (dist(DL[1], QB) < dist(DL[2], QB) ? DL[1] : DL[2]);
 }
+// B-007-12 Draw: main.js keeps S.runMode false until the handoff, so the line, tight end and extra backs take the pass-set branch at the bottom (olAssign) and
+// the defense plays pass; the handoff's re-read then gives them the man on them. States: drop (clock < delay, QB drops, RB holds) -> handoff (clock >= delay, RB
+// reaches the QB, runMode on) -> run.
+const DRAW_LEAD = 0.6, DRAW_SET = 1.8;   // DRAW_SET: the line sets this much deeper than a pass set, so the rush runs upfield into it   // the back leaves his hold this long before the handoff time so he is at the QB's hip then
+const drawHold = () => { const d = PLAYS[S.play].delay; return d && S.handoffAt === Infinity ? d : 0; };
 export function offenseAI(p, dt, inp){
   p.faceAt = null;
   if(p.falling) return;                                   // going down: tackleUpdate moves him
   const c = ball.state === 'held' ? ball.holder : null, run = PLAYS[S.play].run;
   if(run){
+    const hold = drawHold();
     if(p === RB && c !== RB){
+      if(hold && S.clock < hold - DRAW_LEAD){ steer(p, p.x, p.y, 0, dt); return; }   // Draw: the back stays in the backfield until it is time
       // last few yards to the mesh: the back finds the QB (runs just past his near hip) so the exchange always happens
       if(run === 'hand' && c === QB && dist(p, QB) < 3){
         const side = Math.sign(p.x - QB.x) || 1, tx = QB.x + side*0.7, ty = QB.y - 0.2, l = Math.hypot(tx - p.x, ty - p.y) || 1;
@@ -99,6 +106,7 @@ export function offenseAI(p, dt, inp){
       const m = PLAYS[S.play].mesh;
       const mx = m && m[0] - p.x, my = m && S.los + m[1] - p.y, ml = m && Math.hypot(mx, my);
       if(m && ml > 0.4) steerVel(p, mx/ml*6, my/ml*6, dt);   // open hard to the spot
+      else if(hold && S.clock < hold - DRAW_LEAD) steer(p, p.x, p.y, 0, dt);   // Draw: dropped, waiting for the back
       else steer(p, RB.x, RB.y, m ? 6 : 4, dt);
       return;
     }
@@ -121,8 +129,10 @@ export function offenseAI(p, dt, inp){
     runRoute(p, dt); return;
   }
   if(S.runMode){ runBlock(p, dt); return; }
+  if(drawHold()){ p.blk = null; p.ruled = false; p.dbl = null; p.rr = null; }   // Draw: no run target in the pass set; the handoff re-read picks the man on him
   const r = olAssign(p), qx = QB.x - r.x, qy = QB.y - r.y, ql = Math.hypot(qx, qy) || 1;
   if(dist(p, r) < 1.4) p.eng = 0.15;
   p.faceAt = r;
-  steer(p, r.x + qx/ql*0.95, r.y + qy/ql*0.95, p.spd, dt);
+  const k = 0.95 + (drawHold() ? DRAW_SET : 0);
+  steer(p, r.x + qx/ql*k, r.y + qy/ql*k, p.spd, dt);
 }

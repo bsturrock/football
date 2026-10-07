@@ -29,6 +29,7 @@ function liveUpdate(dt){
   separate();
 
   const run = PLAYS[S.play].run;
+  if(PLAYS[S.play].delay && S.handoffAt === Infinity) S.runMode = false;   // B-007-12 Draw: a pass until the handoff (the line pass-sets, the defense rushes and drops)
   if(ball.state === 'pitch'){
     ball.t += dt/ball.pdur;
     if(ball.t >= 1){
@@ -39,7 +40,7 @@ function liveUpdate(dt){
   else if(ball.state === 'air'){ ball.t += dt/ball.dur; if(ball.t >= 1){ resolvePass(); return; } }
 
   if(ball.state !== 'held') return;
-  if(run === 'hand' && ball.holder === QB && dist(QB, RB) < (PLAYS[S.play].mesh ? 1.9 : 1.3)) giveBall(RB);   // under center the QB extends the ball into the back's pocket
+  if(run === 'hand' && ball.holder === QB && S.clock >= (PLAYS[S.play].delay || 0) && dist(QB, RB) < (PLAYS[S.play].mesh ? 1.9 : 1.3)){ S.runMode = true; giveBall(RB); }   // under center the QB extends the ball into the back's pocket; B-007-12: a delayed handoff (Draw) waits for play.delay
   const c = ball.holder;
   if(c === QB && !S.runMode && QB.y > S.los + 0.3){ S.runMode = true; S.handoffAt = S.clock; S.charging = false; routeGroup.visible = false; toast('Scramble!'); }
   trackProgress(c);
