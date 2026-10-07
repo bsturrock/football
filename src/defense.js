@@ -25,6 +25,7 @@ import { DBL_R, dist, holdsBlocker, rand } from './util.js';
 const AVOID_CONE = 30, AVOID_DIST = 2.5, AVOID_EVERY = 0.1, AVOID_T = 0.5, AVOID_STEP = 1.6, BACK_D = 3, BACK_L = 3, HOME_P = 0.5, FIGHT_QUICK = 0.15;
 const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
+const BT_KEEP_D = 1.3;   // B-023: a battle that started inside ENGAGED_D survives until its blocker is this far (drive and steering open the gap past ENGAGED_D 50 times a second)
 const ENGAGED_D = 0.91;   // B-021: a defender locks onto a blocker this close (was 1.3, x0.7 body width)
 // B-021: run-fit windows on the old 2.2 yd line grid, carried onto the new one (x GRID_K): the backside stay-home line, the gap fill window, the contain offsets and the outflanked margin
 const BACK_HOME_X = 1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K, CHASE_X = 2*GRID_K, ALLEY_X = 1*GRID_K;   // CHASE_X: the ball is this far to the backside of the force man, he chases; ALLEY_X: the ball is this far to the alley man's side, he fills
@@ -269,8 +270,9 @@ export function defenseAI(d, dt){
     const free = o => d.freeFrom === o && d.freeT > 0;   // just beat this blocker: he can't re-engage yet
     const dc = dist(d, c);
     // a bubble body has no line battle: the physics world decides who gives way
-    const o = d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o.blk === d && o !== c && dist(o, d) < ENGAGED_D && !free(o))
-           || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o !== c && o !== QB && dist(o, d) < ENGAGED_D && dist(o, c) < dc && !free(o)));
+    const kept = d.bt && !d.ph && !isBody(d.bt.o) && !free(d.bt.o) && d.bt.o !== c && d.bt.o !== QB && dist(d.bt.o, d) < BT_KEEP_D ? d.bt.o : null;   // B-023: his live battle's blocker, in the wider keep radius
+    const o = kept || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o.blk === d && o !== c && dist(o, d) < ENGAGED_D && !free(o))
+           || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o !== c && o !== QB && dist(o, d) < ENGAGED_D && dist(o, c) < dc && !free(o))));
     if(o){
       if(!d.bt || d.bt.o !== o){
         // first contact: a blocker arriving with a lot more momentum than the defender can absorb flattens him
