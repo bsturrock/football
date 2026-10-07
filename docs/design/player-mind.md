@@ -5,7 +5,7 @@ Each player has mental ratings for how well he knows his scheme and his assignme
 ## Map
 
 - **Mental vs physical split** Mental ratings decide what a player tries (right man, right time, right call); physical ratings decide whether it works (user L-1007-091, 2026-10-07). One framework for every position, blockers built first (user 2026-10-07, L-1007-095).
-  - **Scheme knowledge** One 0-99 rating per scheme family (zone, gap/power, pass pro) per player (user 2026-10-07, L-1007-095); a miss is a bust: wrong man, wrong gap, late pull or climb, a combo that never climbs.
+  - **Scheme knowledge** `packaged B-032` One 0-99 rating per scheme family (zone, gap/power, pass pro) per player (user 2026-10-07, L-1007-095); a miss is a bust: wrong man, wrong gap, late pull or climb, a combo that never climbs.
   - **Recog stays separate** Play recognition remains reading the defense during the play (stunts, keys), not knowing your own job (user 2026-10-07, L-1007-095).
   - **Calls by the smart player** The center's Mike ID and the QB's check-outs from their mental ratings: later, not in the first build (user 2026-10-07, L-1007-096).
 - **Assignments per player** Each slot's rule per play, read against the front at the snap (blockrules.js, playbook.js); varies by formation and play type (user L-1007-091, 2026-10-07).
