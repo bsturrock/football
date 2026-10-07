@@ -8,7 +8,7 @@ import { S } from './state.js';
 // Rules are written for the base side (the play's hole to -x, tight end +x) and mirrored by flip: only the blocker names swap, since
 // a rule reads the defenders by where they stand.  Rule = [kind, arg]:
 //   on       the man covering me: within COVERED_DX of me at the line (COVERED_DY)
-//   line     the nearest line man within LANE_DX either side (today's zone lane: a man shaded between two of us goes to the nearer
+//   line     the nearest line man within LANE_DX of my lane (p.lane on a zone play, else where I stand; today's zone window: a man shaded between two of us goes to the nearer
 //            claimer in claim order, so a back-side guard is not sent after the man the center should take)
 //   down     nearest line man toward the hole from me (head up counts)
 //   reach    outside shade: the line man on the playside of me, nearest REACH_AIM out
@@ -17,7 +17,7 @@ import { S } from './state.js';
 //            ['backer','near'] the one nearest me (a tie goes away from the hole)
 //   boxS     the safety rolled into the box on the playside
 //   deep     the safety nearest me;  corner  the corner covering me;  any  nearest man in the box within ANY_DX of me (nobody is sent across the formation)
-export const COVERED_DX = 1.0, COVERED_DY = 2.5, REACH_DX = 3.5, REACH_AIM = 2.0, BOX_Y = 7, BOX_X = 8, ANY_DX = 5, REREAD_D = 3, LANE_DX = 1.8;
+export const COVERED_DX = 1.0, COVERED_DY = 2.5, REACH_DX = 3.5, REACH_AIM = 2.0, BOX_Y = 7, BOX_X = 8, ANY_DX = 5, REREAD_D = 3, LANE_DX = 1.8, ZONE_KEEP = 3;   // ZONE_KEEP: offense.js zoneBlock drops an unlocked target this far from the lane
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
 const bodyOf = n => ({LT, LG, C, RG, RT, TE, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2], FB:EXTRA.find(e => e.pos === 'FB'), TE2:EXTRA.find(e => e.pos === 'TE')})[n];
 const inBox = d => d.role === 'DL' || d.role === 'LB' || !!d.fit;
@@ -30,10 +30,10 @@ export const labels = () => {
 
 // the defender a rule picks for blocker p among `free` (unclaimed), or null
 function pick(rule, p, free, ctx){
-  const {los, h, ps} = ctx, line = free.filter(d => d.role === 'DL' || (d.fit && d.y - los <= COVERED_DY) || d.y - los <= COVERED_DY), dx = d => d.x - p.x;
+  const {los, h, ps} = ctx, line = free.filter(d => d.y - los <= COVERED_DY), dx = d => d.x - p.x;
   switch(rule[0]){
     case 'on': return nearest(line.filter(d => Math.abs(dx(d)) <= COVERED_DX + 1e-6 && d.y - los <= COVERED_DY), d => Math.abs(dx(d)));
-    case 'line': return nearest(line.filter(d => Math.abs(dx(d)) < LANE_DX), d => Math.hypot(dx(d), d.y - p.y));
+    case 'line': { const lane = p.lane ?? p.x; return nearest(line.filter(d => Math.abs(d.x - lane) < LANE_DX), d => Math.hypot(dx(d), d.y - p.y)); }
     case 'down': { const dir = Math.sign(h - p.x) || ps; return nearest(line.filter(d => d.y - los <= COVERED_DY && dx(d)*dir >= -COVERED_DX - 1e-6), d => Math.hypot(dx(d), d.y - p.y)); }
     case 'reach': return nearest(line.filter(d => dx(d)*ps >= -0.3 && dx(d)*ps <= REACH_DX), d => Math.abs(d.x - (p.x + ps*REACH_AIM)));
     case 'edge': return nearest(line, d => d.x*-ps);
@@ -59,21 +59,22 @@ function blockers(rules, flip){
 // again: after the handoff. Engaged (locked) men, pullers and anyone whose man is still within REREAD_D keep theirs; a man who has
 // got away (a stunt, a blitz) is read again against where the defense is now.
 export function resolveBlocks(play, flip, again = false){
-  const rules = play.src.rules; if(!rules) return;
-  const los = S.los, h = S.hole = play.hole ?? 0, ps = Math.sign(h) || 1, ctx = {los, h, ps};
+  const h = S.hole = play.hole ?? 0, rules = play.src.rules; if(!rules) return;
+  const los = S.los, ps = Math.sign(h) || 1, ctx = {los, h, ps};
   const bl = blockers(rules, flip);
   const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || (p.via && p.via.length) || Math.hypot(p.blk.x - p.x, p.blk.y - p.y) <= REREAD_D);
   for(const b of bl) if(!keep(b.p)) b.p.blk = null;
   const claimed = new Set(OFF.map(o => o.blk).filter(Boolean));
-  const take = (b, d) => { b.p.blk = d; claimed.add(d); };
+  // a safety in the box, or a zone pick out of the lane window, would be dropped by zoneBlock on frame 1: lock those so the target is played
+  const take = (b, d, rule) => { b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.locked = true; };
   const free = () => DEF.filter(d => d.stun <= 0 && !claimed.has(d));
   for(let k = 0; k < 3; k++) for(const b of bl){
     if(b.p.blk || !b.spec[k]) continue;
-    const d = pick(b.spec[k], b.p, free(), ctx); if(d) take(b, d);
+    const d = pick(b.spec[k], b.p, free(), ctx); if(d) take(b, d, b.spec[k]);
   }
   for(const b of bl){   // a lineman or tight end with nothing named takes the nearest man in the box
     if(b.p.blk || b.o) continue;
-    const d = pick(['any'], b.p, free(), ctx); if(d) take(b, d);
+    const d = pick(['any'], b.p, free(), ctx); if(d) take(b, d, ['any']);
   }
   const lab = labels(); S.blk = Object.fromEntries(bl.map(b => [b.name, b.p.blk ? lab.get(b.p.blk) || '?' : null]));
 }
