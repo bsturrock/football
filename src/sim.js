@@ -24,7 +24,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   blkEv {stuntPlays: plays with a crossing stunt (slants count) at the snap, passed, missed, wrong}: blockers' stunt re-read events from S.blkEv
 //   bust {plays, rolled, byFamily {zone, gap: {rolled, busts, pct, byKind {wrong, none, late, noclimb: n}}}, byBand {"0-19".."80-99": {rolled, busts, pct}}} (B-032-4): from S.bust (blockrules.js), read at the end of each play that snapped;
 //     rolled = blockers who took a draw (a null kind is rolled, not a bust); byKind counts every non-null kind, 'none' included; busts and pct count only wrong, late and noclimb ('none' is a bust that changed nothing, so it is not counted);
-//     pct = 100*busts/rolled; byBand groups by the blocker's knowledge for the play's family (his rating, floored to bands of 20; know 99 is in 80-99). &know=N sets zone, gap and pass of every OL, TE and FB (re-applied after each team regen), echoed as force.know; a non-number gives {"error":...}
+//     pct = 100*busts/rolled; byBand groups by the blocker's knowledge for the play's family (his rating, floored to bands of 20; know 99 is in 80-99). &know=N sets zone, gap and pass of every OL, TE and FB (re-applied after each team regen), echoed as force.know; a non-number or a value outside 0-99 gives {"error":...} ("know out of range N")
 //   calls {play: n}, byFront {front: {play: n}}, slant {'Slant Left','Slant Right': {play: n}}: what the CPU called (B-007-13)
 //   with &pers/&dpers: force.pers/dpers, field {off, def} (position counts on the last play) and roster {O, D, ids unique, on}
 //   facing {frames, sqPct, errDeg, leanDeg, maxLeanDeg, maxOffDeg, heldFrames, sqPctWithHeld, errDegWithHeld, turnBack {n, medianS, p90S}, holdTurnBack {n, medianS, p90S}} (B-020):
@@ -201,7 +201,9 @@ export function runSim(n, step, g){
   const teamAvg = side => { const ps = ALL.filter(p => p.team === side), o = {}; KEYS.forEach(k => { o[k] = mean(ps.map(p => p.rt[k])); }); return o; };
   // B-032-4 (bust-sim): &know=N forces zone/gap/pass of every OL, TE and FB; bust tallies from S.bust (blockrules.js entries {name, fam, know, kind})
   let knowN = null;
-  if(Q.has('know')){ const kv = Q.get('know').trim(); knowN = kv === '' ? NaN : Number(kv); if(!Number.isFinite(knowN)){ out({error:'unknown know ' + Q.get('know')}); return; } force.know = knowN; }
+  if(Q.has('know')){ const kv = Q.get('know').trim(); knowN = kv === '' ? NaN : Number(kv); if(!Number.isFinite(knowN)){ out({error:'unknown know ' + Q.get('know')}); return; }
+    if(knowN < 0 || knowN > 99){ out({error:'know out of range ' + knowN}); return; }   // ratings are 0-99
+    force.know = knowN; }
   const bustT = {plays:0, rolled:0, byFamily:{zone:{rolled:0, busts:0, byKind:{}}, gap:{rolled:0, busts:0, byKind:{}}}, byBand:BAND_NAMES.map(() => ({rolled:0, busts:0}))};
   const tallyBust = list => {
     bustT.plays++;
