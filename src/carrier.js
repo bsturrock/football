@@ -55,7 +55,7 @@ function readHole(p, dt){
 const PRESS_V = 0.7, PRESS_T = 0.15, PRESS_VIS = 0.35, PRESS_MAX = 0.6;    // press speed x spd; seconds = PRESS_T + PRESS_VIS*vision/99, capped
 const KEY_R = 3, KEY_Y0 = -1, KEY_Y1 = 5, KEY_EVERY = 0.2;   // key: nearest unengaged defender within KEY_R of the hole x, y los+KEY_Y0..KEY_Y1
 const DECIDE_Y = 1, LOCK_Y = 1.5, COMMIT_Y = 3, AIM_Y = 2.5, RACE3 = 0.6, RACE5 = 0.4, LAT_COST = 0.015, BEND = 2.2, BOUNCE = 5, CUTBACK = 4, EDGE = 1.5;
-const WRONG_P = 0.25, NOISE = 0.05, HOLE_COST = 0.05, KEY_PEN = 1.2, KEY_CLOSE = 2.2, KEY_LEAD = 0.3;   // NOISE: score noise amplitude x (1-vision/99); any lane but the noiseless best counts as wrong (B-006-7 tunes it)
+const WRONG_P = 0.175, NOISE = 0.035, HOLE_COST = 0.05, KEY_PEN = 1.2, KEY_CLOSE = 2.2, KEY_LEAD = 0.3;   // NOISE: score noise amplitude x (1-vision/99); any lane but the noiseless best counts as wrong (B-006-7 tunes it)
 const free = d => d.stun <= 0 && !isBody(d) && !(d.eng > 0) && !d.bt && !OFF.some(o => o.blk === d);
 function pickKey(hole){
   let key = null, bd = KEY_R;
