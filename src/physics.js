@@ -15,6 +15,7 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 // physics bubble: players near a live ragdoll become full bodies (ph.bubble) so ragdolls and piles hit them.
 // States per player (all in bubbleUpdate / physOn / physOff):
 //   animated    p.ph null, no collision body
+//   ph.vis      B-036 visual offset of the engaged pose (set in physOn when he was drawn; physRender eases it out over VIS_TAU, clears it after VIS_END; gone with ph on physOff/physClear)
 //   bubble      p.ph.bubble: real-mass body, AI intent drives the legs (p.wx/p.wy), yaw held toward faceAt / heading
 //   tackle body p.ph, not bubble: ragdoll or tackler (tackling.js / blocking.js call physOn); lives until physOff
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
@@ -87,6 +88,8 @@ export function physOn(p, o={}){
     if(o.bal != null) ph.bal = Math.min(ph.bal, o.bal);
     return ph;
   }
+  // B-036: the drawn rig (engaged pose: pushed back and squared) differs from the sim pose; keep the difference as a visual offset that physRender eases out
+  const vis = p.rx != null ? {ox:p.mesh.position.x - p.x, oz:p.mesh.position.z - (50 - p.y), dyaw:Math.atan2(Math.sin(p.mesh.rotation.y - p.face), Math.cos(p.mesh.rotation.y - p.face)), px:p.x, pz:50 - p.y} : null;
   p.mesh.position.set(p.x, 0, 50 - p.y); p.mesh.rotation.y = p.face;   // the rig is where he is now (the drawn rig trails, and a sim never draws)
   p.mesh.updateMatrixWorld(true);
   const M = p.mass*MASS_KG, vx = o.vx ?? p.vx, vy = o.vy ?? p.vy, up = o.up || 0, sp = o.spin || {x:0, y:0};
@@ -112,7 +115,7 @@ export function physOn(p, o={}){
     const c = new CANNON.PointToPointConstraint(a, pa, b, pb); c.collideConnected = false; PW.addConstraint(c); return c;
   });
   p.body.visible = false;
-  p.ph = {bodies, joints, grips:[], bal:o.bal ?? 1, ttl:o.ttl ?? Infinity, t:0, M, meshes:physMeshes(p)};
+  p.ph = {bodies, joints, grips:[], bal:o.bal ?? 1, ttl:o.ttl ?? Infinity, t:0, M, meshes:physMeshes(p), vis};
   PHYS.push(p);
   return p.ph;
 }
@@ -397,8 +400,26 @@ function physMeshes(p){
   });
   return p.phM;
 }
+// a rig joint's world position from its body (the frames check compares it with the animated rig's joint, B-036); uses the mesh, which carries the visual yaw
+export function physJoint(p, j, out){
+  const i = PARTS.findIndex(q => q.j === j), m = p.ph.meshes[i], c = tv2.set(...PARTS[i].c).applyQuaternion(m.quaternion);
+  return out.set(m.position.x - c.x, m.position.y - c.y, m.position.z - c.z);
+}
+const VIS_TAU = 0.12, VIS_END = 0.7, vq = new THREE.Quaternion(), vY = new THREE.Vector3(0, 1, 0), vp = new THREE.Vector3();
 export function physRender(){
-  for(const p of PHYS) p.ph.bodies.forEach((b, i) => { const m = p.ph.meshes[i]; m.position.set(b.position.x, b.position.y, b.position.z); m.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w); });
+  for(const p of PHYS){
+    const ph = p.ph, v = ph.vis;
+    if(v && ph.t > VIS_END){ ph.vis = null; }
+    const w = ph.vis ? Math.exp(-ph.t/VIS_TAU) : 0, a = w*(v ? v.dyaw : 0);
+    ph.bodies.forEach((b, i) => {
+      const m = ph.meshes[i]; m.position.set(b.position.x, b.position.y, b.position.z); m.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w);
+      if(!w) return;
+      // visual only: turn about his promote spot and shift, both easing to zero (the bodies keep p.x and p.face)
+      vp.set(m.position.x - v.px, 0, m.position.z - v.pz).applyAxisAngle(vY, a);
+      m.position.set(v.px + vp.x + w*v.ox, m.position.y, v.pz + vp.z + w*v.oz);
+      m.quaternion.premultiply(vq.setFromAxisAngle(vY, a));
+    });
+  }
 }
 
 // feature (sim-runner): body counters for the sim runner and the ?debug line

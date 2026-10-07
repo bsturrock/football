@@ -1,7 +1,7 @@
 import { setHint } from './hud.js';
 import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
-import { physBall } from './physics.js';
+import { physBall, physOn, physRender, physJoint } from './physics.js';
 import { PLAYS } from './playbook.js';
 import { ALL, BODY_H, C, G, JOINTS, QB, RB, bodyV } from './players.js';
 import { toWorld } from './scene.js';
@@ -175,9 +175,13 @@ function animate(p, dt){
 // man's rig (helmet, pads, torso, arms) are tested against the boxes of his partner's (shrunk PD_SHRINK yd; an arm's corners PD_HAND, since hands rest on the plate), in both directions. Reads the rig only. Fields of pairReport:
 //   frames: engaged pair-frames; medDsim, medDrender: median hip-to-hip distance, simulated and drawn (yd)
 //   headInBodyPct / padsInBodyPct / armInBodyPct: share of frames with a helmet corner in the partner's pads, torso or helmet / a pad or torso corner in the partner's pads, torso or helmet / an arm corner in his pads, torso or helmet
+//   handoffs: engaged-to-body hand-offs (an engaged man, yawK > HO_ENG, becomes a physics body). handoffTorso, handoffShoulder, handoffMax: the largest drawn jump on that frame (yd, xz, beyond the torso body's own motion) of his torso joint,
+//   of a shoulder joint (0.5 out to the side, so a facing snap shows), and the larger of the two (B-036: under 0.08)
+//   (the drills never promote a man: add &handoff=N to force one engaged man into a physics body every N frames)
 //   headHeadPct: helmet corner in the partner's helmet; armArmPct: an arm corner in the partner's arm; anyPct: any of the above
 const PD_SHRINK = 0.03, PD_HAND = 0.06;
-const pd = {frames:0, dSim:[], dRen:[], headBody:0, padBody:0, armBody:0, headHead:0, armArm:0, any:0};
+const HO_ENG = 0.3, HO_FULL = 0.95, HO_DT = 1/60, HO_JOINTS = ['torso', 'shL', 'shR'], hoPrev = new Map(), hoV = new THREE.Vector3(), hoV2 = new THREE.Vector3();
+const pd = {handoffs:0, hoTorso:0, hoShoulder:0, frames:0, dSim:[], dRen:[], headBody:0, padBody:0, armBody:0, headHead:0, armArm:0, any:0};
 const pdParts = ['helmet', 'pads', 'torso', 'upperArm', 'forearm'].map(k => [k, G[k]]);
 const pdBox = new THREE.Box3(), pdV = new THREE.Vector3(), pdInv = new THREE.Matrix4();
 function pdMeshes(p){ const o = []; p.mesh.traverse(m => { const k = m.isMesh && pdParts.find(q => q[1] === m.geometry); if(k){ if(!m.geometry.boundingBox) m.geometry.computeBoundingBox(); o.push([k[0], m]); } }); return o; }
@@ -201,7 +205,20 @@ function pdInside(a, b){   // corners of a's parts inside b's parts
   }
   return r;
 }
+const HO_EVERY = Number(new URLSearchParams(location.search).get('handoff')) || 0;   // ?handoff=N: every N frames the first fully engaged man becomes a physics body (the drills never promote one)
+let hoFrame = 0;
 export function pairCheck(){
+  if(HO_EVERY && ++hoFrame % HO_EVERY === 0){ const m = ALL.find(q => !q.ph && q.yawK > HO_FULL && q.mesh.visible); if(m){ physOn(m, {bal:0.5, ttl:1.5}); const b = m.bt; if(b) ALL.forEach(q => { if(q.bt === b) q.bt = null; }); } }   // his battle ends too, as physics.js promote() does
+  physRender();   // the frames check does not run main's physRender; the meshes must be synced before they are read
+  for(const p of ALL){   // B-036: an engaged man who became a body this frame: his torso joint's drawn jump, less what the body itself moved
+    const pr = hoPrev.get(p);
+    if(p.ph && pr && pr.eng){
+      const v = p.ph.bodies[0].velocity; pd.handoffs++;
+      HO_JOINTS.forEach((j, i) => { const t = physJoint(p, j, hoV), d = Math.hypot(t.x - pr.xz[i][0] - v.x*HO_DT, t.z - pr.xz[i][1] - v.z*HO_DT); if(i) pd.hoShoulder = Math.max(pd.hoShoulder, d); else pd.hoTorso = Math.max(pd.hoTorso, d); });
+    }
+    if(p.ph) hoPrev.delete(p);
+    else hoPrev.set(p, {xz:HO_JOINTS.map(j => { p.j[j].getWorldPosition(hoV2); return [hoV2.x, hoV2.z]; }), eng:p.yawK > HO_ENG});
+  }
   for(const d of ALL){
     const b = d.team === 'D' && !d.ph && d.bt, o = b && b.o;
     if(!o || !o.mesh || !engaged(d)) continue;
@@ -212,7 +229,8 @@ export function pairCheck(){
 }
 export function pairReport(){
   const med = a => a.length ? Math.round(1000*a.slice().sort((x, y) => x - y)[a.length >> 1])/1000 : null, f = pd.frames || 1, pc = n => Math.round(1000*n/f)/10;
-  return {frames:pd.frames, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
+  const r3 = x => Math.round(1000*x)/1000;
+  return {handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units
