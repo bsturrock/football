@@ -26,9 +26,13 @@ export const DEF_CALLS = [
 // (hole to -x for Power, tight end +x) and mirrored by flip. The corner / safety rules are the receivers' stalk blocks.
 const WR_ON = {WR0:[['corner']], WR1:[['corner']], WR2:[['corner']]}, WR_DEEP = {WR0:[['corner']], WR1:[['corner']], WR2:[['deep']]};
 const EXTRAS = {FB:[['backer','ps'],['any']], TE2:[['on'],['reach']]};
-const OL_INSIDE = [['line'],['down'],['backer','near']], OL_DOUBLE = [['double','playside'],['double','backside'],['line'],['down'],['backer','near']], OL_OUTSIDE = [['reach'],['on'],['backer','near']];
-const INSIDE = {LT:OL_INSIDE, LG:OL_INSIDE, C:OL_INSIDE, RG:OL_INSIDE, RT:OL_INSIDE, TE:[['boxS'],['on'],['down']], ...EXTRAS, ...WR_ON};
-const OUTSIDE = {LT:OL_OUTSIDE, LG:OL_OUTSIDE, C:OL_OUTSIDE, RG:OL_OUTSIDE, RT:OL_OUTSIDE, TE:[['boxS'],['reach'],['on']], ...EXTRAS, ...WR_DEEP};
+const OL_ZONE_DBL = [['double','playside'],['on'],['down']];
+const DUO_OL = [['double','playside'],['double','backside'],['on']], ISO_OL = [['on'],['down'],['backer','near']];
+// Inside Zone: a lineman with nobody on him doubles the covered man beside him on the playside, else everyone blocks the man on him
+const INSIDE_DBL = {LT:OL_ZONE_DBL, LG:OL_ZONE_DBL, C:OL_ZONE_DBL, RG:OL_ZONE_DBL, RT:OL_ZONE_DBL, TE:[['boxS'],['on'],['down']], ...EXTRAS, ...WR_ON};
+// Outside Zone: the playside reaches the outside shade, the backside takes the man toward the hole; the C reaches too
+const OZ_PS = [['reach'],['on'],['backer','near']], OZ_BS = [['down'],['backer','near']];
+const OUTSIDE_ZONE = {LT:OZ_BS, LG:OZ_BS, C:OZ_PS, RG:OZ_PS, RT:OZ_PS, TE:[['boxS'],['reach'],['on']], ...EXTRAS, ...WR_DEEP};
 // route points: [yards toward the middle, yards downfield from the line]
 const PASS_GAME = false;
 export const PLAYS = [
@@ -46,33 +50,37 @@ export const PLAYS = [
   // scheme 'zone': linemen + TE each own a lane (start x + shift) and block whoever shows up in it, else climb.
   // scheme 'man': linemen keep the defender the rules gave them; `pulls` are waypoints [x, yards from line] run first.
   // `rules`: blocker -> rule list (blockrules.js)
-  {name:'Inside Zone', run:'hand', scheme:'zone', shift:-1, hole:-1.1,   // OL_DOUBLE (double, then singles) is ready for it but costs ypc until tuning is allowed (B-007-7)
-   rules:INSIDE,
-   path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]]},
+  // B-007-10 batch 1. `forms`: the formations the play runs from (the first is the default; a form picks `alt.gun` or `alt.under`, which overlays run/shift/mesh/path).
+  {name:'Inside Zone', run:'hand', scheme:'zone', shift:-1, hole:-1.1, forms:['11 Gun', '11 Under', '12 Under'],
+   rules:{...INSIDE_DBL},   // doubles the covered man from the uncovered neighbour (['double','playside']), else the man on him
+   path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]],
+   alt:{under:{shift:-1, mesh:[0.5,-2.6], path:[[-0.7,-3.0],[-1.1,0.5],[-1.1,8]]}}},   // under center: the old Dive, mirrored to the strong-side-away A gap
   {name:'Power Left', run:'hand', scheme:'man', hole:-3.6,
    rules:{LT:[['backer','ps']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['pull','kick'],['edge']], RT:[['backer','mike']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
    pulls:{RG:[]},   // RG pulls by rule (['pull','kick']); the empty list marks him a puller (carrier.js), the waypoints come from blockrules.js
    path:[[-0.3,-3.6],[-2.8,-1.4],[-3.6,0.8],[-3.8,8]]},   // patient: press the line, cut off the kick-out
-  {name:'Outside Zone Right', run:'toss', scheme:'zone', shift:3, hole:8.5,   // aim: tight end's outside hip; he reads bounce / cut back
-   rules:OUTSIDE,
-   path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]]},
-  {name:'HB Dive', under:true, run:'hand', scheme:'zone', shift:0, hole:1.1, mesh:[-0.5, -2.6],   // quick hit in the right A gap: everyone blocks the man in front
-   rules:INSIDE,
-   path:[[0.7,-3.0],[1.1,0.5],[1.1,8]]},   // passes on the QB's right, takes it on the way by
-  {name:'HB Stretch', under:true, run:'hand', scheme:'zone', shift:3, hole:8.5, mesh:[2.0, -2.8],   // outside zone from under center: aim at the TE's hip, read bounce / cut back
-   rules:OUTSIDE,
-   path:[[1.5,-5.5],[3.2,-3.9],[6.5,-1.8],[8.5,1.5],[8.5,8]]}
+  {name:'Outside Zone', run:'toss', scheme:'zone', shift:3, hole:8.5, forms:['11 Gun', '12 Under', '21 I'],   // aim: tight end's outside hip; he reads bounce / cut back
+   rules:OUTSIDE_ZONE,
+   path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]],
+   alt:{under:{run:'hand', mesh:[2.0,-2.8], path:[[1.5,-5.5],[3.2,-3.9],[6.5,-1.8],[8.5,1.5],[8.5,8]]}}},   // from under center: the old Stretch (handoff)
+  {name:'Duo', run:'hand', scheme:'man', hole:1.1, forms:['21 I', '12 Under', '22 Heavy'], mesh:[-0.5,-2.6],   // double teams at the point of attack, back picks his gap
+   rules:{LT:DUO_OL, LG:DUO_OL, C:DUO_OL, RG:DUO_OL, RT:DUO_OL, TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
+   path:[[0.7,-3.0],[1.1,0.5],[1.1,8]]},
+  {name:'Iso', run:'hand', scheme:'man', hole:-1.1, forms:['21 I', '22 Heavy'], mesh:[0.5,-2.6],   // the fullback leads into the middle backer, everybody blocks the man on him
+   rules:{LT:ISO_OL, LG:ISO_OL, C:ISO_OL, RG:ISO_OL, RT:ISO_OL, TE:[['on'],['down']], FB:[['backer','mike'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
+   path:[[-0.7,-3.0],[-1.1,0.5],[-1.1,8]]}
 ].filter(p => PASS_GAME || p.run);
 // ---------- orientation ----------
 // The plays above are written for the base side (tight end right) and, for under-center plays, the QB under center. orient() rewrites
 // the live fields every other module reads (path, hole, shift, pulls, blocks, mesh, under) from that source: flip -1 mirrors paths and
 // holes and swaps left/right blocker names (LT/RT, ...); the linemen stay where they are, so the blocker names swap instead. The rules
 // (play.src.rules) are mirrored by resolveBlocks and read the defenders by where they stand, so they have no names to swap.
-PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.pulls, rules:p.rules, mesh:p.mesh, under:!!p.under}; });
+PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.pulls, rules:p.rules, mesh:p.mesh, run:p.run, alt:p.alt}; });
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
 export function orient(play, under, flip){
   const key = k => flip > 0 ? k : MIRROR[k] || k;
-  const s = play.src, pt = ([x, dy]) => [x*flip, dy];
+  const s = {...play.src, ...(play.src.alt && play.src.alt[under ? 'under' : 'gun'])}, pt = ([x, dy]) => [x*flip, dy];   // the form's variant overlays run / shift / mesh / path
+  play.run = s.run;
   play.path = s.path && s.path.map(pt);
   play.hole = s.hole === undefined ? undefined : s.hole*flip;
   play.shift = s.shift === undefined ? undefined : s.shift*flip;
