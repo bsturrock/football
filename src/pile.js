@@ -16,8 +16,8 @@ import { dist } from './util.js';
 //   pushing   live with 1+ pusher driving
 //   whistle   stalled (STALL_T) or pushing for PUSH_MAX_T total: endPlay('spot', S.prog, 'FORWARD PROGRESS'); the play is dead, the next setupPlay's pileReset clears it
 // Any state: ball dead -> no pileUpdate, and physDrive's drive expires within DRIVE_T s (physics.js), so nothing pushes a dead play.
-// Tuned from the card's values (card: PUSH_JOIN 1.5, PUSH_V 2.0, PUSH_K 1.2, FORM_T 0.25 s): the card values gave 0 push gain in the sim (the runner fell in 0.2 s, pushes lasted 0.15 s), so join radius, speed, force and forming time were raised, with the downP and plant easing in tackling.js / physics.js (feature pile-push). STALL_T stays 1.0.
-const PILE_R = 1.3, PUSH_JOIN = 2.0, PUSH_MAX = 3, PUSH_V = 4.0, PUSH_K = 2.5, FORM_T = 0.1, PUSH_MAX_T = 1.5, STALL_D = 0.3, STALL_T = 1.0, PUSHER_BAL = 0.5, PILE_BODIES = 2;
+// Tuned from the card's values (card: PUSH_JOIN 1.5, PUSH_V 2.0, PUSH_K 1.2, FORM_T 0.25 s): the card values gave 0 push gain in the sim (the runner fell in 0.2 s, pushes lasted 0.15 s), so join radius, speed, force and forming time were raised, with the downP and plant easing in tackling.js / physics.js (feature pile-push). STALL_T 1.0 -> 0.6 and PUSH_MAX_T 1.5 -> 1.0 (B-006-7: stalled piles end sooner, user L-1006-116).
+const PILE_R = 1.3, PUSH_JOIN = 2.0, PUSH_MAX = 3, PUSH_V = 4.0, PUSH_K = 2.5, FORM_T = 0.1, PUSH_MAX_T = 1.0, STALL_D = 0.3, STALL_T = 0.6, PUSHER_BAL = 0.5, PILE_BODIES = 2;
 // whistles, frames and pushes are session totals for the sim (kept across plays); a play that reached pushing adds {gain, dur} (ball yd from the first pushing frame to the last, s pushing)
 export function pileReset(){
   const keep = S.pile; S.pile = {state:'dead', t:0, formT:0, ref:null, pushers:0, pushersO:0, pushersD:0, whistles:0, frames:{dead:0, forming:0, live:0, pushing:0}, pushes:[], cur:null};
