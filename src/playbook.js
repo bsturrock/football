@@ -55,10 +55,23 @@ export const PLAYS = [
    rules:{...INSIDE_DBL},   // doubles the covered man from the uncovered neighbour (['double','playside']), else the man on him
    path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]],
    alt:{under:{shift:-1, mesh:[0.5,-2.6], path:[[-0.7,-3.0],[-1.1,0.5],[-1.1,8]]}}},   // under center: the old Dive, mirrored to the strong-side-away A gap
-  {name:'Power Left', run:'hand', scheme:'man', hole:-3.6,
-   rules:{LT:[['backer','ps']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['pull','kick'],['edge']], RT:[['backer','mike']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
+  // B-007-11 batch 2. Power: the backside guard kicks out the first man outside the hole, the fullback wraps to the backer (Power Left of B-007-8 is this play).
+  {name:'Power', run:'hand', scheme:'man', hole:-3.6, forms:['21 I', '11 Under', '12 Under'], mesh:[-0.3,-2.8],
+   rules:{LT:[['down']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['pull','kick'],['edge']], RT:[['down']], TE:[['on'],['down']],
+          FB:[['pull','wrap'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
    pulls:{RG:[]},   // RG pulls by rule (['pull','kick']); the empty list marks him a puller (carrier.js), the waypoints come from blockrules.js
    path:[[-0.3,-3.6],[-2.8,-1.4],[-3.6,0.8],[-3.8,8]]},   // patient: press the line, cut off the kick-out
+  // Counter: the back takes a step away from the hole, the backside guard kicks out and the backside tight end (else the fullback) wraps behind him
+  {name:'Counter', run:'hand', scheme:'man', hole:-3.6, forms:['21 I', '12 Under'], mesh:[0.9,-2.7],
+   rules:{LT:[['down']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['pull','kick'],['edge']], RT:[['down']], TE:[['pull','wrap'],['on'],['down']],
+          FB:[['pull','wrap'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
+   pulls:{RG:[]},
+   path:[[1.0,-3.4],[-1.5,-1.6],[-3.6,0.8],[-3.8,8]]},   // jab step away, then back across to the hole behind the pullers
+  // Trap: the guard across from the hole pulls and traps the first down lineman beyond the center; the rest block the man on them
+  {name:'Trap', run:'hand', scheme:'man', hole:1.1, forms:['11 Under', '21 I'], mesh:[0.7,-2.8],
+   rules:{LT:[['on']], LG:[['pull','trap'],['on']], C:[['on']], RG:[['on']], RT:[['on']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
+   pulls:{LG:[]},
+   path:[[0.7,-3.0],[1.1,0.5],[1.1,8]]},
   {name:'Outside Zone', run:'toss', scheme:'zone', shift:3, hole:8.5, forms:['11 Gun', '12 Under', '21 I'],   // aim: tight end's outside hip; he reads bounce / cut back
    rules:OUTSIDE_ZONE,
    path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]],
