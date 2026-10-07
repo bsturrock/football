@@ -1,4 +1,5 @@
-import { rateTeams, KEYS } from './ratings.js';   // ratings.js and util.js roll nothing at load, so importing them before seedRandom runs is safe
+import { KEYS } from './ratings.js';   // ratings.js, roster.js and util.js roll nothing at load, so importing them before seedRandom runs is safe
+import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
 
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
@@ -28,12 +29,18 @@ export function runSim(n, step, g){
   if(!window.CANNON){ out({error:'physics failed to load'}); return; }
   // forced choices: names match case-insensitively and are stored canonical; form and side wait for B-007-3/4
   const byName = (list, v) => v == null ? null : list.find(x => x.name.toLowerCase() === v.trim().toLowerCase());
-  const force = {play:null, form:Q.get('form'), front:null, side:null};
+  const force = {play:null, form:Q.get('form'), front:null, side:null, pers:null, dpers:null};
   for(const [key, list, label] of [['play', PLAYS.filter(p => p.run), 'play'], ['front', DEF_CALLS, 'front']]){
     if(!Q.has(key)) continue;
     const hit = byName(list, Q.get(key));
     if(!hit){ out({error:'unknown ' + label + ' ' + Q.get(key)}); return; }
     force[key] = hit.name;
+  }
+  for(const [key, kind] of [['pers', 'off'], ['dpers', 'def']]){   // personnel: pers 11|12|21|22, dpers nickel|base|odd (also 4-2-5, 4-3-4, 3-4-4)
+    if(!Q.has(key)) continue;
+    const v = persName(kind, Q.get(key));
+    if(!v){ out({error:'unknown ' + key + ' ' + Q.get(key)}); return; }
+    force[key] = v;
   }
   if(Q.has('side')){
     const sd = Q.get('side').toUpperCase();
@@ -41,7 +48,7 @@ export function runSim(n, step, g){
     force.side = sd;
   }
   S.force = force;   // read by cpu.js (play), state.js (front) and later formations and flip
-  if(force.front) setupPlay();   // the first play was set up before the force existed
+  if(force.front || force.pers || force.dpers) setupPlay();   // the first play was set up before the force existed
   const yards = [], spotYards = [], wins = [], physMs = [];
   const byPlay = {}, boxes = [], frees = [];
   let timeouts = 0, pushPlays = 0, bodiesMax = 0, win = null;
@@ -50,7 +57,7 @@ export function runSim(n, step, g){
     win = null;
   };
   const teamAvg = side => { const ps = ALL.filter(p => p.team === side), o = {}; KEYS.forEach(k => { o[k] = mean(ps.map(p => p.rt[k])); }); return o; };
-  let regens = 0; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
+  let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
     let startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
@@ -74,6 +81,7 @@ export function runSim(n, step, g){
       }
     }
     closeWin();
+    fieldO = fieldCounts(OFF); fieldD = fieldCounts(DEF);   // who was on the field for this play (pos counts), the last play's printed
     const timedOut = S.phase !== 'dead';   // hit PLAY_MAX_S: counted in timeouts, left out of yards
     if(timedOut) timeouts++;
     else if(startY !== null){
@@ -85,7 +93,7 @@ export function runSim(n, step, g){
     const played = wins.filter(w => w.play === undefined); played.forEach(w => { w.play = i; });
     if(played.some(w => w.off && w.gain >= PUSH_GAIN)) pushed = true;
     if(pushed) pushPlays++;
-    if((i + 1) % SIM_TEAM_EVERY === 0 && i + 1 < n && !S.over){ rateTeams(ALL); regens++; }   // fresh teams every SIM_TEAM_EVERY plays (a no-op change under flat ratings); skipped when the game just ended, since newGame rates again
+    if((i + 1) % SIM_TEAM_EVERY === 0 && i + 1 < n && !S.over){ rateRosters(); regens++; }   // fresh teams every SIM_TEAM_EVERY plays (a no-op change under flat ratings); skipped when the game just ended, since newGame rates again
     nextPlay(); if(S.phase === 'over') newGame();   // a finished game starts the next one
   }
   const pushes = wins.filter(w => w.off && w.gain >= PUSH_GAIN);
@@ -96,5 +104,5 @@ export function runSim(n, step, g){
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
-    force, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, boxMean:mean(boxes), freeBox:mean(frees)});
+    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, boxMean:mean(boxes), freeBox:mean(frees)});
 }

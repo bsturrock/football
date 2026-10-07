@@ -5,7 +5,8 @@ import { drawFits, drawRoutes, routeGroup } from './markers.js';
 import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
-import { CBs, DEF, DL, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
+import { CBs, DEF, DL, EXTRA, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
+import { DEFAULT_PERS, persName, subIn } from './roster.js';
 import { fdLine, losLine } from './scene.js';
 import { $, HW, clamp, rand } from './util.js';
 
@@ -18,11 +19,16 @@ export function selectPlay(i){
   PLAYS.forEach((_, j) => $('play'+j).setAttribute('aria-pressed', String(j===i)));
   if(S.phase === 'presnap'){ formation(); assignRoutes(); }
 }
-// backfield set for the called play: shotgun (back beside the QB) or under center with a singleback
+// backfield set for the called play: shotgun (back beside the QB) or under center with a singleback; a fullback or second tight end
+// (EXTRA, from the personnel) lines up beside the formation until B-007-3 gives each formation its own
 function formation(){
   const L = S.los, under = PLAYS[S.play].under;
   place(QB, 0, L - (under ? 1.2 : 4.5)); place(RB, under ? 0 : 1.8, L - (under ? 6.5 : 4.5));
+  EXTRA.forEach(e => { if(e.pos === 'FB') place(e, under ? 0 : -1.8, L - (under ? 4.0 : 4.5)); else place(e, -6.8, L - 1.0); });
 }
+// personnel for the next play: forced by the sim (?pers=, ?dpers=), else the page URL, else 11 and nickel
+const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const want = (kind, key) => persName(kind, (S.force && S.force[key]) || URLQ.get(key) || DEFAULT_PERS[kind]) || DEFAULT_PERS[kind];
 function assignRoutes(){
   const play = PLAYS[S.play];
   RECV.forEach((w, i) => {
@@ -46,15 +52,16 @@ function place(p, x, y){
 }
 export function setupPlay(){
   physClear();
+  subIn(want('off', 'pers'), want('def', 'dpers'));   // dead ball: the personnel for this play take the field
   const L = S.los;
   S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity; S.read = null; pileReset();
   OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); });
-  place(WRs[0], -20, L-0.8); place(WRs[1], 20, L-0.8); place(WRs[2], -11, L-1.0);
+  WRs.forEach((w, i) => place(w, [-20, 20, -11][i], i < 2 ? L-0.8 : L-1.0));
   place(TE, 6.8, L-1.0); formation();
-  [-5, -1.2, 1.2, 5].forEach((x, i) => place(DL[i], x, L+1.1));
+  (DL.length === 4 ? [-5, -1.2, 1.2, 5] : [-4.5, 0, 4.5]).forEach((x, i) => place(DL[i], x, L+1.1));
   DL.forEach(d => { d.mode = 'rush'; });
   CBs.forEach((c, i) => {
-    const w = WRs[i]; place(c, w.x - Math.sign(w.x)*0.6, L + (i===2 ? 5 : 6));
+    const w = WRs[i] || RECV[i]; place(c, w.x - Math.sign(w.x)*0.6, L + (i===2 ? 5 : 6));
     c.mode = 'cover'; c.assign = w; c.cushion = rand(1.0, 2.4);
   });
   SFs.forEach((s, i) => { s.side = i ? 1 : -1; place(s, s.side*10, L+13); s.mode = 'deep'; });
@@ -64,11 +71,13 @@ export function setupPlay(){
   // defensive call -> run fits. Every defender gets a job (see RUN FITS below); placement is the alignment.
   const rnd = DEF_CALLS[Math.floor(Math.random()*DEF_CALLS.length)], call = S.defCall = (S.force && S.force.front && DEF_CALLS.find(c => c.name === S.force.front)) || rnd;   // feature (sim-force)
   const blitzer = call.blitz ? Math.floor(Math.random()*2) : -1;
+  const LBX = [[-3.5, 3.5], [-4.5, 0, 4.5], [-6.5, -2.2, 2.2, 6.5]][LBs.length - 2];   // 4-2-5, 4-3-4, 3-4-4
   LBs.forEach((b, i) => {
-    const side = i ? 1 : -1, blitz = i === blitzer;
-    place(b, side*3.5, blitz ? L+3.5 : L+5);
-    b.assign = i ? RB : TE; b.mode = blitz ? 'rush' : 'cover'; b.cushion = 0.6;
+    const blitz = i === blitzer;
+    place(b, LBX[i], blitz ? L+3.5 : L+5);
+    b.assign = i < 2 ? (i ? RB : TE) : (EXTRA[i-2] || RB); b.mode = blitz ? 'rush' : 'cover'; b.cushion = 0.6;
   });
+  DEF.forEach(d => { d.job = {role:'gap', gx:clamp(d.x, -5.6, 5.6), side:Math.sign(d.x) || 1}; });   // a default job for a body the front table has no slot for (the 3rd and 4th LB); assignFits overwrites the rest
   const boxS = call.box ? SFs[Math.floor(Math.random()*2)] : null;
   if(boxS) place(boxS, boxS.side*4.5, L+6);
   assignFits(call, boxS);
