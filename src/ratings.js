@@ -1,13 +1,15 @@
 import { rand } from './util.js';
 
 // ---------- ratings ----------
-// Nine 0-99 ratings per player (p.rt), drawn from a position template. Pure: no THREE, node-testable.
+// Nine physical (KEYS) plus three mental (MENTAL) 0-99 ratings per player, all in p.rt, drawn from a position template.
+// Pure: no THREE, node-testable.
 // Ratings are absolute across positions (a DT's speed is lower than a CB's); one global curve per rating
 // maps them to the physics numbers, calibrated so template midpoints land near the old per-position values.
 export const KEYS = ['speed', 'accel', 'strength', 'agility', 'vision', 'tackling', 'shed', 'pursuit', 'recog'];
 // template: r = [lo, hi] per rating in KEYS order; m = [lo, hi] per MENTAL rating; mass in lb
 // Mental ratings (0-99): how well a player knows each scheme family. Apart from KEYS on purpose: roster OVR_W, sim teamAvg and the
 // legacy blend all walk KEYS and must not see them. Read as p.rt.zone / gap / pass.
+// Mental ratings deliberately get no team offset (knowledge is the player's own, not a team-strength shift).
 export const MENTAL = ['zone', 'gap', 'pass'];
 export const TEMPLATES = {
   OL:  {mass:310, r:[[40,60],[45,65],[70,92],[35,55],[45,70],[20,35],[40,60],[30,50],[55,80]], m:[[55,80],[55,80],[55,80]]},
