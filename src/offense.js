@@ -45,8 +45,8 @@ function block(p, dt){
 function zoneBlock(p, dt){
   const ref = runRef(), lane = p.lane;
   let d = p.blk;
-  if(!(d && d.stun <= 0 && (p.locked || Math.abs(d.x - lane) < 3))){
-    d = null; p.locked = false; let bd = 1e9;
+  if(!(d && d.stun <= 0 && (p.locked || p.ruled || Math.abs(d.x - lane) < 3))){
+    d = null; p.locked = false; p.ruled = false; let bd = 1e9;
     for(const e of DEF){
       if(e.stun > 0 || claimed(p, e) || e.y < p.y - 1.5) continue;
       const dx = Math.abs(e.x - lane), dy = e.y - S.los;
