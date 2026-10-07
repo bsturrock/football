@@ -22,7 +22,7 @@ Team process: a project-manager (PM) leads; workers build on their own branches 
 
 | system | files |
 |---|---|
-| core | src/main.js, src/state.js, src/util.js, src/sim.js |
+| core | src/main.js, src/state.js, src/util.js, src/sim.js, src/drill.js |
 | render | src/scene.js, src/camera.js, src/animation.js, src/markers.js |
 | physics | src/physics.js, src/movement.js, src/blocking.js, src/tackling.js, src/pile.js |
 | ai | src/offense.js, src/defense.js, src/cpu.js, src/blockrules.js |
