@@ -3,7 +3,7 @@ import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
 import { physBall } from './physics.js';
 import { PLAYS } from './playbook.js';
-import { ALL, C, JOINTS, QB, RB, TE } from './players.js';
+import { ALL, C, JOINTS, QB, RB } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
 import { $, clamp } from './util.js';
@@ -23,7 +23,8 @@ function targetPose(p, sp){
     drop:0.04*r, pitch:0, bob:Math.abs(cs)*0.07*r};
   const arms = (l, rt, el) => { T.shL = l; T.shR = rt; T.elL = T.elR = el; };
   if(S.phase === 'presnap'){
-    if(p.role === 'OL' || p.role === 'DL') Object.assign(T, {lean:1.2, hipL:-1.3, hipR:-1.1, kneeL:1.7, kneeR:1.5, drop:0.42, shR:-1.25, elR:0, shL:-0.5, elL:-0.6});
+    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, {lean:1.2, hipL:-1.3, hipR:-1.1, kneeL:1.7, kneeR:1.5, drop:0.42, shR:-1.25, elR:0, shL:-0.5, elL:-0.6});
+    else if(p.pos === 'FB') Object.assign(T, {lean:0.75, hipL:-0.8, hipR:-0.7, kneeL:1.3, kneeR:1.2, drop:0.28}), arms(-0.9, -0.9, -0.6);   // fullback: low, hand near the ground
     else if(p === QB && PLAYS[S.play].under){ Object.assign(T, {lean:0.75, hipL:-0.7, hipR:-0.6, kneeL:1.1, kneeR:1.0, drop:0.3}); arms(-1.0, -1.0, -0.5); }   // under center
     else if(p === QB){ Object.assign(T, {lean:0.2, hipL:-0.3, hipR:-0.3, kneeL:0.5, kneeR:0.5, drop:0.08}); arms(-0.9, -0.9, -0.9); }
     else { Object.assign(T, {lean:0.45, hipL:-0.55, hipR:-0.35, kneeL:0.9, kneeR:0.7, drop:0.15}); arms(-0.3, -0.3, -0.7); }
@@ -44,7 +45,7 @@ function targetPose(p, sp){
   else if(p.bt && p.team === 'D' && p.bt.phase === 'move' && p.bt.move === 'speed'){ T.shL = -1.3; T.shR = -2.9; T.elL = -0.5; T.elR = -0.2; T.twist = 0.4; }  // swim
   else if(p.bt && p.team === 'D' && p.bt.phase === 'move'){ arms(-1.7, -1.7, -0.1); T.lean = 0.9; }                                // bull rush
   else if(p.bt && p.team === 'D' && p.bt.phase === 'recover'){ arms(-1.0, -1.0, -0.8); T.lean = 0.2; }                             // knocked upright
-  else if(p.fire > 0 && (p.role === 'OL' || p.role === 'DL' || p === TE)){ arms(-1.3, -1.3, -0.5); T.lean = 0.95; T.drop = 0.3; }   // out of the stance: low and violent
+  else if(p.fire > 0 && (p.role === 'OL' || p.role === 'DL' || p.pos === 'TE')){ arms(-1.3, -1.3, -0.5); T.lean = 0.95; T.drop = 0.3; }   // out of the stance: low and violent
   else if(p.bt || p.eng > 0){ arms(-1.6, -1.6, -0.25); T.lean = Math.max(T.lean, 0.7); T.drop = 0.18; }   // hands punched in, pads low
   return T;
 }
