@@ -92,7 +92,8 @@ export function setupPlay(){
   S.handoffAt = Infinity;
   drawFits();
   RB.auto = false;
-  OFF.forEach(o => { o.blk = null; o.dbl = null; o.ruled = false; o.lane = null; o.via = null; o.pull = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  OFF.forEach(o => { o.blk = null; o.dbl = null; o.ruled = false; o.lane = null; o.via = null; o.pull = null; o.rd = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  S.blkEv = [];   // B-007-9: stunt re-read events (blockrules.js)
   S.pulls = [];   // feature (pulls): B-007-8, the pull log resets with the blockers
   ball.state = 'pre'; ball.holder = null; ball.target = null;
   losLine.position.z = 50 - L;
