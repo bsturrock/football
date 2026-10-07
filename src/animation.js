@@ -56,9 +56,9 @@ function animate(p, dt){
   if(p.actT > 0){ p.actT -= dt; if(p.actT <= 0) p.act = null; }
   if(p.eng > 0) p.eng -= dt; else if(p.team === 'O') p.bt = null;
   if(p.beatT > 0) p.beatT -= dt;
-  const t = p.faceAt;   // blockers square up to their man instead of facing where they move
-  if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && (t || sp > 0.4)){
-    const d = (t ? faceYaw(p, t, ball) : Math.atan2(p.vx, -p.vy)) - p.face;
+  const fy = faceYaw(p, ball);   // blockers square up to their man (a blocked defender to his blocker, with the lean) instead of facing where they move
+  if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && (fy !== null || sp > 0.4)){
+    const d = (fy !== null ? fy : Math.atan2(p.vx, -p.vy)) - p.face;
     p.face += Math.atan2(Math.sin(d), Math.cos(d))*Math.min(1, dt*14);
   }
   const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*16), J = p.j;

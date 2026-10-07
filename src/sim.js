@@ -68,9 +68,10 @@ export function runSim(n, step, g){
     for(const d of DEF){
       if(!d.bt || d.ph || d.latch || d.stun > 0) continue;
       const sp = Math.hypot(d.vx, d.vy);
-      if(!d.faceAt && sp <= FACE_V) continue;
-      const h = d.faceAt ? faceYaw(d, d.faceAt, ball) : Math.atan2(d.vx, -d.vy);   // error: off the bearing to the nearest of his blocker and any double-teamer within DBL_R
-      const e = Math.min(...[d.bt.o, ...OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < DBL_R)].map(q => Math.abs(Math.atan2(Math.sin(h - bearing(d, q)), Math.cos(h - bearing(d, q))))));
+      const fy = faceYaw(d, ball);
+      if(fy === null && sp <= FACE_V) continue;
+      const h = fy !== null ? fy : Math.atan2(d.vx, -d.vy);   // error: off the bearing to the nearest of his blocker and any double-teamer within DBL_R
+      const e = Math.min(...[d.bt.o, ...(d.faceAt ? [d.faceAt] : []), ...OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < DBL_R)].map(q => Math.abs(Math.atan2(Math.sin(h - bearing(d, q)), Math.cos(h - bearing(d, q))))));
       fc.frames++; fc.err += e; if(e*180/Math.PI <= SQUARE_DEG) fc.square++; fc.maxLean = Math.max(fc.maxLean, e);
     }
   };

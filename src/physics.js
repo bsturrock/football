@@ -227,8 +227,8 @@ function physLegs(p, ph, vdx, vdz, drive, h=1.3, over=1.3){
 }
 // body yaw is free (legs only damp it): a bubble body squares up to his man, else faces where he's going
 function physYaw(p, ph){
-  const tb = ph.bodies[0], t = p.faceAt, wx = p.wx ?? 0, wy = p.wy ?? 0;
-  const want = t ? faceYaw(p, t, ball) : Math.hypot(wx, wy) > HEADING_MIN ? Math.atan2(wx, -wy) : null;
+  const tb = ph.bodies[0], fy = faceYaw(p, ball), wx = p.wx ?? 0, wy = p.wy ?? 0;
+  const want = fy !== null ? fy : Math.hypot(wx, wy) > HEADING_MIN ? Math.atan2(wx, -wy) : null;
   if(want == null) return;
   const f = tb.quaternion.vmult(new CANNON.Vec3(0, 0, 1)), e = want - Math.atan2(f.x, f.z);
   tb.torque.y += tb.inertia.y*YAW_K*clamp(Math.atan2(Math.sin(e), Math.cos(e)), -YAW_MAX, YAW_MAX);

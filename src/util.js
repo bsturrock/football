@@ -16,4 +16,11 @@ export function faceLean(p, t, ball){
   const lat = Math.abs(p.x - t.x), side = Math.sign(ball.holder.x - (p.x + t.x)/2);
   return (p.team === 'O' ? 1 : -1)*side*FACE_LEAN_MAX*clamp(lat/LEAN_LAT, 0, 1);
 }
-export const faceYaw = (p, t, ball) => bearing(p, t) + faceLean(p, t, ball);
+// The yaw p wants from his faceAt, or null (then he faces where he moves). A defender whose block ended without his faceAt being
+// cleared (a bubble promote nulls p.bt mid-step) must not keep squaring to his old blocker: that spun fresh bubble bodies toward him
+// and cost about 1.2 ypc at ?sim=300 (seeds 7, 8).
+export function faceYaw(p, ball){
+  const t = p.faceAt;
+  if(!t || (p.team === 'D' && t.team === 'O' && !p.bt && !p.latch)) return null;
+  return bearing(p, t) + faceLean(p, t, ball);
+}
