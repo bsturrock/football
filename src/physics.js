@@ -1,4 +1,4 @@
-import { ALL, C, DEF, G, OFF, TEAM, mat } from './players.js';
+import { ALL, BODY_H, BODY_W, C, DEF, G, OFF, TEAM, bodyV, mat } from './players.js';
 import { scene } from './scene.js';
 import { S, ball } from './state.js';
 import { PLANT_A, gripK } from './tackling.js';
@@ -22,17 +22,17 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   getting up  tackle body, ph.getUp: bal rises 1.2/s; bal 1 and upright and slow -> physOff; for the ball holder tackleUpdate clears getUp (tackling.js runner states), other bodies keep it until physOff
 //   contact     p.hitT = phClock whenever an opposing body touches him or grips him (physTouch); physClear resets it; physDownC = on the turf and hitT within CONTACT_T
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
-const BUBBLE_IN = 2.5, BUBBLE_OUT = 4, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
+const BUBBLE_IN = 2.5*BODY_W, BUBBLE_OUT = 4*BODY_W, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
-export const UPRIGHT_Y = 0.95, UPRIGHT_W = 2, UPRIGHT_H = 1.1;
+export const UPRIGHT_Y = 0.95, UPRIGHT_W = 2, UPRIGHT_H = 1.1*BODY_H;
 const PLANT_HOLD = 0.4;   // feature (pile-push): tackler's plant and drive x this while a pile pushes with more offensive than defensive pushers (the bigger side wins the surge)
 const DRIVE_T = 0.1;   // a drive lapses this long after the last physDrive call
-const ELBOW_DOWN_Y = 0.1, CONTACT_T = 1.0;   // down: forearm's elbow end below ELBOW_DOWN_Y yd; a defender must have touched him within CONTACT_T s
+const ELBOW_DOWN_Y = 0.1*BODY_H, CONTACT_T = 1.0;   // down: forearm's elbow end below ELBOW_DOWN_Y yd; a defender must have touched him within CONTACT_T s
 const YAW_K = 150, YAW_MAX = 1.5, HEADING_MIN = 0.4;   // yaw hold: spring gain, max error (rad), slowest speed (yd/s) that sets a heading
 export const isBody = p => !!p.ph && !p.ph.bubble;
 // name, rig pivot, parent, box size, center in pivot frame, mass share, joint limits [x],[y],[z] (rad,
 // rotation vector relative to the rig's rest pose), meshes
-const PARTS = [
+const PARTS_RIG = [
   {n:'torso', j:'torso', size:[0.75,0.8,0.42], c:[0,0.37,0], m:0.5},
   {n:'head',  j:'head',  p:'torso', size:[0.46,0.44,0.5], c:[0,0.24,0], m:0.08, lim:[[-0.6,0.6],[-1,1],[-0.5,0.5]]},
   {n:'uaL', j:'shL', p:'torso', size:[0.2,0.42,0.22], c:[0,-0.21,0], m:0.03, lim:[[-3.1,1],[-1,1],[-0.3,1.8]]},
@@ -44,6 +44,9 @@ const PARTS = [
   {n:'thR', j:'hipR', p:'torso', size:[0.28,0.5,0.3], c:[0,-0.25,0], m:0.1, lim:[[-2,0.6],[-0.6,0.6],[-0.9,0.3]]},
   {n:'snR', j:'kneeR', p:'thR', size:[0.24,0.55,0.3], c:[0,-0.27,0.03], m:0.06, lim:[[0,2.5],[-0.1,0.1],[-0.1,0.1]]}
 ];
+// B-021: sizes and centers above are rig units; the pair in players.js (BODY_H, BODY_W) makes them the drawn body
+const PARTS = PARTS_RIG.map(d => ({...d, size:bodyV(d.size), c:bodyV(d.c)}));
+const HAND_Y = -0.2*BODY_H;   // the hand end of a forearm (rig -0.2 down its length)
 const PI_ = Object.fromEntries(PARTS.map((d, i) => [d.n, i]));
 let PW = null;
 const PHYS = [];
@@ -90,7 +93,7 @@ export function physOn(p, o={}){
     const c = tv2.set(...d.c).applyQuaternion(tq).add(tv);
     const b = new CANNON.Body({mass:M*d.m, material:PW.bodyMat, collisionFilterGroup:GRP.part, collisionFilterMask:GRP.ground|GRP.proxy|GRP.part,
       linearDamping:0.05, angularDamping:0.2});
-    const sz = d.n === 'torso' ? [0.66, 0.8, 0.4] : d.size;    // torso collides a bit narrower than the pads look
+    const sz = d.n === 'torso' ? bodyV([0.66, 0.8, 0.4]) : d.size;    // torso collides a bit narrower than the pads look
     b.addShape(new CANNON.Box(new CANNON.Vec3(sz[0]/2, sz[1]/2, sz[2]/2)));
     b.position.set(c.x, c.y, c.z); b.quaternion.copy(toC(tq));
     b.velocity.set(vx*k + sp.x*c.y, up, -(vy*k + sp.y*c.y)); b.angularVelocity.copy(w);
@@ -135,21 +138,21 @@ function surfDist(C, w){
 // hands lock on once they're actually on him (within a few inches of his body)
 function physReach(d){
   const D = d.ph, R = D.reach, C = R.on.ph; if(!C) { D.reach = null; return; }
-  const hb = D.bodies[PI_.faL], hw = hb.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0)), hb2 = D.bodies[PI_.faR], hw2 = hb2.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0));
+  const hb = D.bodies[PI_.faL], hw = hb.pointToWorldFrame(new CANNON.Vec3(0, HAND_Y, 0)), hb2 = D.bodies[PI_.faR], hw2 = hb2.pointToWorldFrame(new CANNON.Vec3(0, HAND_Y, 0));
   const tb = D.bodies[0];   // hands on him, or his body into him: either way he gets his arms around him
-  if(Math.min(surfDist(C, hw), surfDist(C, hw2)) < 0.3 || surfDist(C, tb.position) < 0.45){ D.reach = null; lockGrip(d, R.on, R.kind); }
+  if(Math.min(surfDist(C, hw), surfDist(C, hw2)) < 0.3*BODY_W || surfDist(C, tb.position) < 0.45*BODY_W){ D.reach = null; lockGrip(d, R.on, R.kind); }
 }
 function lockGrip(d, c, kind){
   const D = d.ph, C = c.ph;
   const hands = kind === 'wrap' ? ['faL', 'faR'] : ['faL'];
   for(const h of hands){
-    const hb = D.bodies[PI_[h]], hw = hb.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0));
+    const hb = D.bodies[PI_[h]], hw = hb.pointToWorldFrame(new CANNON.Vec3(0, HAND_Y, 0));
     let best = null, bd = 1e9;
     for(const n of ['torso','thL','thR']){ const b = C.bodies[PI_[n]], k = b.position.distanceTo(hw); if(k < bd){ bd = k; best = b; } }
     const loc = new CANNON.Vec3(); best.pointToLocalFrame(hw, loc);
     const he = best.shapes[0].halfExtents;   // hold the surface, not thin air
     loc.set(clamp(loc.x, -he.x, he.x), clamp(loc.y, -he.y, he.y), clamp(loc.z, -he.z, he.z));
-    const g = new CANNON.PointToPointConstraint(hb, new CANNON.Vec3(0, -0.2, 0), best, loc);
+    const g = new CANNON.PointToPointConstraint(hb, new CANNON.Vec3(0, HAND_Y, 0), best, loc);
     // what his hands can hold (force); one hand holds a lot less than a runner's legs pull
     const cap = d.mass*MASS_KG*(kind === 'wrap' ? 150 : ARM_GRIP)*(d.rTkl/80);
     g.collideConnected = false; PW.addConstraint(g); D.grips.push({c:g, on:c, hb, best, loc, born:D.t, cap});
@@ -167,7 +170,7 @@ export function gripStrain(d){
 export function gripGap(d){
   let m = 0; if(!d.ph) return 0;
   for(const g of d.ph.grips){ if(d.ph.t - g.born < 0.35) continue;   // arms still closing around him
-    const a = g.hb.pointToWorldFrame(new CANNON.Vec3(0, -0.2, 0)), b = g.best.pointToWorldFrame(g.loc); m = Math.max(m, a.distanceTo(b)); }
+    const a = g.hb.pointToWorldFrame(new CANNON.Vec3(0, HAND_Y, 0)), b = g.best.pointToWorldFrame(g.loc); m = Math.max(m, a.distanceTo(b)); }
   return m;
 }
 let qc, qd, qe, rv, rt, tw, dw;
@@ -206,7 +209,7 @@ function physMuscles(p, ph){
   });
 }
 // legs: hold him up, upright, and push him toward where he wants to go, all scaled by `bal`
-function physLegs(p, ph, vdx, vdz, drive, h=1.3, over=1.3){
+function physLegs(p, ph, vdx, vdz, drive, h=1.3*BODY_H, over=1.3){
   const tb = ph.bodies[0], M = ph.M, bal = ph.bal;
   if(bal <= 0) return;
   // vertical: legs carry up to his weight, a bit more if he's sagging, never a launch
@@ -308,11 +311,11 @@ export function physStep(dt){
         const sg = S.pile && S.pile.state === 'pushing' && S.pile.pushersO > S.pile.pushersD ? PLANT_HOLD : 1;   // feature (pile-push)
         const F = ph.reach || p.grip === 'wrap' ? ph.M*p.acc*(p.rTkl/80)*1.25*sg : 0;   // arm tackle: just hanging on, dragging his weight
         t.applyForce(new CANNON.Vec3(dx/l*F, 0, dz/l*F));
-        if(ph.reach) physLegs(p, ph, r.velocity.x + dx/l*3, r.velocity.z + dz/l*3, p.acc*1.2, 1.0, 1.0);   // still reaching: run through him
-        else physLegs(p, ph, 0, 0, PLANT_A*gripK(p)*sg, 1.0, 1.0);   // got him: plant, low pad level, can't lift him
+        if(ph.reach) physLegs(p, ph, r.velocity.x + dx/l*3, r.velocity.z + dz/l*3, p.acc*1.2, BODY_H, 1.0);   // still reaching: run through him
+        else physLegs(p, ph, 0, 0, PLANT_A*gripK(p)*sg, BODY_H, 1.0);   // got him: plant, low pad level, can't lift him
       } else if(ph.drv && ph.drv.until > phClock && S.phase === 'live' && p !== c){   // pile push: a wanted velocity and leg force from pile.js
         physLegs(p, ph, ph.drv.vx, -ph.drv.vy, ph.drv.a); if(ph.bubble) physYaw(p, ph);
-      } else if(p === c) physLegs(p, ph, p.vx, -p.vy, p.acc*(p.rBrk/75), 1.3, DEF.some(d => d.latch === p) ? 1.0 : 1.3);   // runner: where his steering wants to go
+      } else if(p === c) physLegs(p, ph, p.vx, -p.vy, p.acc*(p.rBrk/75), 1.3*BODY_H, DEF.some(d => d.latch === p) ? 1.0 : 1.3);   // runner: where his steering wants to go
       else if(ph.bubble){ physLegs(p, ph, p.wx ?? p.vx, -(p.wy ?? p.vy), p.acc); physYaw(p, ph); }   // his intent, not what the collisions left of it
       else physLegs(p, ph, p.vx, -p.vy, p.acc);
     }
@@ -336,7 +339,7 @@ export function physDown(p){
     const b = ph.bodies[i], n = PARTS[i].n, he = b.shapes[0].halfExtents;
     if(n === 'snL' || n === 'snR' || n === 'faL' || n === 'faR'){   // one end only: knee end of the shin (0.14), elbow end of the forearm (ELBOW_DOWN_Y)
       const end = b.pointToWorldFrame(new CANNON.Vec3(0, he.y, 0));   // local +y is the knee / elbow end
-      if(end.y < (n[0] === 's' ? 0.14 : ELBOW_DOWN_Y)) return true; continue;
+      if(end.y < (n[0] === 's' ? 0.14*BODY_H : ELBOW_DOWN_Y)) return true; continue;
     }
     // lowest corner of the box
     const q = b.quaternion, ex = q.vmult(new CANNON.Vec3(he.x, 0, 0)), ey = q.vmult(new CANNON.Vec3(0, he.y, 0)), ez = q.vmult(new CANNON.Vec3(0, 0, he.z));
@@ -351,7 +354,7 @@ export const physTouched = (p, w = CONTACT_T) => phClock - (p.hitT ?? -99) <= w;
 export const physDownC = p => physDown(p) && physTouched(p);
 // pile.js drives a body through his legs for DRIVE_T s (vx, vy game yd/s; a = leg acceleration): a push is a wanted velocity, never a position
 export const physDrive = (p, vx, vy, a) => { if(p.ph) p.ph.drv = {vx, vy, a, until: phClock + DRIVE_T}; };
-export const physBall = p => { const v = p.ph.bodies[PI_.faR].pointToWorldFrame(new CANNON.Vec3(0, -0.08, 0.13)); return tv.set(v.x, v.y, v.z); };
+export const physBall = p => { const v = p.ph.bodies[PI_.faR].pointToWorldFrame(new CANNON.Vec3(...bodyV([0, -0.08, 0.13]))); return tv.set(v.x, v.y, v.z); };
 function physMeshes(p){
   if(p.phM){ p.phM.forEach(m => m.visible = true); return p.phM; }
   const t = TEAM[p.team], skin = p.skin;

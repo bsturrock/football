@@ -1,3 +1,4 @@
+import { GRID_K } from './formations.js';
 import { cvs } from './scene.js';
 import { selectPlay } from './state.js';
 import { $ } from './util.js';
@@ -97,6 +98,7 @@ export const PLAYS = [
    path:[[-0.7,-3.0],[-1.1,0.5],[-1.1,8]]}
 ].filter(p => PASS_GAME || p.run);
 // ---------- orientation ----------
+// B-021: x in the plays above is on the old 2.2 yd line grid (hole 1.1 = the A gap); orient() puts it on the new one (formations.js GRID_K, x0.61).
 // The plays above are written for the base side (tight end right) and, for under-center plays, the QB under center. orient() rewrites
 // the live fields every other module reads (path, hole, shift, pulls, blocks, mesh, under) from that source: flip -1 mirrors paths and
 // holes and swaps left/right blocker names (LT/RT, ...); the linemen stay where they are, so the blocker names swap instead. The rules
@@ -105,11 +107,11 @@ PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.p
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
 export function orient(play, under, flip){
   const key = k => flip > 0 ? k : MIRROR[k] || k;
-  const s = {...play.src, ...(play.src.alt && play.src.alt[under ? 'under' : 'gun'])}, pt = ([x, dy]) => [x*flip, dy];   // the form's variant overlays run / shift / mesh / path
+  const s = {...play.src, ...(play.src.alt && play.src.alt[under ? 'under' : 'gun'])}, pt = ([x, dy]) => [x*flip*GRID_K, dy];   // the form's variant overlays run / shift / mesh / path
   play.run = s.run;
   play.path = s.path && s.path.map(pt);
-  play.hole = s.hole === undefined ? undefined : s.hole*flip;
-  play.shift = s.shift === undefined ? undefined : s.shift*flip;
+  play.hole = s.hole === undefined ? undefined : s.hole*flip*GRID_K;
+  play.shift = s.shift === undefined ? undefined : s.shift*flip*GRID_K;
   play.pulls = s.pulls && Object.fromEntries(Object.entries(s.pulls).map(([k, v]) => [key(k), v.map(pt)]));
   play.under = under; play.delay = s.delay;
   // under center the QB opens to a mesh point (a play written for shotgun gets one at the back's first path point)
