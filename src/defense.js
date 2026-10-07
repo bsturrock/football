@@ -7,7 +7,7 @@ import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs } from './players.js';
 import { isBody } from './physics.js';
 import { S, ball } from './state.js';
 import { lack } from './ratings.js';
-import { dist, rand } from './util.js';
+import { DBL_R, dist, holdsBlocker, rand } from './util.js';
 
 // Human mistakes in pursuit. Per defender per play state (reset in assignFits):
 //   aim     AIM_K resampled every AIM_T s; < 1 undershoots the cut-off spot, > 1 overpursues
@@ -230,7 +230,7 @@ function stepAround(d, a, tx, ty){
 }
 // B-020: who a blocked defender faces: his blocker, or a man double-teaming him who is clearly nearer (NEAR_SWAP yd), and he
 // keeps his current man until another is that much nearer, so the facing never flips between two men at about the same distance
-const NEAR_SWAP = 0.25, DBL_R = 1.4, FRESH_T = 0.05;
+const NEAR_SWAP = 0.25, FRESH_T = 0.05;
 function nearBlocker(d, o){
   const cand = q => q === o || (q.blk === d && !(q.ph && q.ph.bubble) && dist(q, d) < DBL_R);
   let cur = d.faceAt && cand(d.faceAt) && d.bt.t > FRESH_T ? d.faceAt : o;   // a new battle starts on its own blocker
@@ -282,7 +282,7 @@ export function defenseAI(d, dt){
       battle(d, o, c, dt);
     } else d.bt = null;
   } else d.bt = null;
-  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
+  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch && !holdsBlocker(d)) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
   if(attack && !d.bt && c){   // hunting the runner: run through the target, never ease up approaching it
     const dx = tx - d.x, dy = ty - d.y, l = Math.hypot(dx, dy) || 1;
     steerVel(d, dx/l*sp, dy/l*sp, dt);
