@@ -1,13 +1,13 @@
 import { KEYS } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
-import { HOLD_R, PILE_R, bearing, faceLean, faceYaw, holdsBlocker } from './util.js';
+import { FACE_RATE, HOLD_R, PILE_R, bearing, faceK, faceLean, faceYaw, holdReason, holdsBlocker } from './util.js';
 
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
 // Pile stats come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
 // physMs is null under --virtual-time-budget (performance.now does not advance during synchronous code); read it with a real clock
-const SQUARE_DEG = 25, FACE_V = 0.4, FACE_RATE = 14, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
+const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
 // sim.js first and its imports (ratings.js, formations.js, roster.js, util.js) are pure and roll nothing at load, so player ratings and masses (rolled at load) are seeded too.
@@ -68,11 +68,50 @@ export function runSim(n, step, g){
   // Turn-back: from a battle ending (shed, step-around) until the shadow face is within SQUARE_DEG of his velocity heading, capped at TURN_MAX s.
   const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0, hFrames:0, hSquare:0, hErr:0}, shadow = new Map(), turn = {shed:[], hold:[]};
   const wrap = a => Math.atan2(Math.sin(a), Math.cos(a)), deg = r => r*180/Math.PI;
+  // B-022 jitter: every engaged player (a battle object, live, not a body; blockers and defenders apart) gets a shadow face turned by
+  // animate's rule. Per engaged frame: |turn| of the shadow face, a reversal when the turn's sign flips (turns under JIT_EPS rad ignored),
+  // and the position's second difference |x[t] - 2x[t-1] + x[t-2]| (yd, both axes) for position jitter that is not facing.
+  const JIT_EPS = 0.002, JIT_ONSET_DEG = 25, JIT_JUMP_DEG = 10, JIT_SMALL_DEG = 10, JIT_FLICKER_S = 0.5, jit = {D:{n:0, turn:0, rev:0, pos:0, lean:0, bear:0, flips:0, b:[0,0,0], nb:[0,0,0], sw:0, on:0, onMode:0, onJump:0, onSlow:0}, O:{n:0, turn:0, rev:0, pos:0, lean:0, bear:0, flips:0, b:[0,0,0], nb:[0,0,0], on:0, onMode:0, onJump:0, onSlow:0}}, js = new Map(); jit.lost = {}; jit.flicker = 0;
+  const jitter = () => {
+    const battles = new Set(DEF.filter(d => d.bt).map(d => d.bt));   // a blocker's p.bt goes stale in a sim (animate never clears it): he is engaged only while his defender holds the same battle
+    for(const p of ALL){
+      const m = js.get(p) || (js.set(p, {f:p.face, ds:0, x1:null, y1:null, x2:null, y2:null, ok:0}), js.get(p));
+      const sp = Math.hypot(p.vx, p.vy), fy = faceYaw(p, ball, S), tgt = fy !== null ? fy : (sp > FACE_V ? Math.atan2(p.vx, -p.vy) : null);
+      let turn = 0, err = 0, lean = null, bear = null; const ft = p.faceAt;
+      if(fy !== null && ft){ lean = faceLean(p, ft, ball, S); bear = bearing(p, ft); }
+      if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && tgt !== null){ const e = err = wrap(tgt - m.f); turn = e*(fy !== null ? faceK(p, S, SIM_DT, e) : Math.min(1, SIM_DT*FACE_RATE)); m.f += turn; }
+      const eng = (p.team === 'D' ? !!p.bt : battles.has(p.bt)) && !p.ph && !p.latch && p.stun <= 0 && p.act !== 'down';
+      if(p.team === 'D' && (eng || m.wasEng) && tgt !== null){   // big-turn onsets (target over JIT_ONSET_DEG off the face, the frame before it was not) and what moved: the target kind (faceAt vs heading), a jump of the target, or the face lagging a moving one
+        const big = Math.abs(deg(err)) > JIT_ONSET_DEG, was = m.big === true;
+        if(big && !was){ jit.D.on++; if(m.fyNull !== (fy === null)) jit.D.onMode++; else if(m.tgt !== undefined && Math.abs(deg(wrap(tgt - m.tgt))) > JIT_JUMP_DEG) jit.D.onJump++; else jit.D.onSlow++; }
+        m.big = big;
+      } else m.big = false;
+      if(p.team === 'D' && m.fyNull !== undefined && m.fyNull !== (fy === null) && (eng || m.wasEng || (m.lostAt !== undefined && S.clock - m.lostAt < JIT_FLICKER_S))) jit.D.sw++;   // the target switched between his blocker and his heading, near a battle
+      if(p.team === 'D' && m.fyNull === false && fy === null && !p.ph){   // faceAt target lost: why (the first failing test of util.js holdsBlocker), and whether it came back within JIT_FLICKER_S
+        const why = holdReason(p, S) || 'held';   // util.js holdReason: the first failing test, so this cannot drift from holdsBlocker
+        jit.lost[why] = (jit.lost[why] || 0) + 1; m.lostAt = S.clock;
+      }
+      if(p.team === 'D' && m.fyNull === true && fy !== null && m.lostAt !== undefined && S.clock - m.lostAt < JIT_FLICKER_S) jit.flicker++;
+      m.wasEng = eng; m.fyNull = fy === null; m.tgt = tgt;
+      if(eng){
+        const j = jit[p.team];
+        m.ok++; j.n++; j.turn += Math.abs(turn);
+        { const bk = Math.abs(deg(err)) < JIT_SMALL_DEG ? 0 : Math.abs(deg(err)) < JIT_ONSET_DEG ? 1 : 2; j.b[bk] += Math.abs(turn); j.nb[bk]++; }   // where the turning comes from: frames within 10 deg of the target, 10-25, over 25
+        if(m.ok > 1){   // target changes: the lean term, the bearing term, a sign flip of the lean, the target switching between faceAt and the heading
+          if(lean !== null && m.lean !== null){ j.lean += Math.abs(lean - m.lean); j.bear += Math.abs(wrap(bear - m.bear)); if(Math.abs(lean) > 0.01 && Math.abs(m.lean) > 0.01 && Math.sign(lean) !== Math.sign(m.lean)) j.flips++; }
+        }
+        if(Math.abs(turn) > JIT_EPS){ const sg = Math.sign(turn); if(m.ds && sg !== m.ds) j.rev++; m.ds = sg; }
+        if(m.ok >= 3 && m.x2 !== null) j.pos += Math.hypot(p.x - 2*m.x1 + m.x2, p.y - 2*m.y1 + m.y2);
+      } else { m.ok = 0; m.ds = 0; }
+      m.lean = lean; m.bear = bear; m.x2 = m.x1; m.y2 = m.y1; m.x1 = p.x; m.y1 = p.y;
+    }
+  };
   const facing = () => {
+    jitter();
     for(const d of DEF){
       let m = shadow.get(d); if(!m){ m = {f:d.face, eng:false, hold:false, t:null, k:null}; shadow.set(d, m); }
       const sp = Math.hypot(d.vx, d.vy), fy = faceYaw(d, ball, S), vy = sp > FACE_V ? Math.atan2(d.vx, -d.vy) : null, tgt = fy !== null ? fy : vy;
-      if(!d.ph && d.act !== 'down' && d.act !== 'dive' && d.act !== 'fall' && tgt !== null) m.f += wrap(tgt - m.f)*Math.min(1, SIM_DT*FACE_RATE);
+      if(!d.ph && d.act !== 'down' && d.act !== 'dive' && d.act !== 'fall' && tgt !== null) { const e = wrap(tgt - m.f); m.f += e*(fy !== null ? faceK(d, S, SIM_DT, e) : Math.min(1, SIM_DT*FACE_RATE)); }
       const live = !d.ph && !d.latch && d.stun <= 0, eng = !!d.bt && live, hold = !d.bt && live && holdsBlocker(d, S);   // hold: the code is still turning him to his blocker with no battle object (util.js holdsBlocker)
       if(eng || hold){
         const qs = [...(d.bt ? [d.bt.o] : []), ...(d.faceAt ? [d.faceAt] : []), ...OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < HOLD_R)];
@@ -111,7 +150,7 @@ export function runSim(n, step, g){
   setRecog();
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
-    shadow.clear();
+    shadow.clear(); js.clear();
     let startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
       step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
@@ -161,5 +200,5 @@ export function runSim(n, step, g){
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
-    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, slant:{'Slant Left':byCall['Slant Left'] || {}, 'Slant Right':byCall['Slant Right'] || {}}, boxMean:mean(boxes), freeBox:mean(frees), blkEv, facing:{frames:fc.frames, sqPct:fc.frames ? +(100*fc.square/fc.frames).toFixed(1) : null, errDeg:fc.frames ? +deg(fc.err/fc.frames).toFixed(1) : null, leanDeg:fc.frames ? +deg(fc.lean/fc.frames).toFixed(1) : null, maxLeanDeg:+deg(fc.maxLean).toFixed(1), maxOffDeg:+deg(fc.maxOff).toFixed(1), heldFrames:fc.hFrames, sqPctWithHeld:fc.frames + fc.hFrames ? +(100*(fc.square + fc.hSquare)/(fc.frames + fc.hFrames)).toFixed(1) : null, errDegWithHeld:fc.frames + fc.hFrames ? +deg((fc.err + fc.hErr)/(fc.frames + fc.hFrames)).toFixed(1) : null, turnBack:{n:turn.shed.length, medianS:med(turn.shed), p90S:pct(turn.shed, 0.9)}, holdTurnBack:{n:turn.hold.length, medianS:med(turn.hold), p90S:pct(turn.hold, 0.9)}}});
+    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, slant:{'Slant Left':byCall['Slant Left'] || {}, 'Slant Right':byCall['Slant Right'] || {}}, boxMean:mean(boxes), freeBox:mean(frees), blkEv, jitterLost:{lost:jit.lost, flickerBack:jit.flicker}, jitter:Object.fromEntries(['D','O'].map(k => [k, {frames:jit[k].n, turnDegPerFrame:jit[k].n ? +deg(jit[k].turn/jit[k].n).toFixed(3) : null, reversalsPerS:jit[k].n ? +(jit[k].rev/(jit[k].n*SIM_DT)).toFixed(2) : null, posJitterYd:jit[k].n ? +(jit[k].pos/jit[k].n).toFixed(4) : null, leanStepDeg:jit[k].n ? +deg(jit[k].lean/jit[k].n).toFixed(3) : null, bearStepDeg:jit[k].n ? +deg(jit[k].bear/jit[k].n).toFixed(3) : null, leanFlipsPerS:jit[k].n ? +(jit[k].flips/(jit[k].n*SIM_DT)).toFixed(2) : null, byErr:{frameShare:jit[k].nb.map(v => +(v/(jit[k].n || 1)).toFixed(3)), turnShare:jit[k].b.map(v => +(v/(jit[k].turn || 1)).toFixed(3))}, ...(k === 'D' ? {bigTurnOnsets:{perS:jit.D.n ? +(jit.D.on/(jit.D.n*SIM_DT)).toFixed(2) : null, mode:jit.D.onMode, jump:jit.D.onJump, slow:jit.D.onSlow}, modeSwitchesPerS:jit.D.n ? +(jit.D.sw/(jit.D.n*SIM_DT)).toFixed(2) : null} : {})}])), facing:{frames:fc.frames, sqPct:fc.frames ? +(100*fc.square/fc.frames).toFixed(1) : null, errDeg:fc.frames ? +deg(fc.err/fc.frames).toFixed(1) : null, leanDeg:fc.frames ? +deg(fc.lean/fc.frames).toFixed(1) : null, maxLeanDeg:+deg(fc.maxLean).toFixed(1), maxOffDeg:+deg(fc.maxOff).toFixed(1), heldFrames:fc.hFrames, sqPctWithHeld:fc.frames + fc.hFrames ? +(100*(fc.square + fc.hSquare)/(fc.frames + fc.hFrames)).toFixed(1) : null, errDegWithHeld:fc.frames + fc.hFrames ? +deg((fc.err + fc.hErr)/(fc.frames + fc.hFrames)).toFixed(1) : null, turnBack:{n:turn.shed.length, medianS:med(turn.shed), p90S:pct(turn.shed, 0.9)}, holdTurnBack:{n:turn.hold.length, medianS:med(turn.hold), p90S:pct(turn.hold, 0.9)}}});
 }

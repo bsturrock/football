@@ -6,7 +6,7 @@ import { PLAYS } from './playbook.js';
 import { ALL, BODY_H, C, JOINTS, QB, RB, bodyV } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
-import { $, clamp, faceYaw } from './util.js';
+import { $, FACE_RATE, clamp, faceK, faceYaw } from './util.js';
 
 // ---------- animation ----------
 // joint signs: negative hip/shoulder = swing forward, positive knee = bend, positive lean/pitch = tip forward
@@ -58,8 +58,8 @@ function animate(p, dt){
   if(p.beatT > 0) p.beatT -= dt;
   const fy = faceYaw(p, ball, S);   // blockers square up to their man (a blocked defender to his blocker, with the lean) instead of facing where they move
   if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && (fy !== null || sp > 0.4)){
-    const d = (fy !== null ? fy : Math.atan2(p.vx, -p.vy)) - p.face;
-    p.face += Math.atan2(Math.sin(d), Math.cos(d))*Math.min(1, dt*14);
+    const d = (fy !== null ? fy : Math.atan2(p.vx, -p.vy)) - p.face, e = Math.atan2(Math.sin(d), Math.cos(d));
+    p.face += e*(fy !== null ? faceK(p, S, dt, e) : Math.min(1, dt*FACE_RATE));
   }
   const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*16), J = p.j;
   for(const j of JOINTS) P[j] += (T[j] - P[j])*k;

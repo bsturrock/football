@@ -282,7 +282,7 @@ export function defenseAI(d, dt){
         if(d.freeFrom !== o) pop(o, d, d.bt);
       }
       d.eng = o.eng = 0.15; sp *= 0.12;
-      d.faceAt = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends
+      d.faceAt = d.lastBlk = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends
       battle(d, o, c, dt);
     } else d.bt = null;
   } else d.bt = null;
