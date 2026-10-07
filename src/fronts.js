@@ -52,6 +52,24 @@ export const ALIAS = {
 const gapNear = (x, a, b) => (Math.abs(x) < a ? 'A' : Math.abs(x) < b ? 'B' : 'C') + (x < 0 ? 'W' : 'S');
 const LBX = [null, null, [-3.5, 3.5], [-4.5, 0, 4.5], [-6.5, -2.2, 2.2, 6.5]];
 
+// Backers of a personnel the call's table was not written for: they take exactly the gaps the linemen leave open, matched by x
+// (weak to strong); a side with no force gets one from its outermost backer (weak CW, strong DS); backers left over spill to the
+// gap by where they stand.
+const GAPS = ['CW', 'BW', 'AW', 'AS', 'BS', 'CS'], GAP_STR = {CW:-5.6, BW:-3.3, AW:-1.1, AS:1.1, BS:3.3, CS:5.6};
+function reshapeBackers(dl, xs){
+  const covered = new Set(dl.flatMap(s => [].concat(s.gap))), forces = dl.filter(s => s.role === 'force').map(s => String(s.gap));
+  const lb = xs.map(x => ({x, d:5, role:'gap', gap:null})).sort((a, b) => a.x - b.x), free = [...lb];
+  if(!forces.some(g => g.endsWith('W'))){ const w = free.shift(); w.role = 'force'; w.gap = 'CW'; covered.add('CW'); }
+  if(!forces.some(g => g.endsWith('S'))){ const st = free.pop(); st.role = 'force'; st.gap = 'DS'; }
+  GAPS.filter(g => !covered.has(g)).forEach(g => {
+    if(!free.length) return;
+    const b = free.reduce((a, c) => Math.abs(c.x - GAP_STR[g]) < Math.abs(a.x - GAP_STR[g]) ? c : a);
+    b.gap = g; free.splice(free.indexOf(b), 1);
+  });
+  free.forEach(b => { b.gap = gapNear(b.x, 1.5, 5.5); });   // spill: more backers than open gaps
+  return lb;
+}
+
 // Line the front up. `bodies` = {DL, LBs}; place(body, x, y) is state.js's. Sets d.spec = {role, gap | gaps} on every box
 // defender; DL and LBs are filled left to right on the field. blitzer = index among the LBs (left to right) that starts closer.
 // Returns the number of linemen and backers in the box (a rolled safety adds one: bear 8).
@@ -60,15 +78,10 @@ export function alignDefense(fr, call, flip, L, bodies, place, blitzer = -1){
   const alias = fr === FRONTS.nickel ? ALIAS[call.name] : null;
   let dl = fr.dl.map((s, i) => ({x:s[0], d:DL_DEPTH, role:alias ? alias[i][0] : s[1], gap:alias ? alias[i][1] : s[2]}));
   let lb = fr.lb.map((s, i) => ({x:s[0], d:s[1], role:alias ? alias[4 + i][0] : s[2], gap:alias ? alias[4 + i][1] : s[3]}));
-  if(DL.length !== dl.length){   // nickel with another personnel: legacy spacing, weak end forces, the rest by where they stand
-    dl = (DL.length === 4 ? [-5, -1.2, 1.2, 5] : [-4.5, 0, 4.5]).map((x, i) => ({x, d:DL_DEPTH, role:i ? 'gap' : 'force', gap:gapNear(x, 1.7, 4.2)}));
-    dl[0].gap = 'CW';
+  if(DL.length !== dl.length){   // nickel with a 3-man personnel: legacy spacing; weak end forces, the nose holds both A gaps, the strong end takes C
+    dl = [[-4.5, 'force', 'CW'], [0, 'two', ['AW', 'AS']], [4.5, 'gap', 'CS']].map(([x, role, gap]) => ({x, d:DL_DEPTH, role, gap}));
   }
-  if(LBs.length !== lb.length){
-    lb = LBX[LBs.length].map(x => ({x, d:5, role:'gap', gap:gapNear(x, 1.5, 5.5)}));
-    // the call's weak edge man was a backer the personnel no longer has: the weak-most backer takes it unless a lineman holds the weak edge
-    if(!dl.some(s => s.role === 'force' && String(s.gap).endsWith('W'))){ const w = lb.reduce((a, b) => b.x < a.x ? b : a); w.role = 'force'; w.gap = 'CW'; }
-  }
+  if(LBs.length !== lb.length) lb = reshapeBackers(dl, LBX[LBs.length]);
   const side = list => list.map(s => ({...s, ax:s.x*flip})).sort((a, b) => a.ax - b.ax);
   side(dl).forEach((s, i) => { const d = DL[i]; place(d, s.ax, L + s.d); d.spec = Array.isArray(s.gap) ? {role:s.role, gaps:s.gap} : {role:s.role, gap:s.gap}; });
   side(lb).forEach((s, i) => { const d = LBs[i]; place(d, s.ax, L + (i === blitzer ? 3.5 : s.d)); d.spec = {role:s.role, gap:s.gap}; });
