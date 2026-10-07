@@ -8,19 +8,36 @@ import { $ } from './util.js';
 
 const playIdx = n => PLAYS.findIndex(p => p.name === n);
 // B-007-13: the CPU calls like a play caller, not a flat spread: a base mix (the zone plays carry the game, the gimmicks are spice), then
-// down and distance, then the front. Slant sides are strength-relative (Left = weak, Right = strong): run away from the slant.
+// down and distance, then the front. Each situation is a table of {set, add, mul} on the weights, applied in that order, in the order below.
 const BASE = {'Inside Zone':1.6, 'Outside Zone':1.0, 'Duo':1, 'Power':1, 'Iso':0.6, 'Counter':0.7, 'Trap':0.4, 'Toss':0.5, 'Draw':0.35 /* B-007-12: broken, B-018 */};
+const SHORT_TG = 2, LONG_TG = 7;   // yards to go: at most SHORT_TG is short yardage, at least LONG_TG is long
 const SHORT_FORMS = ['22 Heavy', '21 I', '12 Under'], LONG_FORMS = ['11 Gun'];   // formation by situation, filtered to the play's own list
+const SHORT = {add:{'Inside Zone':1.5, Power:1.5, Duo:1.5, Iso:1, Trap:1}, set:{Toss:0.3, Draw:0.3}};   // short yardage: downhill
+const LONG = {add:{'Outside Zone':0.9, Toss:0.6, Draw:0.3, Power:-0.4, Duo:-0.4, Iso:-0.2}};   // long: stretch, or a draw against the pass shell
+const STACKED = {add:{'Outside Zone':0.6, Draw:0.25, Toss:0.3}, mul:{Power:0.5, Counter:0.5}};   // odd and bear fronts: no pulling into a stacked middle, get outside or draw it
+const EIGHT = {add:{'Outside Zone':1.2, Draw:0.3}, mul:{Power:0.7}};   // Eight in the Box: get outside the extra man
+const BLITZ = {add:{'Outside Zone':0.6, Draw:0.15, Counter:0.3}};   // any blitz: get outside the blitzer, or counter the over-pursuit
+// Slant sides are strength-relative (Left = weak, Right = strong): run away from the slant. Counter (against Slant Left) and Trap (against
+// Slant Right) are the exceptions on purpose: a line slanting hard gives up the cutback, so a misdirection or trap play is a real answer.
+const SLANT_L = {add:{'Outside Zone':1.2, Toss:0.6, Power:-0.6, Counter:0.5}};   // weak slant: strong-side plays
+const SLANT_R = {add:{Power:1.3, Trap:0.6, Counter:0.5}, mul:{'Outside Zone':0.6}};   // strong slant: weak-side plays
+const WEIGHT_MIN = 0.05;
+function apply(w, t){
+  if(!t) return;
+  for(const n in t.set) w[n] = t.set[n];
+  for(const n in t.add) w[n] += t.add[n];
+  for(const n in t.mul) w[n] *= t.mul[n];
+}
 function cpuWeights(){
-  const w = {...BASE}, call = S.defCall.name, front = S.front, tg = S.toGo;
-  if(tg <= 2){ w['Inside Zone'] += 1.5; w['Power'] += 1.5; w['Duo'] += 1.5; w['Iso'] += 1; w['Trap'] += 1; w['Toss'] = 0.3; w['Draw'] = 0.3; }   // short yardage: downhill
-  if(tg >= 7){ w['Outside Zone'] += 0.9; w['Toss'] += 0.6; w['Draw'] += 0.3; w['Power'] -= 0.4; w['Duo'] -= 0.4; w['Iso'] -= 0.2; }   // long: stretch, or a draw against the pass shell
-  if(front === 'odd' || front === 'bear'){ w['Power'] *= 0.5; w['Counter'] *= 0.5; w['Outside Zone'] += 0.6; w['Draw'] += 0.25; w['Toss'] += 0.3; }   // no pulling into a stacked middle: get outside or draw it
-  if(call === 'Eight in the Box'){ w['Outside Zone'] += 1.2; w['Draw'] += 0.3; w['Power'] *= 0.7; }   // get outside the extra man
-  if(call === 'Run Blitz' || call === 'Safety Blitz' || call.includes('Blitz')){ w['Outside Zone'] += 0.6; w['Draw'] += 0.15; w['Counter'] += 0.3; }   // get outside the blitzer, or counter the over-pursuit
-  if(call === 'Slant Left'){ w['Outside Zone'] += 1.2; w['Toss'] += 0.6; w['Power'] = Math.max(0.2, w['Power'] - 0.6); w['Counter'] += 0.5; }   // weak slant: strong-side plays
-  if(call === 'Slant Right'){ w['Power'] += 1.3; w['Trap'] += 0.6; w['Counter'] += 0.5; w['Outside Zone'] *= 0.6; }   // strong slant: weak-side plays
-  for(const n in w) w[n] = Math.max(0.05, w[n]);
+  const w = {...BASE}, call = S.defCall.name;
+  if(S.toGo <= SHORT_TG) apply(w, SHORT);
+  if(S.toGo >= LONG_TG) apply(w, LONG);
+  if(S.front === 'odd' || S.front === 'bear') apply(w, STACKED);
+  if(call === 'Eight in the Box') apply(w, EIGHT);
+  if(call.includes('Blitz')) apply(w, BLITZ);
+  if(call === 'Slant Left') apply(w, SLANT_L);
+  if(call === 'Slant Right') apply(w, SLANT_R);
+  for(const n in w) w[n] = Math.max(WEIGHT_MIN, w[n]);
   return w;
 }
 function cpuCall(){
@@ -32,7 +49,7 @@ function cpuCall(){
 // the formation from the play's own list: heavy sets in short yardage, the gun to throw-shaped downs, else the list's choice stays
 function cpuForm(play){
   if(!play.forms) return null;
-  const want = S.toGo <= 2 ? SHORT_FORMS : S.toGo >= 7 ? LONG_FORMS : null;
+  const want = S.toGo <= SHORT_TG ? SHORT_FORMS : S.toGo >= LONG_TG ? LONG_FORMS : null;
   const ok = want && want.filter(f => play.forms.includes(f));
   return ok && ok.length ? ok[Math.floor(Math.random()*ok.length)] : null;
 }
