@@ -6,7 +6,7 @@ import { PLAYS } from './playbook.js';
 import { ALL, BODY_H, C, G, JOINTS, QB, RB, bodyV } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
-import { $, BLOCK_D, BODY_W, FACE_RATE, clamp, faceYaw } from './util.js';
+import { $, BLOCK_D, BODY_W, FACE_RATE, LOCK_D, clamp, faceYaw } from './util.js';
 
 // ---------- animation ----------
 // joint signs: negative hip/shoulder = swing forward, positive knee = bend, positive lean/pitch = tip forward
@@ -161,7 +161,10 @@ function animate(p, dt){
   const q = p.engW > 0.01 && partnerOf(p);
   p.yawK = (p.yawK || 0) + (((q ? 1 : 0)) - (p.yawK || 0))*k;
   if(q) p.sq = Math.atan2(q.rx - p.rx, (50 - q.ry) - (50 - p.ry));
-  p.mesh.position.set(p.rx, 0, 50 - p.ry); p.mesh.rotation.y = p.yawK > 0.001 && p.sq != null ? p.face + p.yawK*Math.atan2(Math.sin(p.sq - p.face), Math.cos(p.sq - p.face)) : p.face;
+  // and drawn pushed back along the pair axis so the pair is BLOCK_D apart on screen while the sim keeps LOCK_D; the push blends with the yaw (about 0.1 s at engage and shed)
+  if(q){ const ax = p.x - q.x, ay = p.y - q.y, al = Math.hypot(ax, ay) || 1; p.pushX = ax/al; p.pushY = ay/al; }
+  const off = (p.yawK || 0)*(BLOCK_D - LOCK_D)/2, ox = (p.pushX || 0)*off, oy = (p.pushY || 0)*off;
+  p.mesh.position.set(p.rx + ox, 0, 50 - (p.ry + oy)); p.mesh.rotation.y = p.yawK > 0.001 && p.sq != null ? p.face + p.yawK*Math.atan2(Math.sin(p.sq - p.face), Math.cos(p.sq - p.face)) : p.face;
   p.mesh.updateMatrixWorld(true);
 }
 // ---------- pair check (B-031) ----------
@@ -200,7 +203,7 @@ export function pairCheck(){
     const b = d.team === 'D' && !d.ph && d.bt, o = b && b.o;
     if(!o || !o.mesh || !engaged(d)) continue;
     const ri = pdInside(d, o), rj = pdInside(o, d), n = k => (ri[k] + rj[k]) > 0;
-    pd.frames++; pd.dSim.push(Math.hypot(d.x - o.x, d.y - o.y)); pd.dRen.push(Math.hypot(d.rx - o.rx, d.ry - o.ry));
+    pd.frames++; pd.dSim.push(Math.hypot(d.x - o.x, d.y - o.y)); pd.dRen.push(Math.hypot(d.mesh.position.x - o.mesh.position.x, d.mesh.position.z - o.mesh.position.z));
     pd.headBody += n('head'); pd.padBody += n('pad'); pd.armBody += n('arm'); pd.headHead += n('hh'); pd.armArm += n('aa'); pd.any += n('head') || n('pad') || n('arm') || n('hh') || n('aa');
   }
 }

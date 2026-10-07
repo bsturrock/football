@@ -3,7 +3,7 @@ import { runRef } from './offense.js';
 import { isBody, physOn } from './physics.js';
 import { ALL, TE } from './players.js';
 import { S } from './state.js';
-import { BLOCK_D, HW, clamp, dist, rand, sigmoid } from './util.js';
+import { HW, LOCK_D, clamp, dist, rand, sigmoid } from './util.js';
 
 // ---------- line battle ----------
 // A battle is a loop of discrete moves:
@@ -20,7 +20,7 @@ export function unface(d){
 // B-023 engagement lock: a pair in a battle is one unit. Each frame the pair's axis (b.ang, the bearing blocker -> defender, 0 = straight upfield) turns
 // toward its leverage axis (the defender's gap side, LEV_ANGLE off upfield) or, in a swim move, around the blocker's shoulder; the defender's spot is then the
 // blocker's plus CONTACT_D along the axis, pulled there at LOCK_K (1/s), split by mass. The defender never steers himself while the battle lives (defense.js).
-const CONTACT_D = BLOCK_D, LOCK_K = 60, LEV_ANGLE = 18*Math.PI/180, LEV_RATE = 40*Math.PI/180, LEV_REACH = 70*Math.PI/180, SWIM_RATE = 70*Math.PI/180;
+const CONTACT_D = LOCK_D, LOCK_K = 60, LEV_ANGLE = 18*Math.PI/180, LEV_RATE = 40*Math.PI/180, LEV_REACH = 70*Math.PI/180, SWIM_RATE = 70*Math.PI/180;
 const DRIVE_SET = 0.3, DRIVE_RECOVER = 0.7, DRIVE_RAMP_T = 0.3, CARRY_T = 0.3;   // B-023 rebalance: drive strength per phase (x o.push); the drive builds in over DRIVE_RAMP_T s; the pair first coasts on the momentum of the hit (b.cv, set by defense.js pop), fading over CARRY_T s, so a defender's charge carries before the drive takes over
 const OL_BIAS = -0.8, REC_LO = 0.4, REC_HI = 0.8, SET_LO = 0.2, SET_HI = 0.4;   // the win-roll offset for a linemen's run block (was -1.4), the recovery and set times (s; were 0.8-1.4)
 const wrapA = a => Math.atan2(Math.sin(a), Math.cos(a));

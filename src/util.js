@@ -2,10 +2,10 @@ export const HW = 26.665, MAX_DRIVES = 6, PX = 16;
 // B-021: the body scale pair (players.js draws every body with it, physics.js builds its boxes from it) and the radius within which bodies count as a pile.
 // Here, with no imports, so sim.js can read them before the seed (it must not import players.js).
 export const BODY_H = 0.92, BODY_W = 0.7, PILE_R = 1.3*BODY_W;
-// B-031: the hip-to-hip distance of a blocker and the defender he is locked with (blocking.js CONTACT_D) and the spacing the engaged pose is built for (animation.js).
-// Derived from the crouched pose (lean 0.8 rad, drop 0.34): each man's pad front is about 0.58 yd and his helmet front 0.83 yd ahead of his hip, so two chest plates just
-// meet at 1.16 and the hands sit between them; 1.3 leaves a hand's width and keeps the helmets (offset to opposite sides) from touching.
-export const BLOCK_D = 1.4;
+// B-031: two hip-to-hip distances for a locked blocker and defender. LOCK_D is the simulated one (blocking.js CONTACT_D): the lock, the reach and tackle radii and the run band
+// are all tuned on it. BLOCK_D is the drawn one (animation.js): the crouched pose puts each man's pad front about 0.6-0.7 yd and his helmet about 0.83 yd ahead of his hip, so two
+// men 0.75 apart pass through each other; at 1.4 the plates meet with the hands between them. Each man is drawn pushed (BLOCK_D - LOCK_D)/2 back along the pair axis.
+export const LOCK_D = BODY_W + 0.05, BLOCK_D = 1.4;
 export const $ = id => document.getElementById(id);
 export const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 export const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
