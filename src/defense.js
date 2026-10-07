@@ -27,7 +27,7 @@ const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
 const ENGAGED_D = 0.91;   // B-021: a defender locks onto a blocker this close (was 1.3, x0.7 body width)
 // B-021: run-fit windows on the old 2.2 yd line grid, carried onto the new one (x GRID_K): the backside stay-home line, the gap fill window, the contain offsets and the outflanked margin
-const BACK_HOME_X = 1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K;
+const BACK_HOME_X = 1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K, CHASE_X = 2*GRID_K, ALLEY_X = 1*GRID_K;   // CHASE_X: the ball is this far to the backside of the force man, he chases; ALLEY_X: the ball is this far to the alley man's side, he fills
 const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
 
 // pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
@@ -177,10 +177,10 @@ function runFit(d, c){
       if(by < L + 1.5 && Math.abs(bx - j.gx) < FILL_DX) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze
       return inside();
     case 'force':
-      if(bx*s < -2) return [px - dir*1 + e, Math.max(py, by)];  // ball went away and past los+3: backside chase
+      if(bx*s < -CHASE_X) return [px - dir*1 + e, Math.max(py, by)];  // ball went away and past los+3: backside chase
       return contain(s);
     case 'alley':
-      if(bx*s > 1 || by > L + 1) return inside();               // ball committed to my side: fill the alley
+      if(bx*s > ALLEY_X || by > L + 1) return inside();               // ball committed to my side: fill the alley
       return [bx*0.5 + j.gx*0.5, L + 6];
     case 'deep':
       if(dist(d, c) > 8) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it

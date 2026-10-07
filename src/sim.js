@@ -10,7 +10,7 @@ import { HOLD_R, PILE_R, bearing, faceLean, faceYaw, holdsBlocker } from './util
 const SQUARE_DEG = 25, FACE_V = 0.4, FACE_RATE = 14, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
-// sim.js first and its only import is ratings.js (and via it util.js), neither of which rolls at load, so player ratings and masses (rolled at load) are seeded too.
+// sim.js first and its imports (ratings.js, formations.js, roster.js, util.js) are pure and roll nothing at load, so player ratings and masses (rolled at load) are seeded too.
 const Q = new URLSearchParams(location.search);
 if(Q.has('sim')) seedRandom(Number(Q.get('seed')) || 1);
 function seedRandom(seed){

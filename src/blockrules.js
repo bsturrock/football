@@ -49,7 +49,6 @@ import { dist } from './util.js';
 //   free      (end)                                                         p.pull.state stays 'free' for the play
 // B-021: the windows below were written on the old 2.2 yd line grid; GK (formations.js GRID_K) carries them onto the new line grid (OL_GAP 1.35 yd): x0.61.
 // KICK_X is a shoulder width, so it takes the body width (x0.7) instead.
-export { BOX_X };
 export const ENGAGE_R = 0.98;   // B-021: two bodies this close are locked up (was 1.4, x0.7 body width); offense.js and blockrules read it
 export const PULL_V = 1.3, PULL_DEPTH = 1.8, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, PLAYSIDE_X = 1.5*GK, KICK_X = 0.35, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
 // Re-read on a stunt (B-007-9). A slant counts as a crossing stunt for the re-read and for the WRONG roll (every line man's gap moves); a blitz does not. Per lineman p.rr = {state, d, home, t, acc, miss}; set at the snap for a man whose target is a stunting defender (crossing stunt: d.stunt, not a blitzer).
