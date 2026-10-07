@@ -20,7 +20,7 @@ const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 //   bubble, becomes ball holder -> tackle body: bubble off, wx/wy cleared, tackleUpdate steers and releases him
 //   over BODY_CAP (a tackle made bodies after the join pass): capTrim steps bubble bodies out, upright ones first, then the farthest
 //   getting up  tackle body, ph.getUp: bal rises 1.2/s; bal 1 and upright and slow -> physOff; for the ball holder tackleUpdate clears getUp (tackling.js runner states), other bodies keep it until physOff
-//   contact     p.hitT = phClock whenever an opposing body touches him or grips him (physTouch); physClear resets it; physDownC = on the turf and hitT within CONTACT_T
+//   contact     p.hitT = phClock whenever an opposing body touches him or grips him (physTouch); physClear resets it; physDownC = on the turf (or physPropped, B-008: resting on other bodies) and hitT within CONTACT_T
 //   leaving     bubble body whose ragdolls are all past BUBBLE_OUT: after BUBBLE_CLEAR s, upright and slow, physOff
 const BUBBLE_IN = 2.5*BODY_W, BUBBLE_OUT = 4*BODY_W, BUBBLE_CLEAR = 0.5, BODY_CAP = 14, BUBBLE_RESERVE = 3, BUBBLE_JOINS = 3, KEEP_BIAS = 0.8;   // reserve: slots kept free for the bodies a tackle makes next
 // upright and settled: spine y above UPRIGHT_Y, spinning under UPRIGHT_W rad/s, torso above UPRIGHT_H yd (shared with tackling.js)
@@ -28,6 +28,10 @@ export const UPRIGHT_Y = 0.95, UPRIGHT_W = 2, UPRIGHT_H = 1.1*BODY_H;
 const PLANT_HOLD = 0.4;   // feature (pile-push): tackler's plant and drive x this while a pile pushes with more offensive than defensive pushers (the bigger side wins the surge)
 const DRIVE_T = 0.1;   // a drive lapses this long after the last physDrive call
 const ELBOW_DOWN_Y = 0.1*BODY_H, CONTACT_T = 1.0;   // down: forearm's elbow end below ELBOW_DOWN_Y yd; a defender must have touched him within CONTACT_T s
+// B-008/B-010 (propped + flat settle): a runner whose body lies on other players' bodies and never reaches the turf is down by contact all the same.
+// PROP rule: his torso center lower than PROP_Y x BODY_H yd and slower than PROP_V yd/s, with a down-counting part (not a hand, forearm or shin) touching another player's body, for PROP_T s -> physPropped (counts as a part on the turf in physDownC).
+// SETTLE: a fallen body (bal 0, on the turf or the dead ball) for SETTLE_T s gets a torque that rolls his spine toward horizontal (SETTLE_K 1/s^2 x inertia, damped) so piles lie flat instead of propped on end.
+const PROP_Y = 0.9, PROP_V = 1.5, PROP_T = 0.3, PROP_FRESH = 0.1, SETTLE_T = 0.25, SETTLE_K = 150;
 const YAW_K = 150, YAW_MAX = 1.5, HEADING_MIN = 0.4;   // yaw hold: spring gain, max error (rad), slowest speed (yd/s) that sets a heading
 export const isBody = p => !!p.ph && !p.ph.bubble;
 // name, rig pivot, parent, box size, center in pivot frame, mass share, joint limits [x],[y],[z] (rad,
@@ -97,7 +101,7 @@ export function physOn(p, o={}){
     b.addShape(new CANNON.Box(new CANNON.Vec3(sz[0]/2, sz[1]/2, sz[2]/2)));
     b.position.set(c.x, c.y, c.z); b.quaternion.copy(toC(tq));
     b.velocity.set(vx*k + sp.x*c.y, up, -(vy*k + sp.y*c.y)); b.angularVelocity.copy(w);
-    b.pl = p; PW.addBody(b); return b;
+    b.pl = p; b.pi = PARTS.indexOf(d); PW.addBody(b); return b;
   });
   const joints = PARTS.map((d, i) => {
     if(!d.p) return null;
@@ -182,7 +186,7 @@ function rotVec(q, out){
 }
 function physMuscles(p, ph){
   // athletes never go limp: braced while falling or fighting, still holding posture once down
-  const tone = ph.rest ? 0.55 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
+  const tone = ph.rest ? 0.35 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
   PARTS.forEach((d, i) => {
     if(!d.p) return;
     const pb = ph.bodies[PI_[d.p]], cb = ph.bodies[i];
@@ -303,7 +307,7 @@ export function physStep(dt){
     phAcc -= PH_DT;
     for(const p of PHYS){
       const ph = p.ph, c = ball.state === 'held' ? ball.holder : null;
-      physMuscles(p, ph);
+      physMuscles(p, ph); if(ph.fallT > SETTLE_T) physSettle(ph);
       for(const g of ph.grips) if(g.on.team !== p.team) g.on.hitT = phClock;   // his hands on the runner count as contact
       if(ph.reach){ ph.reach.t += PH_DT; physReach(p); }
       if(p.latch && p.latch.ph && S.phase === 'live'){   // tackler: plant against his motion and drive through him
@@ -320,7 +324,8 @@ export function physStep(dt){
       else physLegs(p, ph, p.vx, -p.vy, p.acc);
     }
     PW.step(PH_DT); phClock += PH_DT;
-    for(const q of PW.contacts){ const a = q.bi.pl, b = q.bj.pl; if(a && b && a.team !== b.team) a.hitT = b.hitT = phClock; }   // opposing bodies touching
+    for(const q of PW.contacts){ const a = q.bi.pl, b = q.bj.pl; if(a && b && a.team !== b.team) a.hitT = b.hitT = phClock;   // opposing bodies touching
+      if(a && b && a !== b){ if(PROP_PART[q.bi.pi]) a.ph.propT = phClock; if(PROP_PART[q.bj.pi]) b.ph.propT = phClock; } }   // a down-counting part resting on another player
     // speed rail: no part moves faster than a sprinter or gets launched skyward
     for(const p of PHYS) for(const b of p.ph.bodies){
       const v = b.velocity, sp = Math.hypot(v.x, v.y, v.z); if(sp > 10){ v.x *= 10/sp; v.y *= 10/sp; v.z *= 10/sp; }
@@ -328,8 +333,28 @@ export function physStep(dt){
       const w = b.angularVelocity, ws = w.length(); if(ws > 14){ w.x *= 14/ws; w.y *= 14/ws; w.z *= 14/ws; }
     }
   }
-  for(const p of PHYS){ const t = p.ph.bodies[0]; p.x = t.position.x; p.y = 50 - t.position.z;
+  for(const p of PHYS){ const ph = p.ph, t = ph.bodies[0]; physMeasure(p, ph, dt); p.x = t.position.x; p.y = 50 - t.position.z;
     if(!(ball.state === 'held' && ball.holder === p)){ p.vx = t.velocity.x; p.vy = -t.velocity.z; } }
+}
+const PROP_PART = PARTS.map(d => !(d.n === 'snL' || d.n === 'snR' || d.n === 'faL' || d.n === 'faR'));
+// once per frame: time off his feet (fallT), propped time (propFor), and what the sim reads: spine.y (tilt), torso top (topY, yd), touched
+function physMeasure(p, ph, dt){
+  const t = ph.bodies[0], q = t.quaternion, he = t.shapes[0].halfExtents;
+  const sy = q.vmult(new CANNON.Vec3(0, 1, 0)).y, ex = q.vmult(new CANNON.Vec3(he.x, 0, 0)), ey = q.vmult(new CANNON.Vec3(0, he.y, 0)), ez = q.vmult(new CANNON.Vec3(0, 0, he.z));
+  ph.spineY = sy; ph.topY = t.position.y + Math.abs(ex.y) + Math.abs(ey.y) + Math.abs(ez.y);
+  ph.touched = physTouched(p);
+  ph.fallT = ph.bal <= 0 && !ph.getUp ? (ph.fallT || 0) + dt : 0;   // time off his feet, on the turf or not (a body propped on others settles too)
+  const slow = Math.hypot(t.velocity.x, t.velocity.y, t.velocity.z) < PROP_V;
+  ph.propFor = ph.bal <= 0 && !physDown(p) && t.position.y < PROP_Y*BODY_H && slow && phClock - (ph.propT ?? -99) < PROP_FRESH ? (ph.propFor || 0) + dt : 0;
+}
+// settle: roll the spine toward the horizontal plane (its own heading kept), damped
+function physSettle(ph){
+  const tb = ph.bodies[0], s = tb.quaternion.vmult(new CANNON.Vec3(0, 1, 0)), h = Math.hypot(s.x, s.z);
+  if(h < 0.05) return;   // spine near vertical: no horizontal heading to roll toward (the heading could seed a nudge; left out, it tips over by itself)
+  const ax = s.y*s.z/h - 0, az = -s.y*s.x/h;   // spine x (heading, 0): rotation axis, in x and z
+  tw.set(ax, 0, az); tb.quaternion.conjugate(qc); qc.vmult(tw, rv); qc.vmult(tb.angularVelocity, dw);
+  const I = tb.inertia; tw.set(I.x*(SETTLE_K*rv.x - 2*6*dw.x), I.y*(SETTLE_K*rv.y - 2*6*dw.y), I.z*(SETTLE_K*rv.z - 2*6*dw.z));
+  tb.quaternion.vmult(tw, tw); tb.torque.vadd(tw, tb.torque);
 }
 // geometry: down when any part but a hand or foot touches the turf (head, knee, elbow end of the forearm, upper arm,
 // thigh/hip, torso). Hand end of the forearm and the shins' foot end never count.
@@ -351,7 +376,11 @@ export function physDown(p){
 export const physTouch = p => { p.hitT = phClock; };   // a hand on him from an animated defender counts as contact
 export const physTouched = (p, w = CONTACT_T) => phClock - (p.hitT ?? -99) <= w;   // w: how recent (rules.js asks for a shorter window)
 // the runner's down: a part is on the turf and he was touched (an untouched stumble isn't down, he gets up)
-export const physDownC = p => physDown(p) && physTouched(p);
+// sim.js reads body state only through these (B-008/B-010): pose {fallT s off his feet, spineY torso up-axis y (1 upright, 0 flat), topY torso top yd, touched}, and the torso's horizontal speed yd/s
+export const physPose = p => ({fallT:p.ph.fallT || 0, spineY:p.ph.spineY, topY:p.ph.topY, touched:p.ph.touched});
+export const physSpeed = p => p.ph ? Math.hypot(p.ph.bodies[0].velocity.x, p.ph.bodies[0].velocity.z) : 0;
+export const physPropped = p => !!p.ph && (p.ph.propFor || 0) >= PROP_T;
+export const physDownC = p => (physDown(p) || physPropped(p)) && physTouched(p);
 // pile.js drives a body through his legs for DRIVE_T s (vx, vy game yd/s; a = leg acceleration): a push is a wanted velocity, never a position
 export const physDrive = (p, vx, vy, a) => { if(p.ph) p.ph.drv = {vx, vy, a, until: phClock + DRIVE_T}; };
 export const physBall = p => { const v = p.ph.bodies[PI_.faR].pointToWorldFrame(new CANNON.Vec3(...bodyV([0, -0.08, 0.13]))); return tv.set(v.x, v.y, v.z); };

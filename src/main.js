@@ -11,7 +11,7 @@ import { routeGroup } from './markers.js';
 import { steer } from './movement.js';
 import { offenseAI } from './offense.js';
 import { pileUpdate } from './pile.js';
-import { physBall, physCount, physDown, physInit, physRender, physStep } from './physics.js';
+import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender, physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DEF, OFF, QB, RB } from './players.js';
 import { heldBallPos, endPlay, newGame, nextPlay, trackProgress } from './rules.js';
@@ -97,7 +97,7 @@ function start(data){
   const q = new URLSearchParams(location.search);
   selectPlay(0); setupPlay();
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
-  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
     if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
   requestAnimationFrame(frame);

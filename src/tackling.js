@@ -1,5 +1,5 @@
 import { callout, toast } from './hud.js';
-import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physDownC, physGrip, physOff, physOn, physTouch, physTouched, physUngrip } from './physics.js';
+import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physDownC, physGrip, physPropped, physOff, physOn, physTouch, physTouched, physUngrip } from './physics.js';
 import { BODY_W, DEF, QB } from './players.js';
 import { endPlay } from './rules.js';
 import { S } from './state.js';
@@ -13,7 +13,7 @@ import { clamp, dist, rand } from './util.js';
 // The runner keeps his legs (bal) and drives on; a grip only holds as much force as the tackler's hands,
 // so a strong runner tears out of an arm tackle. Takedown progress (tackler ratings vs break-tackle) bleeds
 // his balance; when it's gone he falls the way the forces on him send him.
-// Down (NFL): any part but a hand or foot on the turf AND a defender touched him within CONTACT_T (physics.js). An untouched
+// Down (NFL): any part but a hand or foot on the turf (or his body resting on other players' bodies: physPropped, physics.js, B-010) AND a defender touched him within CONTACT_T (physics.js). An untouched
 // runner on the turf is not down: he gets up and runs on.
 // Runner states (c = ball holder), every row has its transition in tackleUpdate:
 //   run        no fall; contact or off balance (up < 0.6, or down by contact) -> falling; back upright and slow -> physOff
@@ -84,7 +84,7 @@ export function tackleUpdate(c, dt){
     // until he's down, anyone who gets there piles on
     for(const d of DEF) if(!d.latch && !isBody(d) && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6*BODY_W) joinPile(d, c, dist(d, c) || 1);
     c.fallAge += dt;
-    const down = !!c.ph && physDown(c), by = down && physTouched(c), ups = c.ph ? c.ph.getUps || 0 : 0;   // physDown once per frame
+    const down = !!c.ph && (physDown(c) || physPropped(c)), by = down && physTouched(c), ups = c.ph ? c.ph.getUps || 0 : 0;   // physDown once per frame
     if(!down) c.fallT = 0;
     // on the turf with no defender on him for CONTACT_T: not down, he gets up and runs on (GETUP_MAX tries, then the play ends: never a hang)
     else if(!by && !DEF.some(d => d.latch === c) && c.ph.t > FALL_SETTLE && ups < GETUP_MAX && (c.fallT = (c.fallT || 0) + dt) > GETUP_WAIT){
