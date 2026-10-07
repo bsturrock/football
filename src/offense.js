@@ -10,7 +10,7 @@ import { dist } from './util.js';
 export function runRef(){
   const c = ball.state === 'held' ? ball.holder : null, play = PLAYS[S.play];
   if(c && (c !== QB || !play.run)) return c;
-  return {x:play.hole || 0, y:S.los + 1};
+  return {x:S.hole || 0, y:S.los + 1};
 }
 // nearest defender in front of the runner that no teammate is already blocking
 function pickBlock(p, ref){
