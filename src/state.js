@@ -109,6 +109,7 @@ export function setupPlay(keep = false){
   drawFits();
   RB.auto = false;
   OFF.forEach(o => { o.blk = null; o.dbl = null; o.ruled = false; o.lane = null; o.via = null; o.pull = null; o.rr = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  S.bust = [];   // B-032-2 (bust-roll)
   S.blkEv = []; S.blkStunt = false;   // B-007-9: stunt re-read events (blockrules.js)
   S.pulls = [];   // feature (pulls): B-007-8, the pull log resets with the blockers
   ball.state = 'pre'; ball.holder = null; ball.target = null;
