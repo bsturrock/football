@@ -5,9 +5,10 @@ import { drawFits, drawRoutes, routeGroup } from './markers.js';
 import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
 import { chooseForm, lineUp } from './formations.js';
+import { FRONTS, SS_ROLL, alignDefense } from './fronts.js';
 import { DEF_CALLS, PLAYS, orient } from './playbook.js';
 import { CBs, DEF, DL, EXTRA, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
-import { DEFAULT_PERS, persName, subIn } from './roster.js';
+import { persName, subIn } from './roster.js';
 import { fdLine, losLine } from './scene.js';
 import { $, HW, clamp, rand } from './util.js';
 
@@ -29,7 +30,6 @@ function formation(){
 // personnel for the next play: forced by the sim (?pers=, ?dpers=), else the page URL, else 11 and nickel
 const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 const forced = key => (S.force && S.force[key]) || URLQ.get(key);
-const want = (kind, key) => persName(kind, forced(key) || DEFAULT_PERS[kind]) || DEFAULT_PERS[kind];
 function assignRoutes(){
   const play = PLAYS[S.play];
   RECV.forEach((w, i) => {
@@ -54,34 +54,40 @@ function place(p, x, y){
 export function setupPlay(){
   physClear();
   const form0 = chooseForm(PLAYS[S.play].src.under, forced('form'), persName('off', forced('pers')));
-  subIn(form0.pers, want('def', 'dpers'));   // dead ball: the formation's personnel and the defense's take the field
+  // the defensive call and its front first: the front brings its personnel (a ?dpers= only reshapes a nickel-front call)
+  const dp = forced('dpers') ? persName('def', forced('dpers')) : null;   // a forced ?dpers= limits the random call to fronts of that personnel and nickel-front calls (they reshape to it)
+  const pool = dp ? DEF_CALLS.filter(c => c.front === 'nickel' || FRONTS[c.front].pers === dp) : DEF_CALLS;
+  const call = S.defCall = (S.force && S.force.front && DEF_CALLS.find(c => c.name === S.force.front)) || pool[Math.floor(Math.random()*pool.length)], fr = FRONTS[call.front];   // feature (sim-force)
+  subIn(form0.pers, call.front === 'nickel' && dp ? dp : fr.pers);   // dead ball: the formation's personnel and the defense's take the field
   const L = S.los;
   S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity; S.read = null; pileReset();
   const sd = String(forced('side') || '').toUpperCase();   // one side per play (a play change before the snap keeps it): ?side=L|R, else the coin
   S.flip = sd === 'L' ? -1 : sd === 'R' ? 1 : Math.random() < 0.5 ? -1 : 1;
   formation();
-  (DL.length === 4 ? [-5, -1.2, 1.2, 5] : [-4.5, 0, 4.5]).forEach((x, i) => place(DL[i], x, L+1.1));
   DL.forEach(d => { d.mode = 'rush'; });
+  // a corner lines up on the receiver of his number; the spare one (nickel against 12, 21 or 22: no third WR) takes the second tight end,
+  // else the fullback, from a weak slot nine yards out
+  const spare = [...EXTRA].sort((a, b) => (a.pos === 'TE' ? 0 : 1) - (b.pos === 'TE' ? 0 : 1))[0] || RB;
   CBs.forEach((c, i) => {
-    const w = WRs[i] || RECV[i]; place(c, w.x - Math.sign(w.x)*0.6, L + (i===2 ? 5 : 6));
+    const w = WRs[i] || spare;
+    if(WRs[i]) place(c, w.x - Math.sign(w.x)*0.6, L + (i===2 ? 5 : 6)); else place(c, -S.flip*9, L + 5);
     c.mode = 'cover'; c.assign = w; c.cushion = rand(1.0, 2.4);
   });
   SFs.forEach((s, i) => { s.side = i ? 1 : -1; place(s, s.side*10, L+13); s.mode = 'deep'; });
   // react: delay before breaking on a thrown ball; read: delay after the handoff before chasing the runner
   DEF.forEach(d => { d.fit = null; d.react = rand(0.15, 0.45); d.read = d.role === 'DL' ? rand(0.2, 0.35) : rand(0.25, 0.5); });
 
-  // defensive call -> run fits. Every defender gets a job (see RUN FITS below); placement is the alignment.
-  const rnd = DEF_CALLS[Math.floor(Math.random()*DEF_CALLS.length)], call = S.defCall = (S.force && S.force.front && DEF_CALLS.find(c => c.name === S.force.front)) || rnd;   // feature (sim-force)
+  // defensive call -> front -> run fits. Every defender gets a job (see RUN FITS in defense.js); placement is the alignment.
   const blitzer = call.blitz ? Math.floor(Math.random()*2) : -1;
-  const LBX = [[-3.5, 3.5], [-4.5, 0, 4.5], [-6.5, -2.2, 2.2, 6.5]][LBs.length - 2];   // 4-2-5, 4-3-4, 3-4-4
+  S.front = call.front;
+  const inBox = alignDefense(fr, call, S.flip, L, {DL, LBs}, place, blitzer);
   LBs.forEach((b, i) => {
-    const blitz = i === blitzer;
-    place(b, LBX[i], blitz ? L+3.5 : L+5);
-    b.assign = i < 2 ? (i ? RB : TE) : (EXTRA[i-2] || RB); b.mode = blitz ? 'rush' : 'cover'; b.cushion = 0.6;
+    b.assign = i < 2 ? (i ? RB : TE) : (EXTRA[i-2] || RB); b.mode = i === blitzer ? 'rush' : 'cover'; b.cushion = 0.6;
   });
-  DEF.forEach(d => { d.job = {role:'gap', gx:clamp(d.x, -5.6, 5.6), side:Math.sign(d.x) || 1}; });   // a default job for a body the front table has no slot for (the 3rd and 4th LB); assignFits overwrites the rest
-  const boxS = call.box ? SFs[Math.floor(Math.random()*2)] : null;
-  if(boxS) place(boxS, boxS.side*4.5, L+6);
+  DEF.forEach(d => { d.job = {role:'gap', gx:clamp(d.x, -5.6, 5.6), side:Math.sign(d.x) || 1}; });   // a default job for a body the front has no slot for; assignFits overwrites the rest
+  const boxS = fr.roll ? SFs.find(s => s.side === S.flip) : call.box ? SFs[Math.floor(Math.random()*2)] : null;   // a safety who rolls into the box: the strong one in a bear
+  if(boxS) place(boxS, boxS.side*SS_ROLL.x, L + SS_ROLL.d);
+  S.box = inBox + (boxS ? 1 : 0);
   assignFits(call, boxS);
   S.handoffAt = Infinity;
   drawFits();

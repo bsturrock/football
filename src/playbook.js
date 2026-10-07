@@ -2,12 +2,19 @@ import { cvs } from './scene.js';
 import { selectPlay } from './state.js';
 import { $ } from './util.js';
 
+// Defensive calls. `front` names the table in fronts.js. The first five are today's calls, kept as aliases on the nickel front (their
+// fits are fronts.js ALIAS); the rest are real fronts with their own personnel (4-3 base, 3-4 odd) and fits. blitz / box flags as before.
 export const DEF_CALLS = [
-  {name:'Base',             note:'Linemen hold their gaps, linebackers read and fill'},
-  {name:'Slant Left',       note:'Whole line slants one gap to your left'},
-  {name:'Slant Right',      note:'Whole line slants one gap to your right'},
-  {name:'Run Blitz',        note:'One linebacker shoots his gap at the snap', blitz:true},
-  {name:'Eight in the Box', note:'A safety rolls down and the linebackers trigger fast', box:true}
+  {name:'Base',             front:'nickel', note:'Linemen hold their gaps, linebackers read and fill'},
+  {name:'Slant Left',       front:'nickel', note:'Whole line slants one gap to the weak side'},
+  {name:'Slant Right',      front:'nickel', note:'Whole line slants one gap to the strong side'},
+  {name:'Run Blitz',        front:'nickel', note:'One linebacker shoots his gap at the snap', blitz:true},
+  {name:'Eight in the Box', front:'nickel', note:'A safety rolls down and the linebackers trigger fast', box:true},
+  {name:'Nickel',           front:'nickel', note:'Four down, two linebackers, three corners'},
+  {name:'4-3 Over',         front:'over',   note:'Line shifts to the tight end, Sam on the edge'},
+  {name:'4-3 Under',        front:'under',  note:'Line shifts away from the tight end, Sam on him'},
+  {name:'3-4 Odd',          front:'odd',    note:'Three linemen hold two gaps, four linebackers stand up'},
+  {name:'Bear',             front:'bear',   note:'Eight in the box: stacked middle, a safety rolled down', box:true}
 ];
 // ---------- playbook ----------
 // route points: [yards toward the middle, yards downfield from the line]

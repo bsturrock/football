@@ -10,7 +10,7 @@ export function updateHUD(){
   $('down').textContent = downText();
   $('spot').textContent = S.los > 50 ? `OPP ${100-S.los}` : S.los < 50 ? `OWN ${S.los}` : '50';
   $('drive').textContent = `${Math.min(S.drive, MAX_DRIVES)} / ${MAX_DRIVES}`;
-  if(S.defCall) $('defcall').textContent = S.defCall.name;
+  if(S.defCall) $('defcall').textContent = S.defCall.name + (S.box ? ' · ' + S.box : '');   // the call and the men in the box
 }
 export function warn(msg){ const el = $('warn'); el.textContent = msg; el.classList.add('on'); }   // persistent: stays until reload
 export function banner(h, p){ $('bannerH').textContent = h; $('bannerP').textContent = p || ''; $('banner').classList.add('on'); }
