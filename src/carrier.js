@@ -139,7 +139,11 @@ function openField(p, dt){
 // (a pulling blocker is ahead; the back tucks FOLLOW_BEHIND yd behind his hip at his pace, closing a gap at up to sprint) ; contact (a defender latched, or touched with
 // 2+ bodies within PILE_R, and not down) keeps at least DRIVE_V x spd of wanted velocity upfield (rd.cn, see steerVel above), whatever his lane says. Contact ends when the grip and the bodies are gone.
 const STALL_V = 0.25, FOLLOW_STALL_V = 1, FOLLOW_STALL_T = 0.5, FOLLOW_BEHIND = 0.6, FOLLOW_Y = 2, FOLLOW_NEAR = 3.5, DRIVE_V = 0.6;   // PILE_R: util.js
-const pullerOf = () => { const k = Object.keys(PLAYS[S.play].pulls || {})[0]; return ({LT, LG, C, RG, RT})[k] || null; };   // the first puller the play names
+const pullerOf = () => {
+  const w = (S.pulls || []).find(u => u.kind === 'wrap' && u.p.role === 'OL');   // B-030 (power-counter): the back follows the wrapper (Counter: the tackle behind the kicker), else the first puller the play names
+  if(w) return w.p;
+  const k = Object.keys(PLAYS[S.play].pulls || {})[0]; return ({LT, LG, C, RG, RT})[k] || null;
+};
 const ballY = p => p.ph ? 50 - physBall(p).z : p.y;
 function followPuller(p, dt){
   const rd = p.rd, q = rd.pull;

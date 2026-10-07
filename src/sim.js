@@ -15,8 +15,8 @@ import { BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from '.
 //   bodiesMax: total physics body count; pile counters count tackle/ragdoll bodies only (p.ph && !p.ph.bubble)
 //   physMs {median/p95}: NOT reliable here (performance.now does not advance in one synchronous task): never compare; use ?debug in a real browser for frame and physics ms
 //   read {n: zone plays decided, noDecision: stuffed before deciding, wrongPct: share not the noiseless best lane, choices {name: {n, ypc}}, wrongYpc, rightYpc} (from S.read)
-//   blk {front: {slot: {target label: n}}} (B-030): S.blk at the snap per defensive front, the target labels from blockrules.js labels() (DL0.. left to right, LB0.., CB, S);
-//     pullReach {"slot kind": {n, reached, pct}}: pullers per slot and kind, and how many got within ENGAGED of the target at some point in the play (p.pull.reach set)
+//   blk {"front R|L": {slot: {target label: n}}} (B-030): S.blk at the snap per defensive front and flip (R = tight end right), keyed by the rule slot (the play's base side: a flipped play's LT is the base RT), the target labels from blockrules.js labels() (DL0.. left to right on the field, LB0.., CB, S);
+//     pullReach {"slot kind" (base slot): {n, reached, pct}}: pullers per slot and kind, and how many got within ENGAGED of the target at some point in the play (p.pull.reach set)
 //   force; byPlay; boxMean; freeBox
 //   blkEv {stuntPlays: plays with a crossing stunt (slants count) at the snap, passed, missed, wrong}: blockers' stunt re-read events from S.blkEv
 //   calls {play: n}, byFront {front: {play: n}}, slant {'Slant Left','Slant Right': {play: n}}: what the CPU called (B-007-13)
@@ -189,7 +189,7 @@ export function runSim(n, step, g){
   const olRecog = Q.has('olrecog') ? Number(Q.get('olrecog')) : null, blkEv = {stuntPlays:0, passed:0, missed:0, wrong:0};   // B-007-9: force OL+TE awareness; count the re-read events
   const setRecog = () => { if(olRecog === null) return; [...ROSTER.O.filter(r => r.pos === 'OL' || r.pos === 'TE'), ...OFF.filter(o => o.pos === 'OL' || o.pos === 'TE')].forEach(r => { r.rt.recog = olRecog; }); };
   setRecog();
-  const blkLog = {}, pullReach = {};   // B-030
+  const blkLog = {}, pullReach = {}, MIRROR_SLOT = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'}, slotOf = nm => S.flip > 0 ? nm : MIRROR_SLOT[nm] || nm;   // B-030: the rule slot (the play's base side), whichever way the play flipped
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
     shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); DEF.forEach(p => { p.towT = undefined; });
@@ -199,7 +199,7 @@ export function runSim(n, step, g){
       const c = ball.state === 'held' ? ball.holder : null;
       if(S.phase === 'live' && c){
         const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; tally(calls, pname); tally(byFront[S.front] || (byFront[S.front] = {}), pname); tally(byCall[S.defCall.name] || (byCall[S.defCall.name] = {}), pname);
-          const bf = blkLog[S.front] || (blkLog[S.front] = {}); for(const [nm, tg] of Object.entries(S.blk || {})){ const bs = bf[nm] || (bf[nm] = {}); bs[tg] = (bs[tg] || 0) + 1; }
+          const bf = blkLog[S.front + ' ' + (S.flip > 0 ? 'R' : 'L')] || (blkLog[S.front + ' ' + (S.flip > 0 ? 'R' : 'L')] = {}); for(const [nm, tg] of Object.entries(S.blk || {})){ const bn = slotOf(nm), bs = bf[bn] || (bf[bn] = {}); bs[tg] = (bs[tg] || 0) + 1; }
           pullsNow = (S.pulls || []).slice(); }   // B-007-13: call shares overall, per front, per defensive call
         endY = y;
         if(c === RB && !measured){   // the back gets the ball: count the box, and who is free in it
@@ -218,7 +218,7 @@ export function runSim(n, step, g){
       }
     }
     closeWin();
-    for(const u of pullsNow){ const r = pullReach[u.name + ' ' + u.kind] || (pullReach[u.name + ' ' + u.kind] = {n:0, reached:0}); r.n++; if(u.p.pull && u.p.pull.reach !== null) r.reached++; }
+    for(const u of pullsNow){ const pk = slotOf(u.name) + ' ' + u.kind, r = pullReach[pk] || (pullReach[pk] = {n:0, reached:0}); r.n++; if(u.p.pull && u.p.pull.reach !== null) r.reached++; }
     fieldO = fieldCounts(OFF); fieldD = fieldCounts(DEF);   // who was on the field for this play (pos counts), the last play's printed
     const timedOut = S.phase !== 'dead';   // hit PLAY_MAX_S: counted in timeouts, left out of yards
     if(timedOut) timeouts++;
