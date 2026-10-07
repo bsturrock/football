@@ -1,7 +1,7 @@
 import { battle, pancakeHit } from './blocking.js';
 import { burst } from './carrier.js';
 import { steer, steerVel } from './movement.js';
-import { FRONTS, gapX } from './fronts.js';
+import { FRONTS, STUNTS, SAFETY_D, VIA_NEAR, safetyJob, gapX, stuntStep } from './fronts.js';
 import { PLAYS } from './playbook.js';
 import { CBs, DEF, DL, LBs, OFF, QB, RB, RECV, SFs } from './players.js';
 import { isBody } from './physics.js';
@@ -89,6 +89,8 @@ export function assignFits(call, boxS){
       d.job = {role:'two', gx:d.x, gl:a, gr:b, side:Math.sign(d.x) || f};
     }
   });
+  DEF.forEach(d => { d.stunt = null; });
+  box.forEach(d => { const st = d.spec && d.spec.stunt; if(st){ d.stunt = {st:'aligned', via:st.via || null, t0:0, blitz:!!st.blitz}; if(st.blitz) d.mode = 'rush'; } });
   const [sl, sr] = [...SFs].sort((a, b) => a.x - b.x);
   const strongS = f > 0 ? sr : sl, weakS = strongS === sr ? sl : sr;
   // the strong edge (tight end side) belongs to a safety unless the front already put a man there
@@ -110,10 +112,16 @@ export function assignFits(call, boxS){
   } else {
     strongS.job = strongForce ? {role:'alley', gx:gapX('DS', f).x, side:f} : {role:'force', gx:gapX('DS', f).x + f, side:f};
     weakS.job = {role:'deep', side:0};
+    if(call.stunt && STUNTS[call.stunt].kind === 'safety'){   // strong safety blitz: down to depth 7, through the strong C gap
+      const sj = safetyJob(strongForce);
+      strongS.job = {role:sj.role, gx:gapX(sj.gap, f).x, side:f};
+      strongS.x = gapX(sj.gap, f).x + f; strongS.y = L + SAFETY_D; strongS.rx = strongS.x; strongS.ry = strongS.y;   // the drawn mesh follows, no glide
+      strongS.stunt = {st:'aligned', via:null, t0:0, blitz:true}; strongS.mode = 'rush';
+    }
   }
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
-    d.read = d.mode === 'rush' && d.role === 'LB' ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
+    d.read = (d.mode === 'rush' && d.role === 'LB') || (d.stunt && d.stunt.blitz) ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
     d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0;
     d.home = Math.random() >= HOME_P*lack(d, 'pursuit');                // discipline: a poor pursuer abandons the backside early
     d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
@@ -122,8 +130,19 @@ export function assignFits(call, boxS){
   });
   S.flow0 = RB.x;
 }
+// Stunt states (fronts.js stuntStep): aligned holds his spot until STUNT_T, looping runs the waypoint, gap attacks his new gap until
+// the handoff, then free (normal fit). Returns null once free.
+function stuntFit(d){
+  const s = d.stunt, L = S.los, v = s.via, vy = v && L + v.dy;
+  stuntStep(s, S.clock, !!v && Math.hypot(v.x - d.x, vy - d.y) < VIA_NEAR, S.clock > S.handoffAt);
+  if(s.st === 'aligned') return [d.x, d.y];
+  if(s.st === 'looping') return [v.x, vy];
+  if(s.st === 'gap') return [d.job.gx, L + 0.5];
+  return null;
+}
 // where the job sends him this frame
 function runFit(d, c){
+  if(d.stunt){ const t = stuntFit(d); if(t) return t; }
   let j = d.job; const L = S.los, bx = c.x, by = c.y;
   if(S.clock <= S.handoffAt + d.read + d.bite){
     // before the read: linemen attack their gap, second level read-steps with the backfield, the rest hold
