@@ -1,6 +1,6 @@
 import { callout, toast } from './hud.js';
 import { UPRIGHT_H, UPRIGHT_W, UPRIGHT_Y, gripGap, gripStrain, isBody, physBall, physDown, physDownC, physGrip, physOff, physOn, physTouch, physTouched, physUngrip } from './physics.js';
-import { DEF, QB } from './players.js';
+import { BODY_W, DEF, QB } from './players.js';
 import { endPlay } from './rules.js';
 import { S } from './state.js';
 import { clamp, dist, rand } from './util.js';
@@ -82,7 +82,7 @@ export function tackleUpdate(c, dt){
   if(c.ph && c.ph.getUp && (c.falling || DEF.some(d => d.latch === c))) c.ph.getUp = false;   // tackled mid get-up: his legs don't come back
   if(c.falling){
     // until he's down, anyone who gets there piles on
-    for(const d of DEF) if(!d.latch && !isBody(d) && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6) joinPile(d, c, dist(d, c) || 1);
+    for(const d of DEF) if(!d.latch && !isBody(d) && !(d.stun > 0) && !d.bt && dist(d, c) < 1.6*BODY_W) joinPile(d, c, dist(d, c) || 1);
     c.fallAge += dt;
     const down = !!c.ph && physDown(c), by = down && physTouched(c), ups = c.ph ? c.ph.getUps || 0 : 0;   // physDown once per frame
     if(!down) c.fallT = 0;
@@ -99,7 +99,7 @@ export function tackleUpdate(c, dt){
     const dd = dist(d, c);
     if(d.bt){
       // blocked: can't tackle, but can reach out and grab a piece of him as he goes by
-      if(dd < 1.6 && !(d.reachCool > 0)){
+      if(dd < 1.6*BODY_W && !(d.reachCool > 0)){
         d.reachCool = 1.0;
         const juke = clamp((c.latAcc - 4)/6, 0, 1);
         if(Math.random() < 0.6*(d.rTkl/80)*(1 - juke*0.5)*(70/c.rBrk)){
@@ -109,11 +109,11 @@ export function tackleUpdate(c, dt){
       }
       continue;
     }
-    if(dd > 1.3){
+    if(dd > 1.3*BODY_W){
       // open field (past the line, no blocker on him): a defender closing within 2 yd dives at him.
       // The physics decides whether his hands get there; if not he comes up empty.
       const close = ((c.x - d.x)*(d.vx - c.vx) + (c.y - d.y)*(d.vy - c.vy))/dd;
-      if(dd > 2 || close < 1 || c.y < S.los + 2) continue;
+      if(dd > 2*BODY_W || close < 1 || c.y < S.los + 2) continue;
     }
     attemptTackle(d, c, dd);
     if(S.phase !== 'live' || c.falling) return;

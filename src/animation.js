@@ -3,7 +3,7 @@ import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
 import { physBall } from './physics.js';
 import { PLAYS } from './playbook.js';
-import { ALL, C, JOINTS, QB, RB } from './players.js';
+import { ALL, BODY_H, C, JOINTS, QB, RB, bodyV } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
 import { $, clamp, faceYaw } from './util.js';
@@ -66,7 +66,7 @@ function animate(p, dt){
   J.torso.rotation.set(P.lean, P.twist, 0);
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   J.shL.rotation.set(P.shL, 0, 0.12); J.shR.rotation.set(P.shR, 0, -0.12); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
-  p.body.position.y = P.bob - P.drop + Math.abs(P.pitch)*0.15;
+  p.body.position.y = (P.bob - P.drop + Math.abs(P.pitch)*0.15)*BODY_H;   // B-021: poses are in rig yards
   p.body.rotation.x = P.pitch;
   // drawn position eases to the simulated one: contact shoves and block pushes read as motion, not a twitch
   const k2 = 1 - Math.exp(-dt*22);
@@ -75,7 +75,7 @@ function animate(p, dt){
   p.mesh.updateMatrixWorld(true);
 }
 const tmpV = new THREE.Vector3();
-const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(x, y, z));
+const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units
 export function syncScene(dt){
   ALL.forEach(p => animate(p, dt));
   // ball
@@ -89,7 +89,7 @@ export function syncScene(dt){
     if(c === QB && S.charging) ballMesh.position.copy(handPos(c, -0.5, 2.3, -0.35));
     else if(c === QB && !S.runMode) ballMesh.position.copy(handPos(c, 0, 1.5, 0.45));
     else if(c.ph) ballMesh.position.copy(physBall(c));
-    else ballMesh.position.copy(c.j.elR.localToWorld(tmpV.set(0, -0.28, 0.13)));   // in the ball hand, moving with the arm
+    else ballMesh.position.copy(c.j.elR.localToWorld(tmpV.set(...bodyV([0, -0.28, 0.13]))));   // in the ball hand, moving with the arm
   }
   else if(ball.state === 'air'){
     const a = ballPos(Math.min(ball.t, 1)), b = ballPos(Math.min(ball.t + 0.02, 1.02));
