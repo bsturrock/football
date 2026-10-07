@@ -63,7 +63,7 @@ export const PLAYS = [
    alt:{under:{shift:-1, mesh:[0.5,-2.6], path:[[-0.7,-3.0],[-1.1,0.5],[-1.1,8]]}}},   // under center: the old Dive, mirrored to the strong-side-away A gap
   // B-030 Power / Counter (the reference "Who blocks whom"), written for the weak-side hole (-x) with the tight end +x, read against the front by blockrules.js. Per slot, so a scheme-knowledge rating can hang off each rule later.
   //   playside (LT, LG, C): the guard doubles the nose with the center when he is uncovered (odd), else takes the man on him; the tackle joins the guard's man ('cov': even front, the end man stays for the kick-out)
-  //   or, with nobody to join, blocks down; the center blocks back (the nearest line man away from the hole, else the gap the puller left); the backside tackle / tight end block the man on them.
+  //   or, with nobody to join, blocks down; the center blocks back (the nearest line man away from the hole; none = the next rule); the backside tackle / tight end block the man on them.
   // Power: no fullback = the backside guard kicks out (as before) and nobody wraps; with the kick-out man already taken (a second tight end on the edge) he wraps to the playside backer.
   {name:'Power', run:'hand', scheme:'man', hole:-3.6, forms:['21 I', '11 Under', '12 Under'], mesh:[-0.3,-2.8],
    rules:{LT:PWR_LT, LG:PWR_LG, C:[['back']], RG:[need(['pull','wrap','ps'], 'FB'), not(['pull','kick'], 'FB'), not(['pull','wrap','ps'], 'FB')], RT:[['on'],['backer','near']], TE:[['on'],['down']],   // RT: no 'down', the kick-out man is the fullback's
