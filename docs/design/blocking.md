@@ -20,3 +20,10 @@ Blocks on the line should look and play like real football: blockers arrive with
 - Run-mode bias: OL and TE get a -1.4 offset on the win sigmoid (fire-out), receivers +0.3 (stalk blocks shed easily).
 - Constants: blocking.js MOVE_TIME 0.45, PANCAKE_AT 6.5; blockrules.js ENGAGED 1.4; defense.js AVOID_CONE 30, AVOID_DIST 2.5, AVOID_T 0.5, FIGHT_QUICK 0.15.
 - Physics engine calls stay in physics.js, tackling.js and pile.js (CLAUDE.md design rule, user L-1006-146).
+- Why defenders rotate (PM read, 2026-10-07): facing is set per frame in animation.js:59-62 from `p.faceAt` if set, else from velocity (speed over 0.4). Blockers get `faceAt` = their man (offense.js:33), so they square up. Defenders get `faceAt` only in a tackle (tackling.js), never while blocked, so a blocked defender faces wherever he is moving: sideways while stepping around, and toward his own end zone while driven back at 2-3 yd/s. Leverage is already shown by position (offense.js:36 shoulder offset; defense.js `lev`), not facing.
+
+## Proposal (asked 2026-10-07)
+
+- While engaged (`p.eng > 0` or in a battle), the defender's `faceAt` is his blocker, so both face each other square; a drive back moves the pair without turning them; leverage shows as the shoulder offset, with at most a small cap (about 20 deg) on how far either turns off square; facing frees on shed or release.
+- Physics bodies (bubble yaw, physics.js:230) follow the same `faceAt`, so no extra physics work.
+- The drill page (B-019) is where the user judges before and after.
