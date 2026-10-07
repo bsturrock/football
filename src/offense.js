@@ -72,7 +72,7 @@ function runBlock(p, dt){
   if(play.run && p.lane != null) zoneBlock(p, dt); else block(p, dt);
 }
 function olAssign(p){
-  if(p !== C) return DL[[LT, LG, RG, RT].indexOf(p)];
+  if(p !== C) return DL[[LT, LG, RG, RT].indexOf(p)] || DL.reduce((a, b) => dist(b, p) < dist(a, p) ? b : a);   // 3-man front: the fourth blocker takes the nearest lineman
   const blitzer = LBs.find(b => b.mode === 'rush');
   return blitzer || (dist(DL[1], QB) < dist(DL[2], QB) ? DL[1] : DL[2]);
 }
