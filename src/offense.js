@@ -1,4 +1,4 @@
-import { BEHIND_Y, ENGAGE_R, PULL_V, PULL_VIA_R, climbCheck, pullCheck, rereadCheck } from './blockrules.js';
+import { BEHIND_Y, CLIMB_LANE_DX, ENGAGE_R, LANE_DX, ZONE_KEEP, PULL_V, PULL_VIA_R, climbCheck, pullCheck, rereadCheck } from './blockrules.js';
 import { autoCarry, burst } from './carrier.js';
 import { GRID_K } from './formations.js';
 import { keys } from './input.js';
@@ -53,12 +53,12 @@ function block(p, dt){
 function zoneBlock(p, dt){
   const ref = runRef(), lane = p.lane;
   let d = p.blk;
-  if(!(d && d.stun <= 0 && (p.locked || p.ruled || Math.abs(d.x - lane) < 3*GRID_K))){
+  if(!(d && d.stun <= 0 && (p.locked || p.ruled || Math.abs(d.x - lane) < ZONE_KEEP))){
     d = null; p.locked = false; p.ruled = false; let bd = 1e9;
     for(const e of DEF){
       if(e.stun > 0 || claimed(p, e) || e.y < p.y - BEHIND_Y) continue;
       const dx = Math.abs(e.x - lane), dy = e.y - S.los;
-      if(!((dy < 3.5 && dx < 1.8*GRID_K) || (p.climbing && dy < 9 && dx < 6*GRID_K))) continue;
+      if(!((dy < 3.5 && dx < LANE_DX) || (p.climbing && dy < 9 && dx < CLIMB_LANE_DX))) continue;
       const k = dist(e, p); if(k < bd){ bd = k; d = e; }
     }
     p.blk = d;

@@ -106,7 +106,7 @@ export function resolvePass(){
     }
     return catchBall(w, 'Caught!');
   }
-  if(dD < 1.3) return r < 0.4 ? endPlay('int') : endPlay('inc', 0, 'Knocked down');
+  if(dD < 1.3*BODY_W) return r < 0.4 ? endPlay('int') : endPlay('inc', 0, 'Knocked down');
   endPlay('inc');
 }
 function catchBall(w, msg){

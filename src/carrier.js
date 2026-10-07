@@ -1,12 +1,11 @@
 import { runRoute, steerVel as steer0 } from './movement.js';
 import { PLAYS } from './playbook.js';
 import { GRID_K } from './formations.js';
-import { PILE_R } from './pile.js';
 import { ALL, BODY_W, C, DEF, LG, LT, OFF, RG, RT } from './players.js';
 import { isBody, physBall, physDown, physTouched } from './physics.js';
 import { lack } from './ratings.js';
 import { S } from './state.js';
-import { HW, clamp, dist, rand } from './util.js';
+import { HW, PILE_R, clamp, dist, rand } from './util.js';
 
 // ---------- ball carrier AI ----------
 // Everything is a race: for a spot on the field, how much sooner does he get there than the quickest defender
@@ -139,7 +138,7 @@ function openField(p, dt){
 // p.rd.fs, one runner per play (place() clears p.rd): free (no puller, or he has engaged or the back is past los+FOLLOW_Y) <-> following; done (the puller stood under FOLLOW_STALL_V for FOLLOW_STALL_T s without engaging: never follows again)
 // (a pulling blocker is ahead; the back tucks FOLLOW_BEHIND yd behind his hip at his pace, closing a gap at up to sprint) ; contact (a defender latched, or touched with
 // 2+ bodies within PILE_R, and not down) keeps at least DRIVE_V x spd of wanted velocity upfield (rd.cn, see steerVel above), whatever his lane says. Contact ends when the grip and the bodies are gone.
-const STALL_V = 0.25, FOLLOW_STALL_V = 1, FOLLOW_STALL_T = 0.5, FOLLOW_BEHIND = 0.6, FOLLOW_Y = 2, FOLLOW_NEAR = 3.5, DRIVE_V = 0.6;   // PILE_R: pile.js
+const STALL_V = 0.25, FOLLOW_STALL_V = 1, FOLLOW_STALL_T = 0.5, FOLLOW_BEHIND = 0.6, FOLLOW_Y = 2, FOLLOW_NEAR = 3.5, DRIVE_V = 0.6;   // PILE_R: util.js
 const pullerOf = () => { const k = Object.keys(PLAYS[S.play].pulls || {})[0]; return ({LT, LG, C, RG, RT})[k] || null; };   // the first puller the play names
 const ballY = p => p.ph ? 50 - physBall(p).z : p.y;
 function followPuller(p, dt){

@@ -4,8 +4,8 @@ import { GRID_K as K, OL_GAP } from './formations.js';
 // spec into a run-fit job. Everything is written in STRENGTH coordinates: +x is the strong side (the tight end's side), -x the weak
 // side. S.flip (1: tight end right) mirrors it onto the field, so side=L and side=R are mirror images.
 // Techniques (x from the center, the OL stand at 0, +-OL_GAP, +-2 OL_GAP and the tight end at +-3 OL_GAP):
-//   0 = C, 1 = G shaded 0.7 in, 2 = G, 3 = G shaded 0.8 out, 4 = T, 4i = T shaded 0.7 in, 5 = T shaded 0.8 out,
-//   7 = TE shaded 0.8 in, 9 = TE shaded 1.0 out
+//   0 = C, 1 = G shaded 0.45 in, 2 = G, 3 = G shaded 0.5 out, 4 = T, 4i = T shaded 0.45 in, 5 = T shaded 0.5 out,
+//   7 = TE shaded 0.5 in, 9 = TE shaded 0.6 out
 // B-021: the line grid is formations.js's OL_GAP (1.35 yd, was 2.2): guards at 1 gap, tackles at 2, the tight end at 3. K (formations.js GRID_K) scales a number written
 // on the old 2.2 grid (the nickel and linebacker x's below) onto it; the techniques are rebuilt from the grid and the body width (shade = about
 // a half body, 0.45-0.5 yd, was 0.7-0.8).
@@ -15,7 +15,7 @@ export const DL_DEPTH = 0.8, LB_DEPTH = 4.5, LB_DEPTH_WEAK = 5.0, EDGE_DEPTH = 1
 export const SS_ROLL = {x:4.5*K, d:6};   // the rolled-down safety (bear, eight in the box), strength x
 // gaps, offense's view: A beside the center, B outside the guards, C outside the tackles, D outside the tight end. Names carry the
 // strength: 'AS' = A gap strong, 'CW' = C gap weak. x is on the field.
-const GAP_X = {A:0.5*OL_GAP, B:1.5*OL_GAP, C:2.5*OL_GAP, D:3*OL_GAP + 0.8};
+export const GAP_X = {A:0.5*OL_GAP, B:1.5*OL_GAP, C:2.5*OL_GAP, D:3*OL_GAP + 0.8};
 export function gapX(name, flip){
   const w = name[1] === 'W', side = (w ? -1 : 1)*flip;
   return {x:side*GAP_X[name[0]], side};

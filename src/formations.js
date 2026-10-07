@@ -7,6 +7,7 @@
 // OL_BACK yd behind the line (their helmets at the ball). fronts.js builds its alignment grid from the same OL_GAP.
 export const OL_GAP = 1.35, OL_BACK = 0.5, OLD_GAP = 2.2;
 export const GRID_K = OL_GAP/OLD_GAP;   // a lateral number written on the old 2.2 yd line grid (a gap x, a hole, a lane window) times this sits on the new one
+export const BOX_X = 8*GRID_K;   // the box's half width (blockrules.js's 'any' rule, sim.js's boxMean)
 const TE_X = 3*OL_GAP;
 const WR_X = [-20, 20, -11];   // WR slots by index; a personnel with fewer receivers uses the first ones
 export const FORMS = [

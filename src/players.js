@@ -1,4 +1,5 @@
 import { scene } from './scene.js';
+import { BODY_H, BODY_W } from './util.js';
 import { bindSlots, rateRosters, subIn } from './roster.js';
 
 // ---------- players ----------
@@ -6,7 +7,7 @@ import { bindSlots, rateRosters, subIn } from './roster.js';
 // B-021: the rig is drawn at 1 unit = 1 yd but its numbers below are the old 2.3 yd figure; one scale pair turns them into an NFL body
 // (about 2.1 yd with helmet, 0.7 yd at the pads). BODY_H scales every vertical size and offset, BODY_W every width, depth and sideways offset.
 // physics.js applies the same pair to its boxes (PARTS) so mesh and collider stay one shape.
-export const BODY_H = 0.92, BODY_W = 0.7;
+export { BODY_H, BODY_W };   // the pair itself lives in util.js
 export const box = (w, h, d, x=0, y=-h/2, z=0) => new THREE.BoxGeometry(w*BODY_W, h*BODY_H, d*BODY_W).translate(x*BODY_W, y*BODY_H, z*BODY_W);
 export const bodyV = ([x, y, z]) => [x*BODY_W, y*BODY_H, z*BODY_W];   // a rig-unit offset or size (x, y, z) in yards
 export const G = {
