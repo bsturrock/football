@@ -18,7 +18,7 @@ import { DBL_R, dist, rand } from './util.js';
 // Leverage and blockers (B-006-6). Per defender per play: avoid = {st, o, until, lat}, st 'avoid' | 'fight'
 //   pursuing  default: runFit target
 //   avoiding  a blocker sits in the AVOID_CONE within AVOID_DIST of his path (checked every AVOID_EVERY s) and he lost the FIGHT_P roll:
-//             steps around to his leverage side (outside for the force man, toward the ball for the rest) for AVOID_T s
+//             steps around to his leverage side (outside for the force man and a support man who took the force job, toward the ball for the rest) for AVOID_T s
 //   fighting  won the FIGHT_P = shed/99 - 0.3 roll: runs straight through the blocker, quick shed move on contact
 //   held      engaged (d.bt): the line battle owns him; avoid state cleared
 // Backside (ball away from his side, not past los+BACK_L): stays home near his gap unless the runner closes within BACK_D
@@ -129,7 +129,7 @@ export function assignFits(call, boxS){
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
     d.read = (d.mode === 'rush' && d.role === 'LB') || (d.stunt && d.stunt.blitz) ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
-    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0;
+    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false;
     d.home = Math.random() >= HOME_P*lack(d, 'pursuit');                // discipline: a poor pursuer abandons the backside early
     d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
@@ -180,7 +180,7 @@ function runFit(d, c){
       if(by < L + 1.5 && Math.abs(bx - j.gx) < FILL_DX) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze
       return inside();
     case 'force':
-      if(bx*s < -CHASE_X) return [px - dir*1 + e, Math.max(py, by)];  // ball went away and past los+3: backside chase
+      if(bx*s < -CHASE_X) return [px - dir*1 + e, Math.max(py, by)];  // ball is CHASE_X to my backside: chase (any depth)
       return contain(s);
     case 'alley':
       if(bx*s > ALLEY_X || by > L + 1) return inside();               // ball committed to my side: fill the alley
@@ -191,7 +191,8 @@ function runFit(d, c){
     case 'support': {
       const f = DEF.find(o => o.job && o.job.role === 'force' && o.job.side === s);
       const outflanked = !f || f.bt || f.stun > 0 || isBody(f) || (bx - f.x)*s > OUTFLANKED_X;
-      if(bx*s > 0 && outflanked) return contain(s);            // my side, force man beaten: I'm the force now
+      d.actForce = bx*s > 0 && outflanked;                      // B-009: while he holds the force job avoidBlockers sets the edge for him too
+      if(d.actForce) return contain(s);                        // my side, force man beaten: I'm the force now (actForce, so avoidBlockers sets the edge too)
       return d.bt ? [px, py] : coverTarget(d);
     }
   }
@@ -219,13 +220,14 @@ function avoidBlockers(d, c, tx, ty){
   if(!best) return [tx, ty];
   let fight = Math.random() < Math.max(0, Math.min(1, d.rt.shed/99 - 0.3));
   const j = d.job, ox = best.x - d.x, oy = best.y - d.y;
-  const outX = j.role === 'force' ? j.side : Math.sign(c.x - d.x) || 1;       // outside for the force man, toward the ball for the rest
+  const force = j.role === 'force' || d.actForce;   // B-009: a support man who took over the force job counts
+  const outX = force ? j.side : Math.sign(c.x - d.x) || 1;       // outside for the force man (or whoever took over), toward the ball for the rest
   let lat = [-hy/hl, hx/hl];                                    // perpendicular to his heading
   if(Math.abs(lat[0]) < 0.3) lat = [outX, 0];                   // heading sideways: pick the side by x directly
   else if(lat[0]*outX < 0) lat = [-lat[0], -lat[1]];
   const toBlk = ox*lat[0] + oy*lat[1];
   if(toBlk > 0.3){                                              // the blocker sits on my leverage side
-    if(j.role === 'force') fight = true;                        // the force man never gives up the edge: through him
+    if(force) fight = true;                                     // the force man never gives up the edge: through him
     else lat = [-lat[0], -lat[1]];
   }
   d.avoid = {st:fight ? 'fight' : 'avoid', o:best, until:S.clock + AVOID_T, lat};
