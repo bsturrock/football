@@ -53,7 +53,7 @@ function targetPose(p, sp){
 // whose blocker won the get-off (phase 'recover') is driven back, sitting higher. Visual only: reads battle state, never writes it.
 const ENG_K = 24, ENG_HEAD = 0.6, DRIVE_V = 0.8, CHURN_SP = 6;   // pose blend rate (95% in 0.125 s), head-up share of the lean, pair speed (yd/s) that counts as driving, stride speed (yd/s) the legs churn at
 const engaged = p => !!p.bt || p.eng > 0;
-const driving = p => !!p.bt && (p.bt.phase === 'recover' || Math.hypot(p.vx, p.vy) > DRIVE_V) && (p.team === 'O' || p.bt.phase === 'move' || p.bt.phase === 'recover');
+const driving = p => p.team === 'O' ? (!!p.bt && p.bt.phase === 'recover') || Math.hypot(p.vx, p.vy) > DRIVE_V : !!p.bt && (p.bt.phase === 'move' || p.bt.phase === 'recover') && Math.hypot(p.vx, p.vy) > DRIVE_V;   // offense: by speed (also a double team's second man, p.eng only); defense: his battle's move or recover phase while moving
 function engagedPose(T, p, s, cs){
   const ph = p.x*1.7 + p.y*2.3, w = performance.now()/1000, fight = Math.sin(w*9 + ph), fight2 = Math.sin(w*7.3 + ph*1.9);
   const ph2 = p.bt && p.team === 'D' ? p.bt.phase : null, mv = p.bt && p.bt.move;
