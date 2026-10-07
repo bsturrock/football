@@ -59,7 +59,7 @@ const field = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, 120), new THREE.MeshL
 field.rotation.x = -Math.PI/2;
 scene.add(field);
 // yard lines as meshes (a 0.11 yd line is under 2 px of the 16 px/yd texture and would alias); MSAA keeps them steady
-const lineMat = new THREE.MeshBasicMaterial({color:0xffffff, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
+const lineMat = new THREE.MeshBasicMaterial({color:0xffffff, polygonOffset:true, polygonOffsetFactor:0, polygonOffsetUnits:-1});
 for(let yd = 0; yd <= 100; yd += 5){
   const m = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, YARD_LINE_W), lineMat);
   m.rotation.x = -Math.PI/2; m.position.set(0, 0.01, 50 - yd); scene.add(m);
