@@ -1,11 +1,11 @@
-import { KEYS } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
+import { KEYS, MENTAL } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
 import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './util.js';
 
 // ---------- SIM OUTPUT FIELDS (the one line in <pre id="simout">; CLAUDE.md "Sim check" points here) ----------
 // Run: ?sim=N&seed=S (same seed, same line). Force params: &play=<run play>&front=<defensive call> (case-insensitive; an unknown or pass play gives {"error":...}), &form=&side=L|R
-// (echoed only until B-007-3/4), &olrecog=N (every OL and TE recog, re-applied after each team regen), &pers=11|12|21|22 and &dpers=nickel|base|odd (aliases 4-2-5, 4-3-4, 3-4-4; also work
+// (echoed only until B-007-3/4), &olrecog=N (every OL and TE recog, re-applied after each team regen), &know=N (B-032-4: zone/gap/pass of every OL, TE and FB, same re-apply), &pers=11|12|21|22 and &dpers=nickel|base|odd (aliases 4-2-5, 4-3-4, 3-4-4; also work
 // on a normal page load; unknown gives {"error":...}). The dump is written when the sim finishes: ~35-40 s for N=100 under swiftshader (~0.4 s a play; N=300 wants alarm 180+).
 // Fields:
 //   plays, timeouts, ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards {mean, median, p10, p90, max}
@@ -22,6 +22,9 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //     pullReach {"slot kind" (base slot): {n, reached, pct}}: pullers per slot and kind, and how many got within ENGAGED of the target at some point in the play (p.pull.reach set)
 //   force; byPlay; boxMean; freeBox
 //   blkEv {stuntPlays: plays with a crossing stunt (slants count) at the snap, passed, missed, wrong}: blockers' stunt re-read events from S.blkEv
+//   bust {plays, rolled, byFamily {zone, gap: {rolled, busts, pct, byKind {wrong, none, late, noclimb: n}}}, byBand {"0-19".."80-99": {rolled, busts, pct}}} (B-032-4): from S.bust (blockrules.js), read at the end of each play that snapped;
+//     rolled = blockers who took a draw (a null kind is rolled, not a bust); byKind counts every non-null kind, 'none' included; busts and pct count only wrong, late and noclimb ('none' is a bust that changed nothing, so it is not counted);
+//     pct = 100*busts/rolled; byBand groups by the blocker's knowledge for the play's family (his rating, floored to bands of 20; know 99 is in 80-99). &know=N sets zone, gap and pass of every OL, TE and FB (re-applied after each team regen), echoed as force.know; a non-number gives {"error":...}
 //   calls {play: n}, byFront {front: {play: n}}, slant {'Slant Left','Slant Right': {play: n}}: what the CPU called (B-007-13)
 //   with &pers/&dpers: force.pers/dpers, field {off, def} (position counts on the last play) and roster {O, D, ids unique, on}
 //   facing {frames, sqPct, errDeg, leanDeg, maxLeanDeg, maxOffDeg, heldFrames, sqPctWithHeld, errDegWithHeld, turnBack {n, medianS, p90S}, holdTurnBack {n, medianS, p90S}} (B-020):
@@ -39,6 +42,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
 // Pile stats (and the B-008/B-010 shape keys) come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
 // physMs is null under --virtual-time-budget (performance.now does not advance during synchronous code); read it with a real clock
+const BAND_W = 20, BAND_NAMES = ['0-19', '20-39', '40-59', '60-79', '80-99'], BUST_KINDS = ['wrong', 'late', 'noclimb'], KNOW_POS = ['OL', 'TE', 'FB'];   // B-032-4
 const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0, FLAT_H = 0.66*BODY_W, STILL_V = 0.3, STILL_S = 1, STAY_T = 1, FLAT_DEG = 30, POST_S = 1;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
@@ -195,8 +199,23 @@ export function runSim(n, step, g){
     win = null;
   };
   const teamAvg = side => { const ps = ALL.filter(p => p.team === side), o = {}; KEYS.forEach(k => { o[k] = mean(ps.map(p => p.rt[k])); }); return o; };
+  // B-032-4 (bust-sim): &know=N forces zone/gap/pass of every OL, TE and FB; bust tallies from S.bust (blockrules.js entries {name, fam, know, kind})
+  let knowN = null;
+  if(Q.has('know')){ const kv = Q.get('know').trim(); knowN = kv === '' ? NaN : Number(kv); if(!Number.isFinite(knowN)){ out({error:'unknown know ' + Q.get('know')}); return; } force.know = knowN; }
+  const bustT = {plays:0, rolled:0, byFamily:{zone:{rolled:0, busts:0, byKind:{}}, gap:{rolled:0, busts:0, byKind:{}}}, byBand:BAND_NAMES.map(() => ({rolled:0, busts:0}))};
+  const tallyBust = list => {
+    bustT.plays++;
+    for(const e of list){
+      const f = bustT.byFamily[e.fam], b = bustT.byBand[Math.max(0, Math.min(BAND_NAMES.length - 1, Math.floor(e.know/BAND_W)))], hit = e.kind && BUST_KINDS.includes(e.kind);
+      bustT.rolled++; f.rolled++; b.rolled++;
+      if(e.kind) f.byKind[e.kind] = (f.byKind[e.kind] || 0) + 1;
+      if(hit){ f.busts++; b.busts++; }
+    }
+  };
   const olRecog = Q.has('olrecog') ? Number(Q.get('olrecog')) : null, blkEv = {stuntPlays:0, passed:0, missed:0, wrong:0};   // B-007-9: force OL+TE awareness; count the re-read events
-  const setRecog = () => { if(olRecog === null) return; [...ROSTER.O.filter(r => r.pos === 'OL' || r.pos === 'TE'), ...OFF.filter(o => o.pos === 'OL' || o.pos === 'TE')].forEach(r => { r.rt.recog = olRecog; }); };
+  const setRecog = () => {
+    if(knowN !== null) [...ROSTER.O.filter(r => KNOW_POS.includes(r.pos)), ...OFF.filter(o => KNOW_POS.includes(o.pos))].forEach(r => { MENTAL.forEach(k => { r.rt[k] = knowN; }); });   // B-032-4
+    if(olRecog === null) return; [...ROSTER.O.filter(r => r.pos === 'OL' || r.pos === 'TE'), ...OFF.filter(o => o.pos === 'OL' || o.pos === 'TE')].forEach(r => { r.rt.recog = olRecog; }); };
   setRecog();
   const blkLog = {}, pullReach = {}, MIRROR_SLOT = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'}, slotOf = nm => S.flip > 0 ? nm : MIRROR_SLOT[nm] || nm;   // B-030: a copy of blockrules.js MIRROR on purpose (sim.js must load before players.js, which rolls at load, so it cannot import blockrules.js): the rule slot (the play's base side), whichever way the play flipped
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
@@ -232,6 +251,7 @@ export function runSim(n, step, g){
     closeWin();
     for(const u of pullsNow){ const pk = slotOf(u.name) + ' ' + u.kind, r = pullReach[pk] || (pullReach[pk] = {n:0, reached:0}); r.n++; if(u.p.pull && u.p.pull.reach !== null) r.reached++; }
     for(let k = 0; k < POST_S/SIM_DT && S.phase === 'dead'; k++){ step(SIM_DT); fallen(); }   // the dead ball: the pile settles, measured POST_S s after the whistle (S.deadT is 2.2 s, so no next play starts)
+    if(startY !== null && S.bust) tallyBust(S.bust);   // B-032-4: the plays that snapped
     if(startY !== null){ playLen.push(liveT); if(stillBest > STILL_S) stillPlays++; stillMax.push(stillBest); if(hMax > 0) heights.push(hMax/FLAT_H); }
     fieldO = fieldCounts(OFF); fieldD = fieldCounts(DEF);   // who was on the field for this play (pos counts), the last play's printed
     const timedOut = S.phase !== 'dead';   // hit PLAY_MAX_S: counted in timeouts, left out of yards
@@ -253,6 +273,7 @@ export function runSim(n, step, g){
   }
   const pushes = wins.filter(w => w.off && w.gain >= PUSH_GAIN);
   const byPlayOut = {}; for(const k of Object.keys(byPlay).sort()){ const b = byPlay[k]; byPlayOut[k] = {n:b.ys.length, ypc:mean(b.ys), stuffPct:+(100*b.stuff/b.ys.length).toFixed(1)}; }
+  const bustOut = {plays:bustT.plays, rolled:bustT.rolled, byFamily:Object.fromEntries(Object.entries(bustT.byFamily).map(([k, f]) => [k, {rolled:f.rolled, busts:f.busts, pct:f.rolled ? +(100*f.busts/f.rolled).toFixed(1) : null, byKind:f.byKind}])), byBand:Object.fromEntries(BAND_NAMES.map((nm, i) => [nm, {rolled:bustT.byBand[i].rolled, busts:bustT.byBand[i].busts, pct:bustT.byBand[i].rolled ? +(100*bustT.byBand[i].busts/bustT.byBand[i].rolled).toFixed(1) : null}]))};
   out({plays:n, timeouts, ypc:mean(yards), stuffPct:yards.length ? +(100*yards.filter(y => y <= STUFF_YD).length/yards.length).toFixed(1) : null, bigPct:yards.length ? +(100*yards.filter(y => y >= BIG_YD).length/yards.length).toFixed(1) : null,
     spotYards:{mean:mean(spotYards), median:med(spotYards)}, yards:{mean:mean(yards), median:med(yards), p10:pct(yards, 0.1), p90:pct(yards, 0.9), max:yards.length ? +Math.max(...yards).toFixed(3) : null}, pileWindows:wins.length, pile:{whistles:S.pile.whistles, frames:S.pile.frames, pushPlays:S.pile.pushes.length, pushGainYd:{median:med(S.pile.pushes.map(x => x.gain)), p90:pct(S.pile.pushes.map(x => x.gain), 0.9)}, pushDurS:{median:med(S.pile.pushes.map(x => x.dur)), p90:pct(S.pile.pushes.map(x => x.dur), 0.9)}}, pushPlays, pushPlayRate:+(pushPlays/n).toFixed(3),
     pushDurS:{median:med(pushes.map(w => w.dur)), p90:pct(pushes.map(w => w.dur), 0.9)},
@@ -261,5 +282,5 @@ export function runSim(n, step, g){
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
     blk:blkLog, pullReach:Object.fromEntries(Object.entries(pullReach).map(([k, r]) => [k, {...r, pct:+(100*r.reached/r.n).toFixed(1)}])),
-    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, slant:{'Slant Left':byCall['Slant Left'] || {}, 'Slant Right':byCall['Slant Right'] || {}}, boxMean:mean(boxes), freeBox:mean(frees), blkEv, jitterLost:{lost:jit.lost, flickerBack:jit.flicker}, pair:{frames:pr.n, minD:pr.n ? +pr.min.toFixed(3) : null, medD:pr.n ? pairQ(0.5) : null, p90D:pr.n ? pairQ(0.9) : null, overlapPct:pr.n ? +(100*pr.over/pr.n).toFixed(2) : null, farPct:pr.n ? +(100*pr.far/pr.n).toFixed(2) : null}, battles:bat, fire:{n:fire.fwd.length, medYd:med(fire.fwd), p10Yd:pct(fire.fwd, 0.1), p90Yd:pct(fire.fwd, 0.9), backPct:fire.fwd.length ? +(100*fire.fwd.filter(v => v < 0).length/fire.fwd.length).toFixed(1) : null, n3:fire.fwd3.length, med3Yd:med(fire.fwd3), back3Pct:fire.fwd3.length ? +(100*fire.fwd3.filter(v => v < 0).length/fire.fwd3.length).toFixed(1) : null}, jitter:Object.fromEntries(['D','O'].map(k => [k, {frames:jit[k].n, turnDegPerFrame:jit[k].n ? +deg(jit[k].turn/jit[k].n).toFixed(3) : null, reversalsPerS:jit[k].n ? +(jit[k].rev/(jit[k].n*SIM_DT)).toFixed(2) : null, posJitterYd:jit[k].n ? +(jit[k].pos/jit[k].n).toFixed(4) : null, leanStepDeg:jit[k].n ? +deg(jit[k].lean/jit[k].n).toFixed(3) : null, bearStepDeg:jit[k].n ? +deg(jit[k].bear/jit[k].n).toFixed(3) : null, leanFlipsPerS:jit[k].n ? +(jit[k].flips/(jit[k].n*SIM_DT)).toFixed(2) : null, byErr:{frameShare:jit[k].nb.map(v => +(v/(jit[k].n || 1)).toFixed(3)), turnShare:jit[k].b.map(v => +(v/(jit[k].turn || 1)).toFixed(3))}, ...(k === 'D' ? {bigTurnOnsets:{perS:jit.D.n ? +(jit.D.on/(jit.D.n*SIM_DT)).toFixed(2) : null, mode:jit.D.onMode, jump:jit.D.onJump, slow:jit.D.onSlow}, modeSwitchesPerS:jit.D.n ? +(jit.D.sw/(jit.D.n*SIM_DT)).toFixed(2) : null} : {})}])), facing:{frames:fc.frames, sqPct:fc.frames ? +(100*fc.square/fc.frames).toFixed(1) : null, errDeg:fc.frames ? +deg(fc.err/fc.frames).toFixed(1) : null, leanDeg:fc.frames ? +deg(fc.lean/fc.frames).toFixed(1) : null, maxLeanDeg:+deg(fc.maxLean).toFixed(1), maxOffDeg:+deg(fc.maxOff).toFixed(1), heldFrames:fc.hFrames, sqPctWithHeld:fc.frames + fc.hFrames ? +(100*(fc.square + fc.hSquare)/(fc.frames + fc.hFrames)).toFixed(1) : null, errDegWithHeld:fc.frames + fc.hFrames ? +deg((fc.err + fc.hErr)/(fc.frames + fc.hFrames)).toFixed(1) : null, turnBack:{n:turn.shed.length, medianS:med(turn.shed), p90S:pct(turn.shed, 0.9)}, holdTurnBack:{n:turn.hold.length, medianS:med(turn.hold), p90S:pct(turn.hold, 0.9)}}});
+    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, slant:{'Slant Left':byCall['Slant Left'] || {}, 'Slant Right':byCall['Slant Right'] || {}}, boxMean:mean(boxes), freeBox:mean(frees), blkEv, bust:bustOut, jitterLost:{lost:jit.lost, flickerBack:jit.flicker}, pair:{frames:pr.n, minD:pr.n ? +pr.min.toFixed(3) : null, medD:pr.n ? pairQ(0.5) : null, p90D:pr.n ? pairQ(0.9) : null, overlapPct:pr.n ? +(100*pr.over/pr.n).toFixed(2) : null, farPct:pr.n ? +(100*pr.far/pr.n).toFixed(2) : null}, battles:bat, fire:{n:fire.fwd.length, medYd:med(fire.fwd), p10Yd:pct(fire.fwd, 0.1), p90Yd:pct(fire.fwd, 0.9), backPct:fire.fwd.length ? +(100*fire.fwd.filter(v => v < 0).length/fire.fwd.length).toFixed(1) : null, n3:fire.fwd3.length, med3Yd:med(fire.fwd3), back3Pct:fire.fwd3.length ? +(100*fire.fwd3.filter(v => v < 0).length/fire.fwd3.length).toFixed(1) : null}, jitter:Object.fromEntries(['D','O'].map(k => [k, {frames:jit[k].n, turnDegPerFrame:jit[k].n ? +deg(jit[k].turn/jit[k].n).toFixed(3) : null, reversalsPerS:jit[k].n ? +(jit[k].rev/(jit[k].n*SIM_DT)).toFixed(2) : null, posJitterYd:jit[k].n ? +(jit[k].pos/jit[k].n).toFixed(4) : null, leanStepDeg:jit[k].n ? +deg(jit[k].lean/jit[k].n).toFixed(3) : null, bearStepDeg:jit[k].n ? +deg(jit[k].bear/jit[k].n).toFixed(3) : null, leanFlipsPerS:jit[k].n ? +(jit[k].flips/(jit[k].n*SIM_DT)).toFixed(2) : null, byErr:{frameShare:jit[k].nb.map(v => +(v/(jit[k].n || 1)).toFixed(3)), turnShare:jit[k].b.map(v => +(v/(jit[k].turn || 1)).toFixed(3))}, ...(k === 'D' ? {bigTurnOnsets:{perS:jit.D.n ? +(jit.D.on/(jit.D.n*SIM_DT)).toFixed(2) : null, mode:jit.D.onMode, jump:jit.D.onJump, slow:jit.D.onSlow}, modeSwitchesPerS:jit.D.n ? +(jit.D.sw/(jit.D.n*SIM_DT)).toFixed(2) : null} : {})}])), facing:{frames:fc.frames, sqPct:fc.frames ? +(100*fc.square/fc.frames).toFixed(1) : null, errDeg:fc.frames ? +deg(fc.err/fc.frames).toFixed(1) : null, leanDeg:fc.frames ? +deg(fc.lean/fc.frames).toFixed(1) : null, maxLeanDeg:+deg(fc.maxLean).toFixed(1), maxOffDeg:+deg(fc.maxOff).toFixed(1), heldFrames:fc.hFrames, sqPctWithHeld:fc.frames + fc.hFrames ? +(100*(fc.square + fc.hSquare)/(fc.frames + fc.hFrames)).toFixed(1) : null, errDegWithHeld:fc.frames + fc.hFrames ? +deg((fc.err + fc.hErr)/(fc.frames + fc.hFrames)).toFixed(1) : null, turnBack:{n:turn.shed.length, medianS:med(turn.shed), p90S:pct(turn.shed, 0.9)}, holdTurnBack:{n:turn.hold.length, medianS:med(turn.hold), p90S:pct(turn.hold, 0.9)}}});
 }
