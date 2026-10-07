@@ -273,13 +273,13 @@ export function defenseAI(d, dt){
     const dc = dist(d, c);
     // a bubble body has no line battle: the physics world decides who gives way
     const past = S.runMode && c !== QB && c.y > d.y + RUNNER_PAST_Y;   // B-023: the ball is by him: no block holds him
-    const bo = d.bt && d.bt.o;   // B-023: his live battle's blocker stays his while he is still on him (bo.blk === d) or the fallback below would find him (nearer the ball), within BT_KEEP_D
-    const kept = bo && !past && !d.ph && !isBody(bo) && !free(bo) && bo !== c && bo !== QB && dist(bo, d) < BT_KEEP_D && (bo.blk === d || dist(bo, c) < dc) ? bo : null;
+    const bo = d.bt && d.bt.o;   // B-023: his live battle's blocker stays his while he is still on him (bo.blk === d) or has nobody else, within BT_KEEP_D
+    const kept = bo && !past && !d.ph && !isBody(bo) && !free(bo) && bo !== c && bo !== QB && dist(bo, d) < BT_KEEP_D && (bo.blk === d || !bo.blk || bo.blk.stun > 0) ? bo : null;   // the nearer-the-ball fallback is for new contacts only: a blocker with another live assignment (a stunt re-read, a climber) lets go
     const o = past ? null : kept || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o.blk === d && o !== c && dist(o, d) < ENGAGED_D && !free(o))
            || (d.ph ? null : OFF.find(o => !(o.ph && o.ph.bubble) && o !== c && o !== QB && dist(o, d) < ENGAGED_D && dist(o, c) < dc && !free(o))));
     if(o && o.blk !== d && Math.hypot(o.vx, o.vy) > TOW_V){   // B-023: a blocker for somebody else running past him: end the battle, do not tow the defender along his route
-      d.freeFrom = o; d.freeT = TOW_FREE_T;
-      d.bt = null;
+      if(!(d.freeT > TOW_FREE_T)){ d.freeFrom = o; d.freeT = TOW_FREE_T; }   // never shorten the hold on a blocker he just beat
+      d.towT = S.clock; d.bt = null;   // towT: the sim's jitterLost reason 'tow'
     } else if(o){
       if(!d.bt || d.bt.o !== o){
         // first contact: a blocker arriving with a lot more momentum than the defender can absorb flattens him
@@ -288,7 +288,7 @@ export function defenseAI(d, dt){
         d.bt = {o, ang:Math.atan2(d.x - o.x, d.y - o.y), phase:'set', t:0, dur:d.freeFrom === o ? 0.1 : rand(0.2, 0.4), move:null};
         if(d.avoid && d.avoid.st === 'fight' && d.avoid.o === o) d.bt.dur = Math.min(d.bt.dur, FIGHT_QUICK);   // he came through on purpose: straight into his shed move
         o.bt = d.bt;
-        if(d.freeFrom !== o){ const cv = {x:d.vx, y:d.vy}; pop(o, d, d.bt); d.bt.cv = cv; }   // B-023: the defender's own charge (his velocity into the hit), which blocking.js carries for CARRY_T s
+        if(d.freeFrom !== o){ const cv = {x:d.vx, y:d.vy}; pop(o, d, d.bt); if(d.bt.phase !== 'recover') d.bt.cv = cv; }   // a blocker who wins the get-off (pop sets recover) takes the pair: no coast   // B-023: the defender's own charge (his velocity into the hit), which blocking.js carries for CARRY_T s
       }
       d.eng = o.eng = 0.15;
       d.faceAt = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends

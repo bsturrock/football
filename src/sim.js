@@ -25,10 +25,10 @@ import { BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from '.
 //     B-023: the hold-through-a-gap rule is gone, so heldFrames is 0, sqPctWithHeld = sqPct, errDegWithHeld = errDeg and holdTurnBack.n is 0.
 //   jitter {D, O: frames, turnDegPerFrame, reversalsPerS, posJitterYd, leanStepDeg, bearStepDeg, leanFlipsPerS, byErr {frameShare, turnShare} by error under JIT_SMALL_DEG / to JIT_ONSET_DEG / over;
 //     D only: bigTurnOnsets {perS, mode, jump, slow}, modeSwitchesPerS (per engaged second)} (B-022)
-//   jitterLost {lost {reason: n}, flickerBack}: a defender's faceAt target lost (it goes with his battle); reasons (B-023) stun | freeT (a shed) | ended (any other end); flickerBack: re-engaged within JIT_FLICKER_S
+//   jitterLost {lost {reason: n}, flickerBack}: a defender's faceAt target lost (it goes with his battle); reasons (B-023) stun | tow (a blocker running past him ended it) | freeT (a shed) | ended (any other end); flickerBack: re-engaged within JIT_FLICKER_S
 //   pair {frames, minD, medD, p90D, overlapPct, farPct} (B-023): the centre distance between a defender and his blocker over live battle frames (yd); overlapPct: share under BODY_W; farPct: share over PAIR_FAR 1.0
 //   battles {formed, set, move, recover} (B-023): battle objects formed, and how many reached each phase
-//   fire {n, medYd, p10Yd, p90Yd, backPct, n3, med3Yd, back3Pct} (B-023): each DL's depth gain (yd, > 0 = forward) from the first live frame to his first battle forming (n..backPct) and to FIRE_T 0.3 s after it (n3, med3Yd, back3Pct); back: share pushed back
+//   fire {n, medYd, p10Yd, p90Yd, backPct, n3, med3Yd, back3Pct} (B-023): each DL's depth gain (yd, > 0 = forward) from the first live frame to his first battle forming (n..backPct) and to FIRE_T 0.3 s after it (n3, med3Yd, back3Pct, only that first battle if it lasts that long); back: share pushed back
 
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
@@ -115,7 +115,7 @@ export function runSim(n, step, g){
       } else m.big = false;
       if(p.team === 'D' && m.fyNull !== undefined && m.fyNull !== (fy === null) && (eng || m.wasEng || (m.lostAt !== undefined && S.clock - m.lostAt < JIT_FLICKER_S))) jit.D.sw++;   // the target switched between his blocker and his heading, near a battle
       if(p.team === 'D' && m.fyNull === false && fy === null && !p.ph){   // faceAt target lost: why (stun, a shed, or another end), and whether it came back within JIT_FLICKER_S
-        const why = p.stun > 0 ? 'stun' : p.freeT > 0 ? 'freeT' : 'ended';   // B-023: his faceAt goes only with his battle: a shed (freeT), a stun, or another end (pancake and release show as stun or ended)
+        const why = p.stun > 0 ? 'stun' : p.towT === S.clock ? 'tow' : p.freeT > 0 ? 'freeT' : 'ended';   // B-023: his faceAt goes only with his battle: a shed (freeT), a tow end (blocker running past), a stun, or another end (pancake and release show as stun or ended)
         jit.lost[why] = (jit.lost[why] || 0) + 1; m.lostAt = S.clock;
       }
       if(p.team === 'D' && m.fyNull === true && fy !== null && m.lostAt !== undefined && S.clock - m.lostAt < JIT_FLICKER_S) jit.flicker++;
@@ -135,7 +135,7 @@ export function runSim(n, step, g){
   };
   // B-023 engagement: every live battle frame logs the centre distance between the defender and his blocker (histogram, PAIR_BIN yd bins), overlap (under BODY_W) and far (over PAIR_FAR) frames,
   // and each battle object counts once per phase it reached (battles: formed, then set, move, recover).
-  const PAIR_BIN = 0.01, PAIR_BINS = 300, PAIR_FAR = 1.0, pairH = new Array(PAIR_BINS).fill(0), bseen = new WeakMap(), bat = {formed:0, set:0, move:0, recover:0}, pr = {n:0, over:0, far:0, min:Infinity}, fire = {y0:new Map(), got:new Set(), got3:new Set(), fwd:[], fwd3:[]}, FIRE_T = 0.3;   // fire: each DL's depth at the first live frame, and how far upfield-to-backfield he got by the time his first battle formed (yd; > 0 = forward)
+  const PAIR_BIN = 0.01, PAIR_BINS = 300, PAIR_FAR = 1.0, pairH = new Array(PAIR_BINS).fill(0), bseen = new WeakMap(), bat = {formed:0, set:0, move:0, recover:0}, pr = {n:0, over:0, far:0, min:Infinity}, fire = {y0:new Map(), got:new Set(), got3:new Set(), gotB:new Map(), fwd:[], fwd3:[]}, FIRE_T = 0.3;   // fire: each DL's depth at the first live frame, and how far upfield-to-backfield he got by the time his first battle formed (yd; > 0 = forward)
   const pairQ = q => { let k = 0, c = 0; while(k < PAIR_BINS - 1 && c + pairH[k] < q*pr.n) c += pairH[k++]; return +((k + 0.5)*PAIR_BIN).toFixed(3); };
   const facing = () => {
     jitter();
@@ -143,9 +143,9 @@ export function runSim(n, step, g){
       if(d.role === 'DL' && !fire.y0.has(d)) fire.y0.set(d, d.y);
       if(d.bt && !d.ph && !d.latch){
         const dd = Math.hypot(d.x - d.bt.o.x, d.y - d.bt.o.y); pairH[Math.min(PAIR_BINS - 1, Math.floor(dd/PAIR_BIN))]++; pr.n++; pr.min = Math.min(pr.min, dd);
-        if(d.role === 'DL' && d.bt.age >= FIRE_T && fire.y0.has(d) && !fire.got3.has(d)){ fire.got3.add(d); fire.fwd3.push(fire.y0.get(d) - d.y); }
+        if(d.role === 'DL' && d.bt.age >= FIRE_T && fire.gotB.get(d) === d.bt && !fire.got3.has(d)){ fire.got3.add(d); fire.fwd3.push(fire.y0.get(d) - d.y); }
         if(dd < BODY_W) pr.over++; if(dd > PAIR_FAR) pr.far++;
-        let r = bseen.get(d.bt); if(!r){ r = new Set(); bseen.set(d.bt, r); bat.formed++; if(d.role === 'DL' && fire.y0.has(d) && !fire.got.has(d)){ fire.got.add(d); fire.fwd.push(fire.y0.get(d) - d.y); } }
+        let r = bseen.get(d.bt); if(!r){ r = new Set(); bseen.set(d.bt, r); bat.formed++; if(d.role === 'DL' && fire.y0.has(d) && !fire.got.has(d)){ fire.got.add(d); fire.gotB.set(d, d.bt); fire.fwd.push(fire.y0.get(d) - d.y); } }
         if(!r.has(d.bt.phase)){ r.add(d.bt.phase); bat[d.bt.phase]++; }
       }
       let m = shadow.get(d); if(!m){ m = {f:d.face, eng:false, hold:false, t:null, k:null}; shadow.set(d, m); }
@@ -189,7 +189,7 @@ export function runSim(n, step, g){
   setRecog();
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
-    shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear();
+    shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); DEF.forEach(p => { p.towT = undefined; });
     let startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
       step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
