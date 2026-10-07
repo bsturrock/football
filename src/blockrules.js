@@ -80,8 +80,19 @@ export const COVERED_DX = 1.0*GK, COVERED_DY = 2.5, REACH_DX = 3.5*GK, REACH_AIM
 //   none    busted but no other man to take (or the double / pull never formed): he blocks his man as usual
 //   no man on the rule that would assign him = no bust there (the next rule is tried); WRONG_RULES: the wrong man comes from the next rule only if it is a line rule, else the neighbour lane
 //   a double's post man busts late / noclimb only (never wrong); the freed man sits in `left`, so the snap and handoff reads skip him
+// B-032-3 applies the late / noclimb kinds. The bust lands on the man who moves: a puller (his own bust), the climber of a double (his own bust, or the post man's: the post man only
+// busts through the double, so his kind is handed to the climber when the double forms; if both busted, the climber's own wins). No new random draws; at know 99 no kind is ever set.
+//   state              event                                      next                                          test (forced know 35, Power)
+//   pull set + late    p.pull.t < LATE_PULL_T (0.4 s)             stays at his spot, eyes on the target         pull-arrival time (p.pull.reach) 0.4 s+ later
+//   pull set + late    p.pull.t >= LATE_PULL_T                    pulling (as a normal pull)                    same
+//   double + late      m.t < CLIMB_T + LATE_CLIMB_T (0.5 s)       stays on the double (no near-LB early climb   climb time +0.5 s
+//                      before LATE_CLIMB_T either)
+//   double + late      m.t >= CLIMB_T + LATE_CLIMB_T, LB found    climbing                                      same
+//   double + noclimb   post man not falling                       stays on the double                           noclimb count: climbs 0 while the post man is up
+//   double + noclimb   post man falling                           climbs as a normal climber (late rule off)    --
+//   any                the target / double man goes down          free / released, as before                    unchanged
 // A busted blocker skips the recog stunt roll. p.bustWrong keeps his wrong man through the handoff re-read.
-export const BUST_MAX = 0.35;
+export const BUST_MAX = 0.35, LATE_PULL_T = 0.4, LATE_CLIMB_T = 0.5;
 const WRONG_RULES = ['on', 'line', 'down', 'reach', 'back', 'edge'];   // a wrong man is a line man: never a backer or safety (an easier tackle for the defense)
 let left = new Set();   // the men wrong-man busters left free this play: nobody else's snap or handoff read takes them (zoneBlock's lane pick may, later)
 export const FAMILY = {zone:'zone', man:'gap'};
@@ -216,6 +227,12 @@ export function resolveBlocks(play, flip, again = false){
   }
   for(const b of bl){ const m = b.p.dbl; if(m && !m.post && m.mate.blk !== m.d) b.p.dbl = null; }   // the post man took someone else: a single block after all
   if(!again) for(const b of bl) if((b.entry && (b.entry.kind === 'late' || b.entry.kind === 'noclimb')) && !b.p.pull && !b.p.dbl) b.entry.kind = 'none';   // the double never formed (or was dropped): busted, nothing to bust
+  if(!again) for(const b of bl){   // B-032-3: the late / noclimb kind lands on the puller or the climber
+    const k = b.entry && b.entry.kind; if(k !== 'late' && k !== 'noclimb') continue;
+    if(b.p.pull) b.p.pull.late = LATE_PULL_T;
+    else if(b.p.dbl && !b.p.dbl.post) b.p.dbl.bust = k;
+    else if(b.p.dbl){ const m = b.p.dbl.mate.dbl; if(m && !m.post && !m.bust) m.bust = k; }
+  }
   if(!again) for(const b of bl){
     const d = b.p.blk;
     if(!b.o && d && isCrosser(d) && !b.p.pull && !b.p.dbl) b.p.rr = {state:'set', d, home:d.x, t:0, acc:0, miss:false};
@@ -259,8 +276,10 @@ export function climbCheck(p, dt){
   if(dist(p, d) < ENGAGED) m.t += dt;
   const backer = e => e.role === 'LB' && e.stun <= 0 && !OFF.some(o => o !== p && o.blk === e);   // unblocked: the tight end's edge man is not one to climb to
   const commit = e => dist(e, d) < CLIMB_NEAR || dist(e, p) < CLIMB_NEAR || (dist(e, p) < CLIMB_RANGE && e.vy < -COMMIT_V*e.spd);
-  const near = m.t > 0 && DEF.some(e => backer(e) && commit(e));
-  if(m.t < CLIMB_T && !near) return;
+  const extra = m.bust ? LATE_CLIMB_T : 0;   // B-032-3: a late climber waits this much longer
+  if(m.bust === 'noclimb' && !m.mate.falling) return;   // stays on the double while the post man is up
+  const near = m.t > extra && DEF.some(e => backer(e) && commit(e));
+  if(m.t < CLIMB_T + extra && !near) return;
   const lb = nearest(DEF.filter(e => backer(e) && dist(e, p) < CLIMB_RANGE && e.y >= p.y - BEHIND_Y), e => dist(e, p));
   if(!lb) return;
   p.blk = lb; p.ruled = true; m.state = 'climbing'; m.lb = lb; if(m.mate.dbl) m.mate.dbl.state = 'released'; S.climbed = true;

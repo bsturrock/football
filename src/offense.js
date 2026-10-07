@@ -69,6 +69,7 @@ function zoneBlock(p, dt){
 function runBlock(p, dt){
   const play = PLAYS[S.play];
   if(p.pull) pullCheck(p, dt);
+  if(p.pull && p.pull.late && p.pull.t < p.pull.late && p.via && p.via.length){ steer(p, p.x, p.y, 0, dt); p.faceAt = p.blk; return; }   // B-032-3: a busting puller leaves late
   if(play.run && p.via && p.via.length){                       // pulling: get through the waypoints first
     const v = p.via[0];
     if(Math.hypot(v.x - p.x, v.y - p.y) < PULL_VIA_R) p.via.shift();
