@@ -8,7 +8,7 @@ import { isBody } from './physics.js';
 import { S, ball } from './state.js';
 import { lack } from './ratings.js';
 import { GRID_K } from './formations.js';
-import { DBL_R, dist, holdsBlocker, rand } from './util.js';
+import { DBL_R, dist, rand } from './util.js';
 
 // Human mistakes in pursuit. Per defender per play state (reset in assignFits):
 //   aim     AIM_K resampled every AIM_T s; < 1 undershoots the cut-off spot, > 1 overpursues
@@ -278,18 +278,18 @@ export function defenseAI(d, dt){
         // first contact: a blocker arriving with a lot more momentum than the defender can absorb flattens him
         if(d.freeFrom !== o && pancakeHit(o, d)) return;
         // re-engaging a blocker he already beat: that blocker is off balance, so the next move comes quicker
-        d.bt = {o, phase:'set', t:0, dur:d.freeFrom === o ? 0.1 : rand(0.2, 0.4), move:null};
+        d.bt = {o, ang:Math.atan2(d.x - o.x, d.y - o.y), phase:'set', t:0, dur:d.freeFrom === o ? 0.1 : rand(0.2, 0.4), move:null};
         if(d.avoid && d.avoid.st === 'fight' && d.avoid.o === o) d.bt.dur = Math.min(d.bt.dur, FIGHT_QUICK);   // he came through on purpose: straight into his shed move
         o.bt = d.bt;
         if(d.freeFrom !== o) pop(o, d, d.bt);
       }
-      d.eng = o.eng = 0.15; sp *= 0.12;
-      d.faceAt = d.lastBlk = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends
+      d.eng = o.eng = 0.15;
+      d.faceAt = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends
       battle(d, o, c, dt);
     } else d.bt = null;
   } else d.bt = null;
-  if(d.bt) d.btAt = S.clock;   // B-020: when his battle last ran, for holdsBlocker's HOLD_T
-  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch && !holdsBlocker(d, S)) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
+  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
+  if(d.bt) return;   // B-023: engaged, the battle (blocking.js lock) moves him; he does not steer himself
   if(attack && !d.bt && c){   // hunting the runner: run through the target, never ease up approaching it
     const dx = tx - d.x, dy = ty - d.y, l = Math.hypot(dx, dy) || 1;
     steerVel(d, dx/l*sp, dy/l*sp, dt);
