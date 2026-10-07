@@ -50,8 +50,8 @@ export const PLAYS = [
    rules:INSIDE,
    path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]]},
   {name:'Power Left', run:'hand', scheme:'man', hole:-3.6,
-   rules:{LT:[['backer','ps']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['edge']], RT:[['backer','mike']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
-   pulls:{RG:[[0.8,-1.8],[-2.6,-1.8]]},
+   rules:{LT:[['backer','ps']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['pull','kick'],['edge']], RT:[['backer','mike']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
+   pulls:{RG:[]},   // RG pulls by rule (['pull','kick']); the empty list marks him a puller (carrier.js), the waypoints come from blockrules.js
    path:[[-0.3,-3.6],[-2.8,-1.4],[-3.6,0.8],[-3.8,8]]},   // patient: press the line, cut off the kick-out
   {name:'Outside Zone Right', run:'toss', scheme:'zone', shift:3, hole:8.5,   // aim: tight end's outside hip; he reads bounce / cut back
    rules:OUTSIDE,
