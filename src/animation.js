@@ -42,16 +42,42 @@ function targetPose(p, sp){
   else if(holding && p === QB && !S.runMode) arms(-0.9, -0.9, -1.1);
   else if(holding){ T.shR = -0.4 - 0.45*s*r; T.elR = -1.85 + 0.2*s*r; if(p.churn) T.lean = 0.55; }   // ball tucked high and tight, the arm still pumps; drive the legs when someone is hanging on
   else if(ball.state === 'air' && ball.t > 0.5 && Math.hypot(ball.tx - p.x, ball.ty - p.y) < 3.5 && (p === ball.target || p.team === 'D')) arms(-2.7, -2.7, -0.2);
-  else if(p.bt && p.team === 'D' && p.bt.phase === 'move' && p.bt.move === 'speed'){ T.shL = -1.3; T.shR = -2.9; T.elL = -0.5; T.elR = -0.2; T.twist = 0.4; }  // swim
-  else if(p.bt && p.team === 'D' && p.bt.phase === 'move'){ arms(-1.7, -1.7, -0.1); T.lean = 0.9; }                                // bull rush
-  else if(p.bt && p.team === 'D' && p.bt.phase === 'recover'){ arms(-1.0, -1.0, -0.8); T.lean = 0.2; }                             // knocked upright
+  else if(engaged(p)) engagedPose(T, p, s, cs);
   else if(p.fire > 0 && (p.role === 'OL' || p.role === 'DL' || p.pos === 'TE')){ arms(-1.3, -1.3, -0.5); T.lean = 0.95; T.drop = 0.3; }   // out of the stance: low and violent
-  else if(p.bt || p.eng > 0){ arms(-1.6, -1.6, -0.25); T.lean = Math.max(T.lean, 0.7); T.drop = 0.18; }   // hands punched in, pads low
   return T;
+}
+// ---------- engaged block pose (B-028) ----------
+// While a battle lives (p.bt on both men; the blocker also while p.eng > 0) both men sit low: knees bent, back flat, head up, arms reaching
+// along the pair axis (they face each other, so straight ahead) with the hands on the other man's chest plate. The blocker churns his legs
+// while the pair is moving; the defender fights the hands, and swim (move 'speed') and bull (move 'power') keep their own arms; a defender
+// whose blocker won the get-off (phase 'recover') is driven back, sitting higher. Visual only: reads battle state, never writes it.
+const ENG_K = 24, ENG_HEAD = 0.6, DRIVE_V = 0.8, CHURN_SP = 6;   // pose blend rate (95% in 0.125 s), head-up share of the lean, pair speed (yd/s) that counts as driving, stride speed (yd/s) the legs churn at
+const engaged = p => !!p.bt || p.eng > 0;
+const driving = p => p.team === 'O' ? (!!p.bt && p.bt.phase === 'recover') || Math.hypot(p.vx, p.vy) > DRIVE_V : !!p.bt && (p.bt.phase === 'move' || p.bt.phase === 'recover') && Math.hypot(p.vx, p.vy) > DRIVE_V;   // offense: by speed (also a double team's second man, p.eng only); defense: his battle's move or recover phase while moving
+function engagedPose(T, p, s, cs){
+  const ph = p.x*1.7 + p.y*2.3, w = performance.now()/1000, fight = Math.sin(w*9 + ph), fight2 = Math.sin(w*7.3 + ph*1.9);
+  const ph2 = p.bt && p.team === 'D' ? p.bt.phase : null, mv = p.bt && p.bt.move;
+  const churn = driving(p) ? 1 : 0, ch = 0.3*churn;
+  const low = {lean:0.8, drop:0.34, hipL:-1.05 + ch*s, hipR:-0.95 - ch*s, kneeL:1.55 + 0.3*churn*Math.max(0, cs), kneeR:1.45 + 0.3*churn*Math.max(0, -cs), twist:0, bob:0};
+  Object.assign(T, low);
+  const reach = (lean, el, l = 0, r = 0) => { T.shL = -(1.45 + lean) + l; T.shR = -(1.45 + lean) + r; T.elL = el; T.elR = el; };   // arm angle = reach + lean puts the hand level with the other man's chest
+  if(p.team === 'O'){
+    if(p.bt && p.bt.phase === 'recover'){ T.lean = 0.9; T.drop = 0.38; }   // driving him: lower, pushing
+    reach(T.lean, -0.8, 0.07*fight, -0.07*fight);                            // punched in, hands inside the pads
+  } else if(ph2 === 'move' && mv === 'speed'){                               // swim: near arm clubs the blocker, far arm goes over the top
+    T.lean = 0.7; T.twist = 0.4; T.drop = 0.3;
+    T.shL = -(1.45 + T.lean) + 0.1*fight; T.elL = -0.8; T.shR = -3.0 + 0.15*fight2; T.elR = -0.2;
+  } else if(ph2 === 'move'){                                                 // bull rush: head down, both hands driving, legs churning
+    T.lean = 0.95; T.drop = 0.37; reach(T.lean, -0.4, 0.03*fight, -0.03*fight);
+  } else if(ph2 === 'recover'){                                              // driven back: sitting higher, hands still on the blocker, legs scuffling
+    T.lean = 0.55; T.drop = 0.22; T.hipL = -0.85 + 0.25*s; T.hipR = -0.75 - 0.25*s; T.kneeL = 1.1 + 0.3*Math.max(0, cs); T.kneeR = 1.0 + 0.3*Math.max(0, -cs);
+    reach(T.lean, -1.0, 0.1*fight, -0.1*fight2);
+  } else reach(T.lean, -0.9, 0.1*fight, -0.1*fight2);                        // set / fighting the hands: hands working on his chest plate
 }
 function animate(p, dt){
   // a runner held up keeps churning his legs at full stride whatever his speed
-  const sp = p.churn && p.ph && !p.falling && !(p.latch && p.latch.falling) ? Math.max(5.5, Math.hypot(p.vx, p.vy)*1.3) : Math.hypot(p.vx, p.vy);
+  const sp0 = p.churn && p.ph && !p.falling && !(p.latch && p.latch.falling) ? Math.max(5.5, Math.hypot(p.vx, p.vy)*1.3) : Math.hypot(p.vx, p.vy);
+  const eng = !p.ph && p.act !== 'down' && p.act !== 'fall' && p.act !== 'dive' && engaged(p), sp = eng && driving(p) ? Math.max(sp0, CHURN_SP) : sp0;   // a driven pair's legs churn however slowly it moves
   p.stride += sp > 0.3 ? 2*Math.PI*(1.1 + 0.16*sp)*dt : 0;   // cadence rises with speed (~2.2 strides/s flat out)
   if(p.actT > 0){ p.actT -= dt; if(p.actT <= 0) p.act = null; }
   if(p.eng > 0) p.eng -= dt; else if(p.team === 'O') p.bt = null;
@@ -61,8 +87,10 @@ function animate(p, dt){
     const d = (fy !== null ? fy : Math.atan2(p.vx, -p.vy)) - p.face, e = Math.atan2(Math.sin(d), Math.cos(d));
     p.face += e*Math.min(1, dt*FACE_RATE);
   }
-  const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*16), J = p.j;
+  const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
   for(const j of JOINTS) P[j] += (T[j] - P[j])*k;
+  p.engW = (p.engW || 0) + ((eng ? 1 : 0) - (p.engW || 0))*(1 - Math.exp(-dt*ENG_K));
+  J.head.rotation.x = -ENG_HEAD*P.lean*p.engW;   // head up while engaged: eyes on his man, not the turf
   J.torso.rotation.set(P.lean, P.twist, 0);
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   J.shL.rotation.set(P.shL, 0, 0.12); J.shR.rotation.set(P.shR, 0, -0.12); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
