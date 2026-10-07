@@ -74,7 +74,7 @@ function runBlock(p, dt){
     }
   }
   if(p.dbl) climbCheck(p, dt);
-  if(p.rd) rereadCheck(p, dt);   // B-007-9: a stunt moved my man; re-read every 0.1 s
+  if(p.rr) rereadCheck(p, dt);   // B-007-9: a stunt moved my man; re-read every 0.1 s
   if(play.run && p.lane != null) zoneBlock(p, dt); else block(p, dt);
 }
 function olAssign(p){

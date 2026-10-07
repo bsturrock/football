@@ -47,15 +47,16 @@ import { dist } from './util.js';
 //   engaged   re-targeted (p.blk changed)                                    free
 //   free      (end)                                                         p.pull.state stays 'free' for the play
 export const PULL_V = 1.3, PULL_DEPTH = 1.8, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, PLAYSIDE_X = 1.5, KICK_X = 0.5, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
-// Re-read on a stunt (B-007-9). Per lineman p.rd = {state, d, home, t, acc, miss}; set at the snap for a man whose target is a stunting defender (crossing stunt: d.stunt, not a blitzer).
+// Re-read on a stunt (B-007-9). A slant counts as a crossing stunt for the re-read and for the WRONG roll (every line man's gap moves); a blitz does not. Per lineman p.rr = {state, d, home, t, acc, miss}; set at the snap for a man whose target is a stunting defender (crossing stunt: d.stunt, not a blitzer).
 // Awareness (p.rt.recog) sets the mistakes: READ_O = READ_BASE - recog/READ_K is how long he takes to see his man left, MISS_P*lack keeps his old man MISS_HOLD s more, WRONG_P*lack takes his second rule's man at the snap.
-// offense.js rereadCheck asks every REREAD_DT while he has an rd; events go to S.blkEv ({name, ev:'passed'|'missed'|'wrong', t}).
+// offense.js rereadCheck asks every REREAD_DT while he has an rr; events go to S.blkEv ({name, ev:'passed'|'missed'|'wrong', t}).
 //   state     event                                                                 next
 //   set       target left his snap spot by LEFT_DX while the stunt is live          reading (t = 0; miss rolled: MISS_P*lack(recog))
-//   set       target down, or p.blk re-targeted by someone else                     no rd (the zone/man code owns him)
+//   set       target already free (stunt over) before he left LEFT_DX                 no rr
+//   set       target down, or p.blk re-targeted by someone else                     no rr (the zone/man code owns him)
 //   reading   t >= READ_O (+ MISS_HOLD when the miss rolled), a free line man in my lane  passed, or missed when the miss rolled (p.blk = him, unlocked, ruled); event logged
 //   reading   same time, nobody free in my lane                                      reading (asked again every REREAD_DT), kept after GIVEUP_T (stays on his man; missed event still logged)
-//   reading   target down                                                           no rd
+//   reading   target down                                                           no rr
 //   passed / missed / kept   (terminal; the handoff re-read keeps him)
 // The miss event is logged when the miss is rolled, so a missed blocker shows even when his old man comes back.
 export const READ_BASE = 0.45, READ_K = 250, MISS_P = 0.5, MISS_HOLD = 0.4, WRONG_P = 0.15, LEFT_DX = 1.2, REREAD_DT = 0.1, GIVEUP_T = 0.8;
@@ -127,8 +128,8 @@ export function resolveBlocks(play, flip, again = false){
     const dir = side === 'playside' ? ps : -ps, i = linemen.indexOf(p) + dir*1;
     return linemen[i] && Math.abs(linemen[i].x - p.x) < NEIGHBOUR_DX ? linemen[i] : null;
   }};
-  const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rd && p.rd.state !== 'set'));   // engaged, pulling, or in a double (driving or climbing)
-  if(!again){ S.climbed = false; S.pulls = []; S.blkEv = []; OFF.forEach(o => { o.rd = null; }); }
+  const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rr && p.rr.state !== 'set'));   // engaged, pulling, or in a double (driving or climbing)
+  if(!again){ S.climbed = false; S.pulls = []; S.blkEv = []; OFF.forEach(o => { o.rr = null; }); }
   for(const b of bl) if(!keep(b.p)){ b.p.blk = null; b.p.ruled = false; b.p.dbl = null; if(!again){ b.p.via = null; b.p.pull = null; } }
   const claimed = new Set(OFF.map(o => o.blk).filter(Boolean));
   // a safety in the box, or a zone pick out of the lane window, would be dropped by zoneBlock on frame 1: mark those `ruled` so it plays
@@ -149,7 +150,7 @@ export function resolveBlocks(play, flip, again = false){
     }
     b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.ruled = true; };
   const free = b => DEF.filter(d => d.stun <= 0 && (!claimed.has(d) || (resv.get(d) || {}).post === b.p));
-  const stunting = !again && DEF.some(isCrosser);   // only a play with a crossing stunt rolls awareness: other plays draw no random numbers
+  const stunting = !again && DEF.some(isCrosser); if(!again) S.blkStunt = stunting;   // only a play with a crossing stunt rolls awareness: other plays draw no random numbers
   for(let k = 0; k < 3; k++) for(const b of bl){
     if(b.p.blk || !b.spec[k]) continue;
     if(k === 0 && stunting && !b.o && b.spec[1] && !['pull', 'double'].includes(b.spec[0][0]) && !['pull', 'double'].includes(b.spec[1][0]) && Math.random() < WRONG_P*lack(b.p, 'recog')){
@@ -165,7 +166,7 @@ export function resolveBlocks(play, flip, again = false){
   for(const b of bl){ const m = b.p.dbl; if(m && !m.post && m.mate.blk !== m.d) b.p.dbl = null; }   // the post man took someone else: a single block after all
   if(!again) for(const b of bl){
     const d = b.p.blk;
-    if(!b.o && d && isCrosser(d) && !b.p.pull && !b.p.dbl) b.p.rd = {state:'set', d, home:d.x, t:0, acc:0, miss:false};
+    if(!b.o && d && isCrosser(d) && !b.p.pull && !b.p.dbl) b.p.rr = {state:'set', d, home:d.x, t:0, acc:0, miss:false};
     if(wrong.includes(b)) S.blkEv.push({name:b.name, ev:'wrong', t:0});
   }
   const lab = labels(); for(const u of pulls) S.pulls.push({name:u.name, kind:u.kind, tgt:lab.get(u.p.blk) || '?', p:u.p});
@@ -174,12 +175,13 @@ export function resolveBlocks(play, flip, again = false){
 const isCrosser = d => !!d.stunt && !d.stunt.blitz;
 // the lineman's re-read, from offense.js every REREAD_DT: see "Re-read on a stunt" above
 export function rereadCheck(p, dt){
-  const m = p.rd; if(!m || m.state !== 'set' && m.state !== 'reading') return;
+  const m = p.rr; if(!m || m.state !== 'set' && m.state !== 'reading') return;
   m.acc += dt; if(m.acc < REREAD_DT) return;
   const step = m.acc; m.acc = 0;
-  if(m.d.stun > 0 || (m.state === 'set' && p.blk !== m.d)){ p.rd = null; return; }
+  if(m.d.stun > 0 || (m.state === 'set' && p.blk !== m.d)){ p.rr = null; return; }
   if(m.state === 'set'){
-    if(m.d.stunt && m.d.stunt.st === 'free' || Math.abs(m.d.x - m.home) < LEFT_DX) return;
+    if(m.d.stunt && m.d.stunt.st === 'free'){ p.rr = null; return; }
+    if(Math.abs(m.d.x - m.home) < LEFT_DX) return;
     m.state = 'reading'; m.t = 0; m.miss = Math.random() < MISS_P*lack(p, 'recog');
     if(m.miss) S.blkEv.push({name:nameOf(p), ev:'missed', t:+S.clock.toFixed(2)});
     return;
@@ -187,7 +189,7 @@ export function rereadCheck(p, dt){
   m.t += step;
   const due = READ_BASE - p.rt.recog/READ_K + (m.miss ? MISS_HOLD : 0);
   if(m.t < due) return;
-  const claimed = new Set(OFF.filter(o => o !== p && o.blk && !(o.rd && o.rd.state === 'reading')).map(o => o.blk));
+  const claimed = new Set(OFF.filter(o => o !== p && o.blk && !(o.rr && o.rr.state === 'reading')).map(o => o.blk));
   const ctx = {los:S.los, h:S.hole, ps:Math.sign(S.hole) || 1};
   const d = pick(['line'], p, DEF.filter(e => e.stun <= 0 && e !== m.d && !claimed.has(e)), ctx);
   if(d){ p.blk = d; p.locked = false; p.ruled = true; p.eng = 0; m.state = m.miss ? 'missed' : 'passed'; if(!m.miss) S.blkEv.push({name:nameOf(p), ev:'passed', t:+S.clock.toFixed(2)}); }

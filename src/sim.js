@@ -104,9 +104,10 @@ export function runSim(n, step, g){
     if(played.some(w => w.off && w.gain >= PUSH_GAIN)) pushed = true;
     if(pushed) pushPlays++;
     if((i + 1) % SIM_TEAM_EVERY === 0 && i + 1 < n && !S.over){ rateRosters(); regens++; }   // fresh teams every SIM_TEAM_EVERY plays (a no-op change under flat ratings); skipped when the game just ended, since newGame rates again
-    if(S.blkEv && S.blkEv.length){ blkEv.stuntPlays++; S.blkEv.forEach(e => { blkEv[e.ev]++; }); }   // B-007-9
-    nextPlay(); if(S.phase === 'over') newGame();
-    setRecog();   // a finished game starts the next one
+    if(S.blkStunt) blkEv.stuntPlays++;   // B-007-9: plays with a crossing stunt at the snap
+    if(S.blkEv) S.blkEv.forEach(e => { blkEv[e.ev]++; });
+    nextPlay(); if(S.phase === 'over') newGame();   // a finished game starts the next one
+    setRecog();   // B-007-9
   }
   const pushes = wins.filter(w => w.off && w.gain >= PUSH_GAIN);
   const byPlayOut = {}; for(const k of Object.keys(byPlay).sort()){ const b = byPlay[k]; byPlayOut[k] = {n:b.ys.length, ypc:mean(b.ys), stuffPct:+(100*b.stuff/b.ys.length).toFixed(1)}; }
