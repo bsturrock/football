@@ -1,4 +1,4 @@
-import { BEHIND_Y, PULL_V, PULL_VIA_R, climbCheck, pullCheck } from './blockrules.js';
+import { BEHIND_Y, PULL_V, PULL_VIA_R, climbCheck, pullCheck, rereadCheck } from './blockrules.js';
 import { autoCarry, burst } from './carrier.js';
 import { keys } from './input.js';
 import { runRoute, steer, steerVel } from './movement.js';
@@ -74,6 +74,7 @@ function runBlock(p, dt){
     }
   }
   if(p.dbl) climbCheck(p, dt);
+  if(p.rr) rereadCheck(p, dt);   // B-007-9: a stunt moved my man; re-read every 0.1 s
   if(play.run && p.lane != null) zoneBlock(p, dt); else block(p, dt);
 }
 function olAssign(p){
