@@ -19,6 +19,10 @@ import { dist } from './util.js';
 //   boxS     the safety rolled into the box on the playside
 //   double   ['double','playside'|'backside'|<blocker name>]: I have nobody on me, so I join the neighbour on that side against the line man covering him (the neighbour is the post man and keeps him; I
 //            am the climber). Not offered when I am covered, or when the neighbour is already in a double
+//   pull     ['pull','kick'|'wrap'|'trap']: I leave the line and run to a target the rule picks (B-007-8, states below); no target = the next rule
+//            kick  the first defender outside the hole (playside of it) with y within los-KICK_BACK..los+KICK_FWD; the nearest to the hole; I aim at his inside shoulder (KICK_X)
+//            wrap  the nearest unblocked playside linebacker beyond los+WRAP_Y
+//            trap  the first line man past the center on my pull side that nobody blocks
 //   deep     the safety nearest me;  corner  the corner covering me;  any  nearest man in the box within ANY_DX of me (nobody is sent across the formation)
 // Double team (B-007-7). Per blocker p.dbl = {d, mate, post, t, state}; absent = single. The climber is the uncovered man who joins, the post man the covered neighbour who keeps d.
 // A double is set at the snap only (the handoff re-read keeps a double or a climber that is not released).
@@ -30,6 +34,16 @@ import { dist } from './util.js';
 //   double    no free LB in range                                               double (stays, asked again every frame)
 //   double    d is down, or either man was re-targeted                          both released (the zone/man code re-picks)
 //   climbing  the LB is down                                                    released (zoneBlock re-picks)
+// Pull (B-007-8). Per puller p.pull = {kind, tgt, state, t, reach}; set at the snap only (the handoff re-read keeps a puller that is pulling or engaged; one that finished unengaged takes his next rule).
+// The path is PULL_DEPTH behind the line for PULL_FLAT yd along it, then up to the aim point (offense.js runBlock runs it at PULL_V x speed); S.pulls logs {name, kind, tgt, reach} for probes.
+//   state     event                                                         next
+//   set       rule found a target (snap)                                    pulling (p.via = the two waypoints, p.blk = target)
+//   set       rule found no target                                          no pull (the next rule runs)
+//   pulling   target down (stun)                                            free: via cleared, p.blk re-picked by block()
+//   pulling   within ENGAGED of the target                                  engaged (reach = t; p.locked, kept all play)
+//   engaged   target down                                                   free
+//   free      (end)                                                         p.pull.state stays 'free' for the play
+export const PULL_V = 1.3, PULL_DEPTH = 1.8, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, KICK_X = 0.5, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
 // S.climbed: true once a climb happened this play; B-007-10's climb counter reads it.
 export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = 1.4, COMMIT_V = 0.5, NEIGHBOUR_DX = 3, BEHIND_Y = 1.5;   // NEIGHBOUR_DX: the next lineman is no further than this; BEHIND_Y: a blocker does not pick a man this far behind him   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
 export const COVERED_DX = 1.0, COVERED_DY = 2.5, REACH_DX = 3.5, REACH_AIM = 2.0, BOX_Y = 7, BOX_X = 8, ANY_DX = 5, LANE_DX = 1.8, ZONE_KEEP = 3;   // ZONE_KEEP: offense.js zoneBlock drops an unengaged, unruled target this far from the lane
@@ -66,6 +80,16 @@ function pick(rule, p, free, ctx){
       const held = nb.blk && nb.blk.stun <= 0 && (nb.blk.role === 'DL' || nb.blk.y - los <= COVERED_DY) ? nb.blk : null;
       return held || nearest(line.filter(d => Math.abs(d.x - nb.x) <= COVERED_DX + 1e-6), d => Math.abs(d.x - nb.x));
     }
+    case 'pull': {
+      if(ctx.again || p.pull) return null;   // a pull is set at the snap only
+      const dir = Math.sign(h - p.x) || ps;
+      let d = null;
+      if(rule[1] === 'kick') d = nearest(line.filter(e => (e.x - h)*ps > 0 && e.y - los >= -KICK_BACK && e.y - los <= KICK_FWD), e => Math.abs(e.x - h));
+      else if(rule[1] === 'wrap') d = nearest(free.filter(e => e.role === 'LB' && e.x*ps > -1.5 && e.y - los > WRAP_Y), e => Math.hypot(dx(e), e.y - p.y));
+      else if(rule[1] === 'trap') d = nearest(free.filter(e => e.role === 'DL' && (e.x - C.x)*dir > 0), e => Math.abs(e.x - C.x));
+      if(!d) return null;
+      return d;
+    }
     case 'deep': return nearest(free.filter(d => d.role === 'S'), d => Math.abs(d.x - p.x));
     case 'corner': return free.find(d => d.role === 'CB' && d.assign === p) || null;
     case 'any': return nearest(free.filter(d => inBox(d) && d.y - los <= BOX_Y && Math.abs(d.x) <= BOX_X && Math.abs(dx(d)) <= ANY_DX), d => Math.hypot(dx(d), d.y - p.y));
@@ -89,11 +113,12 @@ export function resolveBlocks(play, flip, again = false){
     return linemen[i] && Math.abs(linemen[i].x - p.x) < NEIGHBOUR_DX ? linemen[i] : null;
   }};
   const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released'));   // engaged, pulling, or in a double (driving or climbing)
-  if(!again) S.climbed = false;
-  for(const b of bl) if(!keep(b.p)){ b.p.blk = null; b.p.ruled = false; b.p.dbl = null; }
+  if(!again){ S.climbed = false; S.pulls = []; }
+  for(const b of bl) if(!keep(b.p)){ b.p.blk = null; b.p.ruled = false; b.p.dbl = null; if(!again){ b.p.via = null; b.p.pull = null; } }
   const claimed = new Set(OFF.map(o => o.blk).filter(Boolean));
   // a safety in the box, or a zone pick out of the lane window, would be dropped by zoneBlock on frame 1: mark those `ruled` so it plays
   // them until the man is down (p.locked stays "engaged", the one thing the after-handoff read keeps)
+  const pulls = [];
   const resv = new Map();   // a line man a doubler took before his post man did: d -> {post man, doubler}; the post man may still take him
   const take = (b, d, rule) => {
     const r = resv.get(d); if(r && r.post === b.p) b.p.dbl = {d, mate:r.doubler, post:true, t:0, state:'double'};
@@ -101,6 +126,11 @@ export function resolveBlocks(play, flip, again = false){
       const nb = ctx.neighbour(b.p, rule[1] || 'playside');
       b.p.dbl = {d, mate:nb, post:false, t:0, state:'double'}; b.p.ruled = true;
       if(nb.blk === d) nb.dbl = {d, mate:b.p, post:true, t:0, state:'double'}; else resv.set(d, {post:nb, doubler:b.p});
+    }
+    if(rule[0] === 'pull'){
+      const dir = Math.sign(h - b.p.x) || ps, aim = rule[1] === 'kick' ? d.x - dir*KICK_X : d.x;
+      b.p.via = [{x:b.p.x + dir*PULL_FLAT, y:los - PULL_DEPTH}, {x:aim, y:d.y}]; b.p.pull = {kind:rule[1], tgt:d, state:'pulling', t:0, reach:null};
+      pulls.push({name:b.name, kind:rule[1], p:b.p});
     }
     b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.ruled = true; };
   const free = b => DEF.filter(d => d.stun <= 0 && (!claimed.has(d) || (resv.get(d) || {}).post === b.p));
@@ -113,7 +143,8 @@ export function resolveBlocks(play, flip, again = false){
     const d = pick(['any'], b.p, free(b), ctx); if(d) take(b, d, ['any']);
   }
   for(const b of bl){ const m = b.p.dbl; if(m && !m.post && m.mate.blk !== m.d) b.p.dbl = null; }   // the post man took someone else: a single block after all
-  const lab = labels(); S.blk = Object.fromEntries(bl.map(b => [b.name, b.p.blk ? lab.get(b.p.blk) || '?' : null]));
+  const lab = labels(); for(const u of pulls) S.pulls.push({name:u.name, kind:u.kind, tgt:lab.get(u.p.blk) || '?', p:u.p});
+  S.blk = Object.fromEntries(bl.map(b => [b.name, b.p.blk ? lab.get(b.p.blk) || '?' : null]));
 }
 // the climber's check, every frame from offense.js: leave the double for the nearest unblocked linebacker when it is time
 export function climbCheck(p, dt){
@@ -130,4 +161,11 @@ export function climbCheck(p, dt){
   const lb = nearest(DEF.filter(e => backer(e) && dist(e, p) < CLIMB_RANGE && e.y >= p.y - BEHIND_Y), e => dist(e, p));
   if(!lb) return;
   p.blk = lb; p.ruled = true; m.state = 'climbing'; m.lb = lb; if(m.mate.dbl) m.mate.dbl.state = 'released'; S.climbed = true;
+}
+// the puller's check, every frame from offense.js while he has a pull: engaged when he reaches the target, free when the target goes down
+export function pullCheck(p, dt){
+  const m = p.pull; if(!m || m.state === 'free') return;
+  m.t += dt;
+  if(m.tgt.stun > 0 || p.blk !== m.tgt){ m.state = 'free'; p.via = null; return; }
+  if(m.state === 'pulling' && dist(p, m.tgt) < ENGAGED){ m.state = 'engaged'; m.reach = m.t; }
 }

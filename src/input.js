@@ -62,7 +62,7 @@ export function snap(){
     const play = PLAYS[S.play];
     if(play.scheme === 'zone') [...OL, TE].forEach(o => { o.lane = o.x + play.shift; });
     resolveBlocks(play, S.flip);   // every blocker's target, read against the front (blockrules.js); a receiver slot empty in this personnel has no blocker
-    for(const [o, pts] of Object.entries(play.pulls || {})) ({LT, LG, C, RG, RT, TE})[o].via = pts.map(([x, dy]) => ({x, y:S.los + dy}));
+    for(const [o, pts] of Object.entries(play.pulls || {})) if(!({LT, LG, C, RG, RT, TE})[o].via) ({LT, LG, C, RG, RT, TE})[o].via = pts.map(([x, dy]) => ({x, y:S.los + dy}));
   }
 }
 // short ball transfer between two players (snap, toss)

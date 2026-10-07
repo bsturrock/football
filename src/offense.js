@@ -1,4 +1,4 @@
-import { BEHIND_Y, climbCheck } from './blockrules.js';
+import { BEHIND_Y, PULL_V, PULL_VIA_R, climbCheck, pullCheck } from './blockrules.js';
 import { autoCarry, burst } from './carrier.js';
 import { keys } from './input.js';
 import { runRoute, steer, steerVel } from './movement.js';
@@ -63,11 +63,12 @@ function zoneBlock(p, dt){
 }
 function runBlock(p, dt){
   const play = PLAYS[S.play];
+  if(p.pull) pullCheck(p, dt);
   if(play.run && p.via && p.via.length){                       // pulling: get through the waypoints first
     const v = p.via[0];
-    if(Math.hypot(v.x - p.x, v.y - p.y) < 0.8) p.via.shift();
+    if(Math.hypot(v.x - p.x, v.y - p.y) < PULL_VIA_R) p.via.shift();
     else {   // pulling: full speed through the waypoints (no arrive braking), quicker feet than a normal OL
-      const dx = v.x - p.x, dy = v.y - p.y, l = Math.hypot(dx, dy), a = p.acc, t = p.turn, s = p.spd*1.3;
+      const dx = v.x - p.x, dy = v.y - p.y, l = Math.hypot(dx, dy), a = p.acc, t = p.turn, s = p.spd*PULL_V;
       p.acc *= 1.6; p.turn *= 1.8; steerVel(p, dx/l*s, dy/l*s, dt); p.acc = a; p.turn = t;
       p.faceAt = p.blk; return;   // eyes on the kick-out man
     }
