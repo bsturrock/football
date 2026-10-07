@@ -19,7 +19,7 @@ import { S, selectPlay, setupPlay } from './state.js';
 const PRE_S = 1.2, REP_S = 4.5;
 const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (double-pose): ?play=<name> forces a play (e.g. Inside Zone: a combo, so doubles form); an unknown name falls back to Iso
 const FORCED = PLAYS.find(p => p.name.toLowerCase() === String(PLAY_Q).toLowerCase());
-const PLAY = FORCED ? FORCED.name : 'Iso';   // a man-blocking run: every lineman takes the man on him (no doubles, no pulls); its handoff spot is the defense's fixed target
+const PLAY = FORCED ? FORCED.name : 'Iso';   // Iso (the default): a man-blocking run, every lineman takes the man on him (no doubles, no pulls); a forced play is whatever ?play names
 const OL_BY_NAME = {LT, LG, C, RG, RT};
 const NOTES = {
   '1v1': 'One lineman against the defender over him. Watch: does he stay square and locked on the man, how does the defender rotate or shed, does the block drive him back.',
@@ -45,10 +45,10 @@ function liveSnap(){
   snap();
   const on = [...parts.off, ...parts.def];
   ALL.filter(p => !on.includes(p)).forEach((p, i) => { p.x = p.rx = -9 + i*0.9; p.y = p.ry = -10; p.vx = p.vy = 0; });   // dead ball behind the end line, 0.9 apart (separate() pushes under SEP_R 0.56)
-  // the defense needs a ball target: the Iso's handoff spot (RB.route[0], behind the line between the guards), held fixed; the ball and control ring are scaled to nothing in drillStart so nothing floats there
+  // the defense needs a ball target: the play's handoff spot (RB.route[0]; Iso: behind the line between the guards), held fixed; the ball and control ring are scaled to nothing in drillStart so nothing floats there
   const h = RB.route[0]; RB.x = RB.rx = h.x; RB.y = RB.ry = h.y; RB.vx = RB.vy = 0;
   giveBall(RB);   // as in a game: ball held, handoffAt set, the blockers re-read the front once more (it sees the parked men, so the clearing below comes after)
-  parts.off.forEach(o => { if(o.blk && !parts.def.includes(o.blk)) o.blk = null; if(!FORCED) o.dbl = null; });   // B-037 (double-pose): a forced play keeps the doubles the block rules formed
+  parts.off.forEach(o => { if(o.blk && !parts.def.includes(o.blk)) o.blk = null; if(!FORCED || (o.dbl && !parts.off.includes(o.dbl.mate))) o.dbl = null; });   // B-037 (double-pose): a forced play keeps the doubles the block rules formed
 }
 export function setMode(m){
   mode = m; const u = new URL(location.href); u.searchParams.set('drill', m); history.replaceState(null, '', u);
