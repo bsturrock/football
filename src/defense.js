@@ -282,7 +282,8 @@ export function defenseAI(d, dt){
       battle(d, o, c, dt);
     } else d.bt = null;
   } else d.bt = null;
-  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch && !holdsBlocker(d)) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
+  if(d.bt) d.btAt = S.clock;   // B-020: when his battle last ran, for holdsBlocker's HOLD_T
+  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch && !holdsBlocker(d, S)) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
   if(attack && !d.bt && c){   // hunting the runner: run through the target, never ease up approaching it
     const dx = tx - d.x, dy = ty - d.y, l = Math.hypot(dx, dy) || 1;
     steerVel(d, dx/l*sp, dy/l*sp, dt);

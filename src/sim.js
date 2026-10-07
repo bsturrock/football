@@ -1,7 +1,7 @@
 import { KEYS } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { formByName } from './formations.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
-import { HOLD_R, bearing, faceLean, faceYaw } from './util.js';
+import { HOLD_R, bearing, faceLean, faceYaw, holdsBlocker } from './util.js';
 
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
@@ -66,32 +66,36 @@ export function runSim(n, step, g){
   // Engaged frames (a battle, not a body, not stunned) score the shadow face against the bearing to his blocker or nearest double-teamer:
   // errDeg = off square with the intended lean removed, leanDeg = the lean itself, sqPct = share of frames within SQUARE_DEG of square including the lean.
   // Turn-back: from a battle ending (shed, step-around) until the shadow face is within SQUARE_DEG of his velocity heading, capped at TURN_MAX s.
-  const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0}, shadow = new Map(), turn = [];
+  const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0, hFrames:0, hSquare:0, hErr:0}, shadow = new Map(), turn = {shed:[], hold:[]};
   const wrap = a => Math.atan2(Math.sin(a), Math.cos(a)), deg = r => r*180/Math.PI;
   const facing = () => {
     for(const d of DEF){
-      let m = shadow.get(d); if(!m){ m = {f:d.face, eng:false, t:null}; shadow.set(d, m); }
-      const sp = Math.hypot(d.vx, d.vy), fy = faceYaw(d, ball, S.runMode), vy = sp > FACE_V ? Math.atan2(d.vx, -d.vy) : null, tgt = fy !== null ? fy : vy;
+      let m = shadow.get(d); if(!m){ m = {f:d.face, eng:false, hold:false, t:null, k:null}; shadow.set(d, m); }
+      const sp = Math.hypot(d.vx, d.vy), fy = faceYaw(d, ball, S), vy = sp > FACE_V ? Math.atan2(d.vx, -d.vy) : null, tgt = fy !== null ? fy : vy;
       if(!d.ph && d.act !== 'down' && d.act !== 'dive' && d.act !== 'fall' && tgt !== null) m.f += wrap(tgt - m.f)*Math.min(1, SIM_DT*FACE_RATE);
-      const held = OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < HOLD_R && !(d.freeFrom === q && d.freeT > 0) && !(d.avoid && d.avoid.st === 'avoid'));   // a gap in the battle (no battle object for a few frames) while still locked up
-      const eng = (!!d.bt || (m.eng && held.length > 0)) && !d.ph && !d.latch && d.stun <= 0;
-      if(eng){
-        const qs = [...(d.bt ? [d.bt.o] : []), ...(d.faceAt ? [d.faceAt] : []), ...held];
+      const live = !d.ph && !d.latch && d.stun <= 0, eng = !!d.bt && live, hold = !d.bt && live && holdsBlocker(d, S);   // hold: the code is still turning him to his blocker with no battle object (util.js holdsBlocker)
+      if(eng || hold){
+        const qs = [...(d.bt ? [d.bt.o] : []), ...(d.faceAt ? [d.faceAt] : []), ...OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < HOLD_R)];
         let e = Infinity, off = Infinity, lean = 0;
         for(const q of qs){
-          const l = faceLean(d, q, ball, S.runMode), x = Math.abs(wrap(m.f - bearing(d, q) - l)), y = Math.abs(wrap(m.f - bearing(d, q)));
+          const l = faceLean(d, q, ball, S), x = Math.abs(wrap(m.f - bearing(d, q) - l)), y = Math.abs(wrap(m.f - bearing(d, q)));
           if(x < e){ e = x; off = y; lean = Math.abs(l); }
         }
-        fc.frames++; fc.err += e; fc.lean += lean; if(deg(off) <= SQUARE_DEG) fc.square++;
-        fc.maxLean = Math.max(fc.maxLean, lean); fc.maxOff = Math.max(fc.maxOff, off);
-      } else if(m.eng && !d.ph && !d.latch && d.stun <= 0 && d.freeT > 0.8) m.t = 0;   // he just shed his blocker (freeT is set to 0.9 then): time the turn back
-      m.eng = eng;
+        if(eng){
+          fc.frames++; fc.err += e; fc.lean += lean; if(deg(off) <= SQUARE_DEG) fc.square++;
+          fc.maxLean = Math.max(fc.maxLean, lean); fc.maxOff = Math.max(fc.maxOff, off);
+        } else { fc.hFrames++; fc.hErr += e; if(deg(off) <= SQUARE_DEG) fc.hSquare++; }
+      }
+      if(!eng && m.eng && live && d.freeT > 0.8){ m.t = 0; m.k = 'shed'; }   // he just shed his blocker (freeT is set to 0.9 then): time the turn back
+      else if(!hold && m.hold && !d.bt && live){ m.t = 0; m.k = 'hold'; }    // a hold just ended with no battle: time the turn back too
+      m.eng = eng; m.hold = hold;
       if(m.t !== null){
-        if(d.ph || d.latch || d.stun > 0) m.t = null;
+        if(!live) m.t = null;
         else {
           m.t += SIM_DT;
-          if(vy !== null && Math.abs(wrap(m.f - vy)) <= SQUARE_DEG*Math.PI/180){ turn.push(m.t); m.t = null; }
-          else if(m.t >= TURN_MAX){ turn.push(TURN_MAX); m.t = null; }
+          if(vy === null) m.t = null;   // standing still after the shed or the hold: no heading to turn back to, not a turn-back
+          else if(vy !== null && Math.abs(wrap(m.f - vy)) <= SQUARE_DEG*Math.PI/180){ turn[m.k].push(m.t); m.t = null; }
+          else if(m.t >= TURN_MAX){ turn[m.k].push(TURN_MAX); m.t = null; }
         }
       }
     }
@@ -157,5 +161,5 @@ export function runSim(n, step, g){
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
-    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, slant:{'Slant Left':byCall['Slant Left'] || {}, 'Slant Right':byCall['Slant Right'] || {}}, boxMean:mean(boxes), freeBox:mean(frees), blkEv, facing:{frames:fc.frames, sqPct:fc.frames ? +(100*fc.square/fc.frames).toFixed(1) : null, errDeg:fc.frames ? +deg(fc.err/fc.frames).toFixed(1) : null, leanDeg:fc.frames ? +deg(fc.lean/fc.frames).toFixed(1) : null, maxLeanDeg:+deg(fc.maxLean).toFixed(1), maxOffDeg:+deg(fc.maxOff).toFixed(1), turnBack:{n:turn.length, medianS:med(turn), p90S:pct(turn, 0.9)}}});
+    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, slant:{'Slant Left':byCall['Slant Left'] || {}, 'Slant Right':byCall['Slant Right'] || {}}, boxMean:mean(boxes), freeBox:mean(frees), blkEv, facing:{frames:fc.frames, sqPct:fc.frames ? +(100*fc.square/fc.frames).toFixed(1) : null, errDeg:fc.frames ? +deg(fc.err/fc.frames).toFixed(1) : null, leanDeg:fc.frames ? +deg(fc.lean/fc.frames).toFixed(1) : null, maxLeanDeg:+deg(fc.maxLean).toFixed(1), maxOffDeg:+deg(fc.maxOff).toFixed(1), heldFrames:fc.hFrames, sqPctWithHeld:fc.frames + fc.hFrames ? +(100*(fc.square + fc.hSquare)/(fc.frames + fc.hFrames)).toFixed(1) : null, errDegWithHeld:fc.frames + fc.hFrames ? +deg((fc.err + fc.hErr)/(fc.frames + fc.hFrames)).toFixed(1) : null, turnBack:{n:turn.shed.length, medianS:med(turn.shed), p90S:pct(turn.shed, 0.9)}, holdTurnBack:{n:turn.hold.length, medianS:med(turn.hold), p90S:pct(turn.hold, 0.9)}}});
 }
