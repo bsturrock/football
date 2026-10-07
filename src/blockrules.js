@@ -54,11 +54,11 @@ export const PULL_V = 1.3, PULL_DEPTH = 1.8, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, 
 //   set       target left his snap spot by LEFT_DX while the stunt is live          reading (t = 0; miss rolled: MISS_P*lack(recog))
 //   set       target down, or p.blk re-targeted by someone else                     no rd (the zone/man code owns him)
 //   reading   t >= READ_O (+ MISS_HOLD when the miss rolled), a free line man in my lane  passed, or missed when the miss rolled (p.blk = him, unlocked, ruled); event logged
-//   reading   same time, nobody free in my lane                                      kept (stays on his man; missed event still logged when the miss rolled)
+//   reading   same time, nobody free in my lane                                      reading (asked again every REREAD_DT), kept after GIVEUP_T (stays on his man; missed event still logged)
 //   reading   target down                                                           no rd
 //   passed / missed / kept   (terminal; the handoff re-read keeps him)
 // The miss event is logged when the miss is rolled, so a missed blocker shows even when his old man comes back.
-export const READ_BASE = 0.45, READ_K = 250, MISS_P = 0.5, MISS_HOLD = 0.4, WRONG_P = 0.15, LEFT_DX = 1.2, REREAD_DT = 0.1;
+export const READ_BASE = 0.45, READ_K = 250, MISS_P = 0.5, MISS_HOLD = 0.4, WRONG_P = 0.15, LEFT_DX = 1.2, REREAD_DT = 0.1, GIVEUP_T = 0.8;
 // S.climbed: true once a climb happened this play; B-007-10's climb counter reads it.
 export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = 1.4, COMMIT_V = 0.5, NEIGHBOUR_DX = 3, BEHIND_Y = 1.5;   // NEIGHBOUR_DX: the next lineman is no further than this; BEHIND_Y: a blocker does not pick a man this far behind him   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
 export const COVERED_DX = 1.0, COVERED_DY = 2.5, REACH_DX = 3.5, REACH_AIM = 2.0, BOX_Y = 7, BOX_X = 8, ANY_DX = 5, LANE_DX = 1.8, ZONE_KEEP = 3;   // ZONE_KEEP: offense.js zoneBlock drops an unengaged, unruled target this far from the lane
@@ -185,12 +185,13 @@ export function rereadCheck(p, dt){
     return;
   }
   m.t += step;
-  if(m.t < READ_BASE - p.rt.recog/READ_K + (m.miss ? MISS_HOLD : 0)) return;
+  const due = READ_BASE - p.rt.recog/READ_K + (m.miss ? MISS_HOLD : 0);
+  if(m.t < due) return;
   const claimed = new Set(OFF.filter(o => o !== p && o.blk && !(o.rd && o.rd.state === 'reading')).map(o => o.blk));
   const ctx = {los:S.los, h:S.hole, ps:Math.sign(S.hole) || 1};
   const d = pick(['line'], p, DEF.filter(e => e.stun <= 0 && e !== m.d && !claimed.has(e)), ctx);
   if(d){ p.blk = d; p.locked = false; p.ruled = true; p.eng = 0; m.state = m.miss ? 'missed' : 'passed'; if(!m.miss) S.blkEv.push({name:nameOf(p), ev:'passed', t:+S.clock.toFixed(2)}); }
-  else m.state = 'kept';
+  else if(m.t > due + GIVEUP_T) m.state = 'kept';   // nobody has come into my lane yet: ask again every REREAD_DT
 }
 const nameOf = p => Object.keys(S.blk || {}).find(n => bodyOf(n) === p) || '?';
 // the climber's check, every frame from offense.js: leave the double for the nearest unblocked linebacker when it is time
