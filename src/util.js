@@ -23,13 +23,23 @@ export const bearing = (p, t) => Math.atan2(t.x - p.x, p.y - t.y);
 // blocker; not after he beat him (freeT), not while he steps around him, not as a physics body (a bubble promote must not turn him back).
 // d.lastBlk is the man blocking.js's unface took out of faceAt the frame his battle resolved (defense.js sets it with faceAt): the hold covers that frame, the next battle sets faceAt again
 export const holdTarget = d => d.faceAt || d.lastBlk;
-export const holdsBlocker = (d, S) => {
+// holdReason(d, S): null while he holds his blocker, else the first failing test as a word (the sim's jitterLost counts them); holdsBlocker is its yes/no.
+export const holdReason = (d, S) => {
   const t = holdTarget(d);
-  if(!t || t.team !== 'O' || d.ph || d.stun > 0 || t.blk !== d || Math.hypot(t.x - d.x, t.y - d.y) >= HOLD_R || (d.freeFrom === t && d.freeT > 0) || (d.avoid && d.avoid.st === 'avoid')) return false;
-  const age = S.clock - (d.btAt ?? -Infinity);   // d.btAt: S.clock of his last battle frame (defense.js); a stale one from an earlier play has a negative age
-  if(!(age >= 0 && age <= HOLD_T)) return false;
-  return Math.hypot(d.vx, d.vy) <= HOLD_V || (t.x - d.x)*d.vx + (t.y - d.y)*d.vy > -HOLD_BEHIND*Math.hypot(d.vx, d.vy)*Math.hypot(t.x - d.x, t.y - d.y);   // B-022: let go only when the blocker is clearly behind a man running away (more than HOLD_BEHIND of the way back, cosine of the angle off his heading): the old cut at 90 deg off flickered with every wobble of his heading
+  if(!t || t.team !== 'O') return 'noTarget';
+  if(d.ph) return 'body';
+  if(d.stun > 0) return 'stun';
+  if(t.blk !== d) return 'blkLost';
+  if(Math.hypot(t.x - d.x, t.y - d.y) >= HOLD_R) return 'dist';
+  if(d.freeFrom === t && d.freeT > 0) return 'freeT';
+  if(d.avoid && d.avoid.st === 'avoid') return 'avoid';
+  const age = S.clock - (d.btAt ?? -Infinity);   // d.btAt: S.clock of his last battle frame (defense.js; state.js clears it at each play's setup)
+  if(!(age >= 0 && age <= HOLD_T)) return 'age';
+  const v = Math.hypot(d.vx, d.vy);
+  // B-022: let go only when the blocker is clearly behind a man running away (more than HOLD_BEHIND of the way back, cosine of the angle off his heading): the old cut at 90 deg off flickered with every wobble of his heading
+  return v <= HOLD_V || (t.x - d.x)*d.vx + (t.y - d.y)*d.vy > -HOLD_BEHIND*v*Math.hypot(t.x - d.x, t.y - d.y) ? null : 'behind';
 };
+export const holdsBlocker = (d, S) => holdReason(d, S) === null;
 export function faceLean(p, t, ball, S){
   const blocker = p.team === 'O' ? p : t, defender = p.team === 'O' ? t : p;
   const paired = (p.bt && (p.bt.o === t || p.bt.o === p)) || (blocker.blk === defender && Math.hypot(p.x - t.x, p.y - t.y) < HOLD_R);
@@ -46,11 +56,12 @@ export function faceYaw(p, ball, S){
   if(!t) return null;
   return bearing(p, t) + faceLean(p, t, ball, S);
 }
-// B-022: the share of the way to its target p's face turns this frame (animation.js, the sim's shadow faces). A locked-up pair (a defender in or holding a battle, a blocker on his
-// man) never turns more than FACE_STEP_PAIR a frame: the target flips with every gap in the battle (a defender's heading in place of his blocker's bearing for a frame), and at
-// FACE_RATE a 100 deg flip threw the face 23 deg each time. A real turn (a shed, a fresh square-up) still gets there in a few frames.
+// B-022: the share of the way to its target p's face turns this frame (animation.js, the sim's shadow faces). A locked-up pair (a defender in a battle or holding one, a blocker on his
+// man) never turns faster than FACE_STEP_PAIR_RATE (rad/s, times dt, so it holds at any frame rate): the target flips with every gap in the battle (a defender's heading in place of
+// his blocker's bearing for a frame), and at FACE_RATE a 100 deg flip threw the face 23 deg each time. Every turn of a pair is capped, a fresh square-up and a hold included; a shed or
+// a release is not a pair, so it turns back at FACE_RATE.
 export const faceK = (p, S, dt, err) => {
   const k = Math.min(1, dt*FACE_RATE);
   const pair = p.team === 'D' ? (!!p.bt || holdsBlocker(p, S)) : (!!p.faceAt && p.blk === p.faceAt && !p.pull && Math.hypot(p.x - p.faceAt.x, p.y - p.faceAt.y) < HOLD_R);
-  return pair ? Math.min(k, FACE_STEP_PAIR/(Math.abs(err) || 1)) : k;
+  return pair ? Math.min(k, FACE_STEP_PAIR_RATE*dt/(Math.abs(err) || 1)) : k;
 };
