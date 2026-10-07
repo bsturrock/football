@@ -229,9 +229,9 @@ export function resolveBlocks(play, flip, again = false){
   if(!again) for(const b of bl) if((b.entry && (b.entry.kind === 'late' || b.entry.kind === 'noclimb')) && !b.p.pull && !b.p.dbl) b.entry.kind = 'none';   // the double never formed (or was dropped): busted, nothing to bust
   if(!again) for(const b of bl){   // B-032-3: the late / noclimb kind lands on the puller or the climber
     const k = b.entry && b.entry.kind; if(k !== 'late' && k !== 'noclimb') continue;
-    if(b.p.pull) b.p.pull.late = LATE_PULL_T;
-    else if(b.p.dbl && !b.p.dbl.post) b.p.dbl.bust = k;
-    else if(b.p.dbl){ const m = b.p.dbl.mate.dbl; if(m && !m.post && !m.bust) m.bust = k; }
+    if(b.p.pull){ if(k === 'late') b.p.pull.late = LATE_PULL_T; else b.entry.kind = 'none'; }   // a puller only busts late
+    else if(b.p.dbl && !b.p.dbl.post){ const m = b.p.dbl; if(m.src) m.src.kind = 'none'; m.bust = k; m.src = b.entry; }   // the climber's own bust wins: the post man's had no effect
+    else if(b.p.dbl){ const m = b.p.dbl.mate.dbl; if(m && !m.post && !m.bust){ m.bust = k; m.src = b.entry; } else b.entry.kind = 'none'; }
   }
   if(!again) for(const b of bl){
     const d = b.p.blk;
@@ -276,7 +276,7 @@ export function climbCheck(p, dt){
   if(dist(p, d) < ENGAGED) m.t += dt;
   const backer = e => e.role === 'LB' && e.stun <= 0 && !OFF.some(o => o !== p && o.blk === e);   // unblocked: the tight end's edge man is not one to climb to
   const commit = e => dist(e, d) < CLIMB_NEAR || dist(e, p) < CLIMB_NEAR || (dist(e, p) < CLIMB_RANGE && e.vy < -COMMIT_V*e.spd);
-  const extra = m.bust ? LATE_CLIMB_T : 0;   // B-032-3: a late climber waits this much longer
+  const extra = m.bust === 'late' ? LATE_CLIMB_T : 0;   // B-032-3: a late climber waits this much longer
   if(m.bust === 'noclimb' && !m.mate.falling) return;   // stays on the double while the post man is up
   const near = m.t > extra && DEF.some(e => backer(e) && commit(e));
   if(m.t < CLIMB_T + extra && !near) return;
