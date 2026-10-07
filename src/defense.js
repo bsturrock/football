@@ -228,6 +228,8 @@ function stepAround(d, a, tx, ty){
   const hx = tx - d.x, hy = ty - d.y, hl = Math.hypot(hx, hy) || 1;
   return [d.x + hx/hl*AVOID_STEP + a.lat[0]*AVOID_STEP, d.y + hy/hl*AVOID_STEP + a.lat[1]*AVOID_STEP];
 }
+// B-020: who a blocked defender faces: his blocker, or the nearer of the men double-teaming him
+const nearBlocker = (d, o) => OFF.reduce((b, q) => q !== o && q.blk === d && !(q.ph && q.ph.bubble) && dist(q, d) < 1.6 && dist(q, d) < dist(b, d) ? q : b, o);
 export function defenseAI(d, dt){
   if(d.tkCool > 0) d.tkCool -= dt;
   if(d.reachCool > 0) d.reachCool -= dt;
@@ -269,9 +271,11 @@ export function defenseAI(d, dt){
         if(d.freeFrom !== o) pop(o, d, d.bt);
       }
       d.eng = o.eng = 0.15; sp *= 0.12;
+      d.faceAt = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends
       battle(d, o, c, dt);
     } else d.bt = null;
   } else d.bt = null;
+  if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
   if(attack && !d.bt && c){   // hunting the runner: run through the target, never ease up approaching it
     const dx = tx - d.x, dy = ty - d.y, l = Math.hypot(dx, dy) || 1;
     steerVel(d, dx/l*sp, dy/l*sp, dt);

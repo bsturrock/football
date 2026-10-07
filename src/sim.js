@@ -1,7 +1,7 @@
 import { KEYS } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { formByName } from './formations.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
-import { FACE_LEAN_MAX, bearing, faceYaw } from './util.js';
+import { bearing, faceYaw } from './util.js';
 
 // ---------- sim runner ----------
 // ?sim=N&seed=S: plays N CPU run plays with no rendering and writes one JSON line into <pre id="simout">.
@@ -65,12 +65,12 @@ export function runSim(n, step, g){
   // (faceAt with the lean, else his velocity), measured against the bearing to his blocker. Frames with no heading (still, no faceAt) are skipped.
   const fc = {frames:0, square:0, err:0, maxLean:0};
   const facing = () => {
-    const rx = ball.state === 'held' ? ball.holder.x : 0;
     for(const d of DEF){
       if(!d.bt || d.ph || d.latch || d.stun > 0) continue;
-      const o = d.bt.o, sp = Math.hypot(d.vx, d.vy);
+      const sp = Math.hypot(d.vx, d.vy);
       if(!d.faceAt && sp <= FACE_V) continue;
-      const h = d.faceAt ? faceYaw(d, d.faceAt, rx) : Math.atan2(d.vx, -d.vy), e = Math.abs(Math.atan2(Math.sin(h - bearing(d, o)), Math.cos(h - bearing(d, o))));
+      const B = bearing(d, OFF.reduce((b, q) => q.blk === d && Math.hypot(q.x - d.x, q.y - d.y) < Math.hypot(b.x - d.x, b.y - d.y) ? q : b, d.bt.o));   // the nearer blocker of a double team
+      const h = d.faceAt ? faceYaw(d, d.faceAt, ball) : Math.atan2(d.vx, -d.vy), e = Math.abs(Math.atan2(Math.sin(h - B), Math.cos(h - B)));
       fc.frames++; fc.err += e; if(e*180/Math.PI <= SQUARE_DEG) fc.square++; fc.maxLean = Math.max(fc.maxLean, e);
     }
   };
