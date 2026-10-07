@@ -5,10 +5,10 @@ Blocks on the line should look and play like real football: blockers arrive with
 ## Map
 
 - **Approach** blocker path and aim point to the defender's offense-side, shaded toward the runner (offense.js driveAt, movement.js steerVel get-off boost).
-  ? which part looks wrong: arrival, contact, the fight, the release, or the poses (asked 2026-10-07)
+  - ? which part looks wrong: arrival, contact, the fight, the release, or the poses (asked 2026-10-07)
 - **Contact** engaged at 1.4 yd (p.eng, p.locked); first-contact pop by momentum (defense.js pop).
 - **The fight** discrete battle cycle in blocking.js: set 0.2-0.4 s, a 0.45 s speed or power move won on a rating sigmoid, drive 2-3 yd/s, blocker recovery 0.8-1.4 s, pancake on a momentum score.
-  ? what a good block should look like to the user; a play they remember (asked 2026-10-07)
+  - ? what a good block should look like to the user; a play they remember (asked 2026-10-07)
 - **Shed and release** defense.js avoidBlockers: fight-through roll (shed/99 - 0.3) or step-around 1.6 yd; a beaten blocker cannot re-engage for 0.9 s.
 - **Look** block poses in animation.js (swim, bull rush, recover, hold).
 - **Tuning after** run bands (ypc, stuffs, big runs) are tuned only after this lands (user 2026-10-07, L-1007-059: split B-006-7).
