@@ -4,13 +4,10 @@ Each player has mental ratings for how well he knows his scheme and his assignme
 
 ## Map
 
-- **Mental vs physical split** Mental ratings decide what a player tries (right man, right time, right call); physical ratings decide whether it works (user L-1007-091, 2026-10-07).
-  - ? One framework for all positions with blockers built first, or blockers only for now? (asked 2026-10-07)
-  - **Scheme knowledge** How well a player knows his assignment in a scheme; a miss is a bust (wrong man, wrong gap, late pull or climb, a combo that never climbs).
-    - ? One rating per player, one per scheme family (zone, gap/power, pass pro), or one per play? (asked 2026-10-07)
-    - ? Today's recog (play recognition) stays as reading the defense in play (stunts, keys), separate from knowing your own job? (asked 2026-10-07)
-  - **Calls by the smart player** The center's Mike ID sets the line's count and the QB's check-out of a bad look; both come from that player's mental ratings.
-    - ? Build the Mike ID and check-outs on top of this, in the same package? (asked 2026-10-07)
+- **Mental vs physical split** Mental ratings decide what a player tries (right man, right time, right call); physical ratings decide whether it works (user L-1007-091, 2026-10-07). One framework for every position, blockers built first (user 2026-10-07, L-1007-095).
+  - **Scheme knowledge** One 0-99 rating per scheme family (zone, gap/power, pass pro) per player (user 2026-10-07, L-1007-095); a miss is a bust: wrong man, wrong gap, late pull or climb, a combo that never climbs.
+  - **Recog stays separate** Play recognition remains reading the defense during the play (stunts, keys), not knowing your own job (user 2026-10-07, L-1007-095).
+  - **Calls by the smart player** The center's Mike ID and the QB's check-outs from their mental ratings: later, not in the first build (user 2026-10-07, L-1007-096).
 - **Assignments per player** Each slot's rule per play, read against the front at the snap (blockrules.js, playbook.js); varies by formation and play type (user L-1007-091, 2026-10-07).
 
 ## Today (main 8fa4348)
