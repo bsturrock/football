@@ -77,7 +77,9 @@ export const COVERED_DX = 1.0*GK, COVERED_DY = 2.5, REACH_DX = 3.5*GK, REACH_AIM
 // one {name, fam, know, kind} per rolled blocker: kind null = no bust. A bust shows only through its result:
 //   wrong   his rule would give him a man: he takes his next rule's man instead, else the man in the neighbour lane away from the hole; his own man stays free
 //   late    he is a puller (B-032-3 applies the delay)         noclimb / late   he is the climber of a double (half of the bust band each; B-032-3 applies it)
-//   none    busted but no other man to take: he blocks his man as usual
+//   none    busted but no other man to take (or the double / pull never formed): he blocks his man as usual
+//   no man on the rule that would assign him = no bust there (the next rule is tried); WRONG_RULES: the wrong man comes from the next rule only if it is a line rule, else the neighbour lane
+//   a double's post man busts late / noclimb only (never wrong); the freed man sits in `left`, so the snap and handoff reads skip him
 // A busted blocker skips the recog stunt roll. p.bustWrong keeps his wrong man through the handoff re-read.
 export const BUST_MAX = 0.35;
 const WRONG_RULES = ['on', 'line', 'down', 'reach', 'back', 'edge'];   // a wrong man is a line man: never a backer or safety (an easier tackle for the defense)
@@ -175,7 +177,7 @@ export function resolveBlocks(play, flip, again = false){
     }
     b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.ruled = true; };
   if(!again) left = new Set();
-  // a covered blocker whose uncovered neighbour doubles onto his man (that neighbour's first-listed double rule would fire): he is that double's post man
+  // a covered blocker next to a neighbour with a double rule toward him that could fire (uncovered, or 'cov'): he is that double's post man. An approximation: it does not check that the neighbour's earlier rules took no man; a double that never forms clears the kind at the end
   const postMan = b => bl.some(c => c !== b && c.spec.some(r => r[0] === 'double' && allowed(r) && ctx.neighbour(c.p, r[1] || 'playside') === b.p && (r[2] === 'cov' || !DEF.some(d => d.stun <= 0 && Math.abs(d.x - c.p.x) <= COVERED_DX + COVER_EPS && d.y - los <= COVERED_DY))));
   const free = b => DEF.filter(d => d.stun <= 0 && !left.has(d) && (!claimed.has(d) || (resv.get(d) || {}).post === b.p));
   if(!again){
@@ -192,8 +194,7 @@ export function resolveBlocks(play, flip, again = false){
     if(b.bust && !b.entry.kind && b.spec[k] && allowed(b.spec[k]) && !['later', 'pass', 'pull', 'double'].includes(b.spec[k][0])){
       const postOf = postMan(b), own = postOf ? null : pick(b.spec[k], b.p, free(b), ctx), nx = b.spec[k + 1];
       if(postOf) b.entry.kind = b.bust.half ? 'late' : 'noclimb';   // provisional: cleared at the end when no double forms
-      else if(!own) b.bust = null;   // nobody on his rule: nothing to bust
-      else {
+      else if(own){   // no man on this rule: no bust here, the next rule is tried (the draw was taken at the snap)
       const others = free(b).filter(d => d !== own);   // his own man stays free
       let d2 = nx && allowed(nx) && WRONG_RULES.includes(nx[0]) ? pick(nx, b.p, others, ctx) : null;
       if(!d2) d2 = pick(['line'], {x:b.p.x, y:b.p.y, lane:(b.p.lane ?? b.p.x) - ps*OL_GAP}, others, ctx);
