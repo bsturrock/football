@@ -59,7 +59,7 @@ export function runSim(n, step, g){
   S.force = force;   // read by cpu.js (play), state.js (front) and later formations and flip
   if(force.front || force.pers || force.dpers || force.form || force.side) setupPlay();   // the first play was set up before the force existed
   const yards = [], spotYards = [], wins = [], physMs = [];
-  const byPlay = {}, boxes = [], frees = [];
+  const byPlay = {}, boxes = [], frees = [], calls = {}, byFront = {};   // B-007-13: calls, byFront: counts of the plays run
   let timeouts = 0, pushPlays = 0, bodiesMax = 0, win = null;
   const closeWin = () => {   // a window counts once it lasted WINDOW_T
     if(win && win.t >= WINDOW_T) wins.push({dur:win.t, gain:win.y1 - win.y0, off:win.off});
@@ -76,7 +76,7 @@ export function runSim(n, step, g){
       step(SIM_DT); t += SIM_DT;
       const c = ball.state === 'held' ? ball.holder : null;
       if(S.phase === 'live' && c){
-        const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; } endY = y;
+        const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; calls[pname] = (calls[pname] || 0) + 1; const fb = byFront[S.front] || (byFront[S.front] = {}); fb[pname] = (fb[pname] || 0) + 1; }   // B-007-13: call shares, overall and per defensive front endY = y;
         if(c === RB && !measured){   // the back gets the ball: count the box, and who is free in it
           measured = true;
           const inBox = DEF.filter(d => Math.abs(d.y - S.los) <= BOX_DY && Math.abs(d.x - BOX_CX) <= BOX_DX);
@@ -119,5 +119,5 @@ export function runSim(n, step, g){
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
-    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, boxMean:mean(boxes), freeBox:mean(frees), blkEv});
+    force, field:{off:fieldO, def:fieldD}, roster:{O:ROSTER.O.length, D:ROSTER.D.length, ids:new Set([...ROSTER.O, ...ROSTER.D].map(r => r.id)).size, on:ALL.map(p => p.id).join(' ')}, teams:{regens, every:SIM_TEAM_EVERY, O:teamAvg('O'), D:teamAvg('D')}, byPlay:byPlayOut, calls, byFront, boxMean:mean(boxes), freeBox:mean(frees), blkEv});
 }

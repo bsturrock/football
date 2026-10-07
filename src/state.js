@@ -38,7 +38,8 @@ function pickForm(play, fresh){
   const pers = persName('off', forced('pers'));
   if(!play.forms) return chooseForm(false, null, pers);
   const list = play.forms.map(formByName), byPers = pers ? list.find(f => f.pers === pers) : null;
-  return byPers || (!fresh && S.form && list.includes(S.form) ? S.form : null) || list[Math.floor(Math.random()*list.length)];
+  const hint = S.formHint && list.find(f => f.name === S.formHint);   // B-007-13: the CPU's formation choice (after a forced form or personnel)
+  return byPers || hint || (!fresh && S.form && list.includes(S.form) ? S.form : null) || list[Math.floor(Math.random()*list.length)];
 }
 // personnel for the next play: forced by the sim (?pers=, ?dpers=), else the page URL, else 11 and nickel
 const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
