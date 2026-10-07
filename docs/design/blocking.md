@@ -42,3 +42,8 @@ Blocks on the line should look and play like real football: blockers arrive with
 - Out: block poses, run-band tuning, B-012..B-018 (none absorbed: they touch assignments, not facing).
 - Unblocks: block-pose polish ("Look"), run-band tuning, B-012..B-018.
 
+
+## Landed
+
+- B-020 merged 14b7b23 (user L-1007-074): defender faces his blocker through a battle and through gaps under 0.25 s while the blocker is in front (util.js holdsBlocker, HOLD_R 1.8, HOLD_T 0.25, HOLD_V 0.4); lean via util.js faceLean (FACE_LEAN_MAX 20 deg, LEAN_LAT 1.0 yd), run plays after the handoff only, not pullers or physics bodies. Sim ?sim=100&seed=7: sqPct 84 (main ~15), errDeg 12.4, turnBack median 0.07 s.
+- Review notes kept here: a defender also goes engaged -> free directly when the battle drops and the hold test already fails (defense.js sweep nulls faceAt); turnBack drops cases where the defender stands still after a shed, so its n is low.
