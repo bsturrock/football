@@ -47,7 +47,7 @@ function readHole(p, dt){
 const PRESS_V = 0.7, PRESS_T = 0.15, PRESS_VIS = 0.35, PRESS_MAX = 0.6;    // press speed x spd; seconds = PRESS_T + PRESS_VIS*vision/99, capped
 const KEY_R = 3, KEY_Y0 = -1, KEY_Y1 = 5, KEY_EVERY = 0.2, KEY_UNTIL = 1.5;   // key: nearest unengaged defender within KEY_R of the hole x, y los+KEY_Y0..KEY_Y1
 const DECIDE_Y = 1, COMMIT_Y = 3, BEND = 2.2, BOUNCE = 5, CUTBACK = 4, EDGE = 1.5;
-const WRONG_P = 0.25, NOISE = 1, HOLE_COST = 0.05, KEY_PEN = 1.2, KEY_CLOSE = 2.2, KEY_LEAD = 0.3;
+const WRONG_P = 0.25, NOISE = 1, HOLE_COST = 0.05, KEY_PEN = 1.2, KEY_CLOSE = 2.2, KEY_LEAD = 0.3;   // NOISE: score noise amplitude x (1-vision/99); any lane but the noiseless best counts as wrong (B-006-7 tunes it)
 const free = d => d.stun <= 0 && !isBody(d) && !(d.eng > 0) && !d.bt && !OFF.some(o => o.blk === d);
 function pickKey(hole){
   let key = null, bd = KEY_R;
@@ -61,20 +61,19 @@ function decide(p, hole, key, side){
   const lim = HW - EDGE, kx = key ? key.x + key.vx*KEY_LEAD : null;
   const away = key ? (Math.sign(hole - key.x) || side) : side;
   const opts = {hit:hole, bend:key ? key.x + away*BEND : hole + side*BEND, bounce:hole + side*BOUNCE, cutback:hole - side*CUTBACK};
-  let best = null, bs = -1e9, noisy = null, ns = -1e9, worst = null, ws = 1e9;
+  let best = null, bs = -1e9, noisy = null, ns = -1e9, second = null, ss = -1e9;
   const vn = lack(p, 'vision')*NOISE;
   for(const [name, raw] of Object.entries(opts)){
     const x = clamp(raw, -lim, lim);
     let sc = raceMargin(p, x, S.los + 1) + raceMargin(p, x, S.los + 3)*0.6 + raceMargin(p, x, S.los + 5)*0.4 - Math.abs(x - hole)*HOLE_COST - Math.abs(x - p.x)*0.015;
     if(kx !== null) sc -= Math.max(0, KEY_CLOSE - Math.abs(x - kx))*KEY_PEN;
-    if(sc > bs){ bs = sc; best = name; }
-    if(sc < ws){ ws = sc; worst = name; }
+    if(sc > bs){ ss = bs; second = best; bs = sc; best = name; } else if(sc > ss){ ss = sc; second = name; }
     sc += vn*rand(-1, 1);
     if(sc > ns){ ns = sc; noisy = name; }
     opts[name] = x;
   }
   let pick = noisy;
-  if(Math.random() < WRONG_P*lack(p, 'vision')){ pick = worst; }   // a misread is the worst lane: into his own blockers
+  if(Math.random() < WRONG_P*lack(p, 'vision')){ pick = second; }   // a misread is the second-best lane: a plausible mistake
   return {choice:pick, x:opts[pick], wrong:pick !== best};
 }
 function zoneRead(p, dt){
