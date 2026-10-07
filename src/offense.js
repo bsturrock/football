@@ -1,3 +1,4 @@
+import { BEHIND_Y, climbCheck } from './blockrules.js';
 import { autoCarry, burst } from './carrier.js';
 import { keys } from './input.js';
 import { runRoute, steer, steerVel } from './movement.js';
@@ -6,6 +7,7 @@ import { C, DEF, DL, LBs, LG, LT, OFF, QB, RB, RG, RT } from './players.js';
 import { S, ball } from './state.js';
 import { dist } from './util.js';
 
+const DBL_SHOULDER = 0.45;   // two blockers on one defender: each takes a shoulder this far off his centre
 // what blockers protect: the runner once he has the ball, otherwise the play's hole
 export function runRef(){
   const c = ball.state === 'held' ? ball.holder : null, play = PLAYS[S.play];
@@ -16,7 +18,7 @@ export function runRef(){
 function pickBlock(p, ref){
   let best = null, bd = 1e9;
   for(const d of DEF){
-    if(d.stun > 0 || dist(d, ref) > 15 || d.y < ref.y - 3 || d.y < p.y - 1.5) continue;
+    if(d.stun > 0 || dist(d, ref) > 15 || d.y < ref.y - 3 || d.y < p.y - BEHIND_Y) continue;
     if(OFF.some(o => o !== p && o.blk === d)) continue;
     const k = dist(d, p); if(k < bd){ bd = k; best = d; }
   }
@@ -27,8 +29,9 @@ function driveAt(p, d, ref, dt){
   const vx = ref.x - d.x, vy = Math.min(ref.y - d.y, -0.6), l = Math.hypot(vx, vy) || 1;
   if(dist(p, d) < 1.4){ p.eng = 0.15; p.locked = true; }
   p.faceAt = d;
+  const side = p.dbl && p.dbl.state === 'double' && p.dbl.d === d ? (Math.sign(p.x - d.x) || 1)*DBL_SHOULDER : 0;   // two men on one defender take a shoulder each
   // a blocker who just got beaten is off balance: he chases his man but usually can't recover
-  steer(p, d.x + vx/l*0.85, d.y + vy/l*0.85, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
+  steer(p, d.x + side + vx/l*0.85, d.y + vy/l*0.85, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
 }
 const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
 // man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
@@ -48,7 +51,7 @@ function zoneBlock(p, dt){
   if(!(d && d.stun <= 0 && (p.locked || p.ruled || Math.abs(d.x - lane) < 3))){
     d = null; p.locked = false; p.ruled = false; let bd = 1e9;
     for(const e of DEF){
-      if(e.stun > 0 || claimed(p, e) || e.y < p.y - 1.5) continue;
+      if(e.stun > 0 || claimed(p, e) || e.y < p.y - BEHIND_Y) continue;
       const dx = Math.abs(e.x - lane), dy = e.y - S.los;
       if(!((dy < 3.5 && dx < 1.8) || (p.climbing && dy < 9 && dx < 6))) continue;
       const k = dist(e, p); if(k < bd){ bd = k; d = e; }
@@ -69,6 +72,7 @@ function runBlock(p, dt){
       p.faceAt = p.blk; return;   // eyes on the kick-out man
     }
   }
+  if(p.dbl) climbCheck(p, dt);
   if(play.run && p.lane != null) zoneBlock(p, dt); else block(p, dt);
 }
 function olAssign(p){

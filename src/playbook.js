@@ -26,7 +26,7 @@ export const DEF_CALLS = [
 // (hole to -x for Power, tight end +x) and mirrored by flip. The corner / safety rules are the receivers' stalk blocks.
 const WR_ON = {WR0:[['corner']], WR1:[['corner']], WR2:[['corner']]}, WR_DEEP = {WR0:[['corner']], WR1:[['corner']], WR2:[['deep']]};
 const EXTRAS = {FB:[['backer','ps'],['any']], TE2:[['on'],['reach']]};
-const OL_INSIDE = [['line'],['down'],['backer','near']], OL_OUTSIDE = [['reach'],['on'],['backer','near']];
+const OL_INSIDE = [['line'],['down'],['backer','near']], OL_DOUBLE = [['double','playside'],['double','backside'],['line'],['down'],['backer','near']], OL_OUTSIDE = [['reach'],['on'],['backer','near']];
 const INSIDE = {LT:OL_INSIDE, LG:OL_INSIDE, C:OL_INSIDE, RG:OL_INSIDE, RT:OL_INSIDE, TE:[['boxS'],['on'],['down']], ...EXTRAS, ...WR_ON};
 const OUTSIDE = {LT:OL_OUTSIDE, LG:OL_OUTSIDE, C:OL_OUTSIDE, RG:OL_OUTSIDE, RT:OL_OUTSIDE, TE:[['boxS'],['reach'],['on']], ...EXTRAS, ...WR_DEEP};
 // route points: [yards toward the middle, yards downfield from the line]
@@ -46,7 +46,7 @@ export const PLAYS = [
   // scheme 'zone': linemen + TE each own a lane (start x + shift) and block whoever shows up in it, else climb.
   // scheme 'man': linemen keep the defender the rules gave them; `pulls` are waypoints [x, yards from line] run first.
   // `rules`: blocker -> rule list (blockrules.js)
-  {name:'Inside Zone', run:'hand', scheme:'zone', shift:-1, hole:-1.1,
+  {name:'Inside Zone', run:'hand', scheme:'zone', shift:-1, hole:-1.1,   // OL_DOUBLE (double, then singles) is ready for it but costs ypc until tuning is allowed (B-007-7)
    rules:INSIDE,
    path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]]},
   {name:'Power Left', run:'hand', scheme:'man', hole:-3.6,
