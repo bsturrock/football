@@ -1,3 +1,4 @@
+import { climbCheck } from './blockrules.js';
 import { autoCarry, burst } from './carrier.js';
 import { keys } from './input.js';
 import { runRoute, steer, steerVel } from './movement.js';
@@ -27,8 +28,9 @@ function driveAt(p, d, ref, dt){
   const vx = ref.x - d.x, vy = Math.min(ref.y - d.y, -0.6), l = Math.hypot(vx, vy) || 1;
   if(dist(p, d) < 1.4){ p.eng = 0.15; p.locked = true; }
   p.faceAt = d;
+  const side = p.dbl && p.dbl.state === 'double' && p.dbl.d === d ? (Math.sign(p.x - d.x) || 1)*0.45 : 0;   // two men on one defender take a shoulder each
   // a blocker who just got beaten is off balance: he chases his man but usually can't recover
-  steer(p, d.x + vx/l*0.85, d.y + vy/l*0.85, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
+  steer(p, d.x + side + vx/l*0.85, d.y + vy/l*0.85, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
 }
 const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
 // man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
@@ -69,6 +71,7 @@ function runBlock(p, dt){
       p.faceAt = p.blk; return;   // eyes on the kick-out man
     }
   }
+  if(p.dbl) climbCheck(p, dt);
   if(play.run && p.lane != null) zoneBlock(p, dt); else block(p, dt);
 }
 function olAssign(p){
