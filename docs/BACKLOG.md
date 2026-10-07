@@ -59,7 +59,7 @@ Items and tasks (features are names, not ids; see ## Features):
   - **B-007-10** [play] Run playbook batch 1: Inside Zone, Outside Zone, Duo and Iso in the rules format. Where: src/playbook.js, src/state.js. Depends on: B-007-7. Done when: card in game-vision ## Package: Run schemes. Trace: -. Size: M. Source: design game-vision 2026-10-06. Design: game-vision. Status: done, merged 7496254
   - **B-007-11** [play] Run playbook batch 2: Power, Counter and Trap. Where: src/playbook.js. Depends on: B-007-8, B-007-10. Done when: card in game-vision ## Package: Run schemes. Trace: -. Size: M. Source: design game-vision 2026-10-06. Design: game-vision. Status: done, merged 4c7147f
   - **B-007-12** [play] Run playbook batch 3: Toss/Sweep and Draw. Where: src/playbook.js, src/main.js, src/offense.js, src/defense.js. Depends on: B-007-8, B-007-10, B-006-6. Done when: card in game-vision ## Package: Run schemes. Trace: -. Size: M. Source: design game-vision 2026-10-06. Design: game-vision. Status: done, merged d40688a
-  - **B-007-13** [ai] The CPU picks play, formation and side against the front, down and distance. Where: src/cpu.js. Depends on: B-007-11, B-007-12, B-007-1. Done when: card in game-vision ## Package: Run schemes. Trace: -. Size: S. Source: design game-vision 2026-10-06. Design: game-vision. Status: branch cpu-calls
+  - **B-007-13** [ai] The CPU picks play, formation and side against the front, down and distance. Where: src/cpu.js. Depends on: B-007-11, B-007-12, B-007-1. Done when: card in game-vision ## Package: Run schemes. Trace: -. Size: S. Source: design game-vision 2026-10-06. Design: game-vision. Status: done, merged ba93990
 ## Moved
 
 ## Done
