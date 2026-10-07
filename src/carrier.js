@@ -35,7 +35,7 @@ function raceMargin(p, qx, qy){
 }
 // at the line: read the blocking and take the gap he wins, staying close to the designed hole
 function readHole(p, dt){
-  const play = PLAYS[S.play], hole = play.hole ?? 0, y = S.los + 1;
+  const hole = S.hole ?? 0, y = S.los + 1;
   let best = p.holeX ?? hole, bs = -1e9;
   for(let x = hole - 5; x <= hole + 5; x += 0.5){
     if(Math.abs(x) > HW - 1.5) continue;
@@ -85,7 +85,7 @@ function decide(p, hole, key, side){
   return {choice:pick, x:opts[pick], wrong:pick !== best};
 }
 function zoneRead(p, dt){
-  const play = PLAYS[S.play], hole = play.hole ?? 0, side = Math.sign(play.shift || hole) || 1;
+  const play = PLAYS[S.play], hole = S.hole ?? 0, side = Math.sign(play.shift || hole) || 1;
   const rd = p.rd;
   if(!S.read) S.read = {key:-1, choice:null, wrong:null};
   if(rd.st === 'press' || rd.st === 'read'){

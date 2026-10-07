@@ -22,6 +22,13 @@ export const DEF_CALLS = [
   {name:'Bear',             front:'bear',   note:'Eight in the box: stacked middle, a safety rolled down', box:true}
 ];
 // ---------- playbook ----------
+// block rules (src/blockrules.js): per blocker a list of rules, the first that finds a defender wins; written for the base side
+// (hole to -x for Power, tight end +x) and mirrored by flip. The corner / safety rules are the receivers' stalk blocks.
+const WR_ON = {WR0:[['corner']], WR1:[['corner']], WR2:[['corner']]}, WR_DEEP = {WR0:[['corner']], WR1:[['corner']], WR2:[['deep']]};
+const EXTRAS = {FB:[['backer','ps'],['any']], TE2:[['on'],['reach']]};
+const OL_INSIDE = [['line'],['down'],['backer','near']], OL_OUTSIDE = [['reach'],['on'],['backer','near']];
+const INSIDE = {LT:OL_INSIDE, LG:OL_INSIDE, C:OL_INSIDE, RG:OL_INSIDE, RT:OL_INSIDE, TE:[['boxS'],['on'],['down']], ...EXTRAS, ...WR_ON};
+const OUTSIDE = {LT:OL_OUTSIDE, LG:OL_OUTSIDE, C:OL_OUTSIDE, RG:OL_OUTSIDE, RT:OL_OUTSIDE, TE:[['boxS'],['reach'],['on']], ...EXTRAS, ...WR_DEEP};
 // route points: [yards toward the middle, yards downfield from the line]
 const PASS_GAME = false;
 export const PLAYS = [
@@ -37,41 +44,39 @@ export const PLAYS = [
   // under: QB under center, singleback 7 yards deep (otherwise shotgun with the back beside the QB)
   // mesh: [x, yards from line] where the QB opens to and meets the back on his path
   // scheme 'zone': linemen + TE each own a lane (start x + shift) and block whoever shows up in it, else climb.
-  // scheme 'man': `blocks` names each blocker's defender; `pulls` are waypoints [x, yards from line] run first.
-  // defender keys: DL0-3 and LB0-1 / S0-1 numbered left to right, CB0-2 = cornerback on WR0-2
+  // scheme 'man': linemen keep the defender the rules gave them; `pulls` are waypoints [x, yards from line] run first.
+  // `rules`: blocker -> rule list (blockrules.js)
   {name:'Inside Zone', run:'hand', scheme:'zone', shift:-1, hole:-1.1,
-   blocks:{WR0:'CB0', WR1:'CB1', WR2:'CB2'},
+   rules:INSIDE,
    path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]]},
   {name:'Power Left', run:'hand', scheme:'man', hole:-3.6,
-   blocks:{LT:'LB0', LG:'DL1', C:'DL2', RG:'DL0', RT:'LB1', TE:'DL3', WR0:'CB0', WR1:'CB1', WR2:'CB2'},
+   rules:{LT:[['backer','ps']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['edge']], RT:[['backer','mike']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
    pulls:{RG:[[0.8,-1.8],[-2.6,-1.8]]},
    path:[[-0.3,-3.6],[-2.8,-1.4],[-3.6,0.8],[-3.8,8]]},   // patient: press the line, cut off the kick-out
   {name:'Outside Zone Right', run:'toss', scheme:'zone', shift:3, hole:8.5,   // aim: tight end's outside hip; he reads bounce / cut back
-   blocks:{WR0:'CB0', WR1:'CB1', WR2:'S0'},
+   rules:OUTSIDE,
    path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]]},
   {name:'HB Dive', under:true, run:'hand', scheme:'zone', shift:0, hole:1.1, mesh:[-0.5, -2.6],   // quick hit in the right A gap: everyone blocks the man in front
-   blocks:{WR0:'CB0', WR1:'CB1', WR2:'CB2'},
+   rules:INSIDE,
    path:[[0.7,-3.0],[1.1,0.5],[1.1,8]]},   // passes on the QB's right, takes it on the way by
   {name:'HB Stretch', under:true, run:'hand', scheme:'zone', shift:3, hole:8.5, mesh:[2.0, -2.8],   // outside zone from under center: aim at the TE's hip, read bounce / cut back
-   blocks:{WR0:'CB0', WR1:'CB1', WR2:'S0'},
+   rules:OUTSIDE,
    path:[[1.5,-5.5],[3.2,-3.9],[6.5,-1.8],[8.5,1.5],[8.5,8]]}
 ].filter(p => PASS_GAME || p.run);
 // ---------- orientation ----------
 // The plays above are written for the base side (tight end right) and, for under-center plays, the QB under center. orient() rewrites
 // the live fields every other module reads (path, hole, shift, pulls, blocks, mesh, under) from that source: flip -1 mirrors paths and
-// holes and swaps left/right names (LT/RT, DL0/DL3, ...); the linemen stay where they are, so the blocker names swap instead.
-PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.pulls, blocks:p.blocks, mesh:p.mesh, under:!!p.under}; });
+// holes and swaps left/right blocker names (LT/RT, ...); the linemen stay where they are, so the blocker names swap instead. The rules
+// (play.src.rules) are mirrored by resolveBlocks and read the defenders by where they stand, so they have no names to swap.
+PLAYS.forEach(p => { p.src = {path:p.path, hole:p.hole, shift:p.shift, pulls:p.pulls, rules:p.rules, mesh:p.mesh, under:!!p.under}; });
 const MIRROR = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'};
-// nDL, nLB: linemen and linebackers on the field (DLi -> DL(n-1-i), LBi -> LB(n-1-i); the safeties are always two)
-export function orient(play, under, flip, nDL, nLB){
-  const N = {DL:nDL, LB:nLB, S:2};
-  const key = k => { if(flip > 0) return k; const m = /^(DL|LB|S)(\d)$/.exec(k); return m ? m[1] + (N[m[1]] - 1 - m[2]) : (MIRROR[k] || k); };
+export function orient(play, under, flip){
+  const key = k => flip > 0 ? k : MIRROR[k] || k;
   const s = play.src, pt = ([x, dy]) => [x*flip, dy];
   play.path = s.path && s.path.map(pt);
   play.hole = s.hole === undefined ? undefined : s.hole*flip;
   play.shift = s.shift === undefined ? undefined : s.shift*flip;
   play.pulls = s.pulls && Object.fromEntries(Object.entries(s.pulls).map(([k, v]) => [key(k), v.map(pt)]));
-  play.blocks = s.blocks && Object.fromEntries(Object.entries(s.blocks).map(([k, v]) => [key(k), key(v)]));
   play.under = under;
   // under center the QB opens to a mesh point (a play written for shotgun gets one at the back's first path point)
   const mesh = under ? (s.mesh || (s.path && [s.path[0][0], -2.8])) : null;
