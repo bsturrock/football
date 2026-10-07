@@ -34,3 +34,4 @@ Team process: a project-manager (PM) leads; workers build on their own branches 
 ## Design rules
 
 To be written by the PM with the user (design-talk). Until then: keep modules small and single-purpose, no globals beyond `state.js`'s `S`, tunables as named constants at the top of their module.
+- Physics engine calls (cannon-es: bodies, constraints, world, impulses) stay inside src/physics.js, src/tackling.js and src/pile.js; other modules use only their exported functions (physBall, physDown, physTouched, ...) and the `p.ph` handle as an opaque flag, so a later Rapier swap stays one contained job (user L-1006-146).
