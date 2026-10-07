@@ -134,7 +134,7 @@ function runFit(d, c){
     if(j.role === 'deep') return [flow*0.4, L + 12];
     return coverTarget(d);
   }
-  if(j.role === 'two'){ const left = bx < d.x; j = {role:'gap', gx:left ? j.gl : j.gr, side:left ? -1 : 1}; }   // read done: shed to the ball-side gap
+  if(j.role === 'two'){ const left = bx < d.x; const gx = left ? j.gl : j.gr; j = {role:'gap', gx, side:Math.sign(gx) || (left ? -1 : 1)}; }   // read done: shed to the ball-side gap; his side is that gap's, so a run away still reads backside
   const s = j.side;
   if(S.clock >= d.aimT){ d.aimK = 1 + lack(d, 'pursuit')*AIM_AMP*rand(-1, 1); d.aimT = S.clock + AIM_T; }
   const dir = Math.abs(c.svx) > 0.8 ? Math.sign(c.svx) : 0, e = d.levErr;

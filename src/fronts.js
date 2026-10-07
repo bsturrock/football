@@ -64,7 +64,11 @@ export function alignDefense(fr, call, flip, L, bodies, place, blitzer = -1){
     dl = (DL.length === 4 ? [-5, -1.2, 1.2, 5] : [-4.5, 0, 4.5]).map((x, i) => ({x, d:DL_DEPTH, role:i ? 'gap' : 'force', gap:gapNear(x, 1.7, 4.2)}));
     dl[0].gap = 'CW';
   }
-  if(LBs.length !== lb.length) lb = LBX[LBs.length].map(x => ({x, d:5, role:'gap', gap:gapNear(x, 1.5, 5.5)}));
+  if(LBs.length !== lb.length){
+    lb = LBX[LBs.length].map(x => ({x, d:5, role:'gap', gap:gapNear(x, 1.5, 5.5)}));
+    // the call's weak edge man was a backer the personnel no longer has: the weak-most backer takes it unless a lineman holds the weak edge
+    if(!dl.some(s => s.role === 'force' && String(s.gap).endsWith('W'))){ const w = lb.reduce((a, b) => b.x < a.x ? b : a); w.role = 'force'; w.gap = 'CW'; }
+  }
   const side = list => list.map(s => ({...s, ax:s.x*flip})).sort((a, b) => a.ax - b.ax);
   side(dl).forEach((s, i) => { const d = DL[i]; place(d, s.ax, L + s.d); d.spec = Array.isArray(s.gap) ? {role:s.role, gaps:s.gap} : {role:s.role, gap:s.gap}; });
   side(lb).forEach((s, i) => { const d = LBs[i]; place(d, s.ax, L + (i === blitzer ? 3.5 : s.d)); d.spec = {role:s.role, gap:s.gap}; });

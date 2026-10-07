@@ -8,7 +8,7 @@ import { chooseForm, lineUp } from './formations.js';
 import { FRONTS, SS_ROLL, alignDefense } from './fronts.js';
 import { DEF_CALLS, PLAYS, orient } from './playbook.js';
 import { CBs, DEF, DL, EXTRA, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
-import { DEFAULT_PERS, persName, subIn } from './roster.js';
+import { persName, subIn } from './roster.js';
 import { fdLine, losLine } from './scene.js';
 import { $, HW, clamp, rand } from './util.js';
 
@@ -30,7 +30,6 @@ function formation(){
 // personnel for the next play: forced by the sim (?pers=, ?dpers=), else the page URL, else 11 and nickel
 const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 const forced = key => (S.force && S.force[key]) || URLQ.get(key);
-const want = (kind, key) => persName(kind, forced(key) || DEFAULT_PERS[kind]) || DEFAULT_PERS[kind];
 function assignRoutes(){
   const play = PLAYS[S.play];
   RECV.forEach((w, i) => {
@@ -56,8 +55,10 @@ export function setupPlay(){
   physClear();
   const form0 = chooseForm(PLAYS[S.play].src.under, forced('form'), persName('off', forced('pers')));
   // the defensive call and its front first: the front brings its personnel (a ?dpers= only reshapes a nickel-front call)
-  const call = S.defCall = (S.force && S.force.front && DEF_CALLS.find(c => c.name === S.force.front)) || DEF_CALLS[Math.floor(Math.random()*DEF_CALLS.length)], fr = FRONTS[call.front];   // feature (sim-force)
-  subIn(form0.pers, call.front === 'nickel' && forced('dpers') ? want('def', 'dpers') : fr.pers);   // dead ball: the formation's personnel and the defense's take the field
+  const dp = forced('dpers') ? persName('def', forced('dpers')) : null;   // a forced ?dpers= limits the random call to fronts of that personnel and nickel-front calls (they reshape to it)
+  const pool = dp ? DEF_CALLS.filter(c => c.front === 'nickel' || FRONTS[c.front].pers === dp) : DEF_CALLS;
+  const call = S.defCall = (S.force && S.force.front && DEF_CALLS.find(c => c.name === S.force.front)) || pool[Math.floor(Math.random()*pool.length)], fr = FRONTS[call.front];   // feature (sim-force)
+  subIn(form0.pers, call.front === 'nickel' && dp ? dp : fr.pers);   // dead ball: the formation's personnel and the defense's take the field
   const L = S.los;
   S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity; S.read = null; pileReset();
   const sd = String(forced('side') || '').toUpperCase();   // one side per play (a play change before the snap keeps it): ?side=L|R, else the coin
