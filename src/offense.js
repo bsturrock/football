@@ -6,12 +6,13 @@ import { runRoute, steer, steerVel } from './movement.js';
 import { PLAYS } from './playbook.js';
 import { C, DEF, DL, LBs, LG, LT, OFF, QB, RB, RG, RT } from './players.js';
 import { S, ball } from './state.js';
-import { dist } from './util.js';
+import { BODY_W, dist } from './util.js';
 
 const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
 const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
 const FIT_UP = 0.6;   // B-021: a blocker aims this far in front of his man's centre (was 0.85, x0.7 body width)
+const DBL_ARC = 75*Math.PI/180, DBL_R = BODY_W + 0.05;   // B-025: while the battle blocker (d.bt.o) is locked on, the second man fits up on the defender's ring DBL_ARC round from him (centres 2*DBL_R*sin(arc/2) = 0.9 apart, clear of BODY_W), on the side he is already on
 const DBL_SHOULDER = 0.32;   // B-021: was 0.45, x0.7   // two blockers on one defender: each takes a shoulder this far off his centre
 // what blockers protect: the runner once he has the ball, otherwise the play's hole
 export function runRef(){
@@ -36,7 +37,15 @@ function driveAt(p, d, ref, dt){
   p.faceAt = d;
   const side = p.dbl && p.dbl.state === 'double' && p.dbl.d === d ? (Math.sign(p.x - d.x) || 1)*DBL_SHOULDER : 0;   // two men on one defender take a shoulder each
   // a blocker who just got beaten is off balance: he chases his man but usually can't recover
-  steer(p, d.x + side + vx/l*FIT_UP, d.y + vy/l*FIT_UP, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
+  let tx = d.x + side + vx/l*FIT_UP, ty = d.y + vy/l*FIT_UP;
+  const o = side && d.bt && d.bt.o !== p ? d.bt.o : null;
+  if(o){   // B-025: the locked pair owns the spot on its axis; the second man takes the ring spot beside it, not on it
+    const ux = o.x - d.x, uy = o.y - d.y, ul = Math.hypot(ux, uy) || 1;
+    if(p.dbl.ringO !== o){ p.dbl.ringO = o; p.dbl.ringS = Math.sign(ux*(p.y - d.y) - uy*(p.x - d.x)) || 1; }   // latched per battle blocker: the side can't flip when the pair swings round the axis; p.dbl is replaced when the double ends
+    const s = p.dbl.ringS, c = Math.cos(DBL_ARC*s), n = Math.sin(DBL_ARC*s);
+    tx = d.x + (ux*c - uy*n)/ul*DBL_R; ty = d.y + (ux*n + uy*c)/ul*DBL_R;
+  }
+  steer(p, tx, ty, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
 }
 const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
 // man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
