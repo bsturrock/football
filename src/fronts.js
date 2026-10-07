@@ -6,7 +6,7 @@
 //   0 = C, 1 = G shaded 0.7 in, 2 = G, 3 = G shaded 0.8 out, 4 = T, 4i = T shaded 0.7 in, 5 = T shaded 0.8 out,
 //   7 = TE shaded 0.8 in, 9 = TE shaded 1.0 out
 export const TECH = {'0':0, '1':1.5, '2':2.2, '3':3.0, '4':4.4, '4i':3.7, '5':5.2, '7':6.0, '9':7.8};
-const tx = t => { const s = String(t), neg = s[0] === 'W', v = TECH[s.slice(1)]; if(v === undefined) throw new Error('technique ' + t); return neg ? -v : v; };
+const tx = t => { const s = String(t); if(s === "0") return 0; const neg = s[0] === "W", v = TECH[s.slice(1)]; if(v === undefined) throw new Error('technique ' + t); return neg ? -v : v; };
 export const DL_DEPTH = 1.1, LB_DEPTH = 4.5, LB_DEPTH_WEAK = 5.0, EDGE_DEPTH = 1.5;   // yards past the line; weak side = x < 0
 export const SS_ROLL = {x:4.5, d:6};   // the rolled-down safety (bear, eight in the box), strength x
 // gaps, offense's view: A beside the center, B outside the guards, C outside the tackles, D outside the tight end. Names carry the
@@ -35,7 +35,7 @@ export const FRONTS = {
   odd: {pers:'odd', box:7, note:'Three down hold two gaps, four linebackers stand up',
     dl:[T('W5', 'two', ['BW', 'CW']), T('0', 'two', ['AW', 'AS']), T('S5', 'two', ['BS', 'CS'])],
     lb:[B('W9', EDGE_DEPTH, 'force', 'DW'), B(-2.0, LB_DEPTH_WEAK, 'gap', 'AW'), B(2.0, LB_DEPTH, 'gap', 'AS'), B('S9', EDGE_DEPTH, 'force', 'DS')]},
-  bear: {pers:'base', box:8, roll:true, note:'Eight in the box: the line stacks the middle, a safety rolls down',
+  bear: {pers:'base', box:7, roll:true, note:'Eight in the box: the line stacks the middle, a safety rolls down',
     dl:[T('W5', 'force', 'CW'), T('W2', 'gap', 'AW'), T('S2', 'gap', 'AS'), T('S9', 'force', 'DS')],
     lb:[B(-3.3, LB_DEPTH_WEAK, 'gap', 'BW'), B(3.3, LB_DEPTH, 'gap', 'BS'), B(5.6, LB_DEPTH, 'gap', 'CS')]}
 };
@@ -54,7 +54,7 @@ const LBX = [null, null, [-3.5, 3.5], [-4.5, 0, 4.5], [-6.5, -2.2, 2.2, 6.5]];
 
 // Line the front up. `bodies` = {DL, LBs}; place(body, x, y) is state.js's. Sets d.spec = {role, gap | gaps} on every box
 // defender; DL and LBs are filled left to right on the field. blitzer = index among the LBs (left to right) that starts closer.
-// Returns the front's table and the number in the box before any safety rolls down.
+// Returns the number of linemen and backers in the box (a rolled safety adds one: bear 8).
 export function alignDefense(fr, call, flip, L, bodies, place, blitzer = -1){
   const {DL, LBs} = bodies;
   const alias = fr === FRONTS.nickel ? ALIAS[call.name] : null;
