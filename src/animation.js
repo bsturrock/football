@@ -3,10 +3,10 @@ import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
 import { physBall } from './physics.js';
 import { PLAYS } from './playbook.js';
-import { ALL, BODY_H, C, JOINTS, QB, RB, bodyV } from './players.js';
+import { ALL, BODY_H, C, G, JOINTS, QB, RB, bodyV } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
-import { $, FACE_RATE, clamp, faceYaw } from './util.js';
+import { $, BLOCK_D, BODY_W, FACE_RATE, clamp, faceYaw } from './util.js';
 
 // ---------- animation ----------
 // joint signs: negative hip/shoulder = swing forward, positive knee = bend, positive lean/pitch = tip forward
@@ -52,27 +52,84 @@ function targetPose(p, sp){
 // while the pair is moving; the defender fights the hands, and swim (move 'speed') and bull (move 'power') keep their own arms; a defender
 // whose blocker won the get-off (phase 'recover') is driven back, sitting higher. Visual only: reads battle state, never writes it.
 const ENG_K = 24, ENG_HEAD = 0.6, DRIVE_V = 0.8, CHURN_SP = 6;   // pose blend rate (95% in 0.125 s), head-up share of the lean, pair speed (yd/s) that counts as driving, stride speed (yd/s) the legs churn at
+// B-031: the pair is solved together. A man's hands go to his partner's chest plate at the drawn distance between them (two-bone arm solve from his shoulder),
+// so spacing, lean and reach agree whatever the phase; the heads sit over opposite shoulders so the helmets pass each other; the blocker's hands go inside the
+// defender's. All in yards: SH_Y/SH_Z the shoulder on the torso axis, ARM_A/ARM_B upper arm and forearm, PAD_Y/PAD_D where the hands land: a point on the partner's torso, low enough to stay under his chin, and the torso's half depth.
+const SH_Y = 0.62*BODY_H, ARM_A = 0.42*BODY_H, ARM_B = 0.4*BODY_H, PAD_Y = 0.4*BODY_H, PAD_D = 0.21*BODY_W, SH_X = 0.5*BODY_W;
+const HAND_IN = 0.12, HAND_OUT = 0.36, HEAD_X = 0.28, HAND_PRESS = -0.13;   // hand sideways offsets from the pair axis (blocker inside, defender outside), head sideways offset (rig units), how far the hand presses into the chest (yd)
 const engaged = p => !!p.bt || p.eng > 0;
+const partnerOf = p => p.team === 'D' ? (p.bt && p.bt.o) : ALL.find(d => d.team === 'D' && d.bt && d.bt.o === p);
 const driving = p => p.team === 'O' ? (!!p.bt && p.bt.phase === 'recover') || Math.hypot(p.vx, p.vy) > DRIVE_V : !!p.bt && (p.bt.phase === 'move' || p.bt.phase === 'recover') && Math.hypot(p.vx, p.vy) > DRIVE_V;   // offense: by speed (also a double team's second man, p.eng only); defense: his battle's move or recover phase while moving
+// shoulder swing (about x, total with the torso's lean), sideways angle (about z) and elbow angle that put the hand at (lat, up, fwd) from the shoulder. The rig
+// turns the shoulder as Rx(swing)*Rz(side) and the forearm bends about the tilted x axis, so the hand is found by a few Newton steps on that forward chain
+// (started from the in-plane two-bone answer), not by a closed form; an unreachable point gives the arm's nearest pose.
+function armFK(th, z, el, o){
+  const sz = Math.sin(z), cz = Math.cos(z), sx = Math.sin(th), cx = Math.cos(th);
+  const fy = -ARM_B*Math.cos(el), fz = -ARM_B*Math.sin(el);                    // forearm in the shoulder's frame (elbow bends about its x)
+  const rz = (x, y) => [x*cz - y*sz, x*sz + y*cz];                             // Rz on (x, y)
+  const u = rz(0, -ARM_A), f = rz(0, fy);                                       // Rz(z) of the upper arm and the forearm (x, y parts; z unchanged)
+  o[0] = u[0] + f[0]; o[1] = (u[1] + f[1])*cx - fz*sx; o[2] = (u[1] + f[1])*sx + fz*cx;   // then Rx(th): (x, y, z) -> (x, y cos - z sin, y sin + z cos)
+}
+const afk = [0, 0, 0], afk2 = [0, 0, 0];
+function armTo(lean, lat, up, fwd){
+  const r = clamp(Math.hypot(lat, up, fwd), Math.abs(ARM_A - ARM_B) + 0.03, ARM_A + ARM_B - 0.02);
+  const alpha = Math.acos(clamp((ARM_A*ARM_A + r*r - ARM_B*ARM_B)/(2*ARM_A*r), -1, 1)), elbow = Math.acos(clamp((ARM_A*ARM_A + ARM_B*ARM_B - r*r)/(2*ARM_A*ARM_B), -1, 1));
+  const k = Math.min(1, r/Math.hypot(lat, up, fwd)), tx = lat*k, ty = up*k, tz = fwd*k;
+  let x = [Math.atan2(-fwd, -up) + alpha, Math.asin(clamp(lat/r, -0.9, 0.9)), -(Math.PI - elbow)];
+  for(let it = 0; it < 5; it++){
+    armFK(x[0], x[1], x[2], afk);
+    const e = [afk[0] - tx, afk[1] - ty, afk[2] - tz]; if(Math.hypot(e[0], e[1], e[2]) < 0.002) break;
+    const J = [[], [], []];
+    for(let j = 0; j < 3; j++){ const y = x.slice(); y[j] += 1e-3; armFK(y[0], y[1], y[2], afk2); for(let i = 0; i < 3; i++) J[i][j] = (afk2[i] - afk[i])/1e-3; }
+    const det = J[0][0]*(J[1][1]*J[2][2] - J[1][2]*J[2][1]) - J[0][1]*(J[1][0]*J[2][2] - J[1][2]*J[2][0]) + J[0][2]*(J[1][0]*J[2][1] - J[1][1]*J[2][0]);
+    if(Math.abs(det) < 1e-6) break;
+    const inv = (a, b, c, d) => a*d - b*c, dx = [0, 0, 0];   // solve J dx = e by Cramer's rule
+    for(let c = 0; c < 3; c++){
+      const M = J.map((row, i) => row.map((v, j) => j === c ? e[i] : v));
+      dx[c] = (M[0][0]*inv(M[1][1], M[1][2], M[2][1], M[2][2]) - M[0][1]*inv(M[1][0], M[1][2], M[2][0], M[2][2]) + M[0][2]*inv(M[1][0], M[1][1], M[2][0], M[2][1]))/det;
+    }
+    x = [x[0] - dx[0], clamp(x[1] - dx[1], -1.2, 1.2), clamp(x[2] - dx[2], -2.7, -0.05)];
+  }
+  return {sh:x[0] - lean, el:x[2], z:x[1]};
+}
+const eV = new THREE.Vector3();
+// the hand target of one arm (side +1 left, -1 right): a point on the partner's chest plate, in this man's rig frame. The partner's plate is a point of his own rig
+// (his sideways u, up the torso PAD_Y, front PAD_D), carried to the world by his mesh and back by this man's.
+function handAt(p, q, side, hand){
+  const ql = q.pose.lean, qt = q.pose.twist, u = -side*hand, f = PAD_Y*Math.sin(ql) + PAD_D*Math.cos(ql) - HAND_PRESS;
+  eV.set(u*Math.cos(qt) + f*Math.sin(qt), q.body.position.y + BODY_H + PAD_Y*Math.cos(ql) - PAD_D*Math.sin(ql), -u*Math.sin(qt) + f*Math.cos(qt));
+  return p.mesh.worldToLocal(q.mesh.localToWorld(eV));
+}
 function engagedPose(T, p, s, cs){
   const ph = p.x*1.7 + p.y*2.3, w = performance.now()/1000, fight = Math.sin(w*9 + ph), fight2 = Math.sin(w*7.3 + ph*1.9);
   const ph2 = p.bt && p.team === 'D' ? p.bt.phase : null, mv = p.bt && p.bt.move;
   const churn = driving(p) ? 1 : 0, ch = 0.3*churn;
   const low = {lean:0.8, drop:0.34, hipL:-1.05 + ch*s, hipR:-0.95 - ch*s, kneeL:1.55 + 0.3*churn*Math.max(0, cs), kneeR:1.45 + 0.3*churn*Math.max(0, -cs), twist:0, bob:0};
   Object.assign(T, low);
-  const reach = (lean, el, l = 0, r = 0) => { T.shL = -(1.45 + lean) + l; T.shR = -(1.45 + lean) + r; T.elL = el; T.elR = el; };   // arm angle = reach + lean puts the hand level with the other man's chest
+  const q = partnerOf(p);
+  // hands on the partner's chest plate at the drawn distance; l and r wiggle the swing (fighting the hands)
+  const reach = (lean, l = 0, r = 0) => {
+    const tw = p.pose.twist, ct = Math.cos(tw), st = Math.sin(tw), hand = p.team === 'O' ? HAND_IN : HAND_OUT, out = [];
+    for(const side of [1, -1]){
+      const t = q ? handAt(p, q, side, hand) : eV.set(-side*hand, BODY_H, BLOCK_D - PAD_D);
+      const sx = side*SH_X*ct, sz = -side*SH_X*st + SH_Y*Math.sin(lean), sy = BODY_H + p.body.position.y + SH_Y*Math.cos(lean);   // shoulder in the rig frame
+      const x = t.x - sx, z = t.z - sz, y = t.y - sy;
+      out.push(armTo(lean, x*ct - z*st, y, x*st + z*ct));
+    }
+    T.shL = out[0].sh + l; T.shR = out[1].sh + r; T.elL = out[0].el; T.elR = out[1].el; T.armZL = out[0].z; T.armZR = out[1].z;
+  };
   if(p.team === 'O'){
     if(p.bt && p.bt.phase === 'recover'){ T.lean = 0.9; T.drop = 0.38; }   // driving him: lower, pushing
-    reach(T.lean, -0.8, 0.07*fight, -0.07*fight);                            // punched in, hands inside the pads
+    reach(T.lean, 0.07*fight, -0.07*fight);                               // punched in, hands inside the pads
   } else if(ph2 === 'move' && mv === 'speed'){                               // swim: near arm clubs the blocker, far arm goes over the top
-    T.lean = 0.7; T.twist = 0.4; T.drop = 0.3;
-    T.shL = -(1.45 + T.lean) + 0.1*fight; T.elL = -0.8; T.shR = -3.0 + 0.15*fight2; T.elR = -0.2;
+    T.lean = 0.7; T.twist = 0.25; T.drop = 0.3;
+    reach(T.lean, 0.1*fight); T.shR = -3.0 + 0.15*fight2; T.elR = -0.2;
   } else if(ph2 === 'move'){                                                 // bull rush: head down, both hands driving, legs churning
-    T.lean = 0.95; T.drop = 0.37; reach(T.lean, -0.4, 0.03*fight, -0.03*fight);
+    T.lean = 0.95; T.drop = 0.37; reach(T.lean, 0.03*fight, -0.03*fight);
   } else if(ph2 === 'recover'){                                              // driven back: sitting higher, hands still on the blocker, legs scuffling
     T.lean = 0.55; T.drop = 0.22; T.hipL = -0.85 + 0.25*s; T.hipR = -0.75 - 0.25*s; T.kneeL = 1.1 + 0.3*Math.max(0, cs); T.kneeR = 1.0 + 0.3*Math.max(0, -cs);
-    reach(T.lean, -1.0, 0.1*fight, -0.1*fight2);
-  } else reach(T.lean, -0.9, 0.1*fight, -0.1*fight2);                        // set / fighting the hands: hands working on his chest plate
+    reach(T.lean, 0.1*fight, -0.1*fight2);
+  } else reach(T.lean, 0.1*fight, -0.1*fight2);                           // set / fighting the hands: hands working on his chest plate
 }
 function animate(p, dt){
   // a runner held up keeps churning his legs at full stride whatever his speed
@@ -90,17 +147,66 @@ function animate(p, dt){
   const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
   for(const j of JOINTS) P[j] += (T[j] - P[j])*k;
   p.engW = (p.engW || 0) + ((eng ? 1 : 0) - (p.engW || 0))*(1 - Math.exp(-dt*ENG_K));
-  J.head.rotation.x = -ENG_HEAD*P.lean*p.engW;   // head up while engaged: eyes on his man, not the turf
+  J.head.rotation.x = -ENG_HEAD*P.lean*p.engW; J.head.position.x = -HEAD_X*BODY_W*p.engW;   // B-031: head over his right shoulder, so the pair's helmets pass   // head up while engaged: eyes on his man, not the turf
   J.torso.rotation.set(P.lean, P.twist, 0);
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
-  J.shL.rotation.set(P.shL, 0, 0.12); J.shR.rotation.set(P.shR, 0, -0.12); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
+  p.armZL = (p.armZL ?? 0.12) + ((T.armZL ?? 0.12) - (p.armZL ?? 0.12))*k; p.armZR = (p.armZR ?? -0.12) + ((T.armZR ?? -0.12) - (p.armZR ?? -0.12))*k;   // sideways arm angles: 0.12 out free, the hand-placement angles engaged
+  J.shL.rotation.set(P.shL, 0, p.armZL); J.shR.rotation.set(P.shR, 0, p.armZR); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
   p.body.position.y = (P.bob - P.drop + Math.abs(P.pitch)*0.15)*BODY_H;   // B-021: poses are in rig yards
   p.body.rotation.x = P.pitch;
   // drawn position eases to the simulated one: contact shoves and block pushes read as motion, not a twitch
   const k2 = 1 - Math.exp(-dt*22);
   p.rx = p.rx == null ? p.x : p.rx + (p.x - p.rx)*k2; p.ry = p.ry == null ? p.y : p.ry + (p.y - p.ry)*k2;
-  p.mesh.position.set(p.rx, 0, 50 - p.ry); p.mesh.rotation.y = p.face;
+  // B-031: an engaged man is drawn square to his partner (the sim's p.face keeps the leverage angle): the leaned torso then lies along the pair axis, not off it
+  const q = p.engW > 0.01 && partnerOf(p);
+  p.yawK = (p.yawK || 0) + (((q ? 1 : 0)) - (p.yawK || 0))*k;
+  if(q) p.sq = Math.atan2(q.rx - p.rx, (50 - q.ry) - (50 - p.ry));
+  p.mesh.position.set(p.rx, 0, 50 - p.ry); p.mesh.rotation.y = p.yawK > 0.001 && p.sq != null ? p.face + p.yawK*Math.atan2(Math.sin(p.sq - p.face), Math.cos(p.sq - p.face)) : p.face;
   p.mesh.updateMatrixWorld(true);
+}
+// ---------- pair check (B-031) ----------
+// The ?frames=N check (main.js) calls pairCheck after every frame and pairReport at the end. On each frame where a defender is in a battle, the corners of every box of one
+// man's rig (helmet, pads, torso, arms) are tested against the boxes of his partner's (shrunk PD_SHRINK yd; an arm's corners PD_HAND, since hands rest on the plate), in both directions. Reads the rig only. Fields of pairReport:
+//   frames: engaged pair-frames; medDsim, medDrender: median hip-to-hip distance, simulated and drawn (yd)
+//   headInBodyPct / padsInBodyPct / armInBodyPct: share of frames with a helmet corner in the partner's pads, torso or helmet / a pad or torso corner in the partner's pads, torso or helmet / an arm corner in his pads, torso or helmet
+//   headHeadPct: helmet corner in the partner's helmet; armArmPct: an arm corner in the partner's arm; anyPct: any of the above
+const PD_SHRINK = 0.03, PD_HAND = 0.06;
+const pd = {frames:0, dSim:[], dRen:[], headBody:0, padBody:0, armBody:0, headHead:0, armArm:0, any:0};
+const pdParts = ['helmet', 'pads', 'torso', 'upperArm', 'forearm'].map(k => [k, G[k]]);
+const pdBox = new THREE.Box3(), pdV = new THREE.Vector3(), pdInv = new THREE.Matrix4();
+function pdMeshes(p){ const o = []; p.mesh.traverse(m => { const k = m.isMesh && pdParts.find(q => q[1] === m.geometry); if(k){ if(!m.geometry.boundingBox) m.geometry.computeBoundingBox(); o.push([k[0], m]); } }); return o; }
+const pdArm = k => k === 'upperArm' || k === 'forearm';
+function pdInside(a, b){   // corners of a's parts inside b's parts
+  const r = {head:0, pad:0, arm:0, hh:0, aa:0}, bm = pdMeshes(b).map(([k, m]) => [k, pdInv.copy(m.matrixWorld).invert().clone(), pdBox.copy(m.geometry.boundingBox).expandByScalar(-PD_SHRINK).clone(), pdBox.copy(m.geometry.boundingBox).expandByScalar(-PD_HAND).clone()]);
+  for(const [ka, ma] of pdMeshes(a)){
+    const bb = ma.geometry.boundingBox;
+    for(let i = 0; i < 8; i++){
+      pdV.set(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y, i & 4 ? bb.max.z : bb.min.z).applyMatrix4(ma.matrixWorld);
+      for(const [kb, inv, box3, box6] of bm){
+        const box = pdArm(ka) ? box6 : box3;
+        if(!box.containsPoint(pdV.clone().applyMatrix4(inv))) continue;
+        if(ka === 'helmet' && kb === 'helmet') r.hh++;
+        else if(ka === 'helmet') r.head++;
+        else if(ka === 'pads' || ka === 'torso') r.pad++;
+        else if(pdArm(ka) && pdArm(kb)) r.aa++;
+        else if(pdArm(ka)) r.arm++;
+      }
+    }
+  }
+  return r;
+}
+export function pairCheck(){
+  for(const d of ALL){
+    const b = d.team === 'D' && !d.ph && d.bt, o = b && b.o;
+    if(!o || !o.mesh || !engaged(d)) continue;
+    const ri = pdInside(d, o), rj = pdInside(o, d), n = k => (ri[k] + rj[k]) > 0;
+    pd.frames++; pd.dSim.push(Math.hypot(d.x - o.x, d.y - o.y)); pd.dRen.push(Math.hypot(d.rx - o.rx, d.ry - o.ry));
+    pd.headBody += n('head'); pd.padBody += n('pad'); pd.armBody += n('arm'); pd.headHead += n('hh'); pd.armArm += n('aa'); pd.any += n('head') || n('pad') || n('arm') || n('hh') || n('aa');
+  }
+}
+export function pairReport(){
+  const med = a => a.length ? Math.round(1000*a.slice().sort((x, y) => x - y)[a.length >> 1])/1000 : null, f = pd.frames || 1, pc = n => Math.round(1000*n/f)/10;
+  return {frames:pd.frames, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units

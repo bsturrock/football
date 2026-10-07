@@ -1,5 +1,5 @@
 import { runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
-import { syncScene } from './animation.js';
+import { pairCheck, pairReport, syncScene } from './animation.js';
 import { separate } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
@@ -79,6 +79,15 @@ function frame(now){
   debugTick(raw, perf.phys, perf.bodies);
   requestAnimationFrame(frame);
 }
+// ---------- frame check (B-031) ----------
+// ?drill=1v1|line&frames=N&sim=1&seed=S: steps the drill and the scene sync N frames of 1/60 s synchronously (no rendering, no rAF: headless Chrome barely runs rAF under
+// virtual time), then writes one JSON line into <pre id="checkout">: animation.js pairReport (the overlap measures of the engaged pose; its header comment lists the fields).
+// `sim=1` only seeds Math.random (sim.js seeds when ?sim is present; frames wins in start()), so the same seed gives the same line. N=3600 (one minute of play) wants alarm 90 or so.
+// A normal page load is unchanged.
+function runFrames(n){
+  for(let i = 0; i < n; i++){ tick(1/60); syncScene(1/60); pairCheck(); }
+  const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify(Object.assign({frames_run:n}, pairReport())); document.body.appendChild(el);
+}
 function start(data){
   $('cpuBtn').addEventListener('click', () => { setCpu(!S.cpu); cvs.focus(); });
   $('camBtn').addEventListener('click', () => { setCam(S.cam === 'tv' ? 'behind' : 'tv'); cvs.focus(); });
@@ -86,8 +95,9 @@ function start(data){
   if(data && typeof data.score === 'number') Object.assign(S, {score:data.score, tds:data.tds||0, drive:data.drive||1, los:data.los||25, down:data.down||1, toGo:data.toGo||10});
   const q = new URLSearchParams(location.search);
   selectPlay(0); setupPlay();
-  if(q.has('sim')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
-  if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart(); }   // B-019: the blocking drill, no game flow
+  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
+    if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
   requestAnimationFrame(frame);
 }
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
