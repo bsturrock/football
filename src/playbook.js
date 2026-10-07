@@ -28,6 +28,9 @@ export const DEF_CALLS = [
 const WR_ON = {WR0:[['corner']], WR1:[['corner']], WR2:[['corner']]}, WR_DEEP = {WR0:[['corner']], WR1:[['corner']], WR2:[['deep']]};
 const EXTRAS = {FB:[['backer','ps'],['any']], TE2:[['on'],['reach']]};
 const OL_ZONE_DBL = [['double','playside'],['on'],['down']];
+// B-030: Power / Counter playside. LG: double the nose with the center (uncovered), else the man on him; LT: join the guard's man even when covered, else down. need / not: the form's personnel (blockrules.js allowed)
+const need = (r, n) => Object.assign(r, {need:n}), not = (r, n) => Object.assign(r, {not:n});
+const PWR_LT = [['double','backside','cov'],['down']], PWR_LG = [['double','backside'],['on'],['down']];
 export const DRAW_DELAY = 0.9;   // B-007-12: seconds from the snap to the Draw handoff
 const DRAW_OL = [['pass'],['on'],['down']];   // 'pass' is held by offense.js (pass set until the handoff); the handoff re-read takes the man on him
 const DUO_OL = [['double','playside'],['double','backside'],['on']], ISO_OL = [['on'],['down'],['backer','near']];
@@ -58,17 +61,20 @@ export const PLAYS = [
    rules:{...INSIDE_DBL},   // doubles the covered man from the uncovered neighbour (['double','playside']), else the man on him
    path:[[-0.5,-3.3],[-1.1,1.5],[-1.1,8]],
    alt:{under:{shift:-1, mesh:[0.5,-2.6], path:[[-0.7,-3.0],[-1.1,0.5],[-1.1,8]]}}},   // under center: the old Dive, mirrored to the strong-side-away A gap
-  // B-007-11 batch 2. Power: the backside guard kicks out the first man outside the hole, the fullback wraps to the backer (Power Left of B-007-8 is this play).
+  // B-030 Power / Counter (the reference "Who blocks whom"), written for the weak-side hole (-x) with the tight end +x, read against the front by blockrules.js. Per slot, so a scheme-knowledge rating can hang off each rule later.
+  //   playside (LT, LG, C): the guard doubles the nose with the center when he is uncovered (odd), else takes the man on him; the tackle joins the guard's man ('cov': even front, the end man stays for the kick-out)
+  //   or, with nobody to join, blocks down; the center blocks back (the nearest line man away from the hole, else the gap the puller left); the backside tackle / tight end block the man on them.
+  // Power: no fullback = the backside guard kicks out (as before) and nobody wraps.
   {name:'Power', run:'hand', scheme:'man', hole:-3.6, forms:['21 I', '11 Under', '12 Under'], mesh:[-0.3,-2.8],
-   rules:{LT:[['down']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['pull','kick'],['edge']], RT:[['down']], TE:[['on'],['down']],
-          FB:[['pull','wrap'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
-   pulls:{RG:[]},   // RG pulls by rule (['pull','kick']); the empty list marks him a puller (carrier.js), the waypoints come from blockrules.js
+   rules:{LT:PWR_LT, LG:PWR_LG, C:[['back']], RG:[need(['pull','wrap','ps'], 'FB'), not(['pull','kick'], 'FB'), ['down']], RT:[['on'],['backer','near']], TE:[['on'],['down']],   // RT: no 'down', the kick-out man is the fullback's
+          FB:[['later'],['pull','kick'],['backer','ps']], TE2:[['on'],['reach']], ...WR_ON},
+   pulls:{RG:[]},   // RG pulls by rule; the empty list marks him a puller (carrier.js), the waypoints come from blockrules.js
    path:[[-0.3,-3.6],[-2.8,-1.4],[-3.6,0.8],[-3.8,8]]},   // patient: press the line, cut off the kick-out
-  // Counter: the back takes a step away from the hole, the backside guard kicks out and the backside tight end (else the fullback) wraps behind him
+  // Counter (GT): the backside guard kicks out, the backside tackle wraps behind him, the fullback fills the backside the line left (no fullback: the gap stays open, the tight end keeps the man on him)
   {name:'Counter', run:'hand', scheme:'man', hole:-3.6, forms:['21 I', '12 Under'], mesh:[0.9,-2.7],
-   rules:{LT:[['down']], LG:[['on'],['down']], C:[['on'],['down']], RG:[['pull','kick'],['edge']], RT:[['down']], TE:[['pull','wrap'],['on'],['down']],
-          FB:[['pull','wrap'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
-   pulls:{RG:[]},
+   rules:{LT:PWR_LT, LG:PWR_LG, C:[['back']], RG:[['later'],['pull','kick'],['edge']], RT:[['pull','wrap','ps'],['on'],['backer','near']], TE:[['on'],['down']],
+          FB:[['back'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
+   pulls:{RG:[], RT:[]},
    path:[[1.0,-3.4],[-1.5,-1.6],[-3.6,0.8],[-3.8,8]]},   // jab step away, then back across to the hole behind the pullers
   // Trap: the guard across from the hole pulls and traps the first down lineman beyond the center; the rest block the man on them
   {name:'Trap', run:'hand', scheme:'man', hole:1.1, forms:['11 Under', '21 I'], mesh:[0.7,-2.8],
