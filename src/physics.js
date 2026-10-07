@@ -29,9 +29,9 @@ const PLANT_HOLD = 0.4;   // feature (pile-push): tackler's plant and drive x th
 const DRIVE_T = 0.1;   // a drive lapses this long after the last physDrive call
 const ELBOW_DOWN_Y = 0.1*BODY_H, CONTACT_T = 1.0;   // down: forearm's elbow end below ELBOW_DOWN_Y yd; a defender must have touched him within CONTACT_T s
 // B-008/B-010 (propped + flat settle): a runner whose body lies on other players' bodies and never reaches the turf is down by contact all the same.
-// PROP rule: his torso lower than PROP_Y yd x BODY_H and slower than PROP_V yd/s, with a down-counting part (not a hand, forearm or shin) touching another player's body, for PROP_T s -> physPropped (counts as a part on the turf in physDownC).
+// PROP rule: his torso center lower than PROP_Y x BODY_H yd and slower than PROP_V yd/s, with a down-counting part (not a hand, forearm or shin) touching another player's body, for PROP_T s -> physPropped (counts as a part on the turf in physDownC).
 // SETTLE: a fallen body (bal 0, on the turf or the dead ball) for SETTLE_T s gets a torque that rolls his spine toward horizontal (SETTLE_K 1/s^2 x inertia, damped) so piles lie flat instead of propped on end.
-const PROP_Y = 0.7, PROP_V = 1.5, PROP_T = 0.3, PROP_FRESH = 0.1, SETTLE_T = 0.4, SETTLE_K = 36;
+const PROP_Y = 0.9, PROP_V = 1.5, PROP_T = 0.3, PROP_FRESH = 0.1, SETTLE_T = 0.25, SETTLE_K = 150;
 const YAW_K = 150, YAW_MAX = 1.5, HEADING_MIN = 0.4;   // yaw hold: spring gain, max error (rad), slowest speed (yd/s) that sets a heading
 export const isBody = p => !!p.ph && !p.ph.bubble;
 // name, rig pivot, parent, box size, center in pivot frame, mass share, joint limits [x],[y],[z] (rad,
@@ -186,7 +186,7 @@ function rotVec(q, out){
 }
 function physMuscles(p, ph){
   // athletes never go limp: braced while falling or fighting, still holding posture once down
-  const tone = ph.rest ? 0.55 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
+  const tone = ph.rest ? 0.35 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
   PARTS.forEach((d, i) => {
     if(!d.p) return;
     const pb = ph.bodies[PI_[d.p]], cb = ph.bodies[i];

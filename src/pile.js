@@ -10,7 +10,7 @@ import { BODY_W, PILE_R, dist } from './util.js';
 // leg force through physDrive (physics.js); no position is ever set. The whistle applies to any held runner: advancing under
 // STALL_D yd over STALL_T s while held ends the play, spotted at the ball's furthest point (S.prog); so does PUSH_MAX_T s of pushing in one play (never a long scrum).
 // S.pile.state, one runner at a time (pileUpdate runs once per live frame while he holds the ball):
-//   dead      not held (free, falling, down, getting up; held = a latched tackler, or B-008 contact within STALL_CONTACT_T s with no one latched, which only runs the stall clock and reads 'forming') or no tracked progress (QB on a dropback); timers cleared
+//   dead      not held (free, down, getting up; held = a latched tackler, or B-008 contact within STALL_CONTACT_T s with no one latched, which only runs the stall clock and reads 'forming'; a runner already falling but not yet down, held up by latched tacklers off the turf, runs the stall clock the same way: seed 7 showed 90% of the stuck runners were falling and latched) or no tracked progress (QB on a dropback); timers cleared
 //   forming   held, fewer than 2 bodies within PILE_R, or the pile is younger than FORM_T 0.1 s
 //   live      a pile of 2+ bodies for FORM_T s, nobody free to push yet
 //   pushing   live with 1+ pusher driving
@@ -36,8 +36,8 @@ function side(list, c, rate, dir){
 }
 export function pileUpdate(c, dt){
   const P = S.pile || (pileReset(), S.pile);
-  // B-008: the stall whistle also covers a runner in contact (touched within STALL_CONTACT_T) with nobody latched on him, e.g. propped up by still bodies; push and pile states stay for the latched case only
-  const latched = DEF.some(d => d.latch === c), held = S.phase === 'live' && c.ph && !c.falling && (latched || physTouched(c, STALL_CONTACT_T)) && !physDownC(c) && Number.isFinite(S.prog);
+  // B-008: the stall whistle also covers a falling runner and a runner in contact (touched within STALL_CONTACT_T) with nobody latched on him, e.g. propped up by still bodies; push and pile states stay for the latched case only
+  const latched = DEF.some(d => d.latch === c), held = S.phase === 'live' && c.ph && (latched || physTouched(c, STALL_CONTACT_T)) && !physDownC(c) && Number.isFinite(S.prog);
   P.frames[P.state === 'whistle' ? 'dead' : P.state]++;
   if(!held){ P.state = 'dead'; P.t = P.formT = P.pushers = P.pushersO = P.pushersD = 0; P.ref = null; return; }
   // stall: S.prog (furthest ball y while held) must gain STALL_D within STALL_T
@@ -45,7 +45,7 @@ export function pileUpdate(c, dt){
   if(P.ref === null){ P.ref = y; P.t = 0; }
   else if(y - P.ref >= STALL_D){ P.ref = y; P.t = 0; }
   else if((P.t += dt) >= STALL_T){ P.state = 'whistle'; P.whistles++; endPlay('spot', S.prog, 'FORWARD PROGRESS'); return; }
-  if(!latched){ P.state = 'forming'; P.formT = P.pushers = P.pushersO = P.pushersD = 0; return; }   // B-008: unlatched contact only runs the stall clock
+  if(!latched || c.falling){ P.state = 'forming'; P.formT = P.pushers = P.pushersO = P.pushersD = 0; return; }   // B-008: unlatched contact or a falling runner only runs the stall clock
   const bodies = ALL.filter(p => p !== c && isBody(p) && dist(p, c) < PILE_R).length;
   P.formT = bodies >= PILE_BODIES ? P.formT + dt : 0;
   P.pushers = P.pushersO = P.pushersD = 0;
