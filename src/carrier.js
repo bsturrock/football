@@ -1,15 +1,21 @@
-import { runRoute, steerVel } from './movement.js';
+import { runRoute, steerVel as steer0 } from './movement.js';
 import { PLAYS } from './playbook.js';
-import { DEF, OFF } from './players.js';
-import { isBody } from './physics.js';
+import { ALL, C, DEF, LG, LT, OFF, RG, RT } from './players.js';
+import { isBody, physBall, physDown, physTouched } from './physics.js';
 import { lack } from './ratings.js';
 import { S } from './state.js';
-import { HW, clamp, rand } from './util.js';
+import { HW, clamp, dist, rand } from './util.js';
 
 // ---------- ball carrier AI ----------
 // Everything is a race: for a spot on the field, how much sooner does he get there than the quickest defender
 // who can still make a play? Defenders on the ground don't count; ones locked up with a blocker count late.
 const SPRINT = 1.12;
+// every steer in this file goes through here: in contact and slowed under STALL_V x spd, the wanted velocity keeps at least DRIVE_V x spd upfield (leg drive; never stands still)
+function steerVel(p, vx, vy, dt){
+  const f = p.spd*DRIVE_V;
+  if(p.rd && p.rd.cn && vy < f && Math.hypot(p.vx, p.vy) < p.spd*STALL_V){ const k = vy > 0 ? 1 : 0; vx *= k; vy = f; }   // no upfield want: drive straight up; else keep the lane's lateral part
+  steer0(p, vx, vy, dt);
+}
 // sprint is a burst, not a gear: ~1.7 s of full burst per play, recovers slowly when he's not using it
 export function burst(p, want, dt){
   if(p.stam == null) p.stam = 1;
@@ -80,7 +86,7 @@ function decide(p, hole, key, side){
 }
 function zoneRead(p, dt){
   const play = PLAYS[S.play], hole = play.hole ?? 0, side = Math.sign(play.shift || hole) || 1;
-  const rd = p.rd || (p.rd = {st:'press', t:Math.min(PRESS_MAX, PRESS_T + PRESS_VIS*p.rt.vision/99), k:0, key:null, x:0});
+  const rd = p.rd;
   if(!S.read) S.read = {key:-1, choice:null, wrong:null};
   if(rd.st === 'press' || rd.st === 'read'){
     rd.k -= dt;
@@ -103,11 +109,13 @@ function zoneRead(p, dt){
 }
 // open field: lanes from straight upfield to 90° either side, each scored by the worst race along it
 // (2, 4 and 6 yd out), plus ground gained, minus the sideline. Re-reads 10x a second, commits in between.
+const OF_NOISE = 0.8;   // open-field lane noise on ofMargin: (1 - vision/99) * OF_NOISE (B-006-4)
 function openField(p, dt){
   p.ofT = (p.ofT || 0) - dt;
   if(p.ofT <= 0){
     p.ofT = 0.1;
     let best = p.ofLane ?? 0, bs = -1e9;
+    const vn = lack(p, 'vision')*OF_NOISE;
     for(let a = -90; a <= 90; a += 10){
       const r = a*Math.PI/180, dx = Math.sin(r), dy = Math.cos(r);
       let m = 1.5, side = 0;
@@ -116,7 +124,7 @@ function openField(p, dt){
         m = Math.min(m, raceMargin(p, qx, qy));
         if(Math.abs(qx) > HW - 1) side = 4;
       }
-      const sc = m*3 + dy*1.6 - side - (a === p.ofLane ? 0 : 0.15);
+      const sc = m*3 + dy*1.6 - side - (a === p.ofLane ? 0 : 0.15) + vn*rand(-1, 1)*3;   // noise on the margin (x3 like the margin itself)
       if(sc > bs){ bs = sc; best = a; }
     }
     p.ofLane = best; p.ofMargin = bs;
@@ -124,10 +132,45 @@ function openField(p, dt){
   const r = p.ofLane*Math.PI/180, sp = p.spd*burst(p, (p.ofMargin ?? 0) > 1, dt);
   steerVel(p, Math.sin(r)*sp, Math.cos(r)*sp, dt);   // full commitment: cuts are as sharp as his feet allow
 }
+// ---------- follow the puller and fall forward (B-006-4) ----------
+// p.rd.fs, one runner per play (place() clears p.rd): free (no puller, or he has engaged or the back is past los+FOLLOW_Y) <-> following; done (the puller stood under FOLLOW_STALL_V for FOLLOW_STALL_T s without engaging: never follows again)
+// (a pulling blocker is ahead; the back tucks FOLLOW_BEHIND yd behind his hip at his pace, closing a gap at up to sprint) ; contact (a defender latched, or touched with
+// 2+ bodies within PILE_R, and not down) keeps at least DRIVE_V x spd of wanted velocity upfield (rd.cn, see steerVel above), whatever his lane says. Contact ends when the grip and the bodies are gone.
+const STALL_V = 0.25, FOLLOW_STALL_V = 1, FOLLOW_STALL_T = 0.5, FOLLOW_BEHIND = 0.6, FOLLOW_Y = 2, FOLLOW_NEAR = 3.5, DRIVE_V = 0.6, PILE_R = 1.3;
+const pullerOf = () => { const k = Object.keys(PLAYS[S.play].pulls || {})[0]; return ({LT, LG, C, RG, RT})[k] || null; };   // the first puller the play names
+const ballY = p => p.ph ? 50 - physBall(p).z : p.y;
+function followPuller(p, dt){
+  const rd = p.rd, q = rd.pull;
+  if(!q || rd.fs === 'done' || p.y > S.los + FOLLOW_Y || q.y < p.y - FOLLOW_BEHIND) return false;   // no puller, done with him, or he is behind the back
+  if(q.eng > 0 || q.bt || q.falling || (!(q.via && q.via.length) && q.blk && dist(q, q.blk) < 1.6)) return false;   // he has his man: the back takes the hole he made
+  const sp = Math.hypot(q.vx, q.vy);
+  rd.fst = sp < FOLLOW_STALL_V ? (rd.fst || 0) + dt : 0;
+  if(rd.fst > FOLLOW_STALL_T){ rd.fs = 'done'; return false; }   // stopped without engaging (held on a body): the back goes on alone
+  const ux = sp > 1 ? q.vx/sp : 0, uy = sp > 1 ? q.vy/sp : 1;
+  const tx = q.x - ux*FOLLOW_BEHIND, ty = q.y - uy*FOLLOW_BEHIND, dx = tx - p.x, dy = ty - p.y, l = Math.hypot(dx, dy);
+  if(rd.fs !== 'following' && l > FOLLOW_NEAR) return false;   // too far to catch him yet: stay on the designed path
+  rd.fs = 'following';
+  while(p.route[p.wp] && p.route[p.wp].y < p.y) p.wp++;   // waypoints he has passed are skipped, so leaving the follow never sends him back
+  const v = Math.min(p.spd*SPRINT, sp + l*4);   // matches his pace, closes a gap fast
+  steerVel(p, dx/(l || 1)*v, dy/(l || 1)*v, dt);
+  return true;
+}
+function inContact(p){
+  if(p.falling || (p.ph && physDown(p))) return false;
+  if(DEF.some(d => d.latch === p)) return true;
+  return !!p.ph && physTouched(p, 0.15) && ALL.filter(q => q !== p && isBody(q) && dist(q, p) < PILE_R).length >= 2;
+}
 export function autoCarry(p, dt){
-  const next = p.route[p.wp];
-  if(next && next.y < S.los - 1){ runRoute(p, dt); return; }       // still on the designed path in the backfield
+  if(!p.rd) p.rd = {st:'press', t:Math.min(PRESS_MAX, PRESS_T + PRESS_VIS*p.rt.vision/99), k:0, key:null, x:0, fs:'free', pull:pullerOf(), ct:null, cn:false};
   const rd = p.rd, zone = PLAYS[S.play].scheme === 'zone';
-  if(zone && (rd ? rd.st !== 'open' : p.y < S.los + COMMIT_Y)) zoneRead(p, dt);
+  if(inContact(p)){
+    if(rd.ct === null) rd.ct = ballY(p);   // yards after contact are counted from here; nothing reads it yet: B-006-7 wants yards-after-contact in sim.js
+    rd.cn = true;
+  } else rd.cn = false;
+  if(!zone && followPuller(p, dt)) return;
+  if(rd.fs === 'following') rd.fs = 'free';
+  const next = p.route[p.wp];
+  if(next && next.y < S.los - 1){ if(rd.cn) steerVel(p, 0, p.spd*DRIVE_V, dt); else runRoute(p, dt); return; }       // still on the designed path in the backfield
+  if(zone && rd.st !== 'open') zoneRead(p, dt);
   else if(!zone && p.y < S.los + 1.5) readHole(p, dt); else openField(p, dt);
 }
