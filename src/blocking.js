@@ -32,7 +32,7 @@ const DRIVE_SET = 0.7, DRIVE_RECOVER = 1, DRIVE_RAMP_T = 0.3;
 export const CARRY_T = 0.3;   // B-023 rebalance: drive strength per phase (x driveV); the drive builds in over DRIVE_RAMP_T s; the pair first coasts on the momentum of the hit (b.cv, set by defense.js pop), fading over CARRY_T s, so a defender's charge carries before the drive takes over
 const OL_BIAS = -0.8, REC_LO = 0.4, REC_HI = 0.8, SET_LO = 0.2, SET_HI = 0.4;   // the win-roll offset for a linemen's run block (was -1.4), the recovery and set times (s; were 0.8-1.4)
 const wrapA = a => Math.atan2(Math.sin(a), Math.cos(a));
-function lock(d, o, b, dt, c){
+export function lock(d, o, b, dt, c){   // B-067: exported for defoff.js
   if(b.phase === 'move' && b.move === 'speed'){   // swim: work around the blocker's ball-side shoulder
     const ang = wrapA(b.ang), side = Math.sign(c.x - d.x) || Math.sign(ang) || 1;
     b.ang += side*SWIM_RATE*dt;
@@ -58,6 +58,13 @@ export function battle(d, o, c, dt){
     b.px = d.x; b.py = d.y; if(o.bt === b){ b.ox = o.x; b.oy = o.y; b.oxT = S.clock; }
   }
 }
+// B-067: one drive step, m yd, of the pair away from the hole (also used by defoff.js, where nobody battles)
+export function driveMove(d, o, m){
+  const ax = d.x - o.x, ay = d.y - o.y, al = Math.hypot(ax, ay) || 1;
+  const ref = runRef(), away = Math.sign(d.x - ref.x) || 1;
+  const px = ax/al + away*0.6, py = ay/al + 0.9, k = Math.hypot(px, py) || 1;
+  d.x += px/k*m; d.y += py/k*m; o.x += px/k*m; o.y += py/k*m;
+}
 function battleStep(d, o, c, dt){
   const b = d.bt; b.t += dt; b.age = (b.age || 0) + dt;
   if(b.cv && b.age < CARRY_T){ const k = (1 - b.age/CARRY_T)*dt; d.x += b.cv.x*k; d.y += b.cv.y*k; o.x += b.cv.x*k; o.y += b.cv.y*k; }   // B-023: coast on the hit
@@ -66,13 +73,7 @@ function battleStep(d, o, c, dt){
   const cx = c.x - d.x, cy = c.y - d.y, cl = Math.hypot(cx, cy) || 1;     // defender -> ball
   // blocker in control (run plays): drive him back and away from the hole to open the gap.
   // How fast depends on the strength matchup: a good blocker on a weak defender moves him up to DRIVE_MAX (1.4) yd/s (B-062).
-  const drive = f => {
-    if(!S.runMode) return;
-    const ref = runRef(), away = Math.sign(d.x - ref.x) || 1;
-    const px = ax/al + away*0.6, py = ay/al + 0.9, k = Math.hypot(px, py) || 1;
-    const m = driveV(o, d)*f*ramp*dt;
-    d.x += px/k*m; d.y += py/k*m; o.x += px/k*m; o.y += py/k*m;
-  };
+  const drive = f => { if(S.runMode) driveMove(d, o, driveV(o, d)*f*ramp*dt); };
   if(b.phase === 'set'){
     drive(DRIVE_SET);
     if(b.t >= b.dur){
