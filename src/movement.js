@@ -1,5 +1,4 @@
-import { FACE_RATE, clamp, faceYaw } from './util.js';
-import { S, ball } from './state.js';
+import { FACE_RATE, clamp, faceYaw } from './util.js';   // no state.js import here: sim.js imports this module and state.js / players.js must not load (and draw Math.random) before the sim seeds (B-070); ball and S come in as arguments
 
 // ---------- movement ----------
 // Movement physics. The velocity change is split along the current heading (speed up / brake) and
@@ -15,10 +14,11 @@ export const FACE_V = 0.4;
 // speed cap by the angle between facing and travel (only with a faceHold set): fraction of top speed, blended linearly between the knots
 export const CAP_FWD = 1.0, CAP_SIDE = 0.6, CAP_BACK = 0.7;   // facing 0 deg off travel, 90 deg (shuffle), 180 deg (backpedal)
 const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
-export const faceTarget = p => (p.faceHold != null && !p.bt) ? p.faceHold : faceYaw(p, ball, S);
-export function faceStep(p, dt){
+export const faceTarget = (p, ball, S) => (p.faceHold != null && !p.bt) ? p.faceHold : faceYaw(p, ball, S);
+export function faceStep(p, dt, ball, S){
+  if(p.eng > 0) p.eng -= dt; else if(p.team === 'O') p.bt = null;   // moved here from animation.js animate: an offensive man's battle ends when his engage timer does, in the sim as in the game (else his bt goes stale in the sim)
   if(p.ph || p.act === 'down' || p.act === 'dive' || p.act === 'fall') return;
-  const fy = faceTarget(p), tgt = fy !== null ? fy : Math.hypot(p.vx, p.vy) > FACE_V ? Math.atan2(p.vx, -p.vy) : null;
+  const fy = faceTarget(p, ball, S), tgt = fy !== null ? fy : Math.hypot(p.vx, p.vy) > FACE_V ? Math.atan2(p.vx, -p.vy) : null;
   if(tgt !== null) p.face += wrap(tgt - p.face)*Math.min(1, dt*FACE_RATE);
 }
 // the speed fraction for travelling along (dx, dy) while facing p.face: 1 straight ahead, CAP_SIDE abreast, CAP_BACK backwards
@@ -28,7 +28,7 @@ export function faceCap(p, dx, dy){
 }
 export function steerVel(p, dvx, dvy, dt){
   const slow = p.slow || 1; dvx *= slow; dvy *= slow;   // tacklers hanging on
-  if(p.faceHold != null && !p.bt && !p.ph){ const w = Math.hypot(dvx, dvy), cap = p.spd*faceCap(p, dvx, dvy); if(w > cap && w > 0){ dvx *= cap/w; dvy *= cap/w; } }   // B-072-1: moving off his facing costs speed
+  if(p.faceHold != null && !p.bt && !p.ph){ const f = faceCap(p, dvx, dvy); dvx *= f; dvy *= f; }   // B-072-1: moving off his facing costs speed (scales the wanted velocity, so a burst above spd still keeps its share)
   const bub = p.ph && p.ph.bubble;
   if(bub && p.wx != null){ p.vx = p.wx; p.vy = p.wy; }   // a bubble body steers from what he wants (physics overwrites vx / vy with the real motion)
   const sp = Math.hypot(p.vx, p.vy);

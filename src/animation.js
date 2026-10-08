@@ -206,9 +206,8 @@ function animate(p, dt){
   const stepsHz = eng && driving(p) ? stepHz(Math.max(pairV(p), Math.hypot(p.vx, p.vy))) : 0;   // B-062: a driven pair takes short steps (STEP_L) at the cadence its speed needs, churning in place when stalled; two steps to a stride
   p.stride += stepsHz > 0 ? Math.PI*stepsHz*dt : sp > 0.3 ? 2*Math.PI*(1.1 + 0.16*sp)*dt : 0;   // cadence rises with speed (~2.2 strides/s flat out)
   if(p.actT > 0){ p.actT -= dt; if(p.actT <= 0) p.act = null; }
-  if(p.eng > 0) p.eng -= dt; else if(p.team === 'O') p.bt = null;
   if(p.beatT > 0) p.beatT -= dt;
-  // B-072-1: p.face is turned in the logic step (movement.js faceStep); here only the gait reads it. Moving off his facing (a faceHold, or a face still turning): feet apart sideways (shuffle) past GAIT_SHUFFLE, backpedal past GAIT_BACK
+  // B-072-1: p.face is turned in the logic step (movement.js faceStep); here only the gait reads it. Moving off a faceHold: feet apart sideways (shuffle) past GAIT_SHUFFLE, backpedal past GAIT_BACK
   const trav = sp > 0.4 && !p.ph ? Math.abs(Math.atan2(Math.sin(Math.atan2(p.vx, -p.vy) - p.face), Math.cos(Math.atan2(p.vx, -p.vy) - p.face))) : 0, side = Math.sin(Math.atan2(p.vx, -p.vy) - p.face) < 0 ? -1 : 1;
   const gk = 1 - Math.exp(-dt*GAIT_K), want = !p.act && !eng && p.faceHold != null;
   p.shW = (p.shW || 0) + ((want && trav >= GAIT_SHUFFLE && trav < GAIT_BACK ? 1 : 0) - (p.shW || 0))*gk;

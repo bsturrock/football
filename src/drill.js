@@ -9,7 +9,7 @@ import { physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DL, LG, LT, OL, QB, RB, RG, RT, C } from './players.js';
 import { camera } from './scene.js';
-import { S, selectPlay, setupPlay } from './state.js';
+import { S, ball, selectPlay, setupPlay } from './state.js';
 
 // ---------- blocking drill (B-019) ----------
 // ?drill=1v1 | line. One run-block rep after another on the game's own code: setupPlay lines the offense and the front up, snap() resolves
@@ -77,7 +77,7 @@ export function drillTick(dt){
     separate();
     if(t >= PRE_S + REP_S) newRep();
   }
-  ALL.forEach(p => faceStep(p, dt));   // B-072-1: facing is sim state
+  ALL.forEach(p => faceStep(p, dt, ball, S));   // B-072-1: facing is sim state
   physStep(dt);
 }
 const look = new THREE.Vector3(), pos = new THREE.Vector3(), want = new THREE.Vector3(), tgt = new THREE.Vector3();

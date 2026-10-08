@@ -65,7 +65,7 @@ export function step(dt){
     ALL.forEach(p => steer(p, p.x, p.y, 0, dt));
     S.deadT -= dt; if(S.deadT <= 0) nextPlay();
   }
-  ALL.forEach(p => faceStep(p, dt));   // B-072-1: facing is sim state (movement.js), turned here for the game and the sim alike
+  ALL.forEach(p => faceStep(p, dt, ball, S));   // B-072-1: facing is sim state (movement.js), turned here for the game and the sim alike
   const t0 = performance.now();
   physStep(dt);
   perf.phys = performance.now() - t0; perf.bodies = physCount().players;
