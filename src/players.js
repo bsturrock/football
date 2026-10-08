@@ -25,7 +25,7 @@ export const TEAM = {
 const SKIN = [0x5c3a1e, 0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d];
 // jersey number on the back: one canvas texture per number, shared; a body swaps its map when a sub changes his number
 // three.js draws Math.random for object uuids; the number art does that on a private stream so a seeded ?sim line is the same with or without it
-let qk = 12345;
+let qk = new URLSearchParams(location.search).has('sim') ? 12345 : (Date.now() % 2147483646) + 1;   // fixed under ?sim, varied on a normal load
 const quiet = f => { const r = Math.random; Math.random = () => (qk = qk*16807 % 2147483647)/2147483647; try { return f(); } finally { Math.random = r; } };
 const numTex = {};
 const numTexture = n => numTex[n] || (numTex[n] = quiet(() => {
