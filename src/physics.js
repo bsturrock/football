@@ -58,7 +58,7 @@ const PHYS = [];
 const GRP = {ground:1, proxy:2, part:4};
 export function physInit(){
   PW = new CANNON.World({gravity: new CANNON.Vec3(0, -PH_G, 0)});
-  [qc, qd, qe] = [0, 0, 0].map(() => new CANNON.Quaternion()); cv = new CANNON.Vec3(); cw = new CANNON.Vec3(); [rv, rt, tw, dw] = [0, 0, 0, 0].map(() => new CANNON.Vec3());
+  [qc, qd, qe] = [0, 0, 0].map(() => new CANNON.Quaternion()); [rv, rt, tw, dw] = [0, 0, 0, 0].map(() => new CANNON.Vec3());
   PW.solver.iterations = 20; PW.allowSleep = false;
   const turf = new CANNON.Material('turf'), body = new CANNON.Material('body');
   // soft contact correction: overlapping bodies ease apart instead of exploding apart
@@ -180,29 +180,7 @@ export function gripGap(d){
     const a = g.hb.pointToWorldFrame(new CANNON.Vec3(0, HAND_Y, 0)), b = g.best.pointToWorldFrame(g.loc); m = Math.max(m, a.distanceTo(b)); }
   return m;
 }
-let qc, qd, qe, rv, rt, tw, dw, cv, cw;
-// B-044 (from B-038's a05cc76, knees and elbows only): a hinge joint past its range is turned back to the limit about its pivot after each step, and the spin and velocity going further out are removed.
-// Every joint stopping dead (B-038) made solo hits slower and taller, so shoulders, hips and neck keep the soft limit torque in physMuscles.
-const STOP_PART = [PI_.faL, PI_.faR, PI_.snL, PI_.snR];
-function physStops(ph){
-  for(const i of STOP_PART){
-    const d = PARTS[i], pb = ph.bodies[PI_[d.p]], cb = ph.bodies[i];
-    pb.quaternion.conjugate(qc); qc.mult(cb.quaternion, qd); rotVec(qd, rt);
-    const x = rt.x, y = rt.y, z = rt.z, cx = clamp(x, d.lim[0][0], d.lim[0][1]), cy = clamp(y, d.lim[1][0], d.lim[1][1]), cz = clamp(z, d.lim[2][0], d.lim[2][1]);
-    if(cx === x && cy === y && cz === z) continue;
-    const pj = ph.joints[i], pv = cb.pointToWorldFrame(new CANNON.Vec3(...pj.pvB), cv);   // the pivot (world) before the turn
-    const ang = Math.hypot(cx, cy, cz); if(ang < 1e-6) qe.set(0, 0, 0, 1); else { dw.set(cx/ang, cy/ang, cz/ang); qe.setFromAxisAngle(dw, ang); }
-    pb.quaternion.mult(qe, cb.quaternion); cb.quaternion.normalize();
-    const r = cb.quaternion.vmult(new CANNON.Vec3(...pj.pvB), cw); cb.position.set(pv.x - r.x, pv.y - r.y, pv.z - r.z);
-    const nl = Math.hypot(cx - x, cy - y, cz - z); dw.set((cx - x)/nl, (cy - y)/nl, (cz - z)/nl); pb.quaternion.vmult(dw, tw);   // inward, world
-    const w = cb.angularVelocity, wr = (w.x - pb.angularVelocity.x)*tw.x + (w.y - pb.angularVelocity.y)*tw.y + (w.z - pb.angularVelocity.z)*tw.z;
-    if(wr < 0){   // still turning out: stop it, and the shift in the child's center that goes with it
-      const dx = cb.position.x - pv.x, dy = cb.position.y - pv.y, dz = cb.position.z - pv.z, ux = -tw.x*wr, uy = -tw.y*wr, uz = -tw.z*wr;
-      w.x += ux; w.y += uy; w.z += uz;
-      cb.velocity.x += uy*dz - uz*dy; cb.velocity.y += uz*dx - ux*dz; cb.velocity.z += ux*dy - uy*dx;
-    }
-  }
-}
+let qc, qd, qe, rv, rt, tw, dw;
 // rotation vector (axis * angle) of a cannon quaternion
 function rotVec(q, out){
   let {x, y, z, w} = q; if(w < 0){ x = -x; y = -y; z = -z; w = -w; }
@@ -351,7 +329,6 @@ export function physStep(dt){
       else physLegs(p, ph, p.vx, -p.vy, p.acc);
     }
     PW.step(PH_DT); phClock += PH_DT;
-    for(const p of PHYS) physStops(p.ph);
     for(const q of PW.contacts){ const a = q.bi.pl, b = q.bj.pl; if(a && b && a.team !== b.team) a.hitT = b.hitT = phClock;   // opposing bodies touching
       if(a && b && a !== b){ if(PROP_PART[q.bi.pi]) a.ph.propT = phClock; if(PROP_PART[q.bj.pi]) b.ph.propT = phClock; } }   // a down-counting part resting on another player
     // speed rail: no part moves faster than a sprinter or gets launched skyward
