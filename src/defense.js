@@ -305,11 +305,12 @@ export function defenseAI(d, dt){
     } else d.bt = null;
   } else d.bt = null;
   if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
+  d.fireAcc = false;   // B-064 (dl-fire): set below, only while the ball is not in the air
   if(ball.state !== 'air'){   // B-060-2: situational speed
     const open = c && attack && S.runMode && (c.y > d.y + RUNNER_PAST_Y || c.y > S.los + OPEN_Y);
     const reading = S.runMode && c && PLAYS[S.play].run && d.role !== 'DL' && S.clock <= S.handoffAt + d.read + d.bite;   // run plays only: a catch sets runMode too
     const rush = attack && !S.runMode && (d.role === 'DL' || d.mode === 'rush') && S.clock < RUSH_FULL_T;
-    const fire = attack && d.role === 'DL' && d.job && d.job.role !== 'two' && S.clock < FIRE_T;   // B-064 (dl-fire): every one-gap DL fires on every snap, run or pass (he can't know the play yet); acceleration is x FIRE_ACC for the get-off, on top of movement.js p.fire x FIRE_K 1.3 for its first 0.35 s (about 2.2x then, FIRE_ACC alone after) (acceleration, not wanted speed, limits the first yards; offense.js:98 does the same for a blocker)
+    const fire = attack && d.role === 'DL' && d.job && d.job.role !== 'two' && S.clock < FIRE_T;   // B-064 (dl-fire): every one-gap DL fires on every snap, run or pass (he can't know the play yet); acceleration is x FIRE_ACC for the get-off, on top of movement.js p.fire x FIRE_K 1.3 for its first 0.35 s (about 2.3x then, FIRE_ACC alone after) (acceleration, not wanted speed, limits the first yards; offense.js:98 does the same for a blocker)
     d.fireAcc = fire;
     sp *= open || rush || fire ? 1 : reading ? READ_F : attack ? PURSUE_F : d.mode === 'cover' ? (d.assign && d.assign.wp > 0 ? 1 : MAN_STEM_F) : ZONE_F;
   }
