@@ -210,7 +210,7 @@ export function runSim(n, step, g){
   const endFalls = () => { fallsEnded = true; for(const e of fe.values()){ e.w = true; if(!e.ok){ fallFail++; if(e.dur < SHORT_FALL_T) fallShort++; } } };
   const falls = () => {
     const live = S.phase === 'live', seen = new Set();
-    if(!live && !fallsEnded) endFalls();
+    if(live) fallsEnded = false; else if(!fallsEnded) endFalls();   // the play's first live step opens its episodes; the first step after that which is not live closes them
     for(const p of ALL) if(p.ph){
       const q = physPose(p); vSteps++; if(q.viol > VIOL_DEG*Math.PI/180){ vBad++; q.violOver(VIOL_DEG*Math.PI/180).forEach(n => { vPart[n] = (vPart[n] || 0) + 1; }); }
       if(q.fallT <= 0) continue;
@@ -260,7 +260,7 @@ export function runSim(n, step, g){
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
     shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); DEF.forEach(p => { p.towT = undefined; });
-    curPlay = i; bodMax[i] = 0; fallsEnded = false; fe.clear();
+    curPlay = i; bodMax[i] = 0; fallsEnded = true; fe.clear();
     hMax = 0; let stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = []; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
       step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
