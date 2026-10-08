@@ -11,7 +11,7 @@ import { GRID_K as K, OL_GAP, NEUTRAL_Z, STANCE_REACH } from './formations.js';
 // a half body, 0.45-0.5 yd, was 0.7-0.8).
 export const TECH = {'0':0, '1':OL_GAP - 0.45, '2':OL_GAP, '3':OL_GAP + 0.5, '4':2*OL_GAP, '4i':2*OL_GAP - 0.45, '5':2*OL_GAP + 0.5, '7':3*OL_GAP - 0.5, '9':3*OL_GAP + 0.6};
 const tx = t => { const s = String(t); if(s === "0") return 0; const neg = s[0] === "W", v = TECH[s.slice(1)]; if(v === undefined) throw new Error('technique ' + t); return neg ? -v : v; };
-export const DL_DEPTH = NEUTRAL_Z/2 + STANCE_REACH, LB_DEPTH = 4.5, LB_DEPTH_WEAK = 5.0, EDGE_DEPTH = DL_DEPTH + 0.5;   // yards past the line; weak side = x < 0. EDGE_DEPTH (1.455) must stay below blockrules.js WRAP_Y (1.5), else a wrapper picks the stand-up edge over the backer
+export const DL_DEPTH = NEUTRAL_Z/2 + STANCE_REACH, LB_DEPTH = 4.5, LB_DEPTH_WEAK = 5.0, EDGE_DEPTH = DL_DEPTH + 0.3;   // neutral-zone (B-033): EDGE_DEPTH (1.455) must stay below blockrules.js WRAP_Y (1.5), else a wrapper picks the stand-up edge over the backer; weak side = x < 0
 export const SS_ROLL = {x:4.5*K, d:6};   // the rolled-down safety (bear, eight in the box), strength x
 // gaps, offense's view: A beside the center, B outside the guards, C outside the tackles, D outside the tight end. Names carry the
 // strength: 'AS' = A gap strong, 'CW' = C gap weak. x is on the field.

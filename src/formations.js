@@ -6,8 +6,8 @@
 // B-021: NFL splits, 3-4 ft between linemen (center to center 1.35 yd = 4 ft); the tight end is one split outside the tackle, linemen are
 // OL_BACK yd behind the line. fronts.js builds its alignment grid from the same OL_GAP.
 // B-027 neutral zone: the ball is one ball length deep (NEUTRAL_Z, about 0.31 yd), centred on the line; only the snapper's hands reach in.
-// A lineman stands STANCE_REACH (hands to body centre) outside the zone's edge, so OL and DL centres are NEUTRAL_Z + 2*STANCE_REACH = 1.91 yd apart.
-export const NEUTRAL_Z = 0.31, STANCE_REACH = 0.8;
+// A lineman stands STANCE_REACH (hands to body centre) outside the zone's edge, so OL and DL centres are NEUTRAL_Z + 2*STANCE_REACH = 2.31 yd (B-033: hands at the ball tips, helmet fronts over them, so the daylight between helmets is NEUTRAL_Z) apart.
+export const NEUTRAL_Z = 0.31, STANCE_REACH = 1.0;
 const QB_UNDER = 0.6, WR_OFF = 0.75;   // the QB under center stands QB_UNDER behind the center (>= SEP_R 0.56, so separate() leaves the center alone); the third WR stands WR_OFF behind the OL line
 export const OL_GAP = 1.35, OL_BACK = NEUTRAL_Z/2 + STANCE_REACH, OLD_GAP = 2.2;
 export const GRID_K = OL_GAP/OLD_GAP;   // a lateral number written on the old 2.2 yd line grid (a gap x, a hole, a lane window) times this sits on the new one
