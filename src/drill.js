@@ -23,7 +23,8 @@ export const drillError = PLAY_Q && !FORCED ? 'unknown play ' + PLAY_Q : null;  
 const PLAY = FORCED ? FORCED.name : 'Iso';   // Iso (the default): a man-blocking run, every lineman takes the man on him (no doubles, no pulls); a forced play is whatever ?play names
 const CAM = new URLSearchParams(location.search).get('cam');
 const SIDE = CAM === 'side';   // B-042: ?cam=behind (default, as before) | side
-const LOS = CAM === 'los';   // B-052: ?cam=los, the broadcast photo angle: near square across the line from its right end, 1.6 yd up, a little behind the offense, both rows in profile (offense left)
+const LOS_CAM = {x:9, y:1.6, z:2.5};   // B-052 ?cam=los camera offset from the line's centre (yd): toward the right end, up, a little behind the offense
+const LOS = CAM === 'los';   // B-052: ?cam=los, the broadcast photo angle: from the line's right end, near profile with both rows showing (offense left); LOS_CAM below
 const note = m => (drillError ? 'Unknown play "' + PLAY_Q + '": running Iso. ' : '') + NOTES[m];
 const OL_BY_NAME = {LT, LG, C, RG, RT};
 const NOTES = {
@@ -86,7 +87,7 @@ export function drillCamera(dt){
   if(camera.fov !== 40){ camera.fov = 40; camera.updateProjectionMatrix(); }
   const line = mode === 'line';
   tgt.set(cx, 1, 50 - cy);
-  if(LOS){ want.set(cx + 6, 1.5, 50 - cy + 5); tgt.set(cx - 1, 0.6, 50 - cy - 0.5); }   // B-052
+  if(LOS){ want.set(cx + LOS_CAM.x, LOS_CAM.y, 50 - cy + LOS_CAM.z); tgt.set(cx - 1, 0.6, 50 - cy - 0.5); }   // B-052
   else if(SIDE) want.set(cx + (line ? 13 : 7), line ? 2.4 : 2, 50 - cy);   // B-042 ?cam=side: side-on at the line, both teams in view
   else want.set(cx + (line ? 3 : 5), line ? 8 : 4.2, 50 - cy + (line ? 14 : 7));
   const k = snapCam ? 1 : 1 - Math.exp(-dt*3); snapCam = false;
