@@ -1,4 +1,4 @@
-import { clamp } from './util.js';
+import { FACE_RATE, clamp, faceYaw } from './util.js';   // no state.js import here: sim.js imports this module and state.js / players.js must not load (and draw Math.random) before the sim seeds (B-070); ball and S come in as arguments
 
 // ---------- movement ----------
 // Movement physics. The velocity change is split along the current heading (speed up / brake) and
@@ -7,8 +7,28 @@ import { clamp } from './util.js';
 // B-060-1: acceleration fades linearly to zero at ACC_FADE_TOP x spd (v = V(1 - e^(-t/tau)), tau = that top / acc), so a run-up takes
 // 2-3 s and 15-20 yd to 90%; ACC_FLOOR keeps a little push above it (a burst's wanted speed). FIRE_K: the lineman's get-off multiplier on acc.
 const ACC_FADE_TOP = 1, ACC_FLOOR = 0.1, FIRE_K = 1.3;
+// B-072-1: facing is sim state. faceStep turns p.face by the rule animation.js used to run (same target, FACE_RATE): the target is p.faceHold (a yaw he keeps while he
+// moves; set by defense.js / carrier.js, null = off), else faceYaw (faceAt), else his velocity heading above FACE_V. An engaged man (p.bt) ignores faceHold. The game step,
+// the drill step and the sim step all run it (main.js step, drill.js drillTick); animation.js only reads p.face.
+export const FACE_V = 0.4;
+// speed cap by the angle between facing and travel (only with a faceHold set): fraction of top speed, blended linearly between the knots
+export const CAP_FWD = 1.0, CAP_SIDE = 0.6, CAP_BACK = 0.7;   // facing 0 deg off travel, 90 deg (shuffle), 180 deg (backpedal)
+const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+export const faceTarget = (p, ball, S) => (p.faceHold != null && !p.bt) ? p.faceHold : faceYaw(p, ball, S);
+export function faceStep(p, dt, ball, S){
+  if(p.eng > 0) p.eng -= dt; else if(p.team === 'O') p.bt = null;   // moved here from animation.js animate: an offensive man's battle ends when his engage timer does, in the sim as in the game (else his bt goes stale in the sim)
+  if(p.ph || p.act === 'down' || p.act === 'dive' || p.act === 'fall') return;
+  const fy = faceTarget(p, ball, S), tgt = fy !== null ? fy : Math.hypot(p.vx, p.vy) > FACE_V ? Math.atan2(p.vx, -p.vy) : null;
+  if(tgt !== null) p.face += wrap(tgt - p.face)*Math.min(1, dt*FACE_RATE);
+}
+// the speed fraction for travelling along (dx, dy) while facing p.face: 1 straight ahead, CAP_SIDE abreast, CAP_BACK backwards
+export function faceCap(p, dx, dy){
+  const a = Math.abs(wrap(Math.atan2(dx, -dy) - p.face));
+  return a < Math.PI/2 ? CAP_FWD + (CAP_SIDE - CAP_FWD)*a/(Math.PI/2) : CAP_SIDE + (CAP_BACK - CAP_SIDE)*(a - Math.PI/2)/(Math.PI/2);
+}
 export function steerVel(p, dvx, dvy, dt){
   const slow = p.slow || 1; dvx *= slow; dvy *= slow;   // tacklers hanging on
+  if(p.faceHold != null && !p.bt && !p.ph){ const f = faceCap(p, dvx, dvy); dvx *= f; dvy *= f; }   // B-072-1: moving off his facing costs speed (scales the wanted velocity, so a burst above spd still keeps its share)
   const bub = p.ph && p.ph.bubble;
   if(bub && p.wx != null){ p.vx = p.wx; p.vy = p.wy; }   // a bubble body steers from what he wants (physics overwrites vx / vy with the real motion)
   const sp = Math.hypot(p.vx, p.vy);
