@@ -12,6 +12,7 @@ import { clamp, dist, faceYaw } from './util.js';
 // `bal` is how much he's still on his feet: legs hold him up, keep him upright and drive him where
 // he wants to go. A tackle is just the tacklers' grips and leg drive beating that, and then gravity.
 const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
+const SPEED_RAIL = 12;   // B-034: yd/s cap on any part (fastest sprinter ~11)
 // physics bubble: players near a live ragdoll become full bodies (ph.bubble) so ragdolls and piles hit them.
 // States per player (all in bubbleUpdate / physOn / physOff):
 //   animated    p.ph null, no collision body
@@ -333,7 +334,7 @@ export function physStep(dt){
       if(a && b && a !== b){ if(PROP_PART[q.bi.pi]) a.ph.propT = phClock; if(PROP_PART[q.bj.pi]) b.ph.propT = phClock; } }   // a down-counting part resting on another player
     // speed rail: no part moves faster than a sprinter or gets launched skyward
     for(const p of PHYS) for(const b of p.ph.bodies){
-      const v = b.velocity, sp = Math.hypot(v.x, v.y, v.z); if(sp > 10){ v.x *= 10/sp; v.y *= 10/sp; v.z *= 10/sp; }
+      const v = b.velocity, sp = Math.hypot(v.x, v.y, v.z); if(sp > SPEED_RAIL){ v.x *= SPEED_RAIL/sp; v.y *= SPEED_RAIL/sp; v.z *= SPEED_RAIL/sp; }
       if(v.y > 3) v.y = 3;
       const w = b.angularVelocity, ws = w.length(); if(ws > 14){ w.x *= 14/ws; w.y *= 14/ws; w.z *= 14/ws; }
     }
