@@ -9,11 +9,11 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 // on a normal page load; unknown gives {"error":...}). The dump is written when the sim finishes: ~35-40 s for N=100 under swiftshader (~0.4 s a play; N=300 wants alarm 180+).
 // B-026 pass rush: &pass=<pass play> (or 1 = the first pass play; Slants, Verticals, 'Curl / Out', 'Post / Corner') runs that real pass play from playbook.js with its pass-pro blocking; the pass plays are in PLAYS only because the URL has `pass` (playbook.js PASS_GAME is URL-gated; a normal load keeps them off, so a page without `pass` gets {"error":"no pass plays"}).
 // The QB holds (no drop, no throw); the sim ends the play at PRESS_END 3.5 s (S.phase set dead, no down change) or earlier when the QB is tackled (sack). Form defaults to 11 Gun
-//   (&form= overrides); &play= together with &pass is an error. &pass=draw runs Draw as a dropback instead (its handoff delay moved to 3.5 s; Draw's own DRAW_SET deep set invites the rush, so it measures Draw, not pass pro).
+//   (&form= overrides); &play= together with &pass is an error. &pass=draw (only with playbook.js DRAW_ON; otherwise {"error":"no Draw"}) runs Draw as a dropback instead (its handoff delay moved to 3.5 s; Draw's own DRAW_SET deep set invites the rush, so it measures Draw, not pass pro).
 //   The line gains force.pass and pressure {plays, tPressMedian, tPressP90 (s from the snap to the first defender within PRESS_YD 2 yd of the QB, over the plays that got there by PRESS_T 3 s),
 //   within2yd3sPct (share of plays with a defender within 2 yd of the QB at some live step by PRESS_T; NFL-ish 30-35), nearestMedYd (median over plays of the closest approach by PRESS_T),
 //   sackPct (plays the QB was tackled before the cut; null under &pass=draw, whose hand-off QB is never tackled), at1s {battle, free, other} (rushers = DL or mode rush, at the first live step at 1 s: in a battle (bt), free, or a body (ph)), sacks}.
-//   Under &pass the yards, ypc, spotYards and byPlay fields leave out the dropbacks cut at PRESS_END (read only pressure). &pass takes 1, draw or a pass play name; anything else (0 too) gives {"error":...}.
+//   Under &pass the yards, ypc, spotYards and byPlay fields leave out the dropbacks cut at PRESS_END (read only pressure). &pass takes 1, draw (only with playbook.js DRAW_ON; otherwise {"error":"no Draw"}) or a pass play name; anything else (0 too) gives {"error":...}.
 //   Without &pass nothing changes (the default line is byte-identical).
 // Fields:
 //   plays, timeouts, ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards {mean, median, p10, p90, max}
