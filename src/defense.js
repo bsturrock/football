@@ -29,7 +29,7 @@ const AVOID_CONE = 30, AVOID_DIST = 2.5, AVOID_EVERY = 0.1, AVOID_T = 0.5, AVOID
 const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
 // B-060-2: situational speeds, fractions of d.spd (full only chasing in the open or on a ball in the air); scale the steered speed only, never d.acc or d.leg
-const PURSUE_F = 0.8, READ_F = 0.4, MAN_F = 0.9, OPEN_Y = 6;
+const PURSUE_F = 0.8, READ_F = 0.4, ZONE_F = 0.8, MAN_STEM_F = 0.9, RUSH_FULL_T = 1.0, OPEN_Y = 6;   // ZONE_F: zone and deep drops; MAN_STEM_F: man cover until the receiver is past his stem (then full); RUSH_FULL_T: a pass rusher runs full this long after the snap
 const BT_KEEP_D = 1.3;   // B-023: a battle that started inside ENGAGED_D survives until its blocker is this far (drive and steering open the gap past ENGAGED_D 50 times a second)
 const RUNNER_PAST_Y = 1.0;   // B-023: the runner this far (yd) downfield of a blocked defender: the blocks break down, he is released to pursue
 const TOW_V = 4, TOW_FREE_T = 0.4;   // B-023: a blocker who is not assigned to him (o.blk is another man: a climber, a puller, a stunt pass-off) moving faster than TOW_V yd/s is passing, not blocking: the battle ends and he cannot re-engage for TOW_FREE_T s
@@ -306,8 +306,9 @@ export function defenseAI(d, dt){
   if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
   if(ball.state !== 'air'){   // B-060-2: situational speed
     const open = c && attack && S.runMode && (c.y > d.y + RUNNER_PAST_Y || c.y > S.los + OPEN_Y);
-    const reading = S.runMode && c && d.role !== 'DL' && S.clock <= S.handoffAt + d.read + d.bite;
-    sp *= open ? 1 : reading ? READ_F : attack ? PURSUE_F : d.mode === 'cover' ? MAN_F : READ_F;
+    const reading = S.runMode && c && PLAYS[S.play].run && d.role !== 'DL' && S.clock <= S.handoffAt + d.read + d.bite;   // run plays only: a catch sets runMode too
+    const rush = attack && !S.runMode && (d.role === 'DL' || d.mode === 'rush') && S.clock < RUSH_FULL_T;
+    sp *= open || rush ? 1 : reading ? READ_F : attack ? PURSUE_F : d.mode === 'cover' ? (d.assign && d.assign.wp > 0 ? 1 : MAN_STEM_F) : ZONE_F;
   }
   if(d.bt) return;   // B-023: engaged, the battle (blocking.js lock) moves him; he does not steer himself
   if(attack && !d.bt && c){   // hunting the runner: run through the target, never ease up approaching it

@@ -15,11 +15,8 @@ export function logSpeed(p, top){   // B-060-2 readout: S.speedRole[role] = {n, 
   const r = S.speedRole || (S.speedRole = {}), k = p.role, e = r[k] || (r[k] = {n:0, sum:0});
   e.n++; e.sum += Math.hypot(p.vx, p.vy)/top;
 }
-// a route at stem speed: runRoute reads w.spd, so scale it for the call and put it back
-function route(p, dt){
-  const f = ball.state === 'air' || p.wp > 0 || p.wp >= p.route.length ? 1 : STEM_F, s = p.spd;
-  p.spd = s*f; runRoute(p, dt); p.spd = s;
-}
+// a pass route at stem speed (full once past the first waypoint or with the ball in the air); the RB's run path and the run-play WRs stay plain runRoute
+const route = (p, dt) => runRoute(p, dt, ball.state === 'air' || p.wp > 0 ? 1 : STEM_F);
 const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
 const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
@@ -130,7 +127,7 @@ export function offenseAI(p, dt, inp){
         const side = Math.sign(p.x - QB.x) || 1, tx = QB.x + side*0.7, ty = QB.y - 0.2, l = Math.hypot(tx - p.x, ty - p.y) || 1;
         steerVel(p, (tx - p.x)/l*p.spd, (ty - p.y)/l*p.spd, dt); return;
       }
-      route(p, dt); return;
+      runRoute(p, dt); return;
     }            // RB runs his path until he has the ball
     if(p === QB && c === QB && run === 'hand'){                      // handoff: open to the mesh, then extend to the back
       const m = PLAYS[S.play].mesh;
