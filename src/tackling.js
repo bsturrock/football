@@ -8,6 +8,7 @@ import { clamp, dist, rand } from './util.js';
 // ---------- tackling ----------
 // Contact starts an attempt (ratings + momentum decide what the tackler gets), and from there it's bodies:
 //   big hit: the tackler launches through him and the runner is knocked off his feet; the collision does the rest
+//   run-through / bounce-off (B-063): the runner's weight x speed clearly beats the tackler's: the tackler is knocked off his feet (run-through) or staggers (bounce-off), the runner keeps most of his speed
 //   slip:    the tackler dives and comes up empty
 //   grab:    the tackler's hands lock onto him (arm = one hand, wrap = both), he plants and drives.
 // The runner keeps his legs (bal) and drives on; a grip only holds as much force as the tackler's hands,
@@ -29,7 +30,7 @@ export const PLANT_A = 7;
 // runner keeps most of his speed), over BOUNCE_EDGE the tackler bounces off (staggered, runner slowed a little), else the grab roll below.
 const THRU_EDGE = 6, BOUNCE_EDGE = 4.5, EDGE_NOISE = 0.5, THRU_KEEP = 0.9, BOUNCE_KEEP = 0.8;
 // S.tkLog: contact outcomes for the sim readout (sim.js reads it through S, so it imports nothing from here): {o: 'big'|'thru'|'bounce'|'evade'|'grab', edge, cm, dm} (cm, dm: weight x speed into the hit)
-const logTk = (o, edge, c, d) => { const L = S.tkLog || (S.tkLog = []); if(L.length < 20000) L.push({o, edge, cm:c.mass*Math.hypot(c.vx, c.vy), dm:d.mass*Math.hypot(d.vx, d.vy)}); };
+const logTk = (o, edge, c, d) => { const L = S.tkLog || (S.tkLog = []); if(L.length < 20000) L.push({o, edge, t:+S.clock.toFixed(2), cm:c.mass*Math.hypot(c.vx, c.vy), dm:d.mass*Math.hypot(d.vx, d.vy)}); };
 const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates' surge keeps him up: downP rate x max(PILE_HOLD_MIN, 1/(1 + K*offensive pushers)); the floor 0.2 bounds the slowdown at 5x, and pile.js whistles (STALL_T 1.0 s stalled, PUSH_MAX_T 1.5 s of pushing) so the hold is never open-ended
 export const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
 function tackleNote(c){ return c === QB && !S.runMode ? 'SACKED' : null; }
@@ -68,7 +69,7 @@ function attemptTackle(d, c, dd){
   if(runEdge > BOUNCE_EDGE){
     const thru = runEdge > THRU_EDGE, k = thru ? THRU_KEEP : BOUNCE_KEEP;
     logTk(thru ? 'thru' : 'bounce', edge, c, d);
-    c.vx *= k; c.vy *= k;
+    c.vx *= k; c.vy *= k; physTouch(c);   // the hit counts as contact: down if he falls after it
     d.tkCool = 2;
     if(thru){   // knocked back and off his feet, comes up later
       d.stun = 1.6; d.act = 'dive'; d.actT = 1.6;

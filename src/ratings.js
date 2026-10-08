@@ -64,7 +64,7 @@ function legacy(p){
   }
 }
 
-// FLAT_RATINGS: every player gets his position's template midpoint (split templates pooled), team shift 0, template mass,
+// FLAT_RATINGS: every player gets his position's template midpoint (split templates pooled), team shift 0, and his own weight drawn from the template range (B-063),
 // so results come from mechanics (user L-1006-093). `?ratings=on` (page or sim) or setFlatRatings(false) rolls ratings as before.
 export const FLAT_RATINGS = true;
 let flat = FLAT_RATINGS && !(typeof location !== 'undefined' && /[?&]ratings=on\b/.test(location.search));

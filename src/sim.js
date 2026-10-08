@@ -21,7 +21,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   speedRole {OL, DL, LB, WR, CB, S, ...}: mean speed as a fraction of top (p.spd) per role over live frames (ball held or in the air; the runner and QB left out); offense.js logSpeed (B-060-2)
 //   plays, timeouts, ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards {mean, median, p10, p90, max}
 //   spotYards {mean, median}: the spot endPlay ended at minus los; a score or turnover uses the last ball y
-//   teams {regens, every, O, D}: mean ratings; rateTeams runs every SIM_TEAM_EVERY = 20 plays, a no-op under flat ratings
+//   teams {regens, every, O, D}: mean ratings; rateTeams runs every SIM_TEAM_EVERY = 20 plays, a no-op under flat ratings except that every player redraws his weight (B-063, tackle-momentum)
 //   pileWindows, pushPlays, pushPlayRate, pushDurS, pushGainYd; pile {whistles, frames per state, pushPlays, pushGainYd, pushDurS}: pile.js's own record of plays that reached pushing (session totals)
 //   B-008/B-010 pile shape: stillPlays/stillMaxS (plays where the runner, in contact (touched within 1 s), moved under STILL_V yd/s for over STILL_S s in a row; the longest such stretch, s),
 //     flatPct/flatFrames (share of frames (live, then POST_S 1 s of dead ball after the whistle) a body off his feet STAY_T s or more and on the turf or with the torso top under BODY_H yd (a tackler hanging upright on a runner still on his feet is not a pile body) had its torso within FLAT_DEG of horizontal), heightLayers {median, p90, max} (per play, the highest torso top of a body off his feet STAY_T s or more and on the turf or with the torso top under BODY_H yd (a tackler hanging upright on a runner still on his feet is not a pile body), in body widths (FLAT_H 0.66 BODY_W: a body lying on his side; on his back or front he is 0.4 BODY_W)),
@@ -350,7 +350,7 @@ export function runSim(n, step, g){
     const played = wins.filter(w => w.play === undefined); played.forEach(w => { w.play = i; });
     if(played.some(w => w.off && w.gain >= PUSH_GAIN)) pushed = true;
     if(pushed) pushPlays++;
-    if((i + 1) % SIM_TEAM_EVERY === 0 && i + 1 < n && !S.over){ rateRosters(); regens++; }   // fresh teams every SIM_TEAM_EVERY plays (a no-op change under flat ratings); skipped when the game just ended, since newGame rates again
+    if((i + 1) % SIM_TEAM_EVERY === 0 && i + 1 < n && !S.over){ rateRosters(); regens++; }   // fresh teams every SIM_TEAM_EVERY plays (under flat ratings only the weights redraw; B-063, tackle-momentum); skipped when the game just ended, since newGame rates again
     if(S.blkStunt) blkEv.stuntPlays++;   // B-007-9: plays with a crossing stunt at the snap
     if(S.blkEv) S.blkEv.forEach(e => { blkEv[e.ev]++; });
     nextPlay(); if(S.phase === 'over') newGame();   // a finished game starts the next one
@@ -361,7 +361,7 @@ export function runSim(n, step, g){
   const pushes = wins.filter(w => w.off && w.gain >= PUSH_GAIN);
   const byPlayOut = {}; for(const k of Object.keys(byPlay).sort()){ const b = byPlay[k]; byPlayOut[k] = {n:b.ys.length, ypc:mean(b.ys), stuffPct:+(100*b.stuff/b.ys.length).toFixed(1)}; }
   // B-063 (tackle-momentum): contact outcomes by the runner's edge band, (resist - hit)/tackler mass in yd/s, from S.tkLog (tackling.js attemptTackle)
-  const TK_BANDS = [-Infinity, 0, 2, 4, 5, 6, 8], tkOut = {n:(S.tkLog || []).length, byOutcome:{}, byBand:{}};
+  const TK_BANDS = [-Infinity, 0, 2, 4, 5, 6, 8], tkOut = {n:(S.tkLog || []).length, byOutcome:{}, byBand:{}, thruAt:(S.tkLog || []).filter(e => e.o === 'thru').slice(0, 5).map(e => e.t)};
   for(const e of S.tkLog || []){
     tkOut.byOutcome[e.o] = (tkOut.byOutcome[e.o] || 0) + 1;
     let b = TK_BANDS.length - 1; while(e.edge < TK_BANDS[b]) b--;
