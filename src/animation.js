@@ -11,7 +11,15 @@ import { $, BLOCK_D, BODY_W, FACE_RATE, LOCK_D, clamp, faceLean, faceYaw } from 
 
 // ---------- animation ----------
 const BALL_H = 0.1;   // the ball lies on the turf (yd up to its centre)
-const STANCE_LEAN = 1.3, STANCE_HEAD = 1.1;   // B-033 three-point stance: torso lean and head-up (rad about the neck); with STANCE_REACH 1.0 the down hand lands 0.98 yd ahead of the hips and the helmet front 0.96
+const STANCE_HIPZ = 0.22;   // B-052: hips splayed sideways in the line stance (rad each side): the wide base of the photo
+// B-052 line stances (rig yards: hip to knee 0.5, knee to foot 0.5, shoulder 0.62 up the torso, arm 0.84): OL hips down near knee height, thighs near parallel to the turf, back close to level, head up with eyes level; DL hips higher than the head over a steeper reach.
+// The shoulder swing shR is solved so the down hand lands on the turf at the ball tip: with the hand 1.0 ahead of the hips, shR = -(lean + forward angle of the arm), the arm angle from vertical atan(fwd/down).
+const STANCE_OL = {lean:1.35, hipL:-1.45, hipR:-1.25, kneeL:1.5, kneeR:1.45, drop:0.42, shR:-1.89, headUp:1.4};
+const STANCE_DL = {lean:1.9, hipL:-0.7, hipR:-0.6, kneeL:0.75, kneeR:0.7, drop:0.07, shR:-2.41, headUp:1.8};   // lean 1.9 puts the shoulders under the hips: hips about 0.2 above the head, the arm still reaching the ball tip
+const OFF_ARM_OL = {elR:0, shL:-0.75, elL:-1.0, armZL:0.5};   // off arm: elbow out, forearm toward the thigh
+const OFF_ARM_DL = {elR:0, shL:-1.3, elL:-1.6, armZL:0.12};   // off arm: elbow in, forearm cocked by the knee
+const STANCE_C = {armZR:0.45, shR:-2.2};   // the center's right hand comes in to the ball on the line's centre (snapSpot), the left forearm rests on the thigh as the OL's
+const STANCE_QB_UNDER = {lean:0.45, hipL:-0.9, hipR:-0.8, kneeL:1.2, kneeR:1.1, drop:0.21, headUp:0.55, hipZ:0.12, armZL:-0.3, armZR:0.3, sh:-0.89, el:-0.15};   // knees bent, eyes up, both hands in to the center's seat (the arm 0.84 reaches 0.6 ahead, 0.65 up)
 // joint signs: negative hip/shoulder = swing forward, positive knee = bend, positive lean/pitch = tip forward
 function targetPose(p, sp){
   // Gait: each leg's phase runs stance -> push-off -> swing -> reach. Thigh swings fore/aft around a slightly
@@ -26,9 +34,9 @@ function targetPose(p, sp){
     drop:0.04*r, pitch:0, bob:Math.abs(cs)*0.07*r};
   const arms = (l, rt, el) => { T.shL = l; T.shR = rt; T.elL = T.elR = el; };
   if(S.phase === 'presnap'){
-    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, {lean:STANCE_LEAN, hipL:-1.3, hipR:-1.1, kneeL:1.7, kneeR:1.5, drop:0.44, shR:-1.9, elR:0, shL:-0.5, elL:-0.6, headUp:STANCE_HEAD});   // B-033: head up, the down hand on the turf at the ball tip, helmet front over it (formations.js STANCE_REACH)
+    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, p.role === 'DL' ? STANCE_DL : STANCE_OL, p.role === 'DL' ? OFF_ARM_DL : OFF_ARM_OL, {hipZ:STANCE_HIPZ}, p === C ? STANCE_C : null);   // B-052 stances (above); B-033: the down hand on the turf at the ball tip, helmet front over it (formations.js STANCE_REACH)
     else if(p.pos === 'FB') Object.assign(T, {lean:0.75, hipL:-0.8, hipR:-0.7, kneeL:1.3, kneeR:1.2, drop:0.28}), arms(-0.9, -0.9, -0.6);   // fullback: low, hand near the ground
-    else if(p === QB && PLAYS[S.play].under){ Object.assign(T, {lean:0.75, hipL:-0.7, hipR:-0.6, kneeL:1.1, kneeR:1.0, drop:0.3}); arms(-1.0, -1.0, -0.5); }   // under center
+    else if(p === QB && PLAYS[S.play].under){ Object.assign(T, STANCE_QB_UNDER); arms(STANCE_QB_UNDER.sh, STANCE_QB_UNDER.sh, STANCE_QB_UNDER.el); }   // B-052 under center
     else if(p === QB){ Object.assign(T, {lean:0.2, hipL:-0.3, hipR:-0.3, kneeL:0.5, kneeR:0.5, drop:0.08}); arms(-0.9, -0.9, -0.9); }
     else { Object.assign(T, {lean:0.45, hipL:-0.55, hipR:-0.35, kneeL:0.9, kneeR:0.7, drop:0.15}); arms(-0.3, -0.3, -0.7); }
     return T;
@@ -193,6 +201,7 @@ function animate(p, dt){
   p.hdUp = (p.hdUp || 0) + ((T.headUp || 0) - (p.hdUp || 0))*k;
   J.head.rotation.set(-ENG_HEAD*P.lean*p.engW - p.hdUp, HEAD_TURN*p.engW, HEAD_TILT*p.engW);   // head up while engaged: eyes on his man, not the turf; B-042: the head stays on its neck socket and tilts to his right shoulder (B-031 slid it sideways off the neck), so the pair's helmets pass
   p.roll = ENG_ROLL*p.engW; J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
+  p.hipZ = (p.hipZ || 0) + ((T.hipZ || 0) - (p.hipZ || 0))*k; J.hipL.rotation.z = p.hipZ; J.hipR.rotation.z = -p.hipZ;   // B-052: sideways hip splay, only in the presnap stance
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   p.armZL = (p.armZL ?? ARM_Z_FREE) + ((T.armZL ?? ARM_Z_FREE) - (p.armZL ?? ARM_Z_FREE))*k; p.armZR = (p.armZR ?? -ARM_Z_FREE) + ((T.armZR ?? -ARM_Z_FREE) - (p.armZR ?? -ARM_Z_FREE))*k;   // sideways arm angles: 0.12 out free, the hand-placement angles engaged
   J.shL.rotation.set(P.shL, 0, p.armZL); J.shR.rotation.set(P.shR, 0, p.armZR); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
@@ -242,7 +251,7 @@ function animate(p, dt){
 //   dblFades (B-037): how many such frames were counted, by kind: climb (his double ended, no partner), inherit (the battle came to him), swap (he became second man while square)
 //   dblJumpKind: the same largest jump by kind
 //   headOffNeckMax (B-042, yd): the largest distance of any drawn man's head joint from its neck socket; limbStretchMax: the largest distance of any other joint from its rest socket on its parent, or scale away from 1 (both near 0)
-//   nzOLfront, nzDLfront, nzGap, nzHandErr, nzHandH, nzBallErr (B-033): the pre-snap neutral-zone measures, listed above nzCheck
+//   nzOLfront, nzDLfront, nzGap, nzHandErr, nzHandH, nzBallErr (B-033), nzCHand (B-052: the center's hand to the ball centre, yd): the pre-snap neutral-zone measures, listed above nzCheck
 //   headHeadPct: helmet corner in the partner's helmet; armArmPct: an arm corner in the partner's arm; anyPct: any of the above
 // B-042: every frame, every drawn man: how far a joint sits from its rest socket on its parent (headOffNeckMax: the head; limbStretchMax: any other joint, and any scale away from 1). Rig rest in rig units, as players.js builds it.
 const REST = {torso:[0, 1, 0], head:[0, 0.8, 0], shL:[0.5, 0.62, 0], shR:[-0.5, 0.62, 0], elL:[0, -0.42, 0], elR:[0, -0.42, 0], hipL:[0.2, 1, 0], hipR:[-0.2, 1, 0], kneeL:[0, -0.5, 0], kneeR:[0, -0.5, 0]};
@@ -295,7 +304,7 @@ let hoFrame = 0;
 // B-033 neutral zone (pairReport fields nz*): on presnap frames after the stance has settled (NZ_SETTLE frames), each visible OL and DL: how far his helmet front (OL: the edge toward the defense, DL: toward the offense) sits from the los,
 // and his down (right) hand against his ball tip (OL the back tip, DL the front tip; the center is skipped, the ball is in his hands). Fields of pairReport: nzOLfront (largest OL helmet front, yd past the los; at or under -nzTip = behind the back tip),
 // nzDLfront (smallest DL helmet front; at or over nzTip), nzGap (nzDLfront - nzOLfront, the daylight between the two lines' helmets; 0.31+), nzHandErr (largest |hand - his ball tip| along the field, yd), nzHandH (largest hand height above the turf), nzBallErr (largest |ball centre - los|)
-const NZ_SETTLE = 40, NZ_TIP = ballMesh.geometry.parameters.radius*ballMesh.scale.z, nz = {n:0, ol:-9, dl:9, hand:0, h:0, ball:0, men:0}, nzV = new THREE.Vector3();
+const NZ_SETTLE = 40, NZ_TIP = ballMesh.geometry.parameters.radius*ballMesh.scale.z, nz = {n:0, ol:-9, dl:9, hand:0, h:0, ball:0, men:0, c:0}, nzV = new THREE.Vector3();
 function nzCheck(){
   if(S.phase !== 'presnap'){ nz.n = 0; return; }
   if(++nz.n < NZ_SETTLE) return;
@@ -306,7 +315,7 @@ function nzCheck(){
     let fr = off ? -9 : 9;
     for(let i = 0; i < 8; i++){ nzV.set(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y, i & 4 ? bb.max.z : bb.min.z).applyMatrix4(hm.matrixWorld); const y = 50 - nzV.z - S.los; fr = off ? Math.max(fr, y) : Math.min(fr, y); }
     nz.men++; if(off) nz.ol = Math.max(nz.ol, fr); else nz.dl = Math.min(nz.dl, fr);
-    if(p === C) continue;
+    if(p === C){ p.j.elR.localToWorld(nzV.set(...bodyV([0, -0.4, 0]))); nz.c = Math.max(nz.c, nzV.distanceTo(ballMesh.position)); continue; }   // B-052: the center's right hand against the ball centre
     p.j.elR.localToWorld(nzV.set(...bodyV([0, -0.4, 0])));
     nz.hand = Math.max(nz.hand, Math.abs(50 - nzV.z - S.los - (off ? -NZ_TIP : NZ_TIP))); nz.h = Math.max(nz.h, nzV.y);
   }
@@ -353,7 +362,7 @@ export function pairCheck(){
 export function pairReport(){
   const med = a => a.length ? Math.round(1000*a.slice().sort((x, y) => x - y)[a.length >> 1])/1000 : null, f = pd.frames || 1, pc = n => Math.round(1000*n/f)/10;
   const r3 = x => Math.round(1000*x)/1000;
-  return {nzOLfront:r3(nz.ol), nzDLfront:r3(nz.dl), nzGap:r3(nz.dl - nz.ol), nzHandErr:r3(nz.hand), nzHandH:r3(nz.h), nzBallErr:r3(nz.ball), nzTip:NZ_TIP, nzMen:nz.men, handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), stretchAt:pd0.where, dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
+  return {nzOLfront:r3(nz.ol), nzDLfront:r3(nz.dl), nzGap:r3(nz.dl - nz.ol), nzHandErr:r3(nz.hand), nzHandH:r3(nz.h), nzBallErr:r3(nz.ball), nzCHand:r3(nz.c), nzTip:NZ_TIP, nzMen:nz.men, handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), stretchAt:pd0.where, dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units

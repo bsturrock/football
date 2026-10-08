@@ -6,7 +6,7 @@ import { ballMesh, ctrlRing } from './markers.js';
 import { offenseAI } from './offense.js';
 import { physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
-import { ALL, DL, LG, LT, OL, RB, RG, RT, C } from './players.js';
+import { ALL, DL, LG, LT, OL, QB, RB, RG, RT, C } from './players.js';
 import { camera } from './scene.js';
 import { S, selectPlay, setupPlay } from './state.js';
 
@@ -21,7 +21,10 @@ const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (dou
 const FORCED = PLAYS.find(p => p.name.toLowerCase() === String(PLAY_Q).toLowerCase());
 export const drillError = PLAY_Q && !FORCED ? 'unknown play ' + PLAY_Q : null;   // B-042 (axis-glide): main.js writes it as the frames line instead of running; a normal page shows it on the drill panel and runs Iso
 const PLAY = FORCED ? FORCED.name : 'Iso';   // Iso (the default): a man-blocking run, every lineman takes the man on him (no doubles, no pulls); a forced play is whatever ?play names
-const SIDE = new URLSearchParams(location.search).get('cam') === 'side';   // B-042: ?cam=behind (default, as before) | side
+const CAM = new URLSearchParams(location.search).get('cam');
+const SIDE = CAM === 'side';   // B-042: ?cam=behind (default, as before) | side
+const LOS_CAM = {x:9, y:1.6, z:2.5};   // B-052 ?cam=los camera offset from the line's centre (yd): toward the right end, up, a little behind the offense
+const LOS = CAM === 'los';   // B-052: ?cam=los, the broadcast photo angle: from the line's right end, near profile with both rows showing (offense left); LOS_CAM below
 const note = m => (drillError ? 'Unknown play "' + PLAY_Q + '": running Iso. ' : '') + NOTES[m];
 const OL_BY_NAME = {LT, LG, C, RG, RT};
 const NOTES = {
@@ -42,6 +45,7 @@ function newRep(){
     parts = {off:[lineman], def:[d]};
   } else parts = {off:[...OL], def:[...DL]};
   ALL.forEach(p => { p.mesh.visible = parts.off.includes(p) || parts.def.includes(p); });
+  if(LOS && mode === 'line') QB.mesh.visible = true;   // B-052: the photo angle also shows the QB under center (looked at only: he is not a drilled man and never runs)
 }
 // snap with the full front on the field (the block rules read all of it), then take everyone else off
 function liveSnap(){
@@ -83,7 +87,8 @@ export function drillCamera(dt){
   if(camera.fov !== 40){ camera.fov = 40; camera.updateProjectionMatrix(); }
   const line = mode === 'line';
   tgt.set(cx, 1, 50 - cy);
-  if(SIDE) want.set(cx + (line ? 13 : 7), line ? 2.4 : 2, 50 - cy);   // B-042 ?cam=side: side-on at the line, both teams in view
+  if(LOS){ want.set(cx + LOS_CAM.x, LOS_CAM.y, 50 - cy + LOS_CAM.z); tgt.set(cx - 1, 0.6, 50 - cy - 0.5); }   // B-052
+  else if(SIDE) want.set(cx + (line ? 13 : 7), line ? 2.4 : 2, 50 - cy);   // B-042 ?cam=side: side-on at the line, both teams in view
   else want.set(cx + (line ? 3 : 5), line ? 8 : 4.2, 50 - cy + (line ? 14 : 7));
   const k = snapCam ? 1 : 1 - Math.exp(-dt*3); snapCam = false;
   look.lerp(tgt, k); pos.lerp(want, k);
