@@ -124,9 +124,19 @@ function zoneBlock(p, dt){
   if(!d){ p.climbing = true; if(p.role === 'WR' || pulling(p)) steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*CLIMB_F, dt); else noMan(p, ref, lane, dt); return; }   // a receiver with no man still runs downfield to stalk (B-073 is the line)
   driveAt(p, d, ref, dt);
 }
+// B-074: the puller's new man when his target is down: unclaimed, standing, ahead of him, near the hole; the one nearest the hole side of him first (a man in his path counts via the distance to him)
+const PULL_PICK_HOLE_W = 0.5;
+function pullPick(p){
+  const ref = runRef(); let best = null, bs = 1e9;
+  for(const d of DEF){
+    if(d.stun > 0 || dist(d, ref) > 15 || d.y < ref.y - 3 || d.y < p.y - BEHIND_Y || OFF.some(o => o !== p && o.blk === d)) continue;
+    const k = dist(d, p) + PULL_PICK_HOLE_W*dist(d, ref); if(k < bs){ bs = k; best = d; }
+  }
+  return best;
+}
 function runBlock(p, dt){
   const play = PLAYS[S.play];
-  if(p.pull) pullCheck(p, dt);
+  if(p.pull) pullCheck(p, dt, pullPick);
   if(p.pull && p.pull.late && p.pull.t < p.pull.late && p.via && p.via.length){ steer(p, p.x, p.y, 0, dt); p.faceAt = p.blk; return; }   // B-032-3: a busting puller leaves late
   if(play.run && p.via && p.via.length){                       // pulling: get through the waypoints first
     const v = p.via[0];
@@ -138,6 +148,7 @@ function runBlock(p, dt){
       p.faceAt = p.blk; return;   // eyes on the kick-out man
     }
   }
+  if(p.pull && p.pull.state === 'pulling' && p.pull.lost > 0){ const r = runRef(); steer(p, r.x, r.y, p.spd*PULL_V, dt); return; }   // B-074: his man is down, reading the next one: runs at the hole at pull speed (no engage, no lock on the fallen man; pullCheck re-picks)
   if(p.dbl) climbCheck(p, dt);
   if(p.rr) rereadCheck(p, dt);   // B-007-9: a stunt moved my man; re-read every 0.1 s
   if(play.run && p.lane != null) zoneBlock(p, dt); else block(p, dt);

@@ -47,7 +47,9 @@ import { dist } from './util.js';
 //   state     event                                                         next
 //   set       rule found a target (snap)                                    pulling (p.via = the two waypoints, p.blk = target)
 //   set       rule found no target                                          no pull (the next rule runs)
-//   pulling   target down (stun)                                            free: via cleared, p.blk re-picked by block()
+//   pulling   target down (stun), under PULL_REPICK_T                         pulling (holds: runs at the hole, handoff re-read keeps him)
+//   pulling   target down, PULL_REPICK_T passed, pullPick found a man          pulling (m.tgt = p.blk = the new man, B-074)
+//   pulling   target down, PULL_REPICK_T passed, nobody                        free: via cleared, p.blk re-picked by block()
 //   pulling   within ENGAGED of the target                                  engaged (reach = t; p.locked, kept all play)
 //   pulling   re-targeted (p.blk changed)                                    free (via cleared)
 //   engaged   target down                                                   free
@@ -172,7 +174,7 @@ export function resolveBlocks(play, flip, again = false){
   const los = S.los, ps = Math.sign(h) || 1, bl = blockers(rules, flip);
   const linemen = bl.filter(b => b.p.role === 'OL' || b.p === TE).map(b => b.p).sort((a, b) => a.x - b.x);
   const ctx = {los, h, ps, again, neighbour:neighbourFn(linemen, flip, ps)};
-  const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rr && p.rr.state !== 'set') || p.bustWrong);   // engaged, pulling, or in a double (driving or climbing)
+  const keep = p => again && p.blk && ((p.pull && p.pull.state === 'pulling' && p.pull.lost > 0) /* B-074: a puller reading his next man keeps the pull */ || p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rr && p.rr.state !== 'set') || p.bustWrong));   // engaged, pulling, or in a double (driving or climbing)
   if(!again){ S.climbed = false; S.climbRec = []; S.pulls = []; S.blkEv = []; OFF.forEach(o => { o.rr = null; }); }
   for(const b of bl) if(!keep(b.p)){ b.p.blk = null; b.p.ruled = false; b.p.dbl = null; if(!again){ b.p.via = null; b.p.pull = null; } }
   if(!again) for(const b of bl) b.p.bustWrong = false;
@@ -361,9 +363,16 @@ export function climbCheck(p, dt){
   (S.climbRec || (S.climbRec = [])).push({p, lb, t0:S.clock, land:null, fill:null, life:m.t, disp:d.y - (m.y0 === undefined ? d.y : m.y0)});   // B-012 (climb-timing): the sim's climb-before-fill readout
 }
 // the puller's check, every frame from offense.js while he has a pull: engaged when he reaches the target, free when the target goes down
-export function pullCheck(p, dt){
+// B-074: a puller whose target goes down keeps pulling: after PULL_REPICK_T (a read) he takes pick(p) (the first wrong-colour jersey in his path to the hole, or the next man to it: offense.js pullPick) as his target, and the pull goes on; none left: free
+export const PULL_REPICK_T = 0.2;
+export function pullCheck(p, dt, pick){
   const m = p.pull; if(!m || m.state === 'free') return;
   m.t += dt;
+  if(m.tgt.stun > 0 && (p.blk === m.tgt || p.blk == null) && pick && m.state === 'pulling'){
+    m.lost = (m.lost || 0) + dt; if(m.lost < PULL_REPICK_T) return;
+    const d = pick(p, m.tgt); m.lost = 0;
+    if(d){ m.tgt = p.blk = d; m.repicks = (m.repicks || 0) + 1; return; }
+  }
   if(m.tgt.stun > 0 || p.blk !== m.tgt){ m.state = 'free'; p.via = null; return; }
   if(m.state === 'pulling' && dist(p, m.tgt) < ENGAGED){ m.state = 'engaged'; m.reach = m.t; p.via = []; }   // B-061: reached him: drop the rest of the path so driveAt locks him this frame (the led waypoint can run ahead of a man who is already in reach)
 }
