@@ -10,6 +10,11 @@ export const $ = id => document.getElementById(id);
 export const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 export const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
 export const rand = (a,b) => a + Math.random()*(b-a);
+// B-091: ratings and roster weights draw here, not from play logic's Math.random. Under ?sim, sim.js seedRandom installs a second mulberry32 (setRateStream); otherwise it reads Math.random as before.
+let rateStream = null;
+export const setRateStream = f => { rateStream = f; };
+export const rrand01 = () => rateStream ? rateStream() : Math.random();
+export const rrand = (a,b) => a + rrand01()*(b-a);
 export const sigmoid = x => 1/(1 + Math.exp(-x));
 // B-021: LEAN_LAT, DBL_R and HOLD_R are body-size distances, each x0.7 (the width scale in players.js: 1.0 -> 0.7, 1.4 -> 1.0, 1.8 -> 1.26).
 // B-020 square + lean: the yaw a player wants from his faceAt (a blocker his man, a blocked defender his blocker).
