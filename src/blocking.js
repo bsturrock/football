@@ -44,7 +44,7 @@ export function lock(d, o, b, dt, c){   // B-067: exported for defoff.js
     const ref = runRef(), away = (Math.sign(d.x - ref.x) || 1)*LEV_ANGLE;
     let tgt = away;
     if(b.gx !== undefined){
-      const w = clamp((d.rPow - o.rStr)/LEV_SPAN, -1, 1), gs = b.gx === null ? 0 : Math.sign(b.gx - d.x);
+      const w = clamp((d.rPow - o.rStr)/LEV_SPAN, -1, 1), gs = b.gx === null || Math.abs(b.gx - d.x) <= FIGHT_STOP ? 0 : Math.sign(b.gx - d.x);   // dead band: on his gap the pair holds square, no flip at each crossing
       tgt = w >= 0 ? w*gs*LEV_ANGLE : -w*away;
     }
     const diff = wrapA(tgt - b.ang);

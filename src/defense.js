@@ -255,7 +255,7 @@ function nearBlocker(d, o){
 // B-065: the gap an engaged defender fights for: his own gap (job.gx); a two-gapper holds square (null) until his read, then takes the ball-side gap
 function engagedGap(d, c){
   const j = d.job;
-  if(!j || !S.runMode) return undefined;   // run plays only: a pass rusher keeps the old leverage
+  if(!j || !S.runMode || !PLAYS[S.play].run) return undefined;   // run plays only: a pass rusher keeps the old leverage
   if(j.role !== 'two') return j.gx;
   return S.clock <= S.handoffAt + d.read + d.bite ? null : (c.x < d.x ? j.gl : j.gr);
 }
