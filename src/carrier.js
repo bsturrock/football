@@ -12,9 +12,48 @@ import { HW, PILE_R, clamp, dist, rand } from './util.js';
 // who can still make a play? Defenders on the ground don't count; ones locked up with a blocker count late.
 // every steer in this file goes through here: in contact and slowed under STALL_V x spd, the wanted velocity keeps at least DRIVE_V x spd upfield (leg drive; never stands still)
 function steerVel(p, vx, vy, dt){
+  const ct = p.rd && p.rd.cut;
+  if(ct){ vx += ct.dir*ct.v; vy *= CUT_KEEP; }   // B-072-3: a jump cut adds a lateral push to whatever lane he runs (movement.js faceCap then caps the sideways speed)
   const f = p.spd*DRIVE_V;
   if(p.rd && p.rd.cn && vy < f && Math.hypot(p.vx, p.vy) < p.spd*STALL_V){ const k = vy > 0 ? 1 : 0; vx *= k; vy = f; }   // no upfield want: drive straight up; else keep the lane's lateral part
   steer0(p, vx, vy, dt);
+}
+// ---------- jump cuts (B-072-3) ----------
+// A defender squaring the carrier within CUT_AHEAD yd ahead (lateral reach CUT_WIDE), or the hole he reads moving by CUT_HOLE yd, starts a cut: for CUT_T s a lateral push of
+// CUT_V x (CUT_AGI_LO..1 by agility) is added (and an instant plant kick CUT_KICK x the same on vx: steerVel's turn limit alone, 5-16 yd/s2, moves him only 0.3 yd in CUT_T) to his wanted velocity, away from the defender toward the better race, his forward want scaled by CUT_KEEP; he keeps faceHold upfield
+// (PI; movement.js caps the sideways speed and draws the sidestep gait). CUT_CD s between cuts. No defender ahead, no cut. S.cutLog (sim.js readout) counts carries, cuts, lateral step and speed kept.
+const CUT_AHEAD = 3, CUT_WIDE = 1.2, CUT_BEHIND = 0.3, CUT_HOLE = 1.2, CUT_T = 0.3, CUT_V = 3, CUT_KICK = 4.5, CUT_AGI_LO = 0.6, CUT_KEEP = 0.9, CUT_CD = 0.8, CUT_EDGE = 3, UPFIELD = Math.PI;
+function cutStart(p, dir, why){
+  const k = CUT_AGI_LO + (1 - CUT_AGI_LO)*p.rt.agility/99;
+  p.rd.cut = {dir, v:CUT_V*k, t:CUT_T, x0:p.x, s0:p.vy}; p.vx += dir*CUT_KICK*k; p.rd.cc = CUT_CD; p.faceHold = UPFIELD;
+  if(S.cutLog) S.cutLog.cuts++;
+}
+function cutStep(p, dt){
+  const rd = p.rd;
+  if(rd.cc > 0) rd.cc -= dt;
+  if(rd.cut){
+    rd.cut.t -= dt;
+    if(rd.cut.t <= 0 || rd.cn){
+      const c = rd.cut, L = S.cutLog;
+      if(L && c.s0 > 1){ L.lat.push(Math.abs(p.x - c.x0)); L.keep.push(p.vy/c.s0); }
+      rd.cut = null; p.faceHold = null;
+    }
+    return;
+  }
+  const hx = p.holeX, moved = rd.hx != null && hx != null && Math.abs(hx - rd.hx) > CUT_HOLE; rd.hx = hx;
+  if(rd.cc > 0 || rd.cn || p.ph || p.falling || p.stun > 0) return;
+  let d0 = null;
+  for(const d of DEF){
+    const dy = d.y - p.y;
+    if(!free(d) || dy < CUT_BEHIND || dy > CUT_AHEAD || Math.abs(d.x - p.x) > CUT_WIDE) continue;
+    if(!d0 || dy < d0.y - p.y) d0 = d;
+  }
+  if(!d0 && !moved) return;
+  const lim = HW - CUT_EDGE;
+  let dir = moved ? Math.sign(hx - p.x) : 0;
+  if(!dir){ const ml = raceMargin(p, p.x - 1.5, p.y + 2), mr = raceMargin(p, p.x + 1.5, p.y + 2); dir = mr >= ml ? 1 : -1; }
+  if(Math.abs(p.x + dir*1.5) > lim && Math.abs(p.x - dir*1.5) <= lim) dir = -dir;
+  cutStart(p, dir);
 }
 // sprint is a burst, not a gear: ~1.7 s of full burst per play, recovers slowly when he's not using it
 export function burst(p, want, dt){
@@ -165,13 +204,15 @@ function inContact(p){
   if(DEF.some(d => d.latch === p)) return true;
   return !!p.ph && physTouched(p, 0.15) && ALL.filter(q => q !== p && isBody(q) && dist(q, p) < PILE_R).length >= 2;
 }
+const next0 = p => !(p.route[p.wp] && p.route[p.wp].y < S.los - 1);   // past the designed backfield path: cuts start only at the line and beyond
 export function autoCarry(p, dt){
-  if(!p.rd) p.rd = {st:'press', t:Math.min(PRESS_MAX, PRESS_T + PRESS_VIS*p.rt.vision/99), k:0, key:null, x:0, fs:'free', pull:pullerOf(), ct:null, cn:false};
+  if(!p.rd){ if(S.cutLog) S.cutLog.carries++; p.rd = {st:'press', t:Math.min(PRESS_MAX, PRESS_T + PRESS_VIS*p.rt.vision/99), k:0, key:null, x:0, fs:'free', pull:pullerOf(), ct:null, cn:false}; }
   const rd = p.rd, zone = PLAYS[S.play].scheme === 'zone';
   if(inContact(p)){
     if(rd.ct === null) rd.ct = ballY(p);   // yards after contact are counted from here; nothing reads it yet: B-006-7 wants yards-after-contact in sim.js
     rd.cn = true;
   } else rd.cn = false;
+  if(next0(p)) cutStep(p, dt);
   if(!zone && followPuller(p, dt)) return;
   if(rd.fs === 'following') rd.fs = 'free';
   const next = p.route[p.wp];
