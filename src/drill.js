@@ -17,9 +17,12 @@ import { S, selectPlay, setupPlay } from './state.js';
 // B-037 (double-pose): add &play=<play name> to force another play (a combo play forms doubles; the 1v1 and line views stay on the men over the linemen).
 // States: presnap --PRE_S--> live --REP_S--> presnap (new setupPlay). A mode switch restarts the rep from any state.
 const PRE_S = 1.2, REP_S = 4.5;
-const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (double-pose): ?play=<name> forces a play (e.g. Inside Zone: a combo, so doubles form); an unknown name falls back to Iso
+const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (double-pose): ?play=<name> forces a play (e.g. Inside Zone: a combo, so doubles form); an unknown name gives {"error":...} in <pre id="checkout"> (B-040) and the drill runs Iso
 const FORCED = PLAYS.find(p => p.name.toLowerCase() === String(PLAY_Q).toLowerCase());
+export const drillError = PLAY_Q && !FORCED ? 'unknown play ' + PLAY_Q : null;   // B-042 (axis-glide): main.js writes it as the frames line instead of running; a normal page shows it on the drill panel and runs Iso
 const PLAY = FORCED ? FORCED.name : 'Iso';   // Iso (the default): a man-blocking run, every lineman takes the man on him (no doubles, no pulls); a forced play is whatever ?play names
+const SIDE = new URLSearchParams(location.search).get('cam') === 'side';   // B-042: ?cam=behind (default, as before) | side
+const note = m => (drillError ? 'Unknown play "' + PLAY_Q + '": running Iso. ' : '') + NOTES[m];
 const OL_BY_NAME = {LT, LG, C, RG, RT};
 const NOTES = {
   '1v1': 'One lineman against the defender over him. Watch: does he stay square and locked on the man, how does the defender rotate or shed, does the block drive him back.',
@@ -52,11 +55,11 @@ function liveSnap(){
 }
 export function setMode(m){
   mode = m; const u = new URL(location.href); u.searchParams.set('drill', m); history.replaceState(null, '', u);
-  setDrillBar(mode, NOTES[mode]); newRep();
+  setDrillBar(mode, note(mode)); newRep();
 }
 export function drillStart(){
   S.drill = true; ballMesh.scale.setScalar(0); ctrlRing.scale.setScalar(0);   // the ball (in hidden hands) and the ring (under hidden QB/RB) would float on empty grass
-  setDrillBar(mode, NOTES[mode], setMode); newRep(); }
+  setDrillBar(mode, note(mode), setMode); newRep(); }
 export function drillTick(dt){
   t += dt;
   if(S.phase === 'presnap'){ if(t >= PRE_S) liveSnap(); }
@@ -80,7 +83,8 @@ export function drillCamera(dt){
   if(camera.fov !== 40){ camera.fov = 40; camera.updateProjectionMatrix(); }
   const line = mode === 'line';
   tgt.set(cx, 1, 50 - cy);
-  want.set(cx + (line ? 3 : 5), line ? 8 : 4.2, 50 - cy + (line ? 14 : 7));
+  if(SIDE) want.set(cx + (line ? 13 : 7), line ? 2.4 : 2, 50 - cy);   // B-042 ?cam=side: side-on at the line, both teams in view
+  else want.set(cx + (line ? 3 : 5), line ? 8 : 4.2, 50 - cy + (line ? 14 : 7));
   const k = snapCam ? 1 : 1 - Math.exp(-dt*3); snapCam = false;
   look.lerp(tgt, k); pos.lerp(want, k);
   camera.position.copy(pos); camera.lookAt(look);

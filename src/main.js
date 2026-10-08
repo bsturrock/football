@@ -4,7 +4,7 @@ import { separate } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
-import { drillCamera, drillStart, drillTick } from './drill.js';
+import { drillCamera, drillError, drillStart, drillTick } from './drill.js';
 import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
@@ -87,6 +87,7 @@ function frame(now){
 function runFrames(n){
   for(let i = 0; i < n; i++){ setFrameClock(i*1000/60); tick(1/60); syncScene(1/60); pairCheck(); }
   setFrameClock(null);
+  const show = () => { camStep(1/60); renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // B-042 (axis-glide): the canvas shows the pose at frame N (a screenshot reads it); render only, the sim is untouched
   const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify(Object.assign({frames_run:n}, pairReport())); document.body.appendChild(el);
 }
 function start(data){
@@ -99,6 +100,7 @@ function start(data){
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
   if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
+    if(q.has('frames') && drillError){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:drillError}); document.body.appendChild(el); return; }   // B-042 (axis-glide)
     if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
   requestAnimationFrame(frame);
 }
