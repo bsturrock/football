@@ -166,6 +166,7 @@ const neighbourFn = (linemen, flip, ps) => (p, side) => {   // the lineman next 
   return linemen[i] && Math.abs(linemen[i].x - p.x) < NEIGHBOUR_DX ? linemen[i] : null;
 };
 // again: after the handoff. Engaged men and pullers keep theirs; every other blocker (unengaged, not pulling) is read again against where the defense is now.
+// CHANGE BOTH: previewBlocks (below) copies this claim core; mirror any edit there
 export function resolveBlocks(play, flip, again = false){
   const h = S.hole = play.hole ?? 0, rules = play.src.rules; if(!again) S.bust = []; if(!rules) return;
   const los = S.los, ps = Math.sign(h) || 1, bl = blockers(rules, flip);
@@ -267,7 +268,7 @@ export function resolveBlocks(play, flip, again = false){
   const lab = labels(); for(const u of pulls) S.pulls.push({name:u.name, kind:u.kind, tgt:lab.get(u.p.blk) || '?', p:u.p});
   S.blk = Object.fromEntries(bl.map(b => [b.name, b.p.blk ? lab.get(b.p.blk) || '?' : null]));
 }
-// B-068: the pre-snap preview. CHANGE BOTH: this copies resolveBlocks' claim core (take, covering, free, the passes, the dissolve loop); an edit there needs the same edit here (B-071 check: preview equals S.blk). Who each blocker will block against the front as shown, and who each double's climber will climb to.
+// B-068: the pre-snap preview. CHANGE BOTH: this copies resolveBlocks' claim core (take, covering, free, the passes, the dissolve loop); an edit there needs the same edit here (B-071: checked once, 500 plays, 0 mismatches vs S.blk; the check was not committed). Who each blocker will block against the front as shown, and who each double's climber will climb to.
 // Pure: no random draws (no bust or recog roll), no writes to S or any player; picks live in local maps. Mirrors resolveBlocks' claim order
 // (pull-first pass, passes 0..2, `any`); the bust and wrong-read rolls are left out. Returns {solid:[{p, d}], dotted:[{p, d}]}.
 export function previewBlocks(play, flip){
