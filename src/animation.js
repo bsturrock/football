@@ -1,7 +1,7 @@
 import { setHint } from './hud.js';
 import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
-import { physBall, physOn, physRender, physJoint } from './physics.js';
+import { physBall, physOn, physRender, physJoint, physSocket } from './physics.js';
 import { PLAYS } from './playbook.js';
 import { OL_BACK } from './formations.js';
 import { ALL, BODY_H, C, G, JOINTS, QB, RB, bodyV } from './players.js';
@@ -251,14 +251,12 @@ const PAR = {head:'torso', shL:'torso', shR:'torso', hipL:'torso', hipR:'torso',
 const REL = {...REST, hipL:[0.2, 0, 0], hipR:[-0.2, 0, 0]};   // each joint in its parent's frame (the rig hangs the hips from the body at hip height, the torso pivot sits there)
 const restLen = Object.fromEntries(Object.keys(PAR).map(k => [k, Math.hypot(...bodyV(REL[k]))]));
 const pd0 = {headOff:0, stretch:0, where:null, n:0}, jA = new THREE.Vector3(), jB = new THREE.Vector3();
-const PH_ORDER = ['torso', 'head', 'shL', 'elL', 'shR', 'elR', 'hipL', 'kneeL', 'hipR', 'kneeR'];   // physics.js PARTS order: the index of a joint's mesh in p.ph.meshes
 const jointAt = (p, k, out) => p.ph ? physJoint(p, k, out) : p.j[k].getWorldPosition(out);   // a body's mesh pivot (physJoint) or the rig's joint
-const jSock = new THREE.Vector3();
-function jointCheck(p){   // every drawn man (rig or physics body, any phase): how far each joint sits from its socket on its parent. Rig: the local offset from rest, and the pivot distance beyond rest length. Physics body: the child pivot against the parent pivot + the rest offset turned by the parent mesh (a sideways slide shows, a plain distance would miss it). A rig man's mesh and body scales too (joint 'scale').
+function jointCheck(p){   // every drawn man (rig or physics body, any phase): how far each joint sits from its socket on its parent. Rig: the local offset from rest, and the pivot distance beyond rest length. Physics body: the child body's constraint pivot against the parent's (physSocket, the real pivots, B-044). A rig man's mesh and body scales too (joint 'scale').
   if(p.ph && !p.ph.meshes) return;
   const put = (k, d) => { if(k === 'head') pd0.headOff = Math.max(pd0.headOff, d); else if(d > pd0.stretch){ pd0.stretch = d; pd0.where = {frame:pd0.n, team:p.team, pos:p.pos, joint:k, ph:!!p.ph, act:p.act, phase:S.phase}; } };
   for(const k in PAR){
-    if(p.ph){ jSock.set(...bodyV(REL[k])).applyQuaternion(p.ph.meshes[PH_ORDER.indexOf(PAR[k])].quaternion).add(jointAt(p, PAR[k], jB)); put(k, jointAt(p, k, jA).distanceTo(jSock)); }
+    if(p.ph){ const s = physSocket(p, k, jB), c = physSocket(p, k, jA, false); put(k, s && c ? c.distanceTo(s) : 0); }
     else { const j = p.j[k], v = restV[k]; put(k, Math.max(Math.hypot(j.position.x - v[0], j.position.y - v[1], j.position.z - v[2]), Math.abs(jointAt(p, k, jA).distanceTo(jointAt(p, PAR[k], jB)) - restLen[k]))); }
   }
   if(!p.ph){ const m = p.mesh.scale, b = p.body.scale, sc = Math.max(Math.abs(m.x - 1), Math.abs(m.y - 1), Math.abs(m.z - 1), Math.abs(b.x - 1), Math.abs(b.y - 1), Math.abs(b.z - 1)); put('scale', sc); }

@@ -112,7 +112,7 @@ export function physOn(p, o={}){
     rigP(p, d.j, tv);
     const pa = new CANNON.Vec3(), pb = new CANNON.Vec3(), jw = new CANNON.Vec3(tv.x, tv.y, tv.z);
     a.pointToLocalFrame(jw, pa); b.pointToLocalFrame(jw, pb);
-    const c = new CANNON.PointToPointConstraint(a, pa, b, pb); c.collideConnected = false; PW.addConstraint(c); return c;
+    const c = new CANNON.PointToPointConstraint(a, pa, b, pb); c.collideConnected = false; PW.addConstraint(c); c.pvA = [pa.x, pa.y, pa.z]; c.pvB = [pb.x, pb.y, pb.z]; return c;
   });
   p.body.visible = false;
   p.ph = {bodies, joints, grips:[], bal:o.bal ?? 1, ttl:o.ttl ?? Infinity, t:0, M, meshes:physMeshes(p), vis};
@@ -415,6 +415,13 @@ function physMeshes(p){
 export function physJoint(p, j, out){
   const i = PARTS.findIndex(q => q.j === j), m = p.ph.meshes[i], c = tv2.set(...PARTS[i].c).applyQuaternion(m.quaternion);
   return out.set(m.position.x - c.x, m.position.y - c.y, m.position.z - c.z);
+}
+export const physPart = k => PARTS.findIndex(q => q.j === k);   // B-044: index of a rig joint's part in p.ph.meshes / bodies
+// B-044: where joint k's constraint pivot sits in the world, from the parent body (parent = true: the socket the child should hang from) or the child body (the child's own end); the gap between the two is the joint pulled apart. Uses the meshes (they carry the visual yaw).
+export function physSocket(p, k, out, parent = true){
+  const i = physPart(k), c = p.ph.joints[i]; if(!c) return null;
+  const m = p.ph.meshes[parent ? PI_[PARTS[i].p] : i], v = parent ? c.pvA : c.pvB;
+  return out.set(...v).applyQuaternion(m.quaternion).add(m.position);
 }
 const VIS_TAU = 0.12, VIS_END = 0.7, vq = new THREE.Quaternion(), vY = new THREE.Vector3(0, 1, 0), vp = new THREE.Vector3();
 export function physRender(){
