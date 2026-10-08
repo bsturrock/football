@@ -251,6 +251,7 @@ function animate(p, dt){
 //   dblFades (B-037): how many such frames were counted, by kind: climb (his double ended, no partner), inherit (the battle came to him), swap (he became second man while square)
 //   dblJumpKind: the same largest jump by kind
 //   headOffNeckMax (B-042, yd): the largest distance of any drawn man's head joint from its neck socket; limbStretchMax: the largest distance of any other joint from its rest socket on its parent, or scale away from 1 (both near 0). B-044: for a physics body both now measure from the real constraint pivots (physSocket in physics.js, the child body's pivot against the parent's), not the rig rest offset, so they do not compare with B-042's numbers (0.326 / 0.117)
+//   stretchMen, limbStretchP95, headOffNeckP95, stretchOver05, socketVsRestMax (B-056): over physics-body men only, one sample per man per frame (stretchMen samples): the 95th percentile of his worst non-head joint and of his head against its real constraint pivots (yd; the target is under 0.05), the count of samples with either over 0.05, and the largest gap between the physSocket measure and the old rest-length measure (distance from the parent joint minus rest length; how differently the two read)
 //   nzOLfront, nzDLfront, nzGap, nzHandErr, nzHandH, nzBallErr (B-033), nzCHand (B-052: the center's hand to the ball centre, yd): the pre-snap neutral-zone measures, listed above nzCheck
 //   headHeadPct: helmet corner in the partner's helmet; armArmPct: an arm corner in the partner's arm; anyPct: any of the above
 // B-042: every frame, every drawn man: how far a joint sits from its rest socket on its parent (headOffNeckMax: the head; limbStretchMax: any other joint, and any scale away from 1). Rig rest in rig units, as players.js builds it.
@@ -259,15 +260,17 @@ const restV = Object.fromEntries(Object.entries(REST).map(([k, v]) => [k, bodyV(
 const PAR = {head:'torso', shL:'torso', shR:'torso', hipL:'torso', hipR:'torso', elL:'shL', elR:'shR', kneeL:'hipL', kneeR:'hipR'};   // joint -> parent joint (physics.js PARTS)
 const REL = {...REST, hipL:[0.2, 0, 0], hipR:[-0.2, 0, 0]};   // each joint in its parent's frame (the rig hangs the hips from the body at hip height, the torso pivot sits there)
 const restLen = Object.fromEntries(Object.keys(PAR).map(k => [k, Math.hypot(...bodyV(REL[k]))]));
-const pd0 = {headOff:0, stretch:0, where:null, n:0}, jA = new THREE.Vector3(), jB = new THREE.Vector3();
+const pd0 = {headOff:0, stretch:0, where:null, n:0, phN:0, limbS:[], headS:[], over:0, restDiff:0}, jA = new THREE.Vector3(), jB = new THREE.Vector3();
 const jointAt = (p, k, out) => p.ph ? physJoint(p, k, out) : p.j[k].getWorldPosition(out);   // a body's mesh pivot (physJoint) or the rig's joint
 function jointCheck(p){   // every drawn man (rig or physics body, any phase): how far each joint sits from its socket on its parent. Rig: the local offset from rest, and the pivot distance beyond rest length. Physics body: the child body's constraint pivot against the parent's (physSocket, the real pivots, B-044). A rig man's mesh and body scales too (joint 'scale').
   if(p.ph && !p.ph.meshes) return;
   const put = (k, d) => { if(k === 'head') pd0.headOff = Math.max(pd0.headOff, d); else if(d > pd0.stretch){ pd0.stretch = d; pd0.where = {frame:pd0.n, team:p.team, pos:p.pos, joint:k, ph:!!p.ph, act:p.act, phase:S.phase}; } };
+  let mh = 0, ml = 0;   // B-056: this physics man's worst head and worst other joint this frame (the stable p95 samples)
   for(const k in PAR){
-    if(p.ph){ const s = physSocket(p, k, jB), c = physSocket(p, k, jA, false); put(k, s && c ? c.distanceTo(s) : 0); }
+    if(p.ph){ const s = physSocket(p, k, jB), c = physSocket(p, k, jA, false), d = s && c ? c.distanceTo(s) : 0; put(k, d); if(k === 'head') mh = d; else ml = Math.max(ml, d); pd0.restDiff = Math.max(pd0.restDiff, Math.abs(d - Math.abs(jointAt(p, k, jA).distanceTo(jointAt(p, PAR[k], jB)) - restLen[k]))); }
     else { const j = p.j[k], v = restV[k]; put(k, Math.max(Math.hypot(j.position.x - v[0], j.position.y - v[1], j.position.z - v[2]), Math.abs(jointAt(p, k, jA).distanceTo(jointAt(p, PAR[k], jB)) - restLen[k]))); }
   }
+  if(p.ph){ pd0.phN++; pd0.headS.push(mh); pd0.limbS.push(ml); if(Math.max(mh, ml) > 0.05) pd0.over++; }
   if(!p.ph){ const m = p.mesh.scale, b = p.body.scale, sc = Math.max(Math.abs(m.x - 1), Math.abs(m.y - 1), Math.abs(m.z - 1), Math.abs(b.x - 1), Math.abs(b.y - 1), Math.abs(b.z - 1)); put('scale', sc); }
 }
 const PD_SHRINK = 0.03, PD_HAND = 0.06;
@@ -359,8 +362,8 @@ export function pairCheck(){
 }
 export function pairReport(){
   const med = a => a.length ? Math.round(1000*a.slice().sort((x, y) => x - y)[a.length >> 1])/1000 : null, f = pd.frames || 1, pc = n => Math.round(1000*n/f)/10;
-  const r3 = x => Math.round(1000*x)/1000;
-  return {nzOLfront:r3(nz.ol), nzDLfront:r3(nz.dl), nzGap:r3(nz.dl - nz.ol), nzHandErr:r3(nz.hand), nzHandH:r3(nz.h), nzBallErr:r3(nz.ball), nzCHand:r3(nz.c), nzTip:NZ_TIP, nzMen:nz.men, handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), stretchAt:pd0.where, dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
+  const r3 = x => Math.round(1000*x)/1000, p95 = a => a.length ? a.slice().sort((x, y) => x - y)[Math.floor(0.95*(a.length - 1))] : 0;
+  return {nzOLfront:r3(nz.ol), nzDLfront:r3(nz.dl), nzGap:r3(nz.dl - nz.ol), nzHandErr:r3(nz.hand), nzHandH:r3(nz.h), nzBallErr:r3(nz.ball), nzCHand:r3(nz.c), nzTip:NZ_TIP, nzMen:nz.men, handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), stretchAt:pd0.where, stretchMen:pd0.phN, limbStretchP95:r3(p95(pd0.limbS)), headOffNeckP95:r3(p95(pd0.headS)), stretchOver05:pd0.over, socketVsRestMax:r3(pd0.restDiff), dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units
