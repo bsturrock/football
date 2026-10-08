@@ -1,7 +1,7 @@
 import { C, CBs, DEF, EXTRA, LBs, LG, LT, OFF, OL, RG, RT, SFs, TE, WRs } from './players.js';
 import { lack } from './ratings.js';
 import { S } from './state.js';
-import { BOX_X, GRID_K as GK, OL_GAP, TACKLE_BACK } from './formations.js';
+import { BOX_X, GRID_K as GK, OL_BACK, OL_GAP, TACKLE_BACK } from './formations.js';
 import { dist } from './util.js';
 
 // ---------- block rules (B-007-6) ----------
@@ -43,13 +43,14 @@ import { dist } from './util.js';
 //   double    d is down, or either man was re-targeted                          both released (the zone/man code re-picks)
 //   climbing  the LB is down                                                    released (zoneBlock re-picks)
 // Pull (B-007-8). Per puller p.pull = {kind, tgt, state, t, reach, ox}; set at the snap only (the handoff re-read keeps a puller that is pulling or engaged; one that finished unengaged takes his next rule).
-// The path is PULL_DEPTH behind the line for PULL_FLAT yd along it, then up to the aim point (offense.js runBlock runs it at PULL_V x speed); S.pulls logs {name, kind, tgt, reach} for probes. ox = the kick offset from the target's x (-dir*KICK_X for a kick, 0 otherwise); offense.js runBlock moves the last waypoint every frame to the target + ox + his velocity x the lead (the puller's time to reach him, at most PULL_LEAD_T), B-061.
+// The path is PULL_HEEL behind the deepest lineman (the deepest linemen's set depth, the tackles, + PULL_HEEL: behind every lineman's heels, one rule for all pullers) for PULL_FLAT yd along it, then up to the aim point (offense.js runBlock runs it at PULL_V x speed); S.pulls logs {name, kind, tgt, reach} for probes. ox = the kick offset from the target's x (-dir*KICK_X for a kick, 0 otherwise); offense.js runBlock moves the last waypoint every frame to the target + ox + his velocity x the lead (the puller's time to reach him, at most PULL_LEAD_T), B-061.
 //   state     event                                                         next
 //   set       rule found a target (snap)                                    pulling (p.via = the two waypoints, p.blk = target)
 //   set       rule found no target                                          no pull (the next rule runs)
 //   pulling   target down (stun), under PULL_REPICK_T                         pulling (holds: runs at the hole, handoff re-read keeps him)
 //   pulling   target down, PULL_REPICK_T passed, pullPick found a man          pulling (m.tgt = p.blk = the new man, B-074)
 //   pulling   target down, PULL_REPICK_T passed, nobody                        free: via cleared, p.blk re-picked by block()
+//   pulling   last leg (the target, led ahead) is held at pull speed until ENGAGED (B-082), also while his man is down (lost > 0: the hole run takes over)
 //   pulling   within ENGAGED of the target                                  engaged (reach = t; p.locked, kept all play)
 //   pulling   re-targeted (p.blk changed)                                    free (via cleared)
 //   engaged   target down                                                   free
@@ -58,7 +59,7 @@ import { dist } from './util.js';
 // B-021: the windows below were written on the old 2.2 yd line grid; GK (formations.js GRID_K) carries them onto the new line grid (OL_GAP 1.35 yd): x0.61.
 // KICK_X is a shoulder width, so it takes the body width (x0.7) instead.
 export const ENGAGE_R = 0.98;   // B-021: two bodies this close are locked up (was 1.4, x0.7 body width); offense.js and blockrules read it
-export const PULL_V = 1.3, PULL_DEPTH = 0.8 + TACKLE_BACK /* B-053 (ol-v-set): the tackles sit TACKLE_BACK deeper; B-082: a flat pull, 1.8 -> 0.8 yd behind the line (was a hook that lost ~0.3 s to the depth and the turn) */, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, PLAYSIDE_X = 1.5*GK, KICK_X = 0.35, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
+export const PULL_V = 1.3, PULL_ACC = 3, PULL_TURN = 3 /* B-082: a puller's feet: acceleration and turn rate x a lineman's (was 1.6 and 1.8: he took ~1 s to reach pull speed and swung wide on the turn up) */, PULL_HEEL = 0.6 /* B-082: the flat leg runs this far behind the deepest lineman (a tackle, OL_BACK + TACKLE_BACK): behind every heel, a guard crosses behind the tackle */, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, PLAYSIDE_X = 1.5*GK, KICK_X = 0.35, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
 // Re-read on a stunt (B-007-9). A slant counts as a crossing stunt for the re-read and for the WRONG roll (every line man's gap moves); a blitz does not. Per lineman p.rr = {state, d, home, t, acc, miss}; set at the snap for a man whose target is a stunting defender (crossing stunt: d.stunt, not a blitzer).
 // Awareness (p.rt.recog) sets the mistakes: READ_O = READ_BASE - recog/READ_K is how long he takes to see his man left, MISS_P*lack keeps his old man MISS_HOLD s more, WRONG_P*lack takes his second rule's man at the snap.
 // offense.js rereadCheck asks every REREAD_DT while he has an rr; events go to S.blkEv ({name, ev:'passed'|'missed'|'wrong', t}).
@@ -194,7 +195,7 @@ export function resolveBlocks(play, flip, again = false){
     }
     if(rule[0] === 'pull'){
       const dir = Math.sign(h - b.p.x) || ps, aim = rule[1] === 'kick' ? d.x - dir*KICK_X : d.x;
-      b.p.via = [{x:b.p.x + dir*PULL_FLAT, y:los - PULL_DEPTH}, {x:aim, y:d.y}]; b.p.pull = {kind:rule[1], tgt:d, state:'pulling', t:0, reach:null, ox:aim - d.x};
+      b.p.via = [{x:b.p.x + dir*PULL_FLAT, y:los - OL_BACK - TACKLE_BACK - PULL_HEEL}, {x:aim, y:d.y}]; b.p.pull = {kind:rule[1], tgt:d, state:'pulling', t:0, reach:null, ox:aim - d.x};
       pulls.push({name:b.name, kind:rule[1], p:b.p});
     }
     b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.ruled = true; };
