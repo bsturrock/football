@@ -9,7 +9,7 @@ import { FACE_RATE, clamp, faceYaw } from './util.js';   // no state.js import h
 const ACC_FADE_TOP = 1, ACC_FLOOR = 0.1, FIRE_K = 1.3;
 // B-072-1: facing is sim state. faceStep turns p.face by the rule animation.js used to run (same target, FACE_RATE): the target is p.faceHold (a yaw he keeps while he
 // moves; set by defense.js / carrier.js, null = off), else faceYaw (faceAt), else his velocity heading above FACE_V. An engaged man (p.bt) ignores faceHold. The game step,
-// the drill step and the sim step all run it (main.js step, drill.js drillTick); animation.js only reads p.face.
+// the drill step and the sim step all run it once, in step.js stepWith; animation.js only reads p.face.
 export const FACE_V = 0.4;
 // speed cap by the angle between facing and travel (only with a faceHold set): fraction of top speed, blended linearly between the knots
 export const CAP_FWD = 1.0, CAP_SIDE = 0.6, CAP_BACK = 0.7;   // facing 0 deg off travel, 90 deg (shuffle), 180 deg (backpedal)

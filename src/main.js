@@ -1,4 +1,4 @@
-import { runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
+import { endLoad, runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
 import { pairCheck, pairReport, setFrameClock, syncScene } from './animation.js';
 import { CARRY_T, separate, stepHz } from './blocking.js';
 import { setAutoCam, updateCamera } from './camera.js';
@@ -9,15 +9,16 @@ import { drillCamera, drillError, drillStart, drillTick } from './drill.js';
 import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
-import { faceStep, steer } from './movement.js';
-import { offenseAI } from './offense.js';
+import { steer } from './movement.js';
+import { flushOlRecs, offenseAI } from './offense.js';
 import { pileUpdate } from './pile.js';
-import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender, physStep } from './physics.js';
+import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DEF, OFF, QB, RB, rate } from './players.js';
 import { heldBallPos, endPlay, newGame, nextPlay, trackProgress } from './rules.js';
 import { camera, cvs, renderer, scene } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
+import { perf, stepWith } from './step.js';
 import { tackleUpdate } from './tackling.js';
 import { $, HW, clamp, dist } from './util.js';
 
@@ -56,20 +57,17 @@ function liveUpdate(dt){
     if(S.phase === 'live'){ trackProgress(c); pileUpdate(c, dt); }   // progress again after the tackle (no first-frame spot lag), then the pile push and stall whistle
   }
 }
-const perf = {phys:0, bodies:0};   // last step's physics ms and body count (read by ?debug and the sim)
-// one render-free simulation step (the sim runner calls this too)
-export function step(dt){
+// the game's part of a step: the CPU, then the live or dead-ball phase
+function gameUpdate(dt){
   cpuTick(dt);
   if(S.phase === 'live') liveUpdate(dt);
   else if(S.phase === 'dead'){
     ALL.forEach(p => steer(p, p.x, p.y, 0, dt));
     S.deadT -= dt; if(S.deadT <= 0) nextPlay();
   }
-  ALL.forEach(p => faceStep(p, dt, ball, S));   // B-072-1: facing is sim state (movement.js), turned here for the game and the sim alike
-  const t0 = performance.now();
-  physStep(dt);
-  perf.phys = performance.now() - t0; perf.bodies = physCount().players;
 }
+// one render-free simulation step (the sim runner calls this too); the shared tail (facing, physics) is step.js
+export const step = dt => stepWith(dt, gameUpdate);
 let last = performance.now(), tick = step, camStep = updateCamera;   // ?drill swaps both (src/drill.js)
 function frame(now){
   const raw = now - last, dt = clamp(raw/1000, 0, 0.05); last = now;
@@ -97,7 +95,10 @@ function runFrames(n){
 // ?autoplay=<seconds>&sim=1&seed=S: the CPU calls and snaps a play with no input; the page steps 1/60 s synchronously (as runFrames does) until the play has run <seconds> after the snap
 // (or ended first), then keeps painting that frame with the game camera: a headless screenshot shows the play mid-action. `sim=1` only seeds Math.random, so the same seed gives the same
 // frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...} into <pre id="autoout">. A normal load is unchanged.
+// B-086: &stopon=cut|pull|shed[&after=N] stops on the first such event (see runAutoplay).
 // B-081: &play=<name> forces the offense's call (any play, case-insensitive; a pass play needs &pass=1; an unknown name gives {"error":...}); &cam=side|close frames the play, following the ball (a bad value gives {"error":...}).
+const TOW_FREE_T = 0.4;   // B-086: a copy of defense.js TOW_FREE_T (not exported; defense.js is another worker's): a tow sets freeT to this, a shed 0.9
+const AUTO_STOP_PLAYS = 30;   // B-086: &stopon runs at most this many plays' worth of steps
 const AUTO_MAX_STEPS = 60*60;   // a stuck pre-snap gives up after a minute of sim time
 const r3 = v => +Number(v).toFixed(3);
 function autoDigest(){   // state digest: same seed, same values (a PNG can differ by bytes)
@@ -109,12 +110,24 @@ function runAutoplay(sec, q){
   const out = o => { const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify(o); document.body.appendChild(el); };
   if(q.has('play')){ const nm = q.get('play').trim().toLowerCase(), pl = PLAYS.find(p => p.name.toLowerCase() === nm); if(!pl){ out({error:'unknown play ' + q.get('play') + (q.has('pass') ? '' : ' (a pass play needs &pass=1)')}); return; } S.force = {play:pl.name}; }
   if(q.has('cam')){ const c = q.get('cam').trim().toLowerCase(); if(c !== 'side' && c !== 'close'){ out({error:'unknown cam ' + q.get('cam')}); return; } setAutoCam(c); }
+  // B-086: &stopon=cut|pull|shed[&after=N]: plays run one after another (up to AUTO_STOP_PLAYS, no stop at the whistle or at <seconds>) until the event fires on live state, then N more steps (default 0) and stop;
+  // autoout gains {event, play, frame}: the event, the play number (1 = the first snap), the step it fired on (event null: it never fired). Read-only, no game logic. cut: a man with p.cutPh set (B-072-4: 1 brake, 3 plant, 2 push);
+  // pull: a puller reached his target (p.pull.reach set); shed: a defender with freeFrom set and freeT above TOW_FREE_T (a real shed sets 0.9; a tow, a passing blocker, sets only 0.4). An unknown event gives {"error":...}
+  const EVENTS = {cut: () => ALL.some(p => p.cutPh), pull: () => (S.pulls || []).some(u => u.p.pull && u.p.pull.reach !== null), shed: () => DEF.some(d => d.freeFrom && d.freeT > TOW_FREE_T)};
+  const stopon = q.has('stopon') ? q.get('stopon').trim().toLowerCase() : null, after = Math.max(0, Math.floor(Number(q.get('after')) || 0));
+  if(stopon !== null && !EVENTS[stopon]){ out({error:'unknown stopon ' + q.get('stopon') + ' (cut|pull|shed)'}); return; }
   setCpu(true);
-  let n = 0;
-  while(n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
+  let n = 0, plays = 0, prev = S.phase, hit = null, left = after;
+  if(stopon){
+    while(n++ < AUTO_MAX_STEPS*AUTO_STOP_PLAYS && S.phase !== 'over'){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60);
+      if(S.phase === 'live' && prev !== 'live') plays++; prev = S.phase;
+      if(plays > AUTO_STOP_PLAYS) break;   // the cap: no event is read in a play past it
+      if(hit){ if(left-- <= 0) break; } else if(S.phase === 'live' && EVENTS[stopon]()){ hit = {event:stopon, play:plays, frame:n}; if(left-- <= 0) break; } }
+  }
+  while(!stopon && n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
   setFrameClock(null); physRender(); updateCallouts(0);
   const show = () => { renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // render only; the sim is paused
-  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest()}); document.body.appendChild(el);
+  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest(), ...(stopon ? hit || {event:null, play:plays, frame:null} : {})}); document.body.appendChild(el);
 }
 function start(data){
   $('cpuBtn').addEventListener('click', () => { setCpu(!S.cpu); cvs.focus(); });
@@ -126,12 +139,13 @@ function start(data){
   if(q.get('cpu') === '0') setCpu(false);   // B-068: start in user view (the C key off), so a shot sees the pre-snap block lines
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
   if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0), q); return; }
-  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, flushOlRecs, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
     if(q.has('frames') && drillError){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:drillError}); document.body.appendChild(el); return; }   // B-042 (axis-glide)
     if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
   requestAnimationFrame(frame);
 }
+endLoad();   // B-079: every import has run (three.js uuids drew from the private stream); the seeded stream starts here
 rate();   // B-078 (load-no-random): ratings draw Math.random, so they are rolled here, after every import (and sim.js's seedRandom), not at players.js load
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
 const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
