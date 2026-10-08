@@ -1,3 +1,4 @@
+import { stepHz } from './blocking.js';
 import { setHint } from './hud.js';
 import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
@@ -62,7 +63,7 @@ function targetPose(p, sp){
 // along the pair axis (they face each other, so straight ahead) with the hands on the other man's chest plate. The blocker churns his legs
 // while the pair is moving; the defender fights the hands, and swim (move 'speed') and bull (move 'power') keep their own arms; a defender
 // whose blocker won the get-off (phase 'recover') is driven back, sitting higher. Visual only: reads battle state, never writes it.
-const ENG_K = 24, ENG_HEAD = 0.6, DRIVE_V = 0.8, CHURN_SP = 6;   // pose blend rate (95% in 0.125 s), head-up share of the lean, pair speed (yd/s) that counts as driving, stride speed (yd/s) the legs churn at
+const ENG_K = 24, ENG_HEAD = 0.6, DRIVE_V = 0.3, CHURN_SP = 6;   // pose blend rate (95% in 0.125 s), head-up share of the lean, pair speed (yd/s) that counts as driving (B-062: real drive speeds are 0.5-1.5), stride speed (yd/s) the legs churn at
 // B-031: the pair is solved together. A man's hands go to his partner's chest plate at the drawn distance between them (two-bone arm solve from his shoulder),
 // so spacing, lean and reach agree whatever the phase; B-042: the head never leaves its neck socket: each man rolls a little (ENG_ROLL, a shoulder dip) and turns and tilts his head (HEAD_TURN, HEAD_TILT) to his right so the helmets pass, and the arm solve and the partner's plate target follow the roll; the blocker's hands go inside the
 // defender's. All in yards: SH_Y/SH_Z the shoulder on the torso axis, ARM_A/ARM_B upper arm and forearm, PAD_Y/PAD_D where the hands land: a point on the partner's torso, low enough to stay under his chin, and the torso's half depth.
@@ -103,7 +104,8 @@ const engaged = p => !!p.bt || p.eng > 0;
 const secondOf = p => p.team === 'O' && !p.bt && (p.eng > 0 || p.engW > SEC_ENGW) && p.dbl && p.dbl.state === 'double' && p.dbl.d && p.dbl.d.bt && p.dbl.d.bt.o && p.dbl.d.bt.o !== p ? p.dbl.d : null;
 const partnerOf = p => p.team === 'D' ? (p.bt && p.bt.o) : ALL.find(d => d.team === 'D' && d.bt && d.bt.o === p) || secondOf(p);
 const isSecond = (p, q) => !!q && p.team === 'O' && q.bt && q.bt.o !== p;
-const driving = p => p.team === 'O' ? (!!p.bt && p.bt.phase === 'recover') || Math.hypot(p.vx, p.vy) > DRIVE_V : !!p.bt && (p.bt.phase === 'move' || p.bt.phase === 'recover') && Math.hypot(p.vx, p.vy) > DRIVE_V;   // offense: by speed (also a double team's second man, p.eng only); defense: his battle's move or recover phase while moving
+const pairV = p => { const b = p.bt || (partnerOf(p) || {}).bt; return b && b.v || 0; };   // B-062: the pair's measured speed (blocking.js battle, b.v)
+const driving = p => p.team === 'O' ? (!!p.bt && p.bt.phase === 'recover') || Math.max(pairV(p), Math.hypot(p.vx, p.vy)) > DRIVE_V : !!p.bt && (p.bt.phase === 'move' || p.bt.phase === 'recover') && Math.max(pairV(p), Math.hypot(p.vx, p.vy)) > DRIVE_V;   // offense: by speed (also a double team's second man, p.eng only); defense: his battle's move or recover phase while moving
 // shoulder swing (about x, total with the torso's lean), sideways angle (about z) and elbow angle that put the hand at (lat, up, fwd) from the shoulder. The rig
 // turns the shoulder as Rx(swing)*Rz(side) and the forearm bends about the tilted x axis, so the hand is found by a few Newton steps on that forward chain
 // (started from the in-plane two-bone answer), not by a closed form; an unreachable point gives the arm's nearest pose.
@@ -186,7 +188,8 @@ function animate(p, dt){
   // a runner held up keeps churning his legs at full stride whatever his speed
   const sp0 = p.churn && p.ph && !p.falling && !(p.latch && p.latch.falling) ? Math.max(5.5, Math.hypot(p.vx, p.vy)*1.3) : Math.hypot(p.vx, p.vy);
   const eng = !p.ph && p.act !== 'down' && p.act !== 'fall' && p.act !== 'dive' && engaged(p), sp = eng && driving(p) ? Math.max(sp0, CHURN_SP) : sp0;   // a driven pair's legs churn however slowly it moves
-  p.stride += sp > 0.3 ? 2*Math.PI*(1.1 + 0.16*sp)*dt : 0;   // cadence rises with speed (~2.2 strides/s flat out)
+  const stepsHz = eng && driving(p) ? stepHz(Math.max(pairV(p), Math.hypot(p.vx, p.vy))) : 0;   // B-062: a driven pair takes short steps (STEP_L) at the cadence its speed needs, churning in place when stalled; two steps to a stride
+  p.stride += stepsHz > 0 ? Math.PI*stepsHz*dt : sp > 0.3 ? 2*Math.PI*(1.1 + 0.16*sp)*dt : 0;   // cadence rises with speed (~2.2 strides/s flat out)
   if(p.actT > 0){ p.actT -= dt; if(p.actT <= 0) p.act = null; }
   if(p.eng > 0) p.eng -= dt; else if(p.team === 'O') p.bt = null;
   if(p.beatT > 0) p.beatT -= dt;
