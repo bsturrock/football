@@ -15,6 +15,15 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   B-008/B-010 pile shape: stillPlays/stillMaxS (plays where the runner, in contact (touched within 1 s), moved under STILL_V yd/s for over STILL_S s in a row; the longest such stretch, s),
 //     flatPct/flatFrames (share of frames (live, then POST_S 1 s of dead ball after the whistle) a body off his feet STAY_T s or more and on the turf or with the torso top under BODY_H yd (a tackler hanging upright on a runner still on his feet is not a pile body) had its torso within FLAT_DEG of horizontal), heightLayers {median, p90, max} (per play, the highest torso top of a body off his feet STAY_T s or more and on the turf or with the torso top under BODY_H yd (a tackler hanging upright on a runner still on his feet is not a pile body), in body widths (FLAT_H 0.66 BODY_W: a body lying on his side; on his back or front he is 0.4 BODY_W)),
 //     playS {median, p90, max} (live seconds from the snap to the end of the play)
+//   B-038 falls (a body is off his feet while bal 0 and not getting up: ph.fallT > 0; a fall episode is one such stretch per body, opened in live play only, closed at the whistle or PLAY_MAX_S, so none carries into the next play):
+//     liveHung {steps, medSpineUp}: live-ball sim steps (SIM_DT) summed over bodies, bubble bodies excluded, where a body off his feet over HUNG_T 0.5 s was not down (physDown) and moved under HUNG_V 0.5 yd/s; medSpineUp = median torso up-axis y of those steps (1 upright, 0 flat)
+//     liveTop {n, p90, max, latchedOnStanding {n, p90}, other {n, p90}}: torso top (yd) per live-ball sim step per body (bubble bodies excluded) off his feet over HUNG_T s, down or not; latchedOnStanding = a tackler latched on a runner still on his feet (bal > 0), other = all else
+//     fallToTurfS {falls, failed, failedShort, lateOk, p90}: per episode, seconds from bal 0 to the first part on the turf (a hand or foot does not count: physDown). falls = reached before the whistle + failed; p90 over those that reached it before the whistle;
+//       failed = not on the turf at the whistle / PLAY_MAX_S, or he got up first; failedShort = failed ones that began under SHORT_FALL_T 0.3 s before then (too late to land); lateOk = of the failed at the whistle, landed within the POST_S 1 s of dead ball
+//     kneesFirst {legPct, armPct, bodyPct, n}: share of episodes (live landings and late ones) by the lowest part when he first touched the turf: shin/thigh (legPct), forearm/upper arm (armPct), torso/head (bodyPct)
+//     solo {plays, falls, noTurf, turfMedS, turfP90S, peakVMed, peakVP90, top03Med, top06Med}: the episodes of plays that never had more than SOLO_BODIES 2 tackle/ragdoll bodies (p.ph, not bubble) at once in live play; noTurf = never landed (live or late);
+//       turf*S = seconds to the first landing (live or late); peakV = fastest downward torso speed (yd/s) during the episode; top03/top06 = torso top (yd) at 0.3 / 0.6 s off his feet (episodes that lasted that long)
+//     jointViol {bodySteps, steps, pct, byJoint}: sim steps (SIM_DT, live and dead ball) summed over every physics body (bubble included); steps = those with any joint past its limit (physics.js PARTS lim) by over VIOL_DEG 10 deg at the last substep; pct = steps/bodySteps; byJoint = steps per part name (torso, head, uaL, faL, ... snR)
 //   bodiesMax: total physics body count; pile counters count tackle/ragdoll bodies only (p.ph && !p.ph.bubble)
 //   physMs {median/p95}: NOT reliable here (performance.now does not advance in one synchronous task): never compare; use ?debug in a real browser for frame and physics ms
 //   read {n: zone plays decided, noDecision: stuffed before deciding, wrongPct: share not the noiseless best lane, choices {name: {n, ypc}}, wrongYpc, rightYpc} (from S.read)
@@ -193,30 +202,33 @@ export function runSim(n, step, g){
     const q = physPose(p); flat.n++; if(Math.abs(q.spineY) < Math.sin(FLAT_DEG*Math.PI/180)) flat.ok++;
     hMax = Math.max(hMax, q.topY);
   } };
-  // B-038: falls. Hung = off his feet over HUNG_T, not on the turf, nearly still. A fall episode is keyed by his ph (fallT counts bal 0 and not getting up).
-  // Episode: first turf part kind (kneesFirst), peak fall speed, torso top at 0.3 and 0.6 s (solo-hit check: plays with at most 2 tackle bodies).
+  // B-038: falls. Hung = off his feet over HUNG_T, not on the turf, nearly still. A fall episode is keyed by his ph (fallT counts bal 0 and not getting up) and opens only in live play;
+  // endFalls closes the play's open episodes (the whistle, or PLAY_MAX_S): one not on the turf by then is failed (short if it began under SHORT_FALL_T before). The dead-ball seconds only
+  // watch those episodes for a late landing (lateOk). Episode: first turf part kind (kneesFirst), peak fall speed, torso top at 0.3 and 0.6 s (solo-hit check: plays with at most SOLO_BODIES tackle bodies).
   const hung = {n:0, up:[]}, tops = [], topsL = [], topsO = [], fallS = [], fe = new Map(), eps = [], bodMax = [], kinds = {leg:0, arm:0, body:0};
-  let fallFail = 0, fallShort = 0, fallLate = 0, vSteps = 0, vBad = 0, curPlay = 0; const vPart = {}, PART_N = ['torso','head','uaL','faL','uaR','faR','thL','snL','thR','snR'];
+  let fallFail = 0, fallShort = 0, fallLate = 0, vSteps = 0, vBad = 0, curPlay = 0, fallsEnded = false; const vPart = {};
+  const endFalls = () => { fallsEnded = true; for(const e of fe.values()){ e.w = true; if(!e.ok){ fallFail++; if(e.dur < SHORT_FALL_T) fallShort++; } } };
   const falls = () => {
     const live = S.phase === 'live', seen = new Set();
+    if(!live && !fallsEnded) endFalls();
     for(const p of ALL) if(p.ph){
-      const q = physPose(p); vSteps++; if(q.viol > VIOL_DEG*Math.PI/180) vBad++;
-      (q.violP || []).forEach((x, i) => { if(x > VIOL_DEG*Math.PI/180) vPart[PART_N[i]] = (vPart[PART_N[i]] || 0) + 1; });
+      const q = physPose(p); vSteps++; if(q.viol > VIOL_DEG*Math.PI/180){ vBad++; q.violOver(VIOL_DEG*Math.PI/180).forEach(n => { vPart[n] = (vPart[n] || 0) + 1; }); }
       if(q.fallT <= 0) continue;
+      let e = fe.get(p.ph);
+      if(!live){ if(e && !e.ok){ const k = q.kind; if(k){ e.ok = true; e.turf = q.fallT; kinds[k]++; fallLate++; } } continue; }   // dead ball: only a late landing of an episode that was open at the whistle
       seen.add(p.ph);
-      let e = fe.get(p.ph); if(!e){ fe.set(p.ph, e = {ok:false, w:false, play:curPlay, turf:null, pk:0, t03:null, t06:null}); eps.push(e); }
+      if(!e){ fe.set(p.ph, e = {ok:false, w:false, play:curPlay, turf:null, pk:0, t03:null, t06:null}); eps.push(e); }
       e.pk = Math.max(e.pk, -q.vy); e.dur = q.fallT;
       if(e.t03 === null && q.fallT >= 0.3) e.t03 = q.topY;
       if(e.t06 === null && q.fallT >= 0.6) e.t06 = q.topY;
-      const dn = !!q.kind;
-      if(!live && !e.w){ e.w = true; if(!e.ok){ fallFail++; if(q.fallT < SHORT_FALL_T) fallShort++; } }   // the whistle came before he reached the turf (short: it began under SHORT_FALL_T before)
-      if(dn && !e.ok){ e.ok = true; e.turf = q.fallT; kinds[q.kind]++; if(e.w) fallLate++; else fallS.push(q.fallT); }
-      if(live && q.fallT > HUNG_T && !p.ph.bubble){
+      const kind = q.kind, dn = !!kind;
+      if(dn && !e.ok){ e.ok = true; e.turf = q.fallT; kinds[kind]++; fallS.push(q.fallT); }
+      if(q.fallT > HUNG_T && !p.ph.bubble){
         tops.push(q.topY); (p.latch && p.latch.ph && p.latch.ph.bal > 0 ? topsL : topsO).push(q.topY);
         if(!dn && physSpeed(p) < HUNG_V){ hung.n++; hung.up.push(q.spineY); }
       }
     }
-    for(const [ph, e] of fe) if(!seen.has(ph)){ if(!e.w && !e.ok) fallFail++; fe.delete(ph); }   // ended in live play (got up) without the turf
+    if(live) for(const [ph, e] of fe) if(!seen.has(ph)){ if(!e.ok){ fallFail++; if(e.dur < SHORT_FALL_T) fallShort++; } fe.delete(ph); }   // ended in live play (got up) without the turf
   };
   let timeouts = 0, pushPlays = 0, bodiesMax = 0, win = null;
   const closeWin = () => {   // a window counts once it lasted WINDOW_T
@@ -248,7 +260,7 @@ export function runSim(n, step, g){
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
     shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); DEF.forEach(p => { p.towT = undefined; });
-    curPlay = i; bodMax[i] = 0;
+    curPlay = i; bodMax[i] = 0; fallsEnded = false; fe.clear();
     hMax = 0; let stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = []; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
       step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
@@ -276,7 +288,7 @@ export function runSim(n, step, g){
         } else closeWin();
       }
     }
-    closeWin();
+    closeWin(); if(!fallsEnded) endFalls();   // a PLAY_MAX_S play ends live: close its episodes here, not into the next play
     for(const u of pullsNow){ const pk = slotOf(u.name) + ' ' + u.kind, r = pullReach[pk] || (pullReach[pk] = {n:0, reached:0}); r.n++; if(u.p.pull && u.p.pull.reach !== null) r.reached++; }
     for(let k = 0; k < POST_S/SIM_DT && S.phase === 'dead'; k++){ step(SIM_DT); fallen(); falls(); }   // the dead ball: the pile settles, measured POST_S s after the whistle (S.deadT is 2.2 s, so no next play starts)
     if(startY !== null && S.bust) tallyBust(S.bust);   // B-032-4: the plays that snapped
