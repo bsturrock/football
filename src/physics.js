@@ -365,11 +365,12 @@ function physSettle(ph){
 // geometry: down when any part but a hand or foot touches the turf (head, knee, elbow end of the forearm, upper arm,
 // thigh/hip, torso). Hand end of the forearm and the shins' foot end never count.
 // how far part i is above its down threshold (yd; under 0 = on the turf): the knee end of a shin (0.14) or the elbow end of a forearm (ELBOW_DOWN_Y), else the box's lowest corner (0.06)
-function partClear(ph, i){
+function partClear(ph, i, hand=false){
   const b = ph.bodies[i], n = PARTS[i].n, he = b.shapes[0].halfExtents;
   if(n === 'snL' || n === 'snR' || n === 'faL' || n === 'faR'){   // one end only; local +y is the knee / elbow end
     const end = b.pointToWorldFrame(new CANNON.Vec3(0, he.y, 0));
-    return end.y - (n[0] === 's' ? 0.14*BODY_H : ELBOW_DOWN_Y);
+    const hd = hand && n[0] === 'f' ? b.pointToWorldFrame(new CANNON.Vec3(0, -he.y, 0)).y - ELBOW_DOWN_Y : 1e9;   // B-045 measure: with hand, the hand end of a forearm counts too
+    return Math.min(hd, end.y - (n[0] === 's' ? 0.14*BODY_H : ELBOW_DOWN_Y));
   }
   const q = b.quaternion, ex = q.vmult(new CANNON.Vec3(he.x, 0, 0)), ey = q.vmult(new CANNON.Vec3(0, he.y, 0)), ez = q.vmult(new CANNON.Vec3(0, 0, he.z));
   return b.position.y - Math.abs(ex.y) - Math.abs(ey.y) - Math.abs(ez.y) - 0.06;
@@ -380,9 +381,9 @@ export function physDown(p){
   return false;
 }
 // B-038 (sim only, via physPose.kind): which kind of part is lowest on the turf: 'leg' (shin, thigh: knees first), 'arm', 'body' (torso, head), '' (none down)
-function physDownKind(p){
+function physDownKind(p, hand=false){
   let best = -1, bm = 0;
-  for(let i = 0; i < PARTS.length; i++){ const m = partClear(p.ph, i); if(m < bm){ bm = m; best = i; } }
+  for(let i = 0; i < PARTS.length; i++){ const m = partClear(p.ph, i, hand); if(m < bm){ bm = m; best = i; } }
   return best < 0 ? '' : /^(sn|th)/.test(PARTS[best].n) ? 'leg' : /^(fa|ua)/.test(PARTS[best].n) ? 'arm' : 'body';
 }
 // a defender touched him within CONTACT_T s
@@ -392,7 +393,8 @@ export const physTouched = (p, w = CONTACT_T) => phClock - (p.hitT ?? -99) <= w;
 // sim.js reads body state only through these (B-008/B-010): pose {fallT s off his feet, spineY torso up-axis y (1 upright, 0 flat), topY torso top yd, touched}, and the torso's horizontal speed yd/s
 export const physPose = p => ({fallT:p.ph.fallT || 0, spineY:p.ph.spineY, topY:p.ph.topY, touched:p.ph.touched, bal:p.ph.bal, viol:p.ph.viol || 0, vy:p.ph.bodies[0].velocity.y,
   violOver: th => PARTS.filter((d, i) => (p.ph.violP[i] || 0) > th).map(d => d.n),   // B-038: names of the joints past their limit by over th rad (sim jointViol, last substep)
-  get kind(){ return physDownKind(p); }});   // computed only when read (the sim does; normal play never does)
+  get kind(){ return physDownKind(p); },
+  get kindH(){ return physDownKind(p, true); }});   // B-045: same, but the hand end of a forearm counts as 'arm' (the brace)   // computed only when read (the sim does; normal play never does)
 export const physSpeed = p => p.ph ? Math.hypot(p.ph.bodies[0].velocity.x, p.ph.bodies[0].velocity.z) : 0;
 export const physPropped = p => !!p.ph && (p.ph.propFor || 0) >= PROP_T;
 export const physDownC = p => (physDown(p) || physPropped(p)) && physTouched(p);
