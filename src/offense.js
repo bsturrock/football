@@ -23,7 +23,7 @@ const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass
 const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
 const CLIMB_LEAD_T = 0.6;   // B-012 (climb-timing): the climber aims this many seconds of the linebacker's velocity ahead of him, at most (his own time to arrive when shorter)
 const NM_DEPTH = 2.5, NM_HELP_R = 4, NM_SHADE = 0.3, NM_SHADE_MAX = 1.5;   // B-073: a blocker with no man holds within NM_DEPTH of the line (fixed target), helps an engaged lineman within NM_HELP_R, shades NM_SHADE of the way to the hole (at most NM_SHADE_MAX)
-const BEAT_BRAKE_T = 0.3, BEAT_STOP_V = 1.2;   // B-073: a beaten blocker plants (brakes hard) for up to this long (or until under this speed) before he chases his man's hip
+const BEAT_BRAKE_T = 0.5, BEAT_STOP_V = 1.2;   // B-073: a beaten blocker plants (brakes hard) for up to this long (or until under this speed) before he chases his man's hip
 // B-073 readout (sim.js can add S.olDepth): one record per OL/TE/WR blocker per play, {id, noMax (deepest past the line with no man, yd), over (farthest from the spot he was beaten, yd), face (s from beaten to within ENGAGE_R of his man, -1 never)}
 export function noteBlocker(p){
   const r = p.olRec || (p.olRec = {id:p.role + OFF.indexOf(p), noMax:0, over:0, face:-1, b:null});
@@ -66,8 +66,8 @@ function driveAt(p, d, ref, dt){
   }
   let f = p.beatT > 0 ? BEATEN_F : RUN_BLOCK_F;
   if(p.beatT > 0){   // B-073: beaten: plant (brake hard, no aiming past himself), then chase his man's hip from where he stands
-    const r = noteBlocker(p); if(!r.b){ r.b = {x:p.x, y:p.y, t:0}; }
-    r.b.t += dt; r.over = Math.max(r.over, Math.hypot(p.x - r.b.x, p.y - r.b.y)); if(r.face < 0 && dist(p, d) < ENGAGE_R) r.face = r.b.t;
+    const r = noteBlocker(p); if(!r.b){ const sp = Math.hypot(p.vx, p.vy) || 1; r.b = {x:p.x, y:p.y, t:0, ux:p.vx/sp, uy:p.vy/sp}; }
+    r.b.t += dt; r.over = Math.max(r.over, (p.x - r.b.x)*r.b.ux + (p.y - r.b.y)*r.b.uy); if(r.face < 0 && dist(p, d) < ENGAGE_R) r.face = r.b.t;
     if(p.beatT > 0.9 - BEAT_BRAKE_T && Math.hypot(p.vx, p.vy) > BEAT_STOP_V){ steer(p, p.x, p.y, 0, dt); return; }
     steer(p, d.x, d.y, p.spd*BEATEN_F, dt); return;
   }
