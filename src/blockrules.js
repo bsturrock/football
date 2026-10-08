@@ -312,5 +312,5 @@ export function pullCheck(p, dt){
   const m = p.pull; if(!m || m.state === 'free') return;
   m.t += dt;
   if(m.tgt.stun > 0 || p.blk !== m.tgt){ m.state = 'free'; p.via = null; return; }
-  if(m.state === 'pulling' && dist(p, m.tgt) < ENGAGED){ m.state = 'engaged'; m.reach = m.t; }
+  if(m.state === 'pulling' && dist(p, m.tgt) < ENGAGED){ m.state = 'engaged'; m.reach = m.t; p.via = []; }   // B-061: reached him: drop the rest of the path so driveAt locks him this frame (the led waypoint can run ahead of a man who is already in reach)
 }
