@@ -40,6 +40,10 @@ const ENGAGED_D = 0.91;   // B-021: a defender locks onto a blocker this close (
 // B-084: edge squeeze. SQUEEZE_IN: the ball is this far inside the edge man (yd) to count as an inside run; BOUNCE_V: the carrier moving outward faster than this (yd/s) widens him; SQUEEZE_X: his outside leverage on the ball's line; SQUEEZE_Y: his depth past the line
 const SQUEEZE_IN = 1, BOUNCE_V = 2.5, SQUEEZE_X = 0.6*GRID_K, SQUEEZE_Y = 0.5, SQUEEZE_BACK = 1.5*GRID_K;   // SQUEEZE_BACK: he never closes more than this inside his own gap line
 const BACK_HOME_X =1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K, CHASE_X = 2*GRID_K, ALLEY_X = 1*GRID_K;   // CHASE_X: the ball is this far to the backside of the force man, he chases; ALLEY_X: the ball is this far to the alley man's side, he fills
+// B-085: free, shed and backside linemen chase the ball by role. Only the backside edge (force) man stays home (boot, reverse, cutback), and only the d.home roll; backside interior men pursue flat on an intercept angle
+// (their target is never deeper than the runner once he is across the line, and L+FLAT_Y while he is behind it, so they run the line, not away from him); a playside gap man fills his gap while the ball is at the line, then closes on the runner once within FILL_CLOSE yd
+const FILL_CLOSE = 3, FILL_BAND = 0.5, FLAT_Y = 0.5;   // FILL_BAND: dead band on FILL_CLOSE (in at 3 yd, out past 3.5, d.fillL). DL only: LBs also carry role 'gap' and keep the old rules; FLAT_Y: a flat chaser's target is at least this far past the line
+const backsideOf = (j, bx) => bx*j.side < -BACK_HOME_X;   // the ball went away from this gap's side
 const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
 
 // pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
@@ -138,7 +142,7 @@ export function assignFits(call, boxS){
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
     d.read = (d.mode === 'rush' && d.role === 'LB') || (d.stunt && d.stunt.blitz) ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
-    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false; d.sqz = false; d.sqzL = false; d.fhOff = false; d.fh = null; d.faceHold = null;
+    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false; d.sqz = false; d.sqzL = false; d.fillL = false; d.fhOff = false; d.fh = null; d.faceHold = null;
     d.home = Math.random() >= HOME_P*lack(d, 'pursuit');                // discipline: a poor pursuer abandons the backside early
     d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
@@ -190,10 +194,11 @@ function runFit(d, c){
     return [bx + side*CONTAIN_X + e, Math.max(L + 1, by + 1.5)];                                     // get outside and in front of him
   };
   // backside: ball went away from my side and hasn't cleared los+BACK_L: stay home on the cutback unless he closes on me
-  if(d.home && PLAYS[S.play].run && (j.role === 'gap' || j.role === 'force') && bx*s < -BACK_HOME_X && by < L + BACK_L && dist(d, c) > BACK_D) return [j.gx + (bx - j.gx)*0.25, L + 0.5];
+  if(d.home && PLAYS[S.play].run && (j.role === 'force' || (j.role === 'gap' && d.role !== 'DL')) && bx*s < -BACK_HOME_X && by < L + BACK_L && dist(d, c) > BACK_D) return [j.gx + (bx - j.gx)*0.25, L + 0.5];
   switch(j.role){
     case 'gap':
-      if(by < L + 1.5 && Math.abs(bx - j.gx) < FILL_DX) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze
+      if(by < L + 1.5 && Math.abs(bx - j.gx) < FILL_DX && !(d.role === 'DL' && (d.fillL = dist(d, c) <= (d.fillL ? FILL_CLOSE + FILL_BAND : FILL_CLOSE)))) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze, then close on him (B-085)
+      if(d.role === 'DL' && PLAYS[S.play].run && backsideOf(j, bx) && by < L + BACK_L){ const [ix, iy] = inside(); return [ix, Math.min(iy, Math.max(L + FLAT_Y, by))]; }   // B-085: backside interior man runs the line at the runner
       return inside();
     case 'force':
       if(bx*s < -CHASE_X) return [px - dir*1 + e, Math.max(py, by)];  // ball is CHASE_X to my backside: chase (any depth)
@@ -295,7 +300,10 @@ function holdFacing(d, c, runRead, dt){
 function engagedGap(d, c){
   const j = d.job;
   if(!j || !S.runMode || !PLAYS[S.play].run) return undefined;   // run plays only: a pass rusher keeps the old leverage
-  if(j.role !== 'two') return j.gx;
+  if(j.role !== 'two'){
+    if(j.role === 'gap' && d.role === 'DL' && backsideOf(j, c.x) && c.y < S.los + BACK_L) return c.x;   // B-085: a backside interior man fights toward the ball, not back to his own gap
+    return j.gx;
+  }
   return S.clock <= S.handoffAt + d.read + d.bite ? null : (c.x < d.x ? j.gl : j.gr);
 }
 export function defenseAI(d, dt){
