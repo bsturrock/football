@@ -45,7 +45,7 @@ import { BODY_H, BODY_W, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './ut
 //   physMs {median/p95}: NOT reliable here (performance.now does not advance in one synchronous task): never compare; use ?debug in a real browser for frame and physics ms
 //   read {n: zone plays decided, noDecision: stuffed before deciding, wrongPct: share not the noiseless best lane, choices {name: {n, ypc}}, wrongYpc, rightYpc} (from S.read)
 //   blk {"front R|L": {slot: {target label: n}}} (B-030): S.blk at the snap per defensive front and flip (R = tight end right), keyed by the rule slot (the play's base side: a flipped play's LT is the base RT), the target labels from blockrules.js labels() (DL0.. left to right on the field, LB0.., CB, S);
-//     pullReach {"slot kind" (base slot): {n, reached, rp, repReached, pct}}: pullers per slot and kind, and how many got within ENGAGED of the target at some point in the play (p.pull.reach set); B-074: rp = total re-picks (p.pull.repicks: his target went down and he took another man), repReached = pullers that re-picked at least once and still reached a target
+//     pullReach {"slot kind" (base slot): {n, reached, rp, repReached, pct}}: pullers per slot and kind, and how many got within ENGAGED of the target at some point in the play (p.pull.reach set); B-084: edge {n, xMed, depthMed} (a key beside the slot kinds): the kick-out man's spot the first frame a kick puller reaches him, xMed = median |his x - S.hole| (yd outside the hole), depthMed = median of his y - S.los (past the line); B-074: rp = total re-picks (p.pull.repicks: his target went down and he took another man), repReached = pullers that re-picked at least once and still reached a target
 //   force; byPlay; boxMean; freeBox
 //   blkEv {stuntPlays: plays with a crossing stunt (slants count) at the snap, passed, missed, wrong}: blockers' stunt re-read events from S.blkEv
 //   tackle {n, byOutcome {big, thru, bounce, evade, grab: n}, thruAt [S.clock, s, of the first 5 run-throughs] (B-063), byBand {"<0","0-2","2-4","4-5","5-6","6-8","8+": {n, big, thru, bounce, evade, grab}}} (B-063, tackle-momentum): attemptTackle outcomes (S.tkLog, tackling.js), banded by the runner's edge (resist - hit)/tackler mass, yd/s
@@ -288,6 +288,7 @@ export function runSim(n, step, g){
       }
     }
   };
+  const edgeAt = {x:[], d:[]}, edgeSeen = new WeakSet();   // B-084 readout: kick-out man's spot at the puller's first reach (yd outside the hole, yd past the line)
   const olRecs = [];   // B-080: offense.js flushOlRecs fills it at each play end: {id, noMax, over, face}
   const stillMax = [], flat = {n:0, ok:0}, heights = [], playLen = []; let stillPlays = 0;
   let hMax = 0;
@@ -380,7 +381,8 @@ export function runSim(n, step, g){
         const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; tally(calls, pname); tally(byFront[S.front] || (byFront[S.front] = {}), pname); tally(byCall[S.defCall.name] || (byCall[S.defCall.name] = {}), pname);
           const bf = blkLog[S.front + ' ' + (S.flip > 0 ? 'R' : 'L')] || (blkLog[S.front + ' ' + (S.flip > 0 ? 'R' : 'L')] = {}); for(const [nm, tg] of Object.entries(S.blk || {})){ const bn = slotOf(nm), bs = bf[bn] || (bf[bn] = {}); bs[tg] = (bs[tg] || 0) + 1; }
           pullsNow = (S.pulls || []).slice(); }
-        for(const u of pullsNow){ const pl = u.p.pull; if(pl && pl.reach === null && !pullSeen.has(u)) pullSeen.set(u, pl.tgt.stun > 0 ? 'stunned' : u.p.blk !== pl.tgt ? 'reblocked' : null); if(pullSeen.get(u) === null && pl && pl.reach === null && (pl.tgt.stun > 0 || u.p.blk !== pl.tgt)) pullSeen.set(u, pl.tgt.stun > 0 ? 'stunned' : 'reblocked'); }   // B-007-13: call shares overall, per front, per defensive call
+        for(const u of pullsNow){ const pl = u.p.pull; if(pl && pl.reach !== null && u.kind === 'kick' && !edgeSeen.has(pl)){ edgeSeen.add(pl); const dx = pl.tgt.x - S.hole; edgeAt.x.push(Math.abs(dx)); edgeAt.d.push(pl.tgt.y - S.los); }   // worker-4 (B-084): the kick-out man's spot the first frame the puller reaches him
+         if(pl && pl.reach === null && !pullSeen.has(u)) pullSeen.set(u, pl.tgt.stun > 0 ? 'stunned' : u.p.blk !== pl.tgt ? 'reblocked' : null); if(pullSeen.get(u) === null && pl && pl.reach === null && (pl.tgt.stun > 0 || u.p.blk !== pl.tgt)) pullSeen.set(u, pl.tgt.stun > 0 ? 'stunned' : 'reblocked'); }   // B-007-13: call shares overall, per front, per defensive call
         endY = y;
         if(c === RB && !measured){   // the back gets the ball: count the box, and who is free in it
           measured = true;
@@ -453,7 +455,7 @@ export function runSim(n, step, g){
     climbFill:{climbs:cf.climbs, plays:cf.plays, landedPct:cf.climbs ? +(100*cf.landed/cf.climbs).toFixed(1) : null, beforePct:cf.climbs ? +(100*cf.before/cf.climbs).toFixed(1) : null, startMed:med(cf.start), travelMed:med(cf.travel), backLosMed:med(cf.backLos), lifeMed:med(cf.life), dispMed:med(cf.disp)},   // B-012 (climb-timing)
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
-    blk:blkLog, pullWhy, pullReach:Object.fromEntries(Object.entries(pullReach).map(([k, r]) => [k, {...r, pct:+(100*r.reached/r.n).toFixed(1)}])),
+    blk:blkLog, pullWhy, pullReach:{...Object.fromEntries(Object.entries(pullReach).map(([k, r]) => [k, {...r, pct:+(100*r.reached/r.n).toFixed(1)}])), edge:{n:edgeAt.x.length, xMed:med(edgeAt.x), depthMed:med(edgeAt.d)}},
     faceHold:{LB:fhOut(fhR.LB), DB:fhOut(fhR.DB)},   // B-072-2
     speedRole:Object.fromEntries(Object.entries(S.speedRole).map(([k, e]) => [k, +(e.sum/e.n).toFixed(3)])),   // B-060-2
     cuts:{carries:S.cutLog.carries, cuts:S.cutLog.cuts, perCarry:S.cutLog.carries ? +(S.cutLog.cuts/S.cutLog.carries).toFixed(3) : null, latStepMed:med(S.cutLog.lat), speedKept:med(S.cutLog.keep)},   // B-072-3
