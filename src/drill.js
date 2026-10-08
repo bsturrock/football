@@ -76,6 +76,7 @@ export function drillTick(dt){
     separate();
     if(t >= PRE_S + REP_S) newRep();
   }
+  ALL.forEach(p => faceStep(p, dt));   // B-072-1: facing is sim state
   physStep(dt);
 }
 const look = new THREE.Vector3(), pos = new THREE.Vector3(), want = new THREE.Vector3(), tgt = new THREE.Vector3();

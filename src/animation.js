@@ -8,7 +8,7 @@ import { OL_BACK, OL_SETBACK } from './formations.js';
 import { ALL, BODY_H, C, G, JOINTS, OL, QB, RB, bodyV } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
-import { $, BLOCK_D, BODY_W, FACE_RATE, LOCK_D, clamp, faceLean, faceYaw } from './util.js';
+import { $, BLOCK_D, BODY_W, LOCK_D, clamp, faceLean } from './util.js';
 
 // ---------- animation ----------
 const BALL_H = 0.1;   // the ball lies on the turf (yd up to its centre)
@@ -184,6 +184,21 @@ function engagedPose(T, p, s, cs){
     reach(T.lean, 0.1*fight, -0.1*fight2);
   } else reach(T.lean, 0.1*fight, -0.1*fight2);                           // set / fighting the hands: hands working on his chest plate
 }
+// B-072-1 gaits, blended by p.shW / p.bpW (animate). Shuffle: low, knees bent, short steps, the hips splayed so the feet stay apart and one leg opens while the other closes (no crossover), arms out for balance.
+// Backpedal: upright, short steps with the thighs swinging back, knees soft, arms bent low in front.
+const GAIT_SHUFFLE = 45*Math.PI/180, GAIT_BACK = 120*Math.PI/180, GAIT_K = 14;
+function gaitPose(T, p, sp){
+  const w = p.shW || 0, b = p.bpW || 0; if(w < 0.01 && b < 0.01) return;
+  const r = Math.min(1, sp/4), s = Math.sin(p.stride), cs = Math.cos(p.stride), mix = (a, v, k) => (a ?? 0) + (v - (a ?? 0))*k;
+  if(w){ const open = (p.gSide || 1)*0.22*s*r;
+    T.lean = mix(T.lean, 0.3, w); T.twist = mix(T.twist, 0, w); T.hipL = mix(T.hipL, -0.45 - 0.1*s*r, w); T.hipR = mix(T.hipR, -0.45 + 0.1*s*r, w);
+    T.kneeL = mix(T.kneeL, 0.75 + 0.15*Math.max(0, cs)*r, w); T.kneeR = mix(T.kneeR, 0.75 + 0.15*Math.max(0, -cs)*r, w);
+    T.hipZ = mix(T.hipZ, 0.3 + open, w); T.drop = mix(T.drop, 0.1, w); T.bob = mix(T.bob, 0.02, w);
+    T.shL = mix(T.shL, -0.35, w); T.shR = mix(T.shR, -0.35, w); T.elL = mix(T.elL, -0.9, w); T.elR = mix(T.elR, -0.9, w); T.armZL = mix(T.armZL ?? ARM_Z_FREE, 0.55, w); T.armZR = mix(T.armZR ?? -ARM_Z_FREE, -0.55, w); }
+  if(b){ T.lean = mix(T.lean, 0.08, b); T.twist = mix(T.twist, 0, b); T.hipL = mix(T.hipL, -0.05 + 0.55*s*r, b); T.hipR = mix(T.hipR, -0.05 - 0.55*s*r, b);
+    T.kneeL = mix(T.kneeL, 0.45 + 0.4*Math.max(0, -cs)*r, b); T.kneeR = mix(T.kneeR, 0.45 + 0.4*Math.max(0, cs)*r, b); T.drop = mix(T.drop, 0.06, b); T.bob = mix(T.bob, 0.03*Math.abs(cs), b);
+    T.shL = mix(T.shL, -0.55, b); T.shR = mix(T.shR, -0.55, b); T.elL = mix(T.elL, -1.1, b); T.elR = mix(T.elR, -1.1, b); }
+}
 function animate(p, dt){
   // a runner held up keeps churning his legs at full stride whatever his speed
   const sp0 = p.churn && p.ph && !p.falling && !(p.latch && p.latch.falling) ? Math.max(5.5, Math.hypot(p.vx, p.vy)*1.3) : Math.hypot(p.vx, p.vy);
@@ -193,12 +208,13 @@ function animate(p, dt){
   if(p.actT > 0){ p.actT -= dt; if(p.actT <= 0) p.act = null; }
   if(p.eng > 0) p.eng -= dt; else if(p.team === 'O') p.bt = null;
   if(p.beatT > 0) p.beatT -= dt;
-  const fy = faceYaw(p, ball, S);   // blockers square up to their man (a blocked defender to his blocker, with the lean) instead of facing where they move
-  if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && (fy !== null || sp > 0.4)){
-    const d = (fy !== null ? fy : Math.atan2(p.vx, -p.vy)) - p.face, e = Math.atan2(Math.sin(d), Math.cos(d));
-    p.face += e*Math.min(1, dt*FACE_RATE);
-  }
-  const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
+  // B-072-1: p.face is turned in the logic step (movement.js faceStep); here only the gait reads it. Moving off his facing (a faceHold, or a face still turning): feet apart sideways (shuffle) past GAIT_SHUFFLE, backpedal past GAIT_BACK
+  const trav = sp > 0.4 && !p.ph ? Math.abs(Math.atan2(Math.sin(Math.atan2(p.vx, -p.vy) - p.face), Math.cos(Math.atan2(p.vx, -p.vy) - p.face))) : 0, side = Math.sin(Math.atan2(p.vx, -p.vy) - p.face) < 0 ? -1 : 1;
+  const gk = 1 - Math.exp(-dt*GAIT_K), want = !p.act && !eng && p.faceHold != null;
+  p.shW = (p.shW || 0) + ((want && trav >= GAIT_SHUFFLE && trav < GAIT_BACK ? 1 : 0) - (p.shW || 0))*gk;
+  p.bpW = (p.bpW || 0) + ((want && trav >= GAIT_BACK ? 1 : 0) - (p.bpW || 0))*gk;
+  if(trav >= GAIT_SHUFFLE) p.gSide = side;
+  const T = targetPose(p, sp); gaitPose(T, p, sp); const P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
   for(const j of JOINTS) P[j] += (T[j] - P[j])*k;
   p.engW = (p.engW || 0) + ((eng ? 1 : 0) - (p.engW || 0))*(1 - Math.exp(-dt*ENG_K));
   p.hdUp = (p.hdUp || 0) + ((T.headUp || 0) - (p.hdUp || 0))*k;

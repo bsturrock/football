@@ -9,7 +9,7 @@ import { drillCamera, drillError, drillStart, drillTick } from './drill.js';
 import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
-import { steer } from './movement.js';
+import { faceStep, steer } from './movement.js';
 import { offenseAI } from './offense.js';
 import { pileUpdate } from './pile.js';
 import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender, physStep } from './physics.js';
@@ -65,6 +65,7 @@ export function step(dt){
     ALL.forEach(p => steer(p, p.x, p.y, 0, dt));
     S.deadT -= dt; if(S.deadT <= 0) nextPlay();
   }
+  ALL.forEach(p => faceStep(p, dt));   // B-072-1: facing is sim state (movement.js), turned here for the game and the sim alike
   const t0 = performance.now();
   physStep(dt);
   perf.phys = performance.now() - t0; perf.bodies = physCount().players;
