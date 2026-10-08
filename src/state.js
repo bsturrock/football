@@ -43,6 +43,7 @@ function pickForm(play, fresh){
 }
 // personnel for the next play: forced by the sim (?pers=, ?dpers=), else the page URL, else 11 and nickel
 const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+S.defOff = URLQ.get('def') === 'off';   // B-066: defense-off mode, defenders stand and are pushed (src/defoff.js)
 const forced = key => (S.force && S.force[key]) || URLQ.get(key);
 function assignRoutes(){
   const play = PLAYS[S.play];

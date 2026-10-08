@@ -4,6 +4,7 @@ import { separate } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
+import { DEF_OFF_WHISTLE, defOffStep } from './defoff.js';
 import { drillCamera, drillError, drillStart, drillTick } from './drill.js';
 import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
@@ -26,8 +27,9 @@ function liveUpdate(dt){
   if(S.charging) S.chargeT += dt;
   const inp = S.cpu ? {x:0, y:0, on:false} : inputVec();
   OFF.forEach(p => offenseAI(p, dt, inp));
-  DEF.forEach(d => defenseAI(d, dt));
+  DEF.forEach(d => S.defOff ? defOffStep(d, dt) : defenseAI(d, dt));   // B-066: ?def=off
   separate();
+  if(S.defOff && S.clock >= DEF_OFF_WHISTLE){ const h = ball.state === 'held' ? heldBallPos(ball.holder) : null; if(h) endPlay('spot', h.y); else endPlay('inc'); return; }   // B-066: no tackles, so the whistle is the clock
 
   const run = PLAYS[S.play].run;
   if(PLAYS[S.play].delay && S.handoffAt === Infinity) S.runMode = false;   // B-007-12 Draw: a pass until the handoff (the line pass-sets, the defense rushes and drops)
@@ -50,7 +52,7 @@ function liveUpdate(dt){
   if(Math.abs(bp.x) > HW){ endPlay('spot', bp.y, 'OUT OF BOUNDS'); return; }
   const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
   if(!(c === QB && run === 'hand')){
-    tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
+    if(!S.defOff) tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
     if(S.phase === 'live'){ trackProgress(c); pileUpdate(c, dt); }   // progress again after the tackle (no first-frame spot lag), then the pile push and stall whistle
   }
 }
