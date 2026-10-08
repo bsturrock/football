@@ -139,7 +139,7 @@ export function assignFits(call, boxS){
   });
   S.flow0 = RB.x;
 }
-// Stunt states (fronts.js stuntStep): aligned holds his spot until STUNT_T, looping runs the waypoint, gap attacks his new gap until
+// Stunt states (fronts.js stuntStep): aligned holds his spot until STUNT_T (BLITZ_DELAY for a blitzer; B-011), looping runs the waypoint, gap attacks his new gap until // blitz-fire (B-011)
 // the handoff, then free (normal fit). Returns null once free.
 function stuntFit(d){
   const s = d.stunt, L = S.los, v = s.via, vy = v && L + v.dy;

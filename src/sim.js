@@ -1,10 +1,11 @@
 import { KEYS, MENTAL } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { BOX_X as BOX_DX, formByName } from './formations.js';
+import { FRONTS, STUNTS } from './fronts.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
 import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './util.js';
 
 // ---------- SIM OUTPUT FIELDS (the one line in <pre id="simout">; CLAUDE.md "Sim check" points here) ----------
-// Run: ?sim=N&seed=S (same seed, same line). Force params: &play=<run play>&front=<defensive call> (case-insensitive; an unknown or pass play gives {"error":...}), &form=&side=L|R
+// Run: ?sim=N&seed=S (same seed, same line). Force params: &play=<run play>&front=<defensive call> (case-insensitive; an unknown or pass play gives {"error":...}), &form=&side=L|R, &stunt=<name from STUNTS in fronts.js> (B-011: that stunt on the chosen front, or on every drawn call; case-insensitive; unknown gives {"error":...}; echoed as force.stunt; a safety stunt on a call that rolls a safety down, or a blitz stunt on Run Blitz, gives {"error":...} with &front and is skipped without it; call names and byCall stay the drawn call's name, so Slant Left under &stunt=Tex runs Tex)
 // (echoed only until B-007-3/4), &olrecog=N (every OL and TE recog, re-applied after each team regen), &know=N (B-032-4: zone/gap/pass of every OL, TE and FB, same re-apply), &pers=11|12|21|22 and &dpers=nickel|base|odd (aliases 4-2-5, 4-3-4, 3-4-4; also work
 // on a normal page load; unknown gives {"error":...}). The dump is written when the sim finishes: ~35-40 s for N=100 under swiftshader (~0.4 s a play; N=300 wants alarm 180+).
 // B-026 pass rush: &pass=<pass play> (or 1 = the first pass play; Slants, Verticals, 'Curl / Out', 'Post / Corner') runs that real pass play from playbook.js with its pass-pro blocking; the pass plays are in PLAYS only because the URL has `pass` (playbook.js PASS_GAME is URL-gated; a normal load keeps them off, so a page without `pass` gets {"error":"no pass plays"}).
@@ -119,8 +120,17 @@ export function runSim(n, step, g){
   }
   const fp = force.play && PLAYS.find(p => p.name === force.play);   // B-007-10: a forced play with a formation list rejects a form or personnel it cannot run from
   if(fp && fp.forms && ((force.form && !fp.forms.includes(force.form)) || (force.pers && !fp.forms.some(n => formByName(n).pers === force.pers)))){ out({error:fp.name + ' runs from ' + fp.forms.join(', ') + ', not ' + (force.form || 'personnel ' + force.pers)}); return; }
+  if(Q.has('stunt')){   // B-011: force a stunt (fronts.js STUNTS) onto the chosen call, or onto every call the CPU can draw
+    const nm = Object.keys(STUNTS).find(k => k.toLowerCase() === Q.get('stunt').trim().toLowerCase());
+    if(!nm){ out({error:'unknown stunt ' + Q.get('stunt')}); return; }
+    force.stunt = nm;
+    const kind = STUNTS[nm].kind, clash = c => (kind === 'safety' && (c.box || FRONTS[c.front].roll)) || (kind === 'blitz' && c.blitz);   // a safety stunt needs no safety rolled into the box (defense.js assignFits); a blitz stunt on a call with its own blitz would stack two
+    const forced = force.front && DEF_CALLS.find(c => c.name === force.front);
+    if(forced && clash(forced)){ out({error:'stunt ' + nm + ' does not apply to ' + forced.name}); return; }
+    DEF_CALLS.forEach((c, i) => { if((!force.front || c.name === force.front) && !clash(c)) DEF_CALLS[i] = {...c, stunt:nm}; });   // without &front a clashing call keeps its own play
+  }
   S.force = force;   // read by cpu.js (play), state.js (front) and later formations and flip
-  if(force.front || force.pass || force.pers || force.dpers || force.form || force.side) setupPlay();   // the first play was set up before the force existed
+  if(force.front || force.pass || force.stunt || force.pers || force.dpers || force.form || force.side) setupPlay();   // the first play was set up before the force existed
   const yards = [], spotYards = [], wins = [], physMs = [];
   const byPlay = {}, boxes = [], frees = [], calls = {}, byFront = {}, byCall = {}, tally = (o, k) => { o[k] = (o[k] || 0) + 1; };   // B-007-13: counts of the plays run, overall, per front, per defensive call
   // B-020: animate() does not run here, so p.face never moves. Each defender gets a shadow face that turns by animate's rule
