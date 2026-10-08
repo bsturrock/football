@@ -6,7 +6,7 @@ import { dist } from './util.js';
 
 // ---------- block rules (B-007-6) ----------
 // Each blocker's job is a list of rules, tried in order; the first rule that finds an unclaimed defender wins. resolveBlocks reads them
-// against the front the play is actually facing, once at the snap (and once more after the handoff), and writes the target into p.blk
+// (claim order: see blockers() below) against the front the play is actually facing, once at the snap (and once more after the handoff), and writes the target into p.blk
 // and a name log into S.blk; offense.js keeps that man (locked once engaged, kept all play), so nothing here runs per frame.
 // Rules are written for the base side (the play's hole to -x, tight end +x) and mirrored by flip: only the blocker names swap, since
 // a rule reads the defenders by where they stand.  Rule = [kind, arg]:
@@ -149,7 +149,8 @@ function pick(rule, p, free, ctx){
   }
   return null;
 }
-// the blockers of a play, in the order they claim: linemen and tight end nearest the hole first, then the extras, then the receivers
+// the blockers of a play, in the order they claim: linemen and tight end nearest the hole first, then the extras, then the receivers.
+// Claim order (B-016), in resolveBlocks: 1 bust draws (all, first, so the random stream is fixed); 2 pull-first pass, only a blocker whose spec[0] is a pull (pulls at spec[1]+ - Toss lead, Power no-FB kick, Counter kick - wait for their pass k); 3 passes k = 0..2 over this order, a rule that finds no man or is `later` waits for the next pass; 4 `any` for a lineman with nothing
 function blockers(rules, flip){
   const order = n => n === 'FB' || n === 'TE2' ? 1 : n.startsWith('WR') ? 2 : 0, h = S.hole, ps = Math.sign(h) || 1;
   return Object.entries(rules).map(([n, spec]) => { const name = flip > 0 ? n : MIRROR[n] || n; return {name, p:bodyOf(name), spec, o:order(n)}; }).filter(b => b.p)

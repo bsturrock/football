@@ -76,18 +76,18 @@ export const PLAYS = [
           FB:[['back'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
    pulls:{RG:[], RT:[]},
    path:[[1.0,-3.4],[-1.5,-1.6],[-3.6,0.8],[-3.8,8]]},   // jab step away, then back across to the hole behind the pullers
-  // Trap: the guard across from the hole pulls and traps the first down lineman beyond the center; the rest block the man on them
+  // Trap: the guard across from the hole pulls first (B-016: pull rules claim before plain ones) and traps the first down lineman beyond the center; the rest block the man on them, the guard and center whose man was trapped go to a backer
   {name:'Trap', run:'hand', scheme:'man', hole:1.1, forms:['11 Under', '21 I'], mesh:[0.7,-2.8],
-   rules:{LT:[['on']], LG:[['pull','trap'],['on']], C:[['on']], RG:[['on'],['backer','near']], RT:[['on']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
+   rules:{LT:[['on']], LG:[['pull','trap'],['on']], C:[['on'],['backer','mike']], RG:[['on'],['backer','near']], RT:[['on']], TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
    pulls:{LG:[]},
    path:[[0.7,-3.0],[1.1,0.5],[1.1,8]]},
   {name:'Outside Zone', run:'toss', scheme:'zone', shift:3, hole:8.5, forms:['11 Gun', '12 Under', '21 I'],   // aim: tight end's outside hip; he reads bounce / cut back
    rules:OUTSIDE_ZONE,
    path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]],
    alt:{under:{run:'hand', mesh:[2.0,-2.8], path:[[1.5,-5.5],[3.2,-3.9],[6.5,-1.8],[8.5,1.5],[8.5,8]]}}},   // from under center: the old Stretch (handoff)
-  // B-007-12 batch 3. Toss: the QB pitches, the backside guard pulls to kick the edge, the fullback wraps to the backer, the strong receiver cracks the safety
+  // B-007-12 batch 3. Toss: the QB pitches, the backside guard kicks the edge or, with none outside the hole, leads on the next free box threat after the tight end (B-016: [kick, later, lead]), the fullback wraps to the backer, the strong receiver cracks the safety
   {name:'Toss', run:'toss', scheme:'man', hole:8.5, forms:['11 Gun', '21 I', '12 Under'],
-   rules:{LT:[['down']], LG:[['pull','kick'],['pull','lead'],['down']], C:[['reach'],['on'],['down']], RG:[['reach'],['on']], RT:[['reach'],['on']], TE:[['boxS'],['reach'],['on']],
+   rules:{LT:[['down']], LG:[['pull','kick'],['later'],['pull','lead']], C:[['reach'],['on'],['down']], RG:[['reach'],['on']], RT:[['reach'],['on']], TE:[['boxS'],['reach'],['backer','ps']],
           FB:[['pull','wrap'],['backer','ps'],['any']], TE2:[['on'],['down']], WR0:[['corner']], WR1:[['deep'],['corner']], WR2:[['corner']]},
    pulls:{LG:[]},
    path:[[5,-4.5],[8,-1.8],[8.5,2],[8.5,8]]},
