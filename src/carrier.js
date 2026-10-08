@@ -13,26 +13,26 @@ import { HW, PILE_R, clamp, dist, rand } from './util.js';
 // every steer in this file goes through here: in contact and slowed under STALL_V x spd, the wanted velocity keeps at least DRIVE_V x spd upfield (leg drive; never stands still)
 function steerVel(p, vx, vy, dt){
   const ct = p.rd && p.rd.cut;
-  if(ct){ const f = faceCap(p, p.vx, p.vy) || 1; vx = p.vx/f; vy = p.vy/f; }   // B-072-4: during a cut cutStep owns his velocity (brake, plant, push); steer only carries it (faceCap undone so the sideways cap doesn't bleed the push)
+  if(ct){ const f = p.faceHold != null && !p.bt && !p.ph ? faceCap(p, p.vx, p.vy) : 1; vx = p.vx/f; vy = p.vy/f; }   // B-072-4: during a cut cutStep owns his velocity (brake, plant, push); steer only carries it (faceCap undone so the sideways cap doesn't bleed the push)
   const f = p.spd*DRIVE_V;
   if(!ct && p.rd && p.rd.cn && vy < f && Math.hypot(p.vx, p.vy) < p.spd*STALL_V){ const k = vy > 0 ? 1 : 0; vx *= k; vy = f; }   // no upfield want: drive straight up; else keep the lane's lateral part
   steer0(p, vx, vy, dt);
 }
 // ---------- plant and push-off cuts (B-072-3, B-072-4) ----------
 // A defender squaring the carrier within CUT_AHEAD yd ahead (lateral reach CUT_WIDE), or the hole he reads moving by CUT_HOLE yd, starts a cut, in three steps:
-// brake (CUT_BRAKE_T s: forward speed falls linearly to CUT_BRAKE_TO x the speed he came in at; the outside foot plants, p.cutPh 1), push (CUT_PUSH_T s: forward speed held there,
+// brake (CUT_BRAKE_T s: forward speed falls linearly to CUT_BRAKE_TO x the speed he came in at; the plant window CUT_PLANT_T s from CUT_PLANT_T0 pins the outside foot, p.cutPh 1 brake, 3 plant), push (CUT_PUSH_T s: forward speed held there, near zero,
 // sideways speed builds at CUT_LAT_A yd/s2 (agility CUT_AGI_LO..1 scales it and the peak CUT_V); no instant kick; p.cutPh 2), go (the cut ends: normal steering and his B-060 acceleration
 // take him from the slower speed, p.cutPh 0). He keeps faceHold upfield (PI; movement.js caps the sideways speed and draws the sidestep gait). Away from the defender, toward the better race.
-// CUT_CD s between cuts. No defender ahead, no cut. S.cutLog (sim.js readout) counts carries, cuts, lateral step and speed kept.
-const CUT_AHEAD = 3, CUT_WIDE = 1.2, CUT_BEHIND = 0.3, CUT_HOLE = 1.2, CUT_BRAKE_T = 0.15, CUT_PUSH_T = 0.3, CUT_BRAKE_TO = 0.5, CUT_LAT_A = 28, CUT_V = 4.5, CUT_AGI_LO = 0.6, CUT_CD = 0.8, CUT_EDGE = 3, CUT_FAST = 0.7, UPFIELD = Math.PI;
+// CUT_CD s between cuts, counted from a cut's end; no cut below CUT_FAST of top speed. No defender ahead, no cut. S.cutLog (sim.js readout) counts carries, cuts, lateral step and speed kept.
+const CUT_AHEAD = 3, CUT_WIDE = 1.2, CUT_BEHIND = 0.3, CUT_HOLE = 1.2, CUT_BRAKE_T = 0.15, CUT_PUSH_T = 0.3, CUT_BRAKE_TO = 0.15, CUT_PLANT_T0 = 0.1, CUT_PLANT_T = 0.1, CUT_LAT_A = 28, CUT_V = 4.5, CUT_AGI_LO = 0.6, CUT_CD = 0.8, CUT_EDGE = 3, CUT_FAST = 0.7, UPFIELD = Math.PI;
 function cutStart(p, dir, why){
   const k = CUT_AGI_LO + (1 - CUT_AGI_LO)*p.rt.agility/99, s0 = Math.hypot(p.vx, p.vy);
   p.rd.cut = {dir, k, t:0, x0:p.x, s0, vy0:p.vy};
-  p.rd.cc = CUT_CD; p.faceHold = UPFIELD; p.cutDir = dir; p.cutPh = 1;
+  p.rd.cc = 0; p.faceHold = UPFIELD; p.cutDir = dir; p.cutPh = 1;
   if(S.cutLog) S.cutLog.cuts++;
 }
 // B-072-3: a manual takeover (offense.js) ends a cut at once: no faceHold or side cap leaks onto a keyboard runner
-export function cutEnd(p){ if(p.rd) p.rd.cut = null; p.faceHold = null; p.cutPh = 0; }
+export function cutEnd(p){ if(p.rd) p.rd.cut = null; p.faceHold = null; p.cutPh = 0; p.cutDir = 0; }
 function cutStep(p, dt){
   const rd = p.rd;
   if(rd.cc > 0) rd.cc -= dt;
@@ -41,16 +41,17 @@ function cutStep(p, dt){
     if(c.t >= CUT_BRAKE_T + CUT_PUSH_T || rd.cn){
       const L = S.cutLog;
       if(L && !rd.cn){ L.lat.push(Math.abs(p.x - c.x0)); if(c.s0 >= CUT_FAST*p.spd) L.keep.push(Math.hypot(p.vx, p.vy)/c.s0); }
-      rd.cut = null; p.faceHold = null; p.cutPh = 0;
+      rd.cut = null; p.faceHold = null; p.cutPh = 0; rd.cc = CUT_CD;   // the cooldown runs from the cut's end
       return;
     }
     const to = c.vy0*CUT_BRAKE_TO;
-    if(c.t < CUT_BRAKE_T) p.vy = c.vy0 + (to - c.vy0)*(c.t/CUT_BRAKE_T);   // brake: the plant foot goes down, forward speed falls
-    else { p.cutPh = 2; p.vy = to; p.vx += c.dir*CUT_LAT_A*c.k*dt; if(c.dir*p.vx > CUT_V*c.k) p.vx = c.dir*CUT_V*c.k; }   // push: planted, leaning, pushing off sideways
+    p.cutPh = c.t < CUT_PLANT_T0 ? 1 : c.t < CUT_PLANT_T0 + CUT_PLANT_T ? 3 : 2;   // brake, plant (the foot is pinned), push
+    if(c.t < CUT_BRAKE_T) p.vy = c.vy0 + (to - c.vy0)*(c.t/CUT_BRAKE_T);   // brake: forward speed falls to near zero
+    else { p.vy = to; p.vx += c.dir*CUT_LAT_A*c.k*dt; if(c.dir*p.vx > CUT_V*c.k) p.vx = c.dir*CUT_V*c.k; }   // push: planted, leaning, pushing off sideways
     return;
   }
   const hx = p.holeX, moved = rd.hx != null && hx != null && Math.abs(hx - rd.hx) > CUT_HOLE; rd.hx = hx;
-  if(rd.cc > 0 || rd.cn || p.ph || p.falling || p.stun > 0) return;
+  if(rd.cc > 0 || rd.cn || p.ph || p.falling || p.stun > 0 || Math.hypot(p.vx, p.vy) < CUT_FAST*p.spd) return;   // no cut below CUT_FAST of top speed (a slow runner has nothing to brake)
   let d0 = null;
   for(const d of DEF){
     const dy = d.y - p.y;
