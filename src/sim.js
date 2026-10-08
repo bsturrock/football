@@ -1,10 +1,10 @@
 import { BRAKE_K, BURST_DRAIN, KEYS, MENTAL, SPRINT, TEMPLATES, accOf, spdOf } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { BOX_X as BOX_DX, formByName } from './formations.js';
-// Random streams (B-091): play logic reads Math.random (mulberry32 of the seed); ratings.js and roster.js weights read a second mulberry32 (seed ^ RATE_SALT, util.js rrand), so rosters depend on seed and regen count alone.
+// Random streams (B-091): play logic reads Math.random (mulberry32 of the seed); ratings.js and roster.js weights read a second mulberry32 per epoch (seed ^ RATE_SALT, restarted at every rating call; util.js rrand), so a roster depends on seed and epoch floor(play/SIM_TEAM_EVERY) alone.
 import { FRONTS, STUNTS } from './fronts.js';
 import { dash40 } from './movement.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
-import { BODY_H, BODY_W, HOLD_R, PILE_R, bearing, faceLean, faceYaw, setRateStream } from './util.js';
+import { BODY_H, BODY_W, HOLD_R, PILE_R, bearing, faceLean, faceYaw, setRateEpoch, setRateMaker } from './util.js';
 
 // ---------- SIM OUTPUT FIELDS (the one line in <pre id="simout">; CLAUDE.md "Sim check" points here) ----------
 // Run: ?sim=N&seed=S (same seed, same line). Force params: &play=<run play>&front=<defensive call> (case-insensitive; an unknown or pass play gives {"error":...}), &form=&side=L|R, &stunt=<name from STUNTS in fronts.js> (B-011: that stunt on the chosen front, or on every drawn call; case-insensitive; unknown gives {"error":...}; echoed as force.stunt; a safety stunt on a call that rolls a safety down, or a blitz stunt on Run Blitz, gives {"error":...} with &front and is skipped without it; call names and byCall stay the drawn call's name, so Slant Left under &stunt=Tex runs Tex)
@@ -94,8 +94,8 @@ const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4
 // B-079: three.js draws one uuid per Mesh, Group, Geometry and Material from Math.random, and its MathUtils is frozen (r128), so generateUUID cannot be swapped. Instead, under ?sim,
 // Math.random reads a private stream (the same mulberry32, fixed seed) while the modules load, and main.js calls endLoad() after its imports, before rate(): the seeded stream starts there, untouched by
 // the load-time uuids, so a mesh added at load no longer shifts any seeded number. (Meshes made during play still draw seeded uuids, so a new in-play mesh shifts the seeded results.)
-// B-091: a second mulberry32, seed ^ RATE_SALT, is read only by ratings.js rateTeams (team offsets, sub-template coin, ratings, mass, mental) and roster.js (FB mass) through util.js rrand. Rosters are then fixed by seed
-// and regen count alone: an extra Math.random in play logic (AI, physics) no longer reshuffles who plays. (Seeded numbers shifted once when rosters moved to this stream.)
+// B-091: a second mulberry32 per epoch (seed ^ RATE_SALT plus the epoch, restarted at each rating call), is read only by ratings.js rateTeams (team offsets, sub-template coin, ratings, mass, mental) and roster.js (FB mass) through util.js rrand. Rosters are then fixed by seed
+// and epoch (play / SIM_TEAM_EVERY) alone, even when a finished game adds a newGame rating call: an extra Math.random in play logic (AI, physics) no longer reshuffles who plays. (Seeded numbers shifted once when rosters moved to this stream.)
 const RATE_SALT = 0x5A17ED;
 const Q = new URLSearchParams(location.search);
 let loading = true;
@@ -105,7 +105,7 @@ function seedRandom(seed){
   const stream = s0 => { let a = s0 >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; };
   const seeded = stream(seed), priv = stream(0x9E3779B9);
   Math.random = () => loading ? priv() : seeded();
-  setRateStream(stream((seed ^ RATE_SALT) >>> 0));   // B-091: ratings and roster weights read their own stream
+  setRateMaker(e => stream(((seed ^ RATE_SALT) + Math.imul(e, 0x9E3779B1)) >>> 0));   // B-091: ratings and roster weights read their own stream
 }
 const pct = (xs, q) => { if(!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return +s[Math.min(s.length - 1, Math.floor(q*s.length))].toFixed(3); };
 const med = xs => { if(!xs.length) return null; const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return +(s.length % 2 ? s[m] : (s[m-1] + s[m])/2).toFixed(3); };
@@ -378,6 +378,7 @@ export function runSim(n, step, g){
 
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
+    setRateEpoch((i + 1)/SIM_TEAM_EVERY | 0);   // B-091: every rating call after play i (the regen, or newGame when the game ended) draws epoch floor((i+1)/SIM_TEAM_EVERY)'s roster
     tb.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); dlD.d1.clear(); dlD.dR.clear(); DEF.forEach(p => { p.towT = undefined; });
     curPlay = i; bodMax[i] = 0; fallsEnded = true; fe.clear();
     cfBack = null; hMax = 0; let pNear = Infinity, pT = null, p1 = false, cut = false, stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = [], pullSeen = new Map(), pullWon = new Set(); const drive0 = S.drive;
