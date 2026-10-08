@@ -1,6 +1,6 @@
 import { runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
 import { pairCheck, pairReport, setFrameClock, syncScene } from './animation.js';
-import { separate } from './blocking.js';
+import { CARRY_T, separate, stepHz } from './blocking.js';
 import { updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
@@ -119,7 +119,7 @@ function start(data){
   selectPlay(0); setupPlay();
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
   if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0)); return; }
-  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
     if(q.has('frames') && drillError){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:drillError}); document.body.appendChild(el); return; }   // B-042 (axis-glide)
     if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
