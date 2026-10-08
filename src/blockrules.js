@@ -16,7 +16,7 @@ import { dist } from './util.js';
 //   down     nearest line man toward the hole from me (head up counts)
 //   reach    outside shade: the line man on the playside of me, nearest REACH_AIM out
 //   edge     the outermost line man on the playside (the kick-out man; B-007-8 makes it a real kick)
-//   backer   ['backer','mike'] the linebacker nearest the center; ['backer','ps'] the one nearest the hole on the playside;
+//   backer   ['backer','mike'] the linebacker nearest the center (two equally near: the one on the hole side); ['backer','ps'] the one nearest the hole on the playside;
 //            ['backer','near'] the one nearest me (a tie goes away from the hole)
 //   boxS     the safety rolled into the box on the playside
 //   double   ['double','playside'|'backside'|<blocker name>]: I have nobody on me, so I join the neighbour on that side against the line man covering him (the neighbour is the post man and keeps him; I
@@ -29,6 +29,7 @@ import { dist } from './util.js';
 //            wrap  the nearest unblocked playside linebacker beyond los+WRAP_Y; ['pull','wrap','ps'] the one nearest the hole instead (B-030: the double climbs to the Mike, the wrapper takes the playside backer)
 //            lead  (B-016) no kick-out man outside the hole: the box defender on my playside nearest the hole, the first threat (the Toss guard leads up on him)
 //            trap  the first line man past the center on my pull side that nobody blocks
+//   (B-015) reserve: a man standing on a lineman who has not blocked yet and has an `on` rule still to try is not taken by a roaming rule (down, back) or a second tight end's on / line / reach / edge; a wrong-man bust may still take him
 //   deep     the safety nearest me;  corner  the corner covering me;  any  nearest man in the box within ANY_DX of me (nobody is sent across the formation)
 // A rule may carry a guard (B-030, per form): rule.need = a blocker name that must be on the field, rule.not = one that must not (a Power with no fullback sends the guard to kick; with one, to wrap).
 // Double team (B-007-7). Per blocker p.dbl = {d, mate, post, t, state}; absent = single. The climber is the uncovered man who joins, the post man the covered neighbour who keeps d.
@@ -71,6 +72,7 @@ export const PULL_V = 1.3, PULL_DEPTH = 1.8, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, 
 export const READ_BASE = 0.45, READ_K = 250, MISS_P = 0.5, MISS_HOLD = 0.4, WRONG_P = 0.15, LEFT_DX = 1.2*GK, REREAD_DT = 0.1, GIVEUP_T = 0.8;
 // S.climbed: true once a climb happened this play; B-007-10's climb counter reads it.
 export const CLIMB_T = 0.5, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = ENGAGE_R, COMMIT_V = 0.5, NEIGHBOUR_DX = 3*GK, BEHIND_Y = 1.5;   // NEIGHBOUR_DX: the next lineman is no further than this; BEHIND_Y: a blocker does not pick a man this far behind him   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
+export const BACKER_TIE = 0.01;   // B-015: two backers this close count as equally near ('mike' breaks the tie toward the hole, 'near' away from it)
 export const COVER_EPS = 1e-3;   // B-030: a defender exactly COVERED_DX off (a float tie, e.g. the nickel guard) counts as covered, the same way in every covered test
 export const COVERED_DX = 1.0*GK, COVERED_DY = 2.5, REACH_DX = 3.5*GK, REACH_AIM = 2.0*GK, BOX_Y = 7, ANY_DX = 5*GK, LANE_DX = 1.8*GK, ZONE_KEEP = 3*GK, CLIMB_LANE_DX = 6*GK;   // ZONE_KEEP: offense.js zoneBlock drops an unengaged, unruled target this far from the lane
 // Scheme knowledge (B-032-2). At the snap every lineman, tight end and back-blocker (not a receiver) rolls one bust draw: chance BUST_MAX*(1-know/99)^2, know = his rating for the
@@ -120,8 +122,8 @@ function pick(rule, p, free, ctx){
     case 'edge': return nearest(line, d => d.x*-ps);
     case 'backer': {
       const lbs = free.filter(d => d.role === 'LB');
-      if(rule[1] === 'mike') return nearest(lbs, d => Math.abs(d.x) + (d.x*ps < 0 ? 0.01 : 0));   // B-015: two backers equally near the center (the nickel): the one on the hole side
-      if(rule[1] === 'near') return nearest(lbs, d => Math.abs(dx(d)) + (Math.sign(d.x) === ps ? 0.01 : 0));   // straight up from where I stand; a tie goes away from the hole, so a climber doesn't cross it
+      if(rule[1] === 'mike') return nearest(lbs, d => Math.abs(d.x) + (d.x*ps < 0 ? BACKER_TIE : 0));   // B-015: two backers equally near the center (the nickel): the one on the hole side
+      if(rule[1] === 'near') return nearest(lbs, d => Math.abs(dx(d)) + (Math.sign(d.x) === ps ? BACKER_TIE : 0));   // straight up from where I stand; a tie goes away from the hole, so a climber doesn't cross it
       return nearest(lbs.filter(d => d.x*ps > -PLAYSIDE_X), d => Math.abs(d.x - h));
     }
     case 'boxS': return free.find(d => d.fit && d.role === 'S' && Math.sign(d.x) === ps) || null;
@@ -150,7 +152,7 @@ function pick(rule, p, free, ctx){
   return null;
 }
 // the blockers of a play, in the order they claim: linemen and tight end nearest the hole first, then the extras, then the receivers.
-// Claim order (B-016), in resolveBlocks: 1 bust draws (all, first, so the random stream is fixed); 2 pull-first pass, only a blocker whose spec[0] is a pull (pulls at spec[1]+ - Toss lead, Power no-FB kick, Counter kick - wait for their pass k); 3 passes k = 0..2 over this order, a rule that finds no man or is `later` waits for the next pass; 4 `any` for a lineman with nothing
+// Claim order (B-016), in resolveBlocks: 1 bust draws (all, first, so the random stream is fixed); 2 pull-first pass, only a blocker whose spec[0] is a pull (pulls at spec[1]+ - Toss lead, Power no-FB kick, Counter kick - wait for their pass k); 3 passes k = 0..2 over this order, a rule that finds no man or is `later` waits for the next pass; (B-015: a roaming rule skips the man reserved for a lineman who still has an `on` rule); 4 `any` for a lineman with nothing
 function blockers(rules, flip){
   const order = n => n === 'FB' || n === 'TE2' ? 1 : n.startsWith('WR') ? 2 : 0, h = S.hole, ps = Math.sign(h) || 1;
   return Object.entries(rules).map(([n, spec]) => { const name = flip > 0 ? n : MIRROR[n] || n; return {name, p:bodyOf(name), spec, o:order(n)}; }).filter(b => b.p)
@@ -222,8 +224,9 @@ export function resolveBlocks(play, flip, again = false){
   }
   for(let k = 0; k < 3; k++) for(const b of bl){
     if(b.p.blk || !b.spec[k]) continue;
+    const cov = covering(b, k), open = () => free(b).filter(e => !cov.has(e));   // B-015: the men reserved for a lineman who has an `on` rule still to try
     if(b.bust && !b.entry.kind && b.spec[k] && allowed(b.spec[k]) && !['later', 'pass', 'pull', 'double'].includes(b.spec[k][0])){
-      const postOf = postMan(b), own = postOf ? null : pick(b.spec[k], b.p, free(b), ctx), nx = b.spec[k + 1];
+      const postOf = postMan(b), own = postOf ? null : pick(b.spec[k], b.p, open(), ctx), nx = b.spec[k + 1];
       if(postOf) b.entry.kind = b.bust.half ? 'late' : 'noclimb';   // provisional: cleared at the end when no double forms
       else if(own){   // no man on this rule: no bust here, the next rule is tried (the draw was taken at the snap)
       const others = free(b).filter(d => d !== own);   // his own man stays free
@@ -236,10 +239,10 @@ export function resolveBlocks(play, flip, again = false){
     // B-007-12: a Draw pass-setter (first rule 'pass', held by offense.js) takes no wrong read
     if(k === 0 && stunting && !b.bust && allowed(b.spec[0]) && allowed(b.spec[1]) && !b.o && b.spec[1] && b.spec[0][0] !== 'pass' && !['pull', 'double'].includes(b.spec[0][0]) && !['pull', 'double'].includes(b.spec[1][0]) && Math.random() < WRONG_P*lack(b.p, 'recog')){
       const d2 = pick(b.spec[1], b.p, free(b), ctx);   // a wrong read: his second-priority man, when it is a different one
-      if(d2 && d2 !== pick(b.spec[0], b.p, free(b), ctx)){ take(b, d2, b.spec[1]); wrong.push(b); continue; }
+      if(d2 && d2 !== pick(b.spec[0], b.p, open(), ctx)){ take(b, d2, b.spec[1]); wrong.push(b); continue; }
     }
     if(!allowed(b.spec[k])) continue;
-    const d = pick(b.spec[k], b.p, free(b).filter(e => !covering(b, k).has(e)), ctx); if(d) take(b, d, b.spec[k]);
+    const d = pick(b.spec[k], b.p, open(), ctx); if(d) take(b, d, b.spec[k]);
   }
   for(const b of bl){   // a lineman or tight end with nothing named takes the nearest man in the box
     if(b.p.blk || b.o) continue;
