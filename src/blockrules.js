@@ -120,7 +120,7 @@ function pick(rule, p, free, ctx){
     case 'edge': return nearest(line, d => d.x*-ps);
     case 'backer': {
       const lbs = free.filter(d => d.role === 'LB');
-      if(rule[1] === 'mike') return nearest(lbs, d => Math.abs(d.x));
+      if(rule[1] === 'mike') return nearest(lbs, d => Math.abs(d.x) + (d.x*ps < 0 ? 0.01 : 0));   // B-015: two backers equally near the center (the nickel): the one on the hole side
       if(rule[1] === 'near') return nearest(lbs, d => Math.abs(dx(d)) + (Math.sign(d.x) === ps ? 0.01 : 0));   // straight up from where I stand; a tie goes away from the hole, so a climber doesn't cross it
       return nearest(lbs.filter(d => d.x*ps > -PLAYSIDE_X), d => Math.abs(d.x - h));
     }
@@ -193,6 +193,17 @@ export function resolveBlocks(play, flip, again = false){
   if(!again) left = new Set();
   // a covered blocker next to a neighbour with a double rule toward him that could fire (uncovered, or 'cov'): he is that double's post man. An approximation: it does not check that the neighbour's earlier rules took no man; a double that never forms clears the kind at the end
   const postMan = b => bl.some(c => c !== b && c.spec.some(r => r[0] === 'double' && allowed(r) && ctx.neighbour(c.p, r[1] || 'playside') === b.p && (r[2] === 'cov' || !DEF.some(d => d.stun <= 0 && Math.abs(d.x - c.p.x) <= COVERED_DX + COVER_EPS && d.y - los <= COVERED_DY))));
+  // B-015: a man standing on a lineman who has not blocked yet and still has an `on` rule to try is his; a roaming rule (down, back) or a back-blocker's line rule (second tight end) does not take him
+  // (the Duo tight end's `down` took the end the right tackle covers, leaving the tackle with nobody). A man the roaming blocker is covered by himself stays his own (rule order).
+  const ROAM = ['down', 'back'];
+  const covering = (b, k) => {
+    const set = new Set(); if(!(ROAM.includes(b.spec[k][0]) || b.o === 1 && ['on', 'line', 'reach', 'edge'].includes(b.spec[k][0]))) return set;
+    for(const c of bl){
+      if(c === b || c.p.blk || c.o || !c.spec.some((r, j) => j > k && r[0] === 'on' && allowed(r))) continue;
+      const d = pick(['on'], c.p, free(c), ctx); if(d) set.add(d);
+    }
+    return set;
+  };
   const free = b => DEF.filter(d => d.stun <= 0 && !left.has(d) && (!claimed.has(d) || (resv.get(d) || {}).post === b.p));
   if(!again){
     for(const b of bl){
@@ -228,7 +239,7 @@ export function resolveBlocks(play, flip, again = false){
       if(d2 && d2 !== pick(b.spec[0], b.p, free(b), ctx)){ take(b, d2, b.spec[1]); wrong.push(b); continue; }
     }
     if(!allowed(b.spec[k])) continue;
-    const d = pick(b.spec[k], b.p, free(b), ctx); if(d) take(b, d, b.spec[k]);
+    const d = pick(b.spec[k], b.p, free(b).filter(e => !covering(b, k).has(e)), ctx); if(d) take(b, d, b.spec[k]);
   }
   for(const b of bl){   // a lineman or tight end with nothing named takes the nearest man in the box
     if(b.p.blk || b.o) continue;
