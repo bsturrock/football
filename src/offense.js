@@ -8,6 +8,18 @@ import { C, DEF, DL, LBs, LG, LT, OFF, QB, RB, RG, RT } from './players.js';
 import { S, ball } from './state.js';
 import { BODY_W, dist } from './util.js';
 
+// B-060-2: situational speeds, fractions of p.spd (top speed only in a dead sprint); scale the speed passed to steer/steerVel only, never p.acc or p.leg
+const RUN_BLOCK_F = 0.45, BEATEN_F = 0.3, PASS_SET_F = 0.3, CLIMB_F = 0.7, LEAD_F = 0.7, STEM_F = 0.8;
+export function logSpeed(p, top){   // B-060-2 readout: S.speedRole[role] = {n, sum} of speed/top while the play is live (ball held or in the air)
+  if(S.phase === 'presnap' || (ball.state !== 'held' && ball.state !== 'air')) return;
+  const r = S.speedRole || (S.speedRole = {}), k = p.role, e = r[k] || (r[k] = {n:0, sum:0});
+  e.n++; e.sum += Math.hypot(p.vx, p.vy)/top;
+}
+// a route at stem speed: runRoute reads w.spd, so scale it for the call and put it back
+function route(p, dt){
+  const f = ball.state === 'air' || p.wp > 0 || p.wp >= p.route.length ? 1 : STEM_F, s = p.spd;
+  p.spd = s*f; runRoute(p, dt); p.spd = s;
+}
 const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
 const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
@@ -45,7 +57,7 @@ function driveAt(p, d, ref, dt){
     const s = p.dbl.ringS, c = Math.cos(DBL_ARC*s), n = Math.sin(DBL_ARC*s);
     tx = d.x + (ux*c - uy*n)/ul*DBL_R; ty = d.y + (ux*n + uy*c)/ul*DBL_R;
   }
-  steer(p, tx, ty, p.spd*(p.beatT > 0 ? 0.55 : 1), dt);
+  steer(p, tx, ty, p.spd*(p.beatT > 0 ? BEATEN_F : RUN_BLOCK_F), dt);
 }
 const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
 // man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
@@ -54,7 +66,7 @@ function block(p, dt){
   const ref = runRef();
   let d = p.blk;
   if(!d || d.stun > 0){ d = p.blk = pickBlock(p, ref); }
-  if(!d){ steer(p, ref.x + (p.x > ref.x ? LEAD_X : -LEAD_X), ref.y + 3, p.spd*0.85, dt); return; }  // nobody left: lead upfield
+  if(!d){ steer(p, ref.x + (p.x > ref.x ? LEAD_X : -LEAD_X), ref.y + 3, p.spd*LEAD_F, dt); return; }  // nobody left: lead upfield
   driveAt(p, d, ref, dt);
 }
 // zone: block whoever is in my lane at the line; if the lane is empty, climb to a linebacker in my area.
@@ -72,7 +84,7 @@ function zoneBlock(p, dt){
     }
     p.blk = d;
   }
-  if(!d){ p.climbing = true; steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*0.9, dt); return; }
+  if(!d){ p.climbing = true; steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*CLIMB_F, dt); return; }
   driveAt(p, d, ref, dt);
 }
 function runBlock(p, dt){
@@ -105,6 +117,7 @@ function olAssign(p){
 //   handoff  giveBall(RB) -> run: normal run fit after the defenders' read delay
 const drawHold = () => { const d = PLAYS[S.play].delay; return d && S.handoffAt === Infinity ? d : 0; };
 export function offenseAI(p, dt, inp){
+  if(p.role !== 'QB' && p !== (ball.holder)) logSpeed(p, p.spd);
   p.faceAt = null;
   if(p.falling) return;                                   // going down: tackleUpdate moves him
   const c = ball.state === 'held' ? ball.holder : null, run = PLAYS[S.play].run;
@@ -117,7 +130,7 @@ export function offenseAI(p, dt, inp){
         const side = Math.sign(p.x - QB.x) || 1, tx = QB.x + side*0.7, ty = QB.y - 0.2, l = Math.hypot(tx - p.x, ty - p.y) || 1;
         steerVel(p, (tx - p.x)/l*p.spd, (ty - p.y)/l*p.spd, dt); return;
       }
-      runRoute(p, dt); return;
+      route(p, dt); return;
     }            // RB runs his path until he has the ball
     if(p === QB && c === QB && run === 'hand'){                      // handoff: open to the mesh, then extend to the back
       const m = PLAYS[S.play].mesh;
@@ -143,7 +156,7 @@ export function offenseAI(p, dt, inp){
   if(p.role === 'WR'){
     if(ball.state === 'air' && p === ball.target){ steer(p, ball.tx, ball.ty, p.spd, dt); return; }
     if(S.runMode && c !== p){ runBlock(p, dt); return; }
-    runRoute(p, dt); return;
+    route(p, dt); return;
   }
   if(S.runMode){ runBlock(p, dt); return; }
   if(drawHold()){ p.blk = null; p.ruled = false; p.dbl = null; p.rr = null; }   // Draw: no run target in the pass set; the handoff re-read picks the man on him
@@ -151,5 +164,5 @@ export function offenseAI(p, dt, inp){
   if(dist(p, r) < ENGAGE_R) p.eng = 0.15;
   p.faceAt = r;
   const k = 0.95 + (drawHold() ? DRAW_SET : 0);
-  steer(p, r.x + qx/ql*k, r.y + qy/ql*k, p.spd, dt);
+  steer(p, r.x + qx/ql*k, r.y + qy/ql*k, p.spd*PASS_SET_F, dt);
 }
