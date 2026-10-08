@@ -20,7 +20,8 @@ export function defOffStep(d, dt){
   for(const o of OFF){
     if(o.ph) continue;
     const g = d.dof && d.dof.o === o ? d.dof : null, r = dist(o, d);
-    if(S.runMode && o.blk === d && r < (g ? DRIVE_KEEP : DRIVE_D)){
+    const own = d.dof && d.dof.o !== o && d.dof.o.blk === d && dist(d.dof.o, d) < DRIVE_KEEP;   // a double team: one driver per man, the other falls through to the push
+    if(!own && S.runMode && o.blk === d && r < (g ? DRIVE_KEEP : DRIVE_D)){
       const b = g || (d.dof = {o, ang:Math.atan2(d.x - o.x, d.y - o.y), phase:'set', age:0});
       const undo = g && fresh(o.doT);
       if(undo){ o.x = o.dox; o.y = o.doy; }   // movement.js steered him toward his man this frame: take it back
