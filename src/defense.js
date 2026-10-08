@@ -252,13 +252,13 @@ function nearBlocker(d, o){
   for(const q of OFF) if(q !== cur && cand(q) && dist(q, d) + NEAR_SWAP < dist(cur, d)) cur = q;
   return cur;
 }
-// B-065: the gap an engaged defender fights for: his own gap (job.gx); a two-gapper holds square (null) until his read, then takes the ball-side gap
 // B-072-2: facing holds (movement.js faceHold; speed caps and gait come from there). A non-blitzing LB stays square to the line, a DB in coverage faces the QB, until a trigger fires;
 // then faceHold is null for the rest of the play (d.fhOff). Triggers (named constants):
 //   LB in a run: the carrier is across the line, heads within LB_GAP_D of his gap laterally (once he is within LB_NEAR_Y of the line), or LB_READ_T s after the handoff
-//   DB / LB in coverage: the man within DB_TURN_D, or at DB_DEEP_V yd/s going deep within DB_DEEP_NEAR; the ball thrown. A zone DB keeps facing the QB until the throw.
+//   DB / LB in coverage: the man within DB_TURN_D and moving downfield (over DB_MOVE_V), or at DB_DEEP_V yd/s going deep within DB_DEEP_NEAR; the ball thrown. A deep zone DB (mode 'deep') bails (turns and runs) when the deepest receiver in his half is at DB_DEEP_V yd/s and within DB_BAIL_CUSH of him; else he keeps facing the QB until the throw.
+// An engaged man's hold stays set (movement.js ignores it while p.bt), so his fh time is not counted.
 // d.fh = {t, sq, end}: the sim's readout (time held, time within FH_SQ_DEG of the hold, play clock (LB: since the handoff) at the commit or turn, null if none)
-const LB_GAP_D = 3, LB_NEAR_Y = 3, LB_READ_T = 0.6, DB_TURN_D = 2, DB_DEEP_V = 5, DB_DEEP_NEAR = 5, FH_SQ_DEG = 30;
+const LB_GAP_D = 3, LB_NEAR_Y = 3, LB_READ_T = 0.6, DB_TURN_D = 2, DB_DEEP_V = 5, DB_DEEP_NEAR = 5, DB_MOVE_V = 1, DB_BAIL_CUSH = 4, FH_SQ_DEG = 30;   // DB_MOVE_V: the 2 yd turn needs the man moving downfield faster than this (a stopped hitch keeps the DB on the QB); DB_BAIL_CUSH: a deep zone DB bails when his deepest man in his half is this close (yd) at DB_DEEP_V
 const wrapPi = a => Math.atan2(Math.sin(a), Math.cos(a));
 function holdFacing(d, c, runRead, dt){
   if(d.fhOff || d.role === 'DL' || d.mode === 'rush' || (d.stunt && d.stunt.blitz)) return null;
@@ -273,12 +273,15 @@ function holdFacing(d, c, runRead, dt){
   } else {
     yaw = lb ? 0 : bearing(d, QB);
     const w = d.mode === 'cover' ? d.assign : null;
-    go = !!w && (dist(d, w) < DB_TURN_D || (w.vy > DB_DEEP_V && dist(d, w) < DB_DEEP_NEAR));
+    if(w) go = (dist(d, w) < DB_TURN_D && w.vy > DB_MOVE_V) || (w.vy > DB_DEEP_V && dist(d, w) < DB_DEEP_NEAR);
+    else if(d.mode === 'deep'){ const deep = RECV.filter(r => r.x*d.side > -3).reduce((a, b) => !a || b.y > a.y ? b : a, null); go = !!deep && deep.vy > DB_DEEP_V && d.y - deep.y < DB_BAIL_CUSH; }   // the same man coverTarget drops over
   }
   if(go) return end();
+  if(d.bt) return yaw;   // engaged: movement.js ignores the hold; not counted
   fh.t += dt; if(Math.abs(wrapPi(d.face - yaw)) < FH_SQ_DEG*Math.PI/180) fh.sq += dt;
   return yaw;
 }
+// B-065: the gap an engaged defender fights for: his own gap (job.gx); a two-gapper holds square (null) until his read, then takes the ball-side gap
 function engagedGap(d, c){
   const j = d.job;
   if(!j || !S.runMode || !PLAYS[S.play].run) return undefined;   // run plays only: a pass rusher keeps the old leverage
