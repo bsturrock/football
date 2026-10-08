@@ -35,10 +35,10 @@ const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates'
 // B-069 (tackle-technique): how the tackler makes the hit. 'dive' = last-ditch (from behind, or at full stretch), 'shoulder' = the speed edge (BOOM), else 'wrap' (square: breaks down, chest to chest, arms around, legs drive).
 // d.tech is set at contact and logged (S.tkLog tech). Launch: forward kick (yd/s), up (m/s) and spin (forward lean rate, rad/s-ish, physOn spin); lower than before so he hits from his feet.
 const TECH = {wrap:{kick:2.4, up:0, lean:0}, shoulder:{kick:2.6, up:0.15, lean:1.2}, dive:{kick:3.0, up:0.3, lean:2.5}};
-const STRETCH_DD = 1.1*BODY_W;
+const STRETCH_DD = 1.3*BODY_W;   // the open-field dive range (tackleUpdate)
 function pickTech(d, c, dd, big, cAway, nx, ny){
-  const behind = cAway > 1 && d.vx*nx + d.vy*ny > 0 && (c.vx*d.vx + c.vy*d.vy) > 0 && dd > 0.7*BODY_W;   // chasing him from behind
-  if(behind || dd > STRETCH_DD) return 'dive';
+  const behind = cAway > 2 && cAway > 0.7*Math.hypot(c.vx, c.vy) && d.vx*nx + d.vy*ny > 0;   // chasing him from behind: he's running straight away from the tackler
+  if(behind || dd > STRETCH_DD && !big) return 'dive';
   return big ? 'shoulder' : 'wrap';
 }
 const launch = (d, nx, ny, tech, extra=0) => { const T = TECH[tech]; return {vx:d.vx + nx*(T.kick + extra), vy:d.vy + ny*(T.kick + extra), up:T.up, spin:{x:nx*T.lean, y:ny*T.lean}}; };
