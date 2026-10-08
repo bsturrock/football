@@ -13,7 +13,6 @@ import { clamp, dist, faceYaw } from './util.js';
 // he wants to go. A tackle is just the tacklers' grips and leg drive beating that, and then gravity.
 const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
 const JOINT_K = 1e7, JOINT_RELAX = 4;   // B-056: joint equations get their SPOOK terms for the real step; cannon builds a constraint with h = 1/60, so at PH_DT = 1/180 its joints were 9x too soft
-const SPEED_RAIL = 12;   // B-034: yd/s cap on any part (fastest sprinter ~11)
 // physics bubble: players near a live ragdoll become full bodies (ph.bubble) so ragdolls and piles hit them.
 // States per player (all in bubbleUpdate / physOn / physOff):
 //   animated    p.ph null, no collision body
@@ -327,22 +326,22 @@ export function physStep(dt){
       if(p.latch && p.latch.ph && S.phase === 'live'){   // tackler: plant against his motion and drive through him
         const r = p.latch.ph.bodies[0], t = ph.bodies[0], dx = r.position.x - t.position.x, dz = r.position.z - t.position.z, l = Math.hypot(dx, dz) || 1;
         const sg = S.pile && S.pile.state === 'pushing' && S.pile.pushersO > S.pile.pushersD ? PLANT_HOLD : 1;   // feature (pile-push)
-        const F = ph.reach || p.grip === 'wrap' ? ph.M*p.leg*(p.rTkl/80)*1.25*sg : 0;   // arm tackle: just hanging on, dragging his weight   // B-034 (speed-scale)
+        const F = ph.reach || p.grip === 'wrap' ? ph.M*p.acc*(p.rTkl/80)*1.25*sg : 0;   // arm tackle: just hanging on, dragging his weight
         t.applyForce(new CANNON.Vec3(dx/l*F, 0, dz/l*F));
-        if(ph.reach) physLegs(p, ph, r.velocity.x + dx/l*3, r.velocity.z + dz/l*3, p.leg*1.2, BODY_H, 1.0);   // still reaching: run through him   // B-034 (speed-scale)
+        if(ph.reach) physLegs(p, ph, r.velocity.x + dx/l*3, r.velocity.z + dz/l*3, p.acc*1.2, BODY_H, 1.0);   // still reaching: run through him
         else physLegs(p, ph, 0, 0, PLANT_A*gripK(p)*sg, BODY_H, 1.0);   // got him: plant, low pad level, can't lift him
       } else if(ph.drv && ph.drv.until > phClock && S.phase === 'live' && p !== c){   // pile push: a wanted velocity and leg force from pile.js
         physLegs(p, ph, ph.drv.vx, -ph.drv.vy, ph.drv.a); if(ph.bubble) physYaw(p, ph);
-      } else if(p === c) physLegs(p, ph, p.vx, -p.vy, p.leg*(p.rBrk/75), 1.3*BODY_H, DEF.some(d => d.latch === p) ? 1.0 : 1.3);   // runner: where his steering wants to go   // B-034 (speed-scale)
-      else if(ph.bubble){ physLegs(p, ph, p.wx ?? p.vx, -(p.wy ?? p.vy), p.leg); physYaw(p, ph); }   // his intent, not what the collisions left of it   // B-034 (speed-scale)
-      else physLegs(p, ph, p.vx, -p.vy, p.leg);   // B-034 (speed-scale)
+      } else if(p === c) physLegs(p, ph, p.vx, -p.vy, p.acc*(p.rBrk/75), 1.3*BODY_H, DEF.some(d => d.latch === p) ? 1.0 : 1.3);   // runner: where his steering wants to go
+      else if(ph.bubble){ physLegs(p, ph, p.wx ?? p.vx, -(p.wy ?? p.vy), p.acc); physYaw(p, ph); }   // his intent, not what the collisions left of it
+      else physLegs(p, ph, p.vx, -p.vy, p.acc);
     }
     PW.step(PH_DT); phClock += PH_DT;
     for(const q of PW.contacts){ const a = q.bi.pl, b = q.bj.pl; if(a && b && a.team !== b.team) a.hitT = b.hitT = phClock;   // opposing bodies touching
       if(a && b && a !== b){ if(PROP_PART[q.bi.pi]) a.ph.propT = phClock; if(PROP_PART[q.bj.pi]) b.ph.propT = phClock; } }   // a down-counting part resting on another player
     // speed rail: no part moves faster than a sprinter or gets launched skyward
     for(const p of PHYS) for(const b of p.ph.bodies){
-      const v = b.velocity, sp = Math.hypot(v.x, v.y, v.z); if(sp > SPEED_RAIL){ v.x *= SPEED_RAIL/sp; v.y *= SPEED_RAIL/sp; v.z *= SPEED_RAIL/sp; }
+      const v = b.velocity, sp = Math.hypot(v.x, v.y, v.z); if(sp > 10){ v.x *= 10/sp; v.y *= 10/sp; v.z *= 10/sp; }
       if(v.y > 3) v.y = 3;
       const w = b.angularVelocity, ws = w.length(); if(ws > 14){ w.x *= 14/ws; w.y *= 14/ws; w.z *= 14/ws; }
     }
