@@ -38,16 +38,16 @@ export function steer(p, tx, ty, speed, dt){
   const s = d > 0.05 ? (p.fire > 0 ? speed : Math.min(speed, Math.sqrt(2*p.brake*d)))/d : 0;   // firing out: no easing into contact
   steerVel(p, dx*s, dy*s, dt);
 }
-export function runRoute(w, dt){
+export function runRoute(w, dt, f = 1){   // B-060-2 (speed-situational): f scales only the speed passed to steer/steerVel (stem speed), never w.spd, acc or brake
   if(w.wp < w.route.length){
     const t = w.route[w.wp], n = w.route[w.wp + 1], d = Math.hypot(t.x - w.x, t.y - w.y);
-    if(!n && !w.go){ if(d < 0.7) w.wp++; steer(w, t.x, t.y, w.spd, dt); return; }   // a route that stops (curl): settle on the spot
+    if(!n && !w.go){ if(d < 0.7) w.wp++; steer(w, t.x, t.y, w.spd*f, dt); return; }   // a route that stops (curl): settle on the spot
     // through waypoints at full speed, rounding each corner by aiming partway at the next one
-    if(d < 1.2) { w.wp++; runRoute(w, dt); return; }
+    if(d < 1.2) { w.wp++; runRoute(w, dt, f); return; }
     const k = n ? clamp(1 - d/2.5, 0, 1)*0.6 : 0, ax = t.x + (n ? (n.x - t.x)*k : 0), ay = t.y + (n ? (n.y - t.y)*k : 0);
     const l = Math.hypot(ax - w.x, ay - w.y) || 1;
-    steerVel(w, (ax - w.x)/l*w.spd, (ay - w.y)/l*w.spd, dt);
-  } else if(w.go) steer(w, w.x + w.goDir.x*5, w.y + w.goDir.y*5, w.spd, dt);
+    steerVel(w, (ax - w.x)/l*w.spd*f, (ay - w.y)/l*w.spd*f, dt);
+  } else if(w.go) steer(w, w.x + w.goDir.x*5, w.y + w.goDir.y*5, w.spd*f, dt);
   else steer(w, w.x, w.y, 0, dt);
 }
 

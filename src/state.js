@@ -14,7 +14,7 @@ import { $, HW, clamp, rand } from './util.js';
 
 // ---------- state ----------
 export const S = {flip:1, form:null, score:0, tds:0, drive:1, los:25, down:1, toGo:10, play:0, phase:'presnap', runMode:false,
-           clock:0, deadT:0, charging:false, chargeT:0, over:false, ctrl:QB, cpu:true, preT:0, overT:0, cam:'tv', prog:-Infinity, offPers:null};
+           clock:0, deadT:0, charging:false, chargeT:0, over:false, ctrl:QB, cpu:true, preT:0, overT:0, cam:'tv', prog:-Infinity, offPers:null, speedRole:{}};   // speedRole: B-060-2 readout
 export const ball = {state:'pre', holder:null, fx:0, fy:0, tx:0, ty:0, t:0, dur:1, apex:1, thrownAt:0, target:null};
 export function selectPlay(i){
   S.play = i;
