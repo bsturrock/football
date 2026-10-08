@@ -22,6 +22,14 @@ const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before 
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
 const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
 const CLIMB_LEAD_T = 0.6;   // B-012 (climb-timing): the climber aims this many seconds of the linebacker's velocity ahead of him, at most (his own time to arrive when shorter)
+const NM_DEPTH = 2.5, NM_HELP_R = 4, NM_SHADE = 0.3, NM_SHADE_MAX = 1.5;   // B-073: a blocker with no man holds within NM_DEPTH of the line (fixed target), helps an engaged lineman within NM_HELP_R, shades NM_SHADE of the way to the hole (at most NM_SHADE_MAX)
+const BEAT_BRAKE_T = 0.3, BEAT_STOP_V = 1.2;   // B-073: a beaten blocker plants (brakes hard) for up to this long (or until under this speed) before he chases his man's hip
+// B-073 readout (sim.js can add S.olDepth): one record per OL/TE/WR blocker per play, {id, noMax (deepest past the line with no man, yd), over (farthest from the spot he was beaten, yd), face (s from beaten to within ENGAGE_R of his man, -1 never)}
+export function noteBlocker(p){
+  const r = p.olRec || (p.olRec = {id:p.role + OFF.indexOf(p), noMax:0, over:0, face:-1, b:null});
+  return r;
+}
+export function flushOlRecs(list){ for(const p of OFF){ const r = p.olRec; if(r && (r.noMax > 0 || r.b)) list.push({id:r.id, noMax:+r.noMax.toFixed(2), over:+r.over.toFixed(2), face:r.face}); p.olRec = null; } }
 const FIT_UP = 0.6;   // B-021: a blocker aims this far in front of his man's centre (was 0.85, x0.7 body width)
 const DBL_ARC = 75*Math.PI/180, DBL_R = BODY_W + 0.05;   // B-025: while the battle blocker (d.bt.o) is locked on, the second man fits up on the defender's ring DBL_ARC round from him (centres 2*DBL_R*sin(arc/2) = 0.9 apart, clear of BODY_W), on the side he is already on
 const DBL_SHOULDER = 0.32;   // B-021: was 0.45, x0.7   // two blockers on one defender: each takes a shoulder this far off his centre
@@ -57,6 +65,12 @@ function driveAt(p, d, ref, dt){
     tx = d.x + (ux*c - uy*n)/ul*DBL_R; ty = d.y + (ux*n + uy*c)/ul*DBL_R;
   }
   let f = p.beatT > 0 ? BEATEN_F : RUN_BLOCK_F;
+  if(p.beatT > 0){   // B-073: beaten: plant (brake hard, no aiming past himself), then chase his man's hip from where he stands
+    const r = noteBlocker(p); if(!r.b){ r.b = {x:p.x, y:p.y, t:0}; }
+    r.b.t += dt; r.over = Math.max(r.over, Math.hypot(p.x - r.b.x, p.y - r.b.y)); if(r.face < 0 && dist(p, d) < ENGAGE_R) r.face = r.b.t;
+    if(p.beatT > 0.9 - BEAT_BRAKE_T && Math.hypot(p.vx, p.vy) > BEAT_STOP_V){ steer(p, p.x, p.y, 0, dt); return; }
+    steer(p, d.x, d.y, p.spd*BEATEN_F, dt); return;
+  }
   if(p.dbl && p.dbl.state === 'climbing' && p.dbl.lb === d && p.beatT <= 0 && dist(p, d) >= ENGAGE_R){   // B-012 (climb-timing): before contact only (a landed climber blocks at block speed, no lead feedback): the climber runs to where the linebacker will be, at climb speed
     const k = Math.min(CLIMB_LEAD_T, dist(p, d)/Math.max(p.spd*CLIMB_F, 1));
     tx += d.vx*k; ty += d.vy*k; f = CLIMB_F;
@@ -73,6 +87,15 @@ function block(p, dt){
   if(!d){ steer(p, ref.x + (p.x > ref.x ? LEAD_X : -LEAD_X), ref.y + 3, p.spd*LEAD_F, dt); return; }  // nobody left: lead upfield
   driveAt(p, d, ref, dt);
 }
+// B-073: nobody in my lane or climb area: stay near the line, help the nearest engaged lineman at the hole side, else hold a fixed spot shaded toward the hole at block speed
+function noMan(p, ref, lane, dt){
+  let h = null, hd = NM_HELP_R;
+  for(const o of OFF){ if(o === p || !o.blk || !o.locked || o.blk.stun > 0 || o.role === 'WR') continue; const k = dist(o, p); if(k < hd && (o.x - p.x)*(ref.x - p.x) >= 0){ hd = k; h = o.blk; } }
+  const r = noteBlocker(p);
+  if(h){ p.blk = h; p.ruled = true; r.noMax = Math.max(r.noMax, p.y - S.los); driveAt(p, h, ref, dt); return; }   // help: take a shoulder of the teammate's man (kept by ruled)
+  r.noMax = Math.max(r.noMax, p.y - S.los);
+  steer(p, lane + Math.max(-NM_SHADE_MAX, Math.min(NM_SHADE_MAX, (ref.x - lane)*NM_SHADE)), S.los + NM_DEPTH, p.spd*RUN_BLOCK_F, dt);
+}
 // zone: block whoever is in my lane at the line; if the lane is empty, climb to a linebacker in my area.
 // Once engaged, the man is mine for the rest of the play.
 function zoneBlock(p, dt){
@@ -88,7 +111,7 @@ function zoneBlock(p, dt){
     }
     p.blk = d;
   }
-  if(!d){ p.climbing = true; steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*CLIMB_F, dt); return; }
+  if(!d){ p.climbing = true; noMan(p, ref, lane, dt); return; }
   driveAt(p, d, ref, dt);
 }
 function runBlock(p, dt){
