@@ -199,11 +199,25 @@ function gaitPose(T, p, sp){
     T.kneeL = mix(T.kneeL, 0.45 + 0.4*Math.max(0, -cs)*r, b); T.kneeR = mix(T.kneeR, 0.45 + 0.4*Math.max(0, cs)*r, b); T.drop = mix(T.drop, 0.06, b); T.bob = mix(T.bob, 0.03*Math.abs(cs), b);
     T.shL = mix(T.shL, -0.55, b); T.shR = mix(T.shR, -0.55, b); T.elL = mix(T.elL, -1.1, b); T.elR = mix(T.elR, -1.1, b); }
 }
+// B-072-4 plant and push-off (carrier.js cutStep sets p.cutPh 1 brake / 2 push and p.cutDir, the way he pushes, +1 = to +x): the outside foot (opposite the push) is planted ahead,
+// leg bent, and the stride stops (no leg swings past it, so the planted foot stays where it came down while the hips move over it); the other leg is thrown back and straight,
+// pushing off; hips low, body leaning (CUT_LEAN, a torso roll) into the new direction, the stance wide. Eases in at CUT_K, out as the cut ends.
+const CUT_K = 22, CUT_LEAN = 0.35, CUT_ROLL = 0.3, CUT_DROP = 0.2, CUT_HIPZ = 0.22;
+function cutPose(T, p){
+  const w = p.cuW || 0; if(w < 0.01) return;
+  const mix = (a, v) => (a ?? 0) + (v - (a ?? 0))*w, pl = p.cutDir > 0 ? 'L' : 'R', pu = pl === 'L' ? 'R' : 'L', push = p.cutPh === 2 ? 1 : 0.4;
+  T.lean = mix(T.lean, 0.2 + CUT_LEAN); T.twist = mix(T.twist, 0); T.drop = mix(T.drop, CUT_DROP); T.bob = mix(T.bob, 0); T.hipZ = mix(T.hipZ, CUT_HIPZ);
+  T['hip' + pl] = mix(T['hip' + pl], -0.5); T['knee' + pl] = mix(T['knee' + pl], 0.75);
+  T['hip' + pu] = mix(T['hip' + pu], 0.15 + 0.5*push); T['knee' + pu] = mix(T['knee' + pu], 0.9 - 0.7*push);
+  T.shL = mix(T.shL, -0.45); T.shR = mix(T.shR, -0.9); T.elL = mix(T.elL, -1.0); T.elR = mix(T.elR, -1.85);   // ball arm stays tucked
+}
 function animate(p, dt){
   // a runner held up keeps churning his legs at full stride whatever his speed
   const sp0 = p.churn && p.ph && !p.falling && !(p.latch && p.latch.falling) ? Math.max(5.5, Math.hypot(p.vx, p.vy)*1.3) : Math.hypot(p.vx, p.vy);
   const eng = !p.ph && p.act !== 'down' && p.act !== 'fall' && p.act !== 'dive' && engaged(p), sp = eng && driving(p) ? Math.max(sp0, CHURN_SP) : sp0;   // a driven pair's legs churn however slowly it moves
   const stepsHz = eng && driving(p) ? stepHz(Math.max(pairV(p), Math.hypot(p.vx, p.vy))) : 0;   // B-062: a driven pair takes short steps (STEP_L) at the cadence its speed needs, churning in place when stalled; two steps to a stride
+  p.cuW = (p.cuW || 0) + ((p.cutPh && p.faceHold != null ? 1 : 0) - (p.cuW || 0))*(1 - Math.exp(-dt*CUT_K));
+  if(p.cuW > 0.5) { /* planted: the stride holds */ } else
   p.stride += stepsHz > 0 ? Math.PI*stepsHz*dt : sp > 0.3 ? 2*Math.PI*(1.1 + 0.16*sp)*dt : 0;   // cadence rises with speed (~2.2 strides/s flat out)
   if(p.actT > 0){ p.actT -= dt; if(p.actT <= 0) p.act = null; }
   if(p.beatT > 0) p.beatT -= dt;
@@ -213,12 +227,12 @@ function animate(p, dt){
   p.shW = (p.shW || 0) + ((want && trav >= GAIT_SHUFFLE && trav < GAIT_BACK ? 1 : 0) - (p.shW || 0))*gk;
   p.bpW = (p.bpW || 0) + ((want && trav >= GAIT_BACK ? 1 : 0) - (p.bpW || 0))*gk;
   if(trav >= GAIT_SHUFFLE) p.gSide = side;
-  const T = targetPose(p, sp); gaitPose(T, p, sp); const P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
+  const T = targetPose(p, sp); gaitPose(T, p, sp); cutPose(T, p); const P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
   for(const j of JOINTS) P[j] += (T[j] - P[j])*k;
   p.engW = (p.engW || 0) + ((eng ? 1 : 0) - (p.engW || 0))*(1 - Math.exp(-dt*ENG_K));
   p.hdUp = (p.hdUp || 0) + ((T.headUp || 0) - (p.hdUp || 0))*k;
   J.head.rotation.set(-ENG_HEAD*P.lean*p.engW - p.hdUp, HEAD_TURN*p.engW, HEAD_TILT*p.engW);   // head up while engaged: eyes on his man, not the turf; B-042: the head stays on its neck socket and tilts to his right shoulder (B-031 slid it sideways off the neck), so the pair's helmets pass
-  p.roll = ENG_ROLL*p.engW; J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
+  p.roll = ENG_ROLL*p.engW + CUT_ROLL*(p.cuW || 0)*(p.cutDir || 0)*(p.cutPh === 2 ? 1 : 0.4); J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
   p.hipZ = (p.hipZ || 0) + ((T.hipZ || 0) - (p.hipZ || 0))*k; J.hipL.rotation.z = p.hipZ; J.hipR.rotation.z = -p.hipZ;   // B-052: sideways hip splay, only in the presnap stance
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   p.armZL = (p.armZL ?? ARM_Z_FREE) + ((T.armZL ?? ARM_Z_FREE) - (p.armZL ?? ARM_Z_FREE))*k; p.armZR = (p.armZR ?? -ARM_Z_FREE) + ((T.armZR ?? -ARM_Z_FREE) - (p.armZR ?? -ARM_Z_FREE))*k;   // sideways arm angles: 0.12 out free, the hand-placement angles engaged
