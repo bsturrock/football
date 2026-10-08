@@ -63,7 +63,7 @@ function makePlayer(team, role){
   g.add(body, sh); scene.add(g);
   const pose = {}; JOINTS.forEach(j => pose[j] = 0);
   return {team, role, skin, setNum:n => { numMat.map = numTexture(n); }, mesh:g, body, j:{torso, head, shL, elL, shR, elR, hipL, kneeL, hipR, kneeR}, pose,
-          x:0, y:0, vx:0, vy:0, spd:7, stun:0, acc:5, brake:7.5, turn:6, accel:0, stride:Math.random()*6, face:0, act:null, actT:0, eng:0};
+          x:0, y:0, vx:0, vy:0, spd:7, stun:0, acc:5, leg:5 /* B-034 (speed-scale) */, brake:7.5, turn:6, accel:0, stride:Math.random()*6, face:0, act:null, actT:0, eng:0};
 }
 // Twenty-two fixed bodies (every body shares one geometry, so a sub adds nothing to the scene). subIn (src/roster.js) copies roster
 // records onto them between plays and refills the group arrays in place: WRs, EXTRA (a fullback or second tight end), RECV and ROUTE_KEYS

@@ -4,7 +4,8 @@ import { rand } from './util.js';
 // Nine physical (KEYS) plus three mental (MENTAL) 0-99 ratings per player, all in p.rt, drawn from a position template.
 // Pure: no THREE, node-testable.
 // Ratings are absolute across positions (a DT's speed is lower than a CB's); one global curve per rating
-// maps them to the physics numbers, calibrated so template midpoints land near the old per-position values.
+// maps them to the physics numbers. B-034: speed and accel are fit so template-mid 40-yard dashes land near the NFL combine averages
+// (sim line speed40); leg force (p.leg) keeps the old accel curve so contact and pile strength do not scale with run speed.
 export const KEYS = ['speed', 'accel', 'strength', 'agility', 'vision', 'tackling', 'shed', 'pursuit', 'recog'];
 // template: r = [lo, hi] per rating in KEYS order; m = [lo, hi] per MENTAL rating; mass in lb
 // Mental ratings (0-99): how well a player knows each scheme family. Apart from KEYS on purpose: roster OVR_W, sim teamAvg and the
@@ -12,7 +13,7 @@ export const KEYS = ['speed', 'accel', 'strength', 'agility', 'vision', 'tacklin
 // Mental ratings deliberately get no team offset (knowledge is the player's own, not a team-strength shift).
 export const MENTAL = ['zone', 'gap', 'pass'];
 export const TEMPLATES = {
-  OL:  {mass:310, r:[[40,60],[45,65],[70,92],[35,55],[45,70],[20,35],[40,60],[30,50],[55,80]], m:[[55,80],[55,80],[55,80]]},
+  OL:  {mass:310, r:[[33,53],[45,65],[70,92],[35,55],[45,70],[20,35],[40,60],[30,50],[55,80]], m:[[55,80],[55,80],[55,80]]},
   TE:  {mass:250, r:[[55,72],[55,72],[60,80],[55,72],[50,70],[25,40],[40,60],[35,55],[50,70]], m:[[45,65],[45,65],[40,60]]},
   WR:  {mass:195, r:[[70,92],[68,90],[35,55],[70,90],[55,75],[20,35],[30,45],[35,55],[50,70]], m:[[30,50],[30,50],[30,50]]},
   QB:  {mass:220, r:[[50,70],[45,65],[40,55],[50,65],[60,80],[15,25],[20,35],[20,35],[60,80]], m:[[30,50],[30,50],[30,50]]},
@@ -29,8 +30,12 @@ const SPLIT = {RB:['RBp', 'RBs'], LB:['LBs', 'LBc']};   // a player of this temp
 export const TEAM_OFFSET = 4;                            // each team's whole roster shifts by -4..+4
 
 // global curves: out = lo + (hi - lo)*(rating/99)^k  (yd/s, yd/s^2, yd/s^2)
-const CURVES = {speed:[6.12, 8.70, 3.9], accel:[2.75, 7.20, 0.9], agility:[5.4, 16.0, 5]};
+// B-034: speed is the unsprinted top (the gear every non-carrier runs in); accel is the run-up. SPRINT x speed is the carrier's short burst top.
+export const SPRINT = 1.06, BRAKE_K = 1.2, BURST_DRAIN = 0.6;   // SPRINT: burst multiplier; BURST_DRAIN: stamina per second of burst (1 s of stamina = 1/0.6 s of burst); both read by carrier.js, BRAKE_K: braking x accel
+const LEG_CURVE = [2.75, 7.20, 0.9];   // the pre-B-034 accel curve: leg force p.leg (physics.js, pile.js) from the accel rating
+const CURVES = {speed:[4.97, 10.39, 0.54], accel:[7.54, 13.35, 0.72], agility:[5.4, 16.0, 5]};
 const curve = (key, v) => { const [lo, hi, k] = CURVES[key]; return lo + (hi - lo)*Math.pow(v/99, k); };
+export const legOf = r => LEG_CURVE[0] + (LEG_CURVE[1] - LEG_CURVE[0])*Math.pow(r/99, LEG_CURVE[2]);
 export const spdOf = r => curve('speed', r), accOf = r => curve('accel', r), turnOf = r => curve('agility', r);
 export const lack = (p, key) => 1 - p.rt[key]/99;
 
@@ -70,7 +75,7 @@ function rateFlat(p){
   p.sub = subs[0];
   p.rt = {}; KEYS.forEach((k, i) => p.rt[k] = mid(subs, i));
   const r = p.rt;
-  p.spd = spdOf(r.speed); p.acc = accOf(r.accel); p.brake = p.acc*1.5; p.turn = turnOf(r.agility);
+  p.spd = spdOf(r.speed); p.acc = accOf(r.accel); p.leg = legOf(r.accel); p.brake = p.acc*BRAKE_K; p.turn = turnOf(r.agility);
   p.mass = subs.reduce((a, t) => a + TEMPLATES[t].mass, 0)/subs.length;
   MENTAL.forEach((k, i) => p.rt[k] = midM(subs, i));
   legacy(p);
@@ -86,7 +91,7 @@ export function rateTeams(players){
     p.sub = sub;
     p.rt = {}; KEYS.forEach((k, i) => p.rt[k] = clamp99(rand(t.r[i][0], t.r[i][1]) + off[p.team]));
     const r = p.rt;
-    p.spd = spdOf(r.speed); p.acc = accOf(r.accel); p.brake = p.acc*1.5; p.turn = turnOf(r.agility);
+    p.spd = spdOf(r.speed); p.acc = accOf(r.accel); p.leg = legOf(r.accel); p.brake = p.acc*BRAKE_K; p.turn = turnOf(r.agility);
     p.mass = t.mass*rand(0.95, 1.05);
     MENTAL.forEach((k, i) => p.rt[k] = clamp99(rand(t.m[i][0], t.m[i][1])));   // after every other draw for this player
     legacy(p);

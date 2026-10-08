@@ -47,3 +47,12 @@ export function runRoute(w, dt){
   } else if(w.go) steer(w, w.x + w.goDir.x*5, w.y + w.goDir.y*5, w.spd, dt);
   else steer(w, w.x, w.y, 0, dt);
 }
+
+// B-034: a 40-yard dash straight upfield from a standstill, stepped through steerVel (deterministic; no game state): wanted speed
+// spd*sprint for the first burstS seconds, spd after (burstS 0 = unsprinted). Returns {t10, t40 (s), top (peak yd/s)}.
+export function dash40(spd, acc, brake, sprint = 1, burstS = 0, dt = 1/60){
+  const p = {spd, acc, brake, turn: 10 /* unused in a straight dash: no sideways error to turn */, vx: 0, vy: 0, x: 0, y: 0, fire: 0};
+  let t = 0, top = 0, t10 = 0;
+  while(p.y < 40 && t < 20){ steerVel(p, 0, spd*(t < burstS ? sprint : 1), dt); t += dt; top = Math.max(top, p.vy); if(!t10 && p.y >= 10) t10 = t; }
+  return {t10, t40: t, top};
+}

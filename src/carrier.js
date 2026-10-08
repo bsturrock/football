@@ -3,14 +3,13 @@ import { PLAYS } from './playbook.js';
 import { GRID_K } from './formations.js';
 import { ALL, BODY_W, C, DEF, LG, LT, OFF, RG, RT } from './players.js';
 import { isBody, physBall, physDown, physTouched } from './physics.js';
-import { lack } from './ratings.js';
+import { BURST_DRAIN, SPRINT, lack } from './ratings.js';
 import { S } from './state.js';
 import { HW, PILE_R, clamp, dist, rand } from './util.js';
 
 // ---------- ball carrier AI ----------
 // Everything is a race: for a spot on the field, how much sooner does he get there than the quickest defender
 // who can still make a play? Defenders on the ground don't count; ones locked up with a blocker count late.
-const SPRINT = 1.12;
 // every steer in this file goes through here: in contact and slowed under STALL_V x spd, the wanted velocity keeps at least DRIVE_V x spd upfield (leg drive; never stands still)
 function steerVel(p, vx, vy, dt){
   const f = p.spd*DRIVE_V;
@@ -21,7 +20,7 @@ function steerVel(p, vx, vy, dt){
 export function burst(p, want, dt){
   if(p.stam == null) p.stam = 1;
   const on = want && p.stam > 0;
-  p.stam = clamp(p.stam + (on ? -0.6 : 0.08)*dt, 0, 1);
+  p.stam = clamp(p.stam + (on ? -BURST_DRAIN : 0.08)*dt, 0, 1);
   return on ? SPRINT : 1;
 }
 function raceMargin(p, qx, qy){
