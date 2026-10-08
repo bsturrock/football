@@ -22,12 +22,12 @@ function steerVel(p, vx, vy, dt){
 // A defender squaring the carrier within CUT_AHEAD yd ahead (lateral reach CUT_WIDE), or the hole he reads moving by CUT_HOLE yd, starts a cut: for CUT_T s a lateral push of
 // CUT_V x (CUT_AGI_LO..1 by agility) is added (and an instant plant kick CUT_KICK x the same on vx: steerVel's turn limit alone, 5-16 yd/s2, moves him only 0.3 yd in CUT_T) to his wanted velocity, away from the defender toward the better race, his forward want scaled by CUT_KEEP; he keeps faceHold upfield
 // (PI; movement.js caps the sideways speed and draws the sidestep gait). CUT_CD s between cuts. No defender ahead, no cut. S.cutLog (sim.js readout) counts carries, cuts, lateral step and speed kept.
-const CUT_AHEAD = 3, CUT_WIDE = 1.2, CUT_BEHIND = 0.3, CUT_HOLE = 1.2, CUT_T = 0.3, CUT_V = 3, CUT_KICK = 4.5, CUT_AGI_LO = 0.6, CUT_KEEP = 0.9, CUT_CD = 0.8, CUT_EDGE = 3, CUT_FAST = 0.9, UPFIELD = Math.PI;
+const CUT_AHEAD = 3, CUT_WIDE = 1.2, CUT_BEHIND = 0.3, CUT_HOLE = 1.2, CUT_T = 0.3, CUT_V = 3, CUT_KICK = 4.5, CUT_AGI_LO = 0.6, CUT_KEEP = 0.9, CUT_CD = 0.8, CUT_EDGE = 3, CUT_FAST = 0.7, UPFIELD = Math.PI;
 function cutStart(p, dir, why){
   const k = CUT_AGI_LO + (1 - CUT_AGI_LO)*p.rt.agility/99;
   p.rd.cut = {dir, v:CUT_V*k, t:CUT_T, x0:p.x, s0:Math.hypot(p.vx, p.vy), top:Math.max(p.spd, Math.hypot(p.vx, p.vy))}; p.vx += dir*CUT_KICK*k;
   const h = Math.hypot(p.vx, p.vy), c = p.rd.cut; if(h > c.top){ p.vx *= c.top/h; p.vy *= c.top/h; }   // the plant kick never takes him above his top speed (no skating)
-   p.rd.cc = CUT_CD; p.faceHold = UPFIELD;
+  p.rd.cc = CUT_CD; p.faceHold = UPFIELD;
   if(S.cutLog) S.cutLog.cuts++;
 }
 // B-072-3: a manual takeover (offense.js) ends a cut at once: no faceHold or side cap leaks onto a keyboard runner
