@@ -71,7 +71,7 @@ export const PULL_V = 1.3, PULL_DEPTH = 1.8 + TACKLE_BACK /* B-053 (ol-v-set): t
 // The miss event is logged when the miss is rolled, so a missed blocker shows even when his old man comes back.
 export const READ_BASE = 0.45, READ_K = 250, MISS_P = 0.5, MISS_HOLD = 0.4, WRONG_P = 0.15, LEFT_DX = 1.2*GK, REREAD_DT = 0.1, GIVEUP_T = 0.8;
 // S.climbed: true once a climb happened this play; B-007-10's climb counter reads it.
-export const CLIMB_T = 0.1, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = ENGAGE_R, COMMIT_V = 0.5, NEIGHBOUR_DX = 3*GK, BEHIND_Y = 1.5;   // NEIGHBOUR_DX: the next lineman is no further than this; BEHIND_Y: a blocker does not pick a man this far behind him   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
+export const CLIMB_T = 0.3, CLIMB_NEAR = 2.5, CLIMB_RANGE = 6, ENGAGED = ENGAGE_R, COMMIT_V = 0.5, NEIGHBOUR_DX = 3*GK, BEHIND_Y = 1.5;   // NEIGHBOUR_DX: the next lineman is no further than this; BEHIND_Y: a blocker does not pick a man this far behind him   // COMMIT_V: a linebacker moving downhill (toward the line) faster than this share of his own run speed has committed
 export const BACKER_TIE = 0.01;   // B-015: two backers this close count as equally near ('mike' breaks the tie toward the hole, 'near' away from it)
 export const COVER_EPS = 1e-3;   // B-030: a defender exactly COVERED_DX off (a float tie, e.g. the nickel guard) counts as covered, the same way in every covered test
 export const COVERED_DX = 1.0*GK, COVERED_DY = 2.5, REACH_DX = 3.5*GK, REACH_AIM = 2.0*GK, BOX_Y = 7, ANY_DX = 5*GK, LANE_DX = 1.8*GK, ZONE_KEEP = 3*GK, CLIMB_LANE_DX = 6*GK;   // ZONE_KEEP: offense.js zoneBlock drops an unengaged, unruled target this far from the lane
