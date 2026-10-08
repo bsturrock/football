@@ -188,7 +188,7 @@ export function resolveBlocks(play, flip, again = false){
     }
     if(rule[0] === 'pull'){
       const dir = Math.sign(h - b.p.x) || ps, aim = rule[1] === 'kick' ? d.x - dir*KICK_X : d.x;
-      b.p.via = [{x:b.p.x + dir*PULL_FLAT, y:los - PULL_DEPTH}, {x:aim, y:d.y}]; b.p.pull = {kind:rule[1], tgt:d, state:'pulling', t:0, reach:null};
+      b.p.via = [{x:b.p.x + dir*PULL_FLAT, y:los - PULL_DEPTH}, {x:aim, y:d.y}]; b.p.pull = {kind:rule[1], tgt:d, state:'pulling', t:0, reach:null, ox:aim - d.x};
       pulls.push({name:b.name, kind:rule[1], p:b.p});
     }
     b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.ruled = true; };

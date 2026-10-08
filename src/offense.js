@@ -17,6 +17,7 @@ export function logSpeed(p, top){   // B-060-2 readout: S.speedRole[role] = {n, 
 }
 // a pass route at stem speed (full once past the first waypoint or with the ball in the air); only the RB's pre-handoff path stays plain runRoute (on run plays the WRs go to runBlock: runMode is set at the snap)
 const route = (p, dt) => runRoute(p, dt, ball.state === 'air' || p.wp > 0 ? 1 : STEM_F);
+const PULL_LEAD_T = 1.0, PULL_LEAD_V = 4;   // B-061: the puller aims where the target will be: his own time to reach him (distance / his speed, at least PULL_LEAD_V yd/s so a standing start does not over-lead), at most PULL_LEAD_T s
 const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
 const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
@@ -90,6 +91,7 @@ function runBlock(p, dt){
   if(p.pull && p.pull.late && p.pull.t < p.pull.late && p.via && p.via.length){ steer(p, p.x, p.y, 0, dt); p.faceAt = p.blk; return; }   // B-032-3: a busting puller leaves late
   if(play.run && p.via && p.via.length){                       // pulling: get through the waypoints first
     const v = p.via[0];
+    if(p.pull && p.via.length === 1 && p.blk === p.pull.tgt){ const lead = Math.min(PULL_LEAD_T, Math.hypot(p.blk.x - p.x, p.blk.y - p.y)/Math.max(Math.hypot(p.vx, p.vy), PULL_LEAD_V)); v.x = p.blk.x + p.pull.ox + p.blk.vx*lead; v.y = p.blk.y + p.blk.vy*lead; }   // B-061: the last waypoint is the target as he is now, not where he stood at the snap (the run-up now takes 1-2 s, he moves)
     if(Math.hypot(v.x - p.x, v.y - p.y) < PULL_VIA_R) p.via.shift();
     else {   // pulling: full speed through the waypoints (no arrive braking), quicker feet than a normal OL
       const dx = v.x - p.x, dy = v.y - p.y, l = Math.hypot(dx, dy), a = p.acc, t = p.turn, s = p.spd*PULL_V;
