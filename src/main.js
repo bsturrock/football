@@ -1,7 +1,7 @@
 import { runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
 import { pairCheck, pairReport, setFrameClock, syncScene } from './animation.js';
 import { CARRY_T, separate, stepHz } from './blocking.js';
-import { updateCamera } from './camera.js';
+import { setAutoCam, updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
 import { DEF_OFF_WHISTLE, defOffStep } from './defoff.js';
@@ -103,7 +103,11 @@ function autoDigest(){   // state digest: same seed, same values (a PNG can diff
   const h = ball.holder, bp = h ? heldBallPos(h) : {x:ball.fx, y:ball.fy};
   return {play:S.play, ballState:ball.state, holderX:h ? r3(h.x) : null, holderY:h ? r3(h.y) : null, ballX:r3(bp.x), ballY:r3(bp.y), clock:r3(S.clock), los:S.los, allSum:r3(ALL.reduce((a, p) => a + p.x*1.3 + p.y, 0))};
 }
-function runAutoplay(sec){
+function runAutoplay(sec, q){
+  // B-081: &play=<name> forces the offense's call (any PLAYS entry, case-insensitive; a pass play needs &pass=1 in the URL, playbook.js loads pass plays only then, so without it a pass name reads as unknown, and the error says so); &cam=side|close frames it (camera.js setAutoCam). Neither given: as before
+  const out = o => { const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify(o); document.body.appendChild(el); };
+  if(q.has('play')){ const nm = q.get('play').trim().toLowerCase(), pl = PLAYS.find(p => p.name.toLowerCase() === nm); if(!pl){ out({error:'unknown play ' + q.get('play') + (q.has('pass') ? '' : ' (a pass play needs &pass=1)')}); return; } S.force = {play:pl.name}; }
+  if(q.has('cam')){ const c = q.get('cam').trim().toLowerCase(); if(c !== 'side' && c !== 'close'){ out({error:'unknown cam ' + q.get('cam')}); return; } setAutoCam(c); }
   setCpu(true);
   let n = 0;
   while(n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
@@ -120,7 +124,7 @@ function start(data){
   selectPlay(0); setupPlay();
   if(q.get('cpu') === '0') setCpu(false);   // B-068: start in user view (the C key off), so a shot sees the pre-snap block lines
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
-  if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0)); return; }
+  if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0), q); return; }
   if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
     if(q.has('frames') && drillError){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:drillError}); document.body.appendChild(el); return; }   // B-042 (axis-glide)
