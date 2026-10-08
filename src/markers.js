@@ -41,7 +41,7 @@ function dotted(a, b, w, material, group){
 export function legacyFitDraws(){ for(const d of DEF) if(d.fit && Math.hypot(d.fit.x - d.x, d.fit.y - d.y) >= 0.05) for(let i = 0; i < 8; i++) Math.random(); }
 export function drawBlocks(pv){   // pv: blockrules.js previewBlocks {solid, dotted}, or null for a pass play
   blockGroup.children.forEach(c => c.geometry.dispose()); blockGroup.clear();
-  if(pv) quiet(() => { for(const l of pv.solid) seg(l.p, l.d, 0.14, blockMat, blockGroup); for(const l of pv.dotted) dotted(l.p, l.d, 0.14, blockMat, blockGroup); });
+  if(pv) quiet(() => { for(const l of pv.solid) seg(l.p, l.d, 0.2, blockMat, blockGroup); for(const l of pv.dotted) dotted(l.p, l.d, 0.2, blockMat, blockGroup); });
   blockGroup.visible = true;
 }
 export function drawRoutes(){
