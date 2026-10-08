@@ -14,7 +14,7 @@ export const GRID_K = OL_GAP/OLD_GAP;   // a lateral number written on the old 2
 export const BOX_X = 8*GRID_K;   // the box's half width (blockrules.js's 'any' rule, sim.js's boxMean)
 // B-053: the line sets in a shallow V, the center furthest up (hand on the ball); a guard / tackle is set back this many yd more than the center, the tight end level with his tackle.
 export const GUARD_BACK = 0.25, TACKLE_BACK = 0.5;
-const OL_SETBACK = [TACKLE_BACK, GUARD_BACK, 0, GUARD_BACK, TACKLE_BACK];   // by OL index, left tackle to right tackle
+export const OL_SETBACK = [TACKLE_BACK, GUARD_BACK, 0, GUARD_BACK, TACKLE_BACK];   // by OL index, left tackle to right tackle // B-059 (hand-measure)
 const TE_BACK = OL_BACK + TACKLE_BACK;
 const TE_X = 3*OL_GAP;
 const WR_X = [-20, 20, -11];   // WR slots by index; a personnel with fewer receivers uses the first ones
