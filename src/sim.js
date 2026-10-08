@@ -90,7 +90,7 @@ const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4
 // Importing modules before seedRandom is safe: no module draws Math.random at load; players.js and three.js uuids use private streams.
 // B-079: three.js draws one uuid per Mesh, Group, Geometry and Material from Math.random, and its MathUtils is frozen (r128), so generateUUID cannot be swapped. Instead, under ?sim,
 // Math.random reads a private stream (the same mulberry32, fixed seed) while the modules load, and main.js calls endLoad() after its imports, before rate(): the seeded stream starts there, untouched by
-// the load-time uuids, so a mesh added at load no longer shifts any seeded number. (A mesh made later, in play, still draws a uuid from the seeded stream.)
+// the load-time uuids, so a mesh added at load no longer shifts any seeded number. (Meshes made during play still draw seeded uuids, so a new in-play mesh shifts the seeded results.)
 const Q = new URLSearchParams(location.search);
 let loading = true;
 export function endLoad(){ loading = false; }

@@ -9,15 +9,16 @@ import { drillCamera, drillError, drillStart, drillTick } from './drill.js';
 import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
-import { faceStep, steer } from './movement.js';
+import { steer } from './movement.js';
 import { flushOlRecs, offenseAI } from './offense.js';
 import { pileUpdate } from './pile.js';
-import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender, physStep } from './physics.js';
+import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DEF, OFF, QB, RB, rate } from './players.js';
 import { heldBallPos, endPlay, newGame, nextPlay, trackProgress } from './rules.js';
 import { camera, cvs, renderer, scene } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
+import { perf, stepWith } from './step.js';
 import { tackleUpdate } from './tackling.js';
 import { $, HW, clamp, dist } from './util.js';
 
@@ -56,20 +57,17 @@ function liveUpdate(dt){
     if(S.phase === 'live'){ trackProgress(c); pileUpdate(c, dt); }   // progress again after the tackle (no first-frame spot lag), then the pile push and stall whistle
   }
 }
-const perf = {phys:0, bodies:0};   // last step's physics ms and body count (read by ?debug and the sim)
-// one render-free simulation step (the sim runner calls this too)
-export function step(dt){
+// the game's part of a step: the CPU, then the live or dead-ball phase
+function gameUpdate(dt){
   cpuTick(dt);
   if(S.phase === 'live') liveUpdate(dt);
   else if(S.phase === 'dead'){
     ALL.forEach(p => steer(p, p.x, p.y, 0, dt));
     S.deadT -= dt; if(S.deadT <= 0) nextPlay();
   }
-  ALL.forEach(p => faceStep(p, dt, ball, S));   // B-072-1: facing is sim state (movement.js), turned here for the game and the sim alike
-  const t0 = performance.now();
-  physStep(dt);
-  perf.phys = performance.now() - t0; perf.bodies = physCount().players;
 }
+// one render-free simulation step (the sim runner calls this too); the shared tail (facing, physics) is step.js
+export const step = dt => stepWith(dt, gameUpdate);
 let last = performance.now(), tick = step, camStep = updateCamera;   // ?drill swaps both (src/drill.js)
 function frame(now){
   const raw = now - last, dt = clamp(raw/1000, 0, 0.05); last = now;
