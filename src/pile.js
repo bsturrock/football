@@ -30,7 +30,7 @@ function side(list, c, rate, dir){
   const ps = list.filter(p => p !== c && freeBody(p) && (c.y - p.y)*dir > 0 && dist(p, c) < PUSH_JOIN).sort((a, b) => dist(a, c) - dist(b, c)).slice(0, PUSH_MAX);
   ps.forEach(p => {   // wanted velocity: toward the runner plus up (or down) the field
     const dx = c.x - p.x, dy = c.y - p.y, l = Math.hypot(dx, dy) || 1, vx = dx/l, vy = dy/l + dir, vl = Math.hypot(vx, vy) || 1;
-    physDrive(p, PUSH_V*vx/vl, PUSH_V*vy/vl, p.acc*PUSH_K*(p[rate]/80));
+    physDrive(p, PUSH_V*vx/vl, PUSH_V*vy/vl, p.leg*PUSH_K*(p[rate]/80));   // B-034 (speed-scale)
   });
   return ps.length;
 }

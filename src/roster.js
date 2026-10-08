@@ -71,7 +71,7 @@ export function rateRosters(){
 //   {QB, OL:[LT..RT], TE, RB, flex:[3 bodies], WRs, EXTRA (flex bodies that are FB / 2nd TE), RECV, ROUTE_KEYS, DEF:[11 bodies], DL, LBs, CBs, SFs}
 let B = null;
 export const bindSlots = s => { B = s; };
-const COPY = ['sub', 'tpl', 'spd', 'acc', 'brake', 'turn', 'mass', 'rStr', 'rAgi', 'rBrk', 'rPow', 'rSpd', 'rTkl', 'rAwr'];
+const COPY = ['sub', 'tpl', 'spd', 'acc', 'leg', 'brake', 'turn', 'mass', 'rStr', 'rAgi', 'rBrk', 'rPow', 'rSpd', 'rTkl', 'rAwr'];
 function put(body, r, role){
   body.rec = r; body.id = r.id; body.name = r.name; body.num = r.num; if(body.setNum) body.setNum(r.num); body.pos = r.pos; body.role = role || r.role;
   body.rt = {...r.rt}; COPY.forEach(k => { body[k] = r[k]; });
