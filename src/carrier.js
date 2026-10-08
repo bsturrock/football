@@ -214,7 +214,20 @@ function inContact(p){
   if(DEF.some(d => d.latch === p)) return true;
   return !!p.ph && physTouched(p, 0.15) && ALL.filter(q => q !== p && isBody(q) && dist(q, p) < PILE_R).length >= 2;
 }
-const next0 = p => !(p.route[p.wp] && p.route[p.wp].y < S.los - 1);   // past the designed backfield path: cuts start only at the line and beyond
+// ---------- the back waits for the puller (B-082) ----------
+// A gap-scheme run with a live puller: the back takes a counter step and is patient (the route, then the press at the line, at WAIT_F x speed) until the puller is about to arrive:
+// his time to the man (distance / his pace, at least WAIT_V yd/s so a standing start does not read as never) is under the back's own time to the line plus WAIT_LEAD. One rule for every puller scheme;
+// ends when the puller engages, is down, is free or has lost his man (S.pulls / p.pull state), and never lasts past WAIT_MAX s. Zone plays have no puller and are unchanged.
+const WAIT_F = 0.45, WAIT_V = 4, WAIT_LEAD = 0.25, WAIT_MAX = 1;
+function waitsForPuller(p, dt){
+  const rd = p.rd, q = rd.pull;
+  if(PLAYS[S.play].scheme === 'zone' || !q || !q.pull || q.pull.state !== 'pulling' || q.pull.lost > 0 || q.falling || q.bt || p.y > S.los + 1.5 || (rd.wt || 0) >= WAIT_MAX) return false;
+  const tgt = q.pull.tgt, tq = Math.hypot(tgt.x - q.x, tgt.y - q.y)/Math.max(Math.hypot(q.vx, q.vy), WAIT_V);
+  const tb = Math.max(0, S.los - p.y)/(p.spd*SPRINT);
+  if(tq <= tb + WAIT_LEAD) return false;
+  rd.wt = (rd.wt || 0) + dt; return true;
+}
+const next0 = p =>!(p.route[p.wp] && p.route[p.wp].y < S.los - 1);   // past the designed backfield path: cuts start only at the line and beyond
 export function autoCarry(p, dt){
   if(!p.rd){ if(S.cutLog) S.cutLog.carries++; p.rd = {st:'press', t:Math.min(PRESS_MAX, PRESS_T + PRESS_VIS*p.rt.vision/99), k:0, key:null, x:0, fs:'free', pull:pullerOf(), ct:null, cn:false}; }
   const rd = p.rd, zone = PLAYS[S.play].scheme === 'zone';
@@ -226,7 +239,9 @@ export function autoCarry(p, dt){
   if(!zone && followPuller(p, dt)) return;
   if(rd.fs === 'following') rd.fs = 'free';
   const next = p.route[p.wp];
-  if(next && next.y < S.los - 1){ if(rd.cn) steerVel(p, 0, p.spd*DRIVE_V, dt); else runRoute(p, dt); return; }       // still on the designed path in the backfield
+  const wait = waitsForPuller(p, dt);
+  if(next && next.y < S.los - 1){ if(rd.cn) steerVel(p, 0, p.spd*DRIVE_V, dt); else runRoute(p, dt, wait ? WAIT_F : 1); return; }       // still on the designed path in the backfield
+  if(wait && !rd.cn){ const hx = p.holeX ?? S.hole ?? 0, dx = hx - p.x, dy = S.los + 1 - p.y, l = Math.hypot(dx, dy) || 1, sp = p.spd*WAIT_F; steerVel(p, dx/l*sp, dy/l*sp, dt); return; }   // at the line: the press, patient
   if(zone && rd.st !== 'open') zoneRead(p, dt);
   else if(!zone && p.y < S.los + 1.5) readHole(p, dt); else openField(p, dt);
 }
