@@ -56,7 +56,7 @@ import { BODY_H, BODY_W, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './ut
 //   calls {play: n}, byFront {front: {play: n}}, slant {'Slant Left','Slant Right': {play: n}}: what the CPU called (B-007-13)
 //   with &pers/&dpers: force.pers/dpers, field {off, def} (position counts on the last play) and roster {O, D, ids unique, on}
 //   facing {frames, sqPct, errDeg, leanDeg, maxLeanDeg, maxOffDeg, heldFrames, sqPctWithHeld, errDegWithHeld, turnBack {n, medianS, p90S}, holdTurnBack {n, medianS, p90S}} (B-020):
-//     B-077: the defender's real p.face (movement.js faceStep, stepped by main.js step() for the game and the sim alike; the B-020 shadow face is gone); sqPct/errDeg/leanDeg over battle frames (sqPct within 25 deg of square, errDeg off-square with the
+//     B-077: the defender's real p.face (movement.js faceStep, stepped once in step.js stepWith for the game, the drill and the sim alike; the B-020 shadow face is gone); sqPct/errDeg/leanDeg over battle frames (sqPct within 25 deg of square, errDeg off-square with the
 //     intended lean removed); turnBack: seconds from a shed until his face is within 25 deg of his velocity heading (still frames dropped).
 //     B-023: the hold-through-a-gap rule is gone, so heldFrames is 0, sqPctWithHeld = sqPct, errDegWithHeld = errDeg and holdTurnBack.n is 0.
 //   faceHold {LB, DB: {n, heldS, sqPct, ends, endMedS, endP90S}} (B-072-2): per non-blitzing LB / DB per play (defense.js holdFacing; d.fh): n men-plays that held a facing, sqPct the share of
@@ -165,7 +165,7 @@ export function runSim(n, step, g){
   if(force.front || force.pass || force.stunt || force.pers || force.dpers || force.form || force.side) setupPlay();   // the first play was set up before the force existed
   const yards = [], spotYards = [], wins = [], physMs = [];
   const byPlay = {}, boxes = [], frees = [], calls = {}, byFront = {}, byCall = {}, tally = (o, k) => { o[k] = (o[k] || 0) + 1; };   // B-007-13: counts of the plays run, overall, per front, per defensive call
-  // B-020/B-077: engaged frames (a battle, not a body, not stunned) score the defender's real d.face (faceStep runs in step()) against the bearing to his blocker or nearest double-teamer:
+  // B-020/B-077: engaged frames (a battle, not a body, not stunned) score the defender's real d.face (faceStep runs in step.js stepWith) against the bearing to his blocker or nearest double-teamer:
   // errDeg = off square with the intended lean removed, leanDeg = the lean itself, sqPct = share of frames within SQUARE_DEG of square including the lean.
   // Turn-back: from a battle ending (shed, step-around) until d.face is within SQUARE_DEG of his velocity heading, capped at TURN_MAX s.
   const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0, hFrames:0, hSquare:0, hErr:0}, tb = new Map(), turn = {shed:[], hold:[]};
