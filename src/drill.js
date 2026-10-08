@@ -1,5 +1,6 @@
 import { separate } from './blocking.js';
 import { defenseAI } from './defense.js';
+import { faceStep } from './movement.js';
 import { setDrillBar } from './hud.js';
 import { giveBall, snap } from './input.js';
 import { ballMesh, ctrlRing } from './markers.js';
