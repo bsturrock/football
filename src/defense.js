@@ -9,7 +9,7 @@ import { isBody } from './physics.js';
 import { S, ball } from './state.js';
 import { lack } from './ratings.js';
 import { GRID_K } from './formations.js';
-import { DBL_R, dist, rand } from './util.js';
+import { DBL_R, bearing, dist, rand } from './util.js';
 
 // Human mistakes in pursuit. Per defender per play state (reset in assignFits):
 //   aim     AIM_K resampled every AIM_T s; < 1 undershoots the cut-off spot, > 1 overpursues
@@ -135,7 +135,7 @@ export function assignFits(call, boxS){
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
     d.read = (d.mode === 'rush' && d.role === 'LB') || (d.stunt && d.stunt.blitz) ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
-    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false;
+    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false; d.fhOff = false; d.fh = null; d.faceHold = null;
     d.home = Math.random() >= HOME_P*lack(d, 'pursuit');                // discipline: a poor pursuer abandons the backside early
     d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
@@ -252,6 +252,35 @@ function nearBlocker(d, o){
   for(const q of OFF) if(q !== cur && cand(q) && dist(q, d) + NEAR_SWAP < dist(cur, d)) cur = q;
   return cur;
 }
+// B-072-2: facing holds (movement.js faceHold; speed caps and gait come from there). A non-blitzing LB stays square to the line, a DB in coverage faces the QB, until a trigger fires;
+// then faceHold is null for the rest of the play (d.fhOff). Triggers (named constants):
+//   LB in a run: the carrier is across the line, heads within LB_GAP_D of his gap laterally (once he is within LB_NEAR_Y of the line), or LB_READ_T s after the handoff
+//   DB / LB in coverage: the man within DB_TURN_D and moving downfield (over DB_MOVE_V), or at DB_DEEP_V yd/s going deep within DB_DEEP_NEAR; the ball thrown. A deep zone DB (mode 'deep') bails (turns and runs) when the deepest receiver in his half is at DB_DEEP_V yd/s and within DB_BAIL_CUSH of him; else he keeps facing the QB until the throw.
+// An engaged man's hold stays set (movement.js ignores it while p.bt), so his fh time is not counted.
+// d.fh = {t, sq, end}: the sim's readout (time held, time within FH_SQ_DEG of the hold, play clock (LB: since the handoff) at the commit or turn, null if none)
+const LB_GAP_D = 3, LB_NEAR_Y = 3, LB_READ_T = 0.6, DB_TURN_D = 2, DB_DEEP_V = 5, DB_DEEP_NEAR = 5, DB_MOVE_V = 1, DB_BAIL_CUSH = 4, FH_SQ_DEG = 30;   // DB_MOVE_V: the 2 yd turn needs the man moving downfield faster than this (a stopped hitch keeps the DB on the QB); DB_BAIL_CUSH: a deep zone DB bails when his deepest man in his half is this close (yd) at DB_DEEP_V
+const wrapPi = a => Math.atan2(Math.sin(a), Math.cos(a));
+function holdFacing(d, c, runRead, dt){
+  if(d.fhOff || d.role === 'DL' || d.mode === 'rush' || (d.stunt && d.stunt.blitz)) return null;
+  const lb = d.role === 'LB', fh = d.fh || (d.fh = {t:0, sq:0, end:null});
+  const end = () => { d.fhOff = true; fh.end = S.clock - (runRead && lb && S.handoffAt < Infinity ? S.handoffAt : 0); return null; };
+  if(ball.state === 'air') return end();   // thrown: turn and run to the ball
+  let yaw = 0, go = false;
+  if(runRead){
+    if(!lb) return null;   // a DB in a run play fits the run at once (no latch: the play can turn pass)
+    const j = d.job, gx = j.role === 'two' ? (c.x < d.x ? j.gl : j.gr) : (j.gx !== undefined ? j.gx : d.x);
+    go = c.y > S.los || (c.y > S.los - LB_NEAR_Y && Math.abs(c.x - gx) < LB_GAP_D) || S.clock > S.handoffAt + LB_READ_T;
+  } else {
+    yaw = lb ? 0 : bearing(d, QB);
+    const w = d.mode === 'cover' ? d.assign : null;
+    if(w) go = (dist(d, w) < DB_TURN_D && w.vy > DB_MOVE_V) || (w.vy > DB_DEEP_V && dist(d, w) < DB_DEEP_NEAR);
+    else if(d.mode === 'deep'){ const deep = RECV.filter(r => r.x*d.side > -3).reduce((a, b) => !a || b.y > a.y ? b : a, null); go = !!deep && deep.vy > DB_DEEP_V && d.y - deep.y < DB_BAIL_CUSH; }   // the same man coverTarget drops over
+  }
+  if(go) return end();
+  if(d.bt) return yaw;   // engaged: movement.js ignores the hold; not counted
+  fh.t += dt; if(Math.abs(wrapPi(d.face - yaw)) < FH_SQ_DEG*Math.PI/180) fh.sq += dt;
+  return yaw;
+}
 // B-065: the gap an engaged defender fights for: his own gap (job.gx); a two-gapper holds square (null) until his read, then takes the ball-side gap
 function engagedGap(d, c){
   const j = d.job;
@@ -262,10 +291,10 @@ function engagedGap(d, c){
 export function defenseAI(d, dt){
   if(d.tkCool > 0) d.tkCool -= dt;
   if(d.reachCool > 0) d.reachCool -= dt;
-  if(d.latch) return;                       // riding the runner: tackleUpdate moves him
-  if(isBody(d)){ d.stun -= dt; return; }    // ragdoll / tackler: the body moves him (a bubble body runs the AI below)
-  if(d.stun > 0){ d.stun -= dt; steer(d, d.x, d.y, 0, dt); return; }
-  if(d.fireDelay > 0){ d.fireDelay -= dt; return; }   // still in his stance, reading the ball
+  if(d.latch){ d.faceHold = null; return; }                       // riding the runner: tackleUpdate moves him
+  if(isBody(d)){ d.faceHold = null; d.stun -= dt; return; }    // ragdoll / tackler: the body moves him (a bubble body runs the AI below)
+  if(d.stun > 0){ d.faceHold = null; d.stun -= dt; steer(d, d.x, d.y, 0, dt); return; }
+  if(d.fireDelay > 0){ d.fireDelay -= dt; d.faceHold = null; return; }   // still in his stance, reading the ball
   logSpeed(d, d.spd);
   let c = ball.state === 'held' ? ball.holder : (ball.state === 'air' ? null : QB);
   const draw = PLAYS[S.play].delay && S.runMode;   // B-007-12 Draw: the defense reads pass until the handoff and its read delay, then the run fit
@@ -313,6 +342,7 @@ export function defenseAI(d, dt){
     } else d.bt = null;
   } else d.bt = null;
   if(!d.bt && d.faceAt && d.faceAt.team === 'O' && !d.latch) d.faceAt = null;   // B-020: a battle that ended outside blocking.js (avoidBlockers, a bubble promote); a tackle's faceAt comes with d.latch, which returned above
+  d.faceHold = holdFacing(d, c, !!(ball.state !== 'air' && !passRead && S.runMode && c && d.job), dt);   // B-072-2
   d.fireAcc = false;   // B-064 (dl-fire): set below, only while the ball is not in the air
   if(ball.state !== 'air'){   // B-060-2: situational speed
     const open = c && attack && S.runMode && (c.y > d.y + RUNNER_PAST_Y || c.y > S.los + OPEN_Y);
