@@ -21,7 +21,15 @@ export function unface(d){
 // toward its leverage axis (the defender's gap side, LEV_ANGLE off upfield) or, in a swim move, around the blocker's shoulder; the defender's spot is then the
 // blocker's plus CONTACT_D along the axis, pulled there at LOCK_K (1/s), split by mass. The defender never steers himself while the battle lives (defense.js).
 const CONTACT_D = LOCK_D, LOCK_K = 60, LEV_ANGLE = 18*Math.PI/180, LEV_RATE = 40*Math.PI/180, LEV_REACH = 70*Math.PI/180, SWIM_RATE = 70*Math.PI/180;
-const DRIVE_SET = 0.3, DRIVE_RECOVER = 0.7, DRIVE_RAMP_T = 0.3, CARRY_T = 0.3;   // B-023 rebalance: drive strength per phase (x o.push); the drive builds in over DRIVE_RAMP_T s; the pair first coasts on the momentum of the hit (b.cv, set by defense.js pop), fading over CARRY_T s, so a defender's charge carries before the drive takes over
+// B-062 drive at real speed: a locked pair moves at DRIVE_EVEN yd/s on an even matchup, +DRIVE_SLOPE per point of the blocker's rStr over the defender's rPow, from a stall (0) at about -16 points up to DRIVE_MAX;
+// scaled by the blocker's push share (o.push/OL_PUSH: a TE or back drives less than a lineman) and the phase (DRIVE_SET/DRIVE_RECOVER). A strong defender anchors (drive 0); a strong blocker stays under about 1.5 yd/s.
+// The legs take short steps (STEP_L yd, about 7 in) at a cadence that follows the pair's speed, floor STEP_MIN churning in place (stepHz, shared with animation.js and the sim readout).
+const DRIVE_EVEN = 0.8, DRIVE_SLOPE = 0.05, DRIVE_MAX = 1.4, OL_PUSH = 2.5, BULL_V = 0.25, V_EMA = 8;
+export const STEP_L = 0.19, STEP_MIN = 2.5, STEP_MAX = 7.5;
+export const stepHz = v => clamp(v/STEP_L, STEP_MIN, STEP_MAX);   // steps per second of one foot-fall (two to a stride)
+export const driveV = (o, d) => clamp(DRIVE_EVEN + (o.rStr - d.rPow)*DRIVE_SLOPE, 0, DRIVE_MAX)*Math.min(1, o.push/OL_PUSH);   // yd/s the blocker moves his man at in full drive
+const DRIVE_SET = 0.7, DRIVE_RECOVER = 1, DRIVE_RAMP_T = 0.3;
+export const CARRY_T = 0.3;   // B-023 rebalance: drive strength per phase (x driveV); the drive builds in over DRIVE_RAMP_T s; the pair first coasts on the momentum of the hit (b.cv, set by defense.js pop), fading over CARRY_T s, so a defender's charge carries before the drive takes over
 const OL_BIAS = -0.8, REC_LO = 0.4, REC_HI = 0.8, SET_LO = 0.2, SET_HI = 0.4;   // the win-roll offset for a linemen's run block (was -1.4), the recovery and set times (s; were 0.8-1.4)
 const wrapA = a => Math.atan2(Math.sin(a), Math.cos(a));
 function lock(d, o, b, dt, c){
@@ -38,8 +46,17 @@ function lock(d, o, b, dt, c){
 }
 export function battle(d, o, c, dt){
   const b = d.bt;
+  // B-062: movement.js still steers the blocker at his run-block speed toward the man he is on (about 1.6 yd/s of free travel for the pair); a locked pair moves only by the battle below, so that travel is taken back.
+  // Only on a run play, only for the battle that owns the blocker (o.bt === b: a second defender sharing him leaves him alone) and only while this man is his job (o.blk === d or nobody): a blocker with another live assignment (a stunt pass-off, a climb) is let go.
+  const undo = S.runMode && o.bt === b && (o.blk === d || !o.blk) && b.ox !== undefined && S.clock - b.oxT < 0.1;
+  if(undo){ o.x = b.ox; o.y = b.oy; }
   battleStep(d, o, c, dt);
   if(d.bt === b) lock(d, o, b, dt, c);
+  if(d.bt === b){   // B-062: the pair's measured speed (yd/s, smoothed): the defender's travel since the last battle call; animation.js sets the leg cadence from it
+    if(b.px !== undefined && dt > 0) b.v = (b.v || 0) + (Math.hypot(d.x - b.px, d.y - b.py)/dt - (b.v || 0))*Math.min(1, V_EMA*dt);
+    if(undo && dt > 0){ o.vx = d.vx = (o.x - b.ox)/dt; o.vy = d.vy = (o.y - b.oy)/dt; }   // the pair's velocity is what the battle moved it by, not the steering's
+    b.px = d.x; b.py = d.y; if(o.bt === b){ b.ox = o.x; b.oy = o.y; b.oxT = S.clock; }
+  }
 }
 function battleStep(d, o, c, dt){
   const b = d.bt; b.t += dt; b.age = (b.age || 0) + dt;
@@ -48,12 +65,12 @@ function battleStep(d, o, c, dt){
   const ax = d.x - o.x, ay = d.y - o.y, al = Math.hypot(ax, ay) || 1;     // blocker -> defender
   const cx = c.x - d.x, cy = c.y - d.y, cl = Math.hypot(cx, cy) || 1;     // defender -> ball
   // blocker in control (run plays): drive him back and away from the hole to open the gap.
-  // How fast depends on the strength matchup: a good blocker on a weak defender moves him 2-3 yd/s.
+  // How fast depends on the strength matchup: a good blocker on a weak defender moves him up to DRIVE_MAX (1.4) yd/s (B-062).
   const drive = f => {
     if(!S.runMode) return;
     const ref = runRef(), away = Math.sign(d.x - ref.x) || 1;
     const px = ax/al + away*0.6, py = ay/al + 0.9, k = Math.hypot(px, py) || 1;
-    const m = o.push*f*ramp*clamp(1 + (o.rStr - d.rPow)/40, 0.3, 1.8)*dt;
+    const m = driveV(o, d)*f*ramp*dt;
     d.x += px/k*m; d.y += py/k*m; o.x += px/k*m; o.y += py/k*m;
   };
   if(b.phase === 'set'){
@@ -71,7 +88,7 @@ function battleStep(d, o, c, dt){
       const sx = -ay/al, sy = ax/al, s = Math.sign(sx*cx + sy*cy) || 1;
       d.x += sx*s*0.9*dt; d.y += sy*s*0.9*dt;
     } else {     // bull rush: jolt the blocker back toward the ball
-      const f = 0.8*dt; d.x += cx/cl*f; d.y += cy/cl*f; o.x += cx/cl*f; o.y += cy/cl*f;
+      const f = (S.runMode ? BULL_V : 0.8)*dt; d.x += cx/cl*f; d.y += cy/cl*f; o.x += cx/cl*f; o.y += cy/cl*f;
     }
     if(b.t < MOVE_TIME) return;
     const diff = speed ? d.rSpd - o.rAgi : d.rPow - o.rStr;
