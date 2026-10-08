@@ -12,6 +12,7 @@ import { clamp, dist, faceYaw } from './util.js';
 // `bal` is how much he's still on his feet: legs hold him up, keep him upright and drive him where
 // he wants to go. A tackle is just the tacklers' grips and leg drive beating that, and then gravity.
 const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
+const JOINT_K = 1e7, JOINT_RELAX = 4;   // B-056: joint equations get their SPOOK terms for the real step; cannon builds a constraint with h = 1/60, so at PH_DT = 1/180 its joints were 9x too soft
 const SPEED_RAIL = 12;   // B-034: yd/s cap on any part (fastest sprinter ~11)
 // physics bubble: players near a live ragdoll become full bodies (ph.bubble) so ragdolls and piles hit them.
 // States per player (all in bubbleUpdate / physOn / physOff):
@@ -115,7 +116,7 @@ export function physOn(p, o={}){
     rigP(p, d.j, tv);
     const pa = new CANNON.Vec3(), pb = new CANNON.Vec3(), jw = new CANNON.Vec3(tv.x, tv.y, tv.z);
     a.pointToLocalFrame(jw, pa); b.pointToLocalFrame(jw, pb);
-    const c = new CANNON.PointToPointConstraint(a, pa, b, pb); c.collideConnected = false; PW.addConstraint(c); c.pvA = [pa.x, pa.y, pa.z]; c.pvB = [pb.x, pb.y, pb.z]; return c;
+    const c = new CANNON.PointToPointConstraint(a, pa, b, pb); c.collideConnected = false; PW.addConstraint(c); c.equations.forEach(e => e.setSpookParams(JOINT_K, JOINT_RELAX, PH_DT)); c.pvA = [pa.x, pa.y, pa.z]; c.pvB = [pb.x, pb.y, pb.z]; return c;
   });
   p.body.visible = false;
   p.ph = {bodies, joints, grips:[], bal:o.bal ?? 1, ttl:o.ttl ?? Infinity, t:0, M, meshes:physMeshes(p), vis};
@@ -165,6 +166,7 @@ function lockGrip(d, c, kind){
     const g = new CANNON.PointToPointConstraint(hb, new CANNON.Vec3(0, HAND_Y, 0), best, loc);
     // what his hands can hold (force); one hand holds a lot less than a runner's legs pull
     const cap = d.mass*MASS_KG*(kind === 'wrap' ? 150 : ARM_GRIP)*(d.rTkl/80);
+    // B-056: a grip keeps cannon's default 1/60 SPOOK terms on purpose (not JOINT_K/PH_DT): the force caps above were tuned on that softness
     g.collideConnected = false; PW.addConstraint(g); D.grips.push({c:g, on:c, hb, best, loc, born:D.t, cap});
   }
 }
