@@ -86,11 +86,18 @@ const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
 // sim.js first and its imports (ratings.js, formations.js, roster.js, util.js) are pure and roll nothing at load, so player ratings and masses (rolled at load) are seeded too.
+// Importing modules before seedRandom is safe: no module draws Math.random at load; players.js and three.js uuids use private streams.
+// B-079: three.js draws one uuid per Mesh, Group, Geometry and Material from Math.random, and its MathUtils is frozen (r128), so generateUUID cannot be swapped. Instead, under ?sim,
+// Math.random reads a private stream (the same mulberry32, fixed seed) while the modules load, and main.js calls endLoad() after its imports, before rate(): the seeded stream starts there, untouched by
+// the load-time uuids, so a mesh added at load no longer shifts any seeded number. (A mesh made later, in play, still draws a uuid from the seeded stream.)
 const Q = new URLSearchParams(location.search);
+let loading = true;
+export function endLoad(){ loading = false; }
 if(Q.has('sim')) seedRandom(Number(Q.get('seed')) || 1);
 function seedRandom(seed){
-  let a = seed >>> 0;
-  Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const stream = s0 => { let a = s0 >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; };
+  const seeded = stream(seed), priv = stream(0x9E3779B9);
+  Math.random = () => loading ? priv() : seeded();
 }
 const pct = (xs, q) => { if(!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return +s[Math.min(s.length - 1, Math.floor(q*s.length))].toFixed(3); };
 const med = xs => { if(!xs.length) return null; const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return +(s.length % 2 ? s[m] : (s[m-1] + s[m])/2).toFixed(3); };

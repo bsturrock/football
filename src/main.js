@@ -1,4 +1,4 @@
-import { runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
+import { endLoad, runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
 import { pairCheck, pairReport, setFrameClock, syncScene } from './animation.js';
 import { CARRY_T, separate, stepHz } from './blocking.js';
 import { setAutoCam, updateCamera } from './camera.js';
@@ -132,6 +132,7 @@ function start(data){
     if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
   requestAnimationFrame(frame);
 }
+endLoad();   // B-079: every import has run (three.js uuids drew from the private stream); the seeded stream starts here
 rate();   // B-078 (load-no-random): ratings draw Math.random, so they are rolled here, after every import (and sim.js's seedRandom), not at players.js load
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
 const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
