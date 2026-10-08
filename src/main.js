@@ -29,7 +29,7 @@ function liveUpdate(dt){
   OFF.forEach(p => offenseAI(p, dt, inp));
   DEF.forEach(d => S.defOff ? defOffStep(d, dt) : defenseAI(d, dt));   // B-066: ?def=off
   separate();
-  if(S.defOff && S.clock >= DEF_OFF_WHISTLE){ const h = ball.state === 'held' ? heldBallPos(ball.holder) : null; if(h) endPlay('spot', h.y); else endPlay('inc'); return; }   // B-066: no tackles, so the whistle is the clock
+  if(S.defOff && S.clock >= DEF_OFF_WHISTLE){ const h = ball.state === 'held' ? heldBallPos(ball.holder) : ball.state === 'pitch' ? heldBallPos(ball.pf) : null; if(h) endPlay('spot', h.y, 'WHISTLE'); else endPlay('inc'); return; }   // B-066: no tackles, so the whistle is the clock
 
   const run = PLAYS[S.play].run;
   if(PLAYS[S.play].delay && S.handoffAt === Infinity) S.runMode = false;   // B-007-12 Draw: a pass until the handoff (the line pass-sets, the defense rushes and drops)

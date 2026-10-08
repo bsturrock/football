@@ -96,7 +96,7 @@ export function resolvePass(){
   const L = {x:ball.tx, y:ball.ty};
   const w = ball.target, dO = dist(w, L);
   let dd = null, dD = 1e9;
-  for(const d of DEF){ if(d.stun > 0) continue; const k = dist(d, L); if(k < dD){ dD = k; dd = d; } }
+  if(!S.defOff) for(const d of DEF){ if(d.stun > 0) continue; const k = dist(d, L); if(k < dD){ dD = k; dd = d; } }   // B-066 (def-off): nobody contests the pass
   const r = Math.random();
   if(dO < 1.7*BODY_W){   // B-021: catch and contest radii are body size, x0.7 (1.7 -> 1.19, 1.3 -> 0.91)
     if(dD < 1.3*BODY_W){
