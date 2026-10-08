@@ -87,7 +87,7 @@ function frame(now){
 function runFrames(n){
   for(let i = 0; i < n; i++){ setFrameClock(i*1000/60); tick(1/60); syncScene(1/60); pairCheck(); }
   setFrameClock(null);
-  const show = () => { camStep(1/60); renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // B-042: the canvas shows the pose at frame N (a screenshot reads it); render only, the sim is untouched
+  const show = () => { camStep(1/60); renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // B-042 (axis-glide): the canvas shows the pose at frame N (a screenshot reads it); render only, the sim is untouched
   const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify(Object.assign({frames_run:n}, pairReport())); document.body.appendChild(el);
 }
 function start(data){

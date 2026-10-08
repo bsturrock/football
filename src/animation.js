@@ -76,7 +76,7 @@ const CARRY_K1 = 6;       // B-040: the same for a plain 1v1 man (his carry must
 const TURN_COS = 0.97;    // axis turn (cosine) that counts as such a jump
 const SEC_ENGW = 0.5;     // engaged share he keeps the second-man role at through a frame where the sim's p.eng lapses
 const SIDE_R = SH_X - 0.02;   // his hand point's distance from the defender's axis
-const HAND_IN = 0.12, HAND_OUT = 0.36, ENG_ROLL = 0.6, HEAD_TILT = 0.15, HEAD_TURN = 0.2, HAND_PRESS = -0.13;   // hand sideways offsets from the pair axis (blocker inside, defender outside), head tilt and turn (rad, about his own neck), how far the hand presses into the chest (yd)
+const HAND_IN = 0.12, HAND_OUT = 0.36, ENG_ROLL = 0.18, HEAD_TILT = 0.4, HEAD_TURN = 0.35, HAND_PRESS = -0.13;   // hand sideways offsets from the pair axis (blocker inside, defender outside), head tilt and turn (rad, about his own neck), how far the hand presses into the chest (yd)
 // arm solver limits: closest and farthest reach kept off the straight and folded extremes (yd), elbow range (rad), sideways angle range (rad), asin clamp for the first guess, Newton steps and stop error (yd), finite difference step, singular limit; free-arm sideways angle (rad)
 const REACH_MIN = 0.03, REACH_MAX = 0.02, EL_MIN = -2.7, EL_MAX = -0.05, ARM_Z_MAX = 1.2, ARM_Z_GUESS = 0.9, NEWTON_N = 5, NEWTON_ERR = 0.002, FD_H = 1e-3, DET_MIN = 1e-6, ARM_Z_FREE = 0.12;
 let frameClock = null;   // ms; the ?frames check sets it so the fight wiggle is the same every run (a normal page keeps real time)
@@ -130,7 +130,8 @@ function handAt(p, q, side, hand){
 const sV = new THREE.Vector3();
 function handAtSide(p, q, side, hand){
   const l = q.mesh.worldToLocal(sV.copy(p.mesh.position)), n = Math.hypot(l.x, l.z) || 1, nx = l.x/n, nz = l.z/n;
-  eV.set(nx*SIDE_R - nz*side*hand, q.body.position.y + BODY_H + PAD_Y, nz*SIDE_R + nx*side*hand);
+  const qr = q.roll || 0, cr = Math.cos(qr), sr = Math.sin(qr), ux = nx*SIDE_R - nz*side*hand;   // the defender's roll (B-042) tilts the point on his side with his torso
+  eV.set(ux*cr - PAD_Y*sr, q.body.position.y + BODY_H + ux*sr + PAD_Y*cr, nz*SIDE_R + nx*side*hand);
   return p.mesh.worldToLocal(q.mesh.localToWorld(eV));
 }
 function engagedPose(T, p, s, cs){
