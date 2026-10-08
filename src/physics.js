@@ -195,7 +195,7 @@ function physMuscles(p, ph){
   // athletes never go limp: braced while falling or fighting, still holding posture once down
   const tone = ph.rest ? 0.35 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
   const brace = ph.bal <= 0 && !ph.getUp && !ph.rest && !ph.grips.length && !ph.reach && !p.latch;
-  const fz = brace ? ph.bodies[0].quaternion.vmult(bz).y : 0;   // chest direction's height: < 0 face down (falling forward), > 0.1 falling backward
+  const fz = brace ? ph.bodies[0].quaternion.vmult(bz).y : 0;   // chest direction's height: <= 0.1 forward or sideways, > 0.1 falling backward
   ph.viol = 0; ph.violP = ph.violP || []; ph.violP.length = 0;   // B-038: the worst joint excess past its limit (rad) at this substep (sim jointViol reads it)
   PARTS.forEach((d, i) => {
     if(!d.p) return;
@@ -400,7 +400,7 @@ export const physTouched = (p, w = CONTACT_T) => phClock - (p.hitT ?? -99) <= w;
 export const physPose = p => ({fallT:p.ph.fallT || 0, spineY:p.ph.spineY, topY:p.ph.topY, touched:p.ph.touched, bal:p.ph.bal, viol:p.ph.viol || 0, vy:p.ph.bodies[0].velocity.y,
   violOver: th => PARTS.filter((d, i) => (p.ph.violP[i] || 0) > th).map(d => d.n),   // B-038: names of the joints past their limit by over th rad (sim jointViol, last substep)
   get kind(){ return physDownKind(p); },
-  get kindH(){ return physDownKind(p, true); }});   // B-045: same, but the hand end of a forearm counts as 'arm' (the brace)   // computed only when read (the sim does; normal play never does)
+  get kindH(){ return physDownKind(p, true); }});   // kind: elbow end of a forearm only; kindH (B-045): the hand end counts as 'arm' too (the brace). Both are computed only when read (the sim does; normal play never does)
 export const physSpeed = p => p.ph ? Math.hypot(p.ph.bodies[0].velocity.x, p.ph.bodies[0].velocity.z) : 0;
 export const physPropped = p => !!p.ph && (p.ph.propFor || 0) >= PROP_T;
 export const physDownC = p => (physDown(p) || physPropped(p)) && physTouched(p);
