@@ -59,17 +59,21 @@ const SH_Y = 0.62*BODY_H, ARM_A = 0.42*BODY_H, ARM_B = 0.4*BODY_H, PAD_Y = 0.4*B
 // B-037 second doubler (yd, 1/s unless noted). His second-man weight dblK (0..1) scales an extra draw offset: more push (the defender gives him no ground) and a spread away from the first blocker.
 //   state              event                                          next                test / report
 //   plain 1v1          he becomes second man (secondOf)               easing in           dbl fields, dblFrames
-//   easing in          dblK rises to 1: at the pose rate on a fresh double, at DBL_K when he led the battle (hadBt) and it moved to the other doubler
+//   easing in          dblK rises to 1: at the pose rate on a fresh double, at DBL_K when he led the battle (hadBt) and it moved to the other doubler   dblFades.inherit/.swap, dblJumpKind
 //   steady second      axis turns (cosine < TURN_COS), partner or spread side changes
 //                                                                     carry: the old offset is carried and worked off at CARRY_K, so he glides   dblJumpMax, dblOffsetJumpMax
 //   steady second      his double ends: he climbs (no partner) or the battle comes to him (isSecond false)       easing out
-//   easing out         dblK falls to 0 at DBL_K                       plain 1v1 (or the new battle man, whose base offset is B-031's)
+//   easing out         dblK falls to 0 at DBL_K                       plain 1v1 (or the new battle man, whose base offset is B-031's)   dblFades.climb/.inherit, dblJumpKind
+//   plain 1v1          axis turns (cosine < TURN_COS: a shed or lock snap) or a new partner, yawK > DBL_YAW (square)
+//                                                                     carry: the old offset is carried and worked off at CARRY_K1 (B-040), so he glides   dbl1v1JumpMax
+//   any frame          a flip flag (sgFlip) is read by the carry gate and cleared at once, whether it fired or not   (no stale flip)
 //   any                presnap, or he becomes a physics body          everything reset to 0
 const ENG_GAP = 0.08;   // B-042: extra drawn push (yd, each man) so upright torsos do not sink into each other
 const DBL_SPREAD = 0.4;   // sideways draw offset away from the first blocker
 const DBL_PUSH_K = 1;     // his extra share of the engage push (the defender does not give ground to him, so the full gap is his)
 const DBL_K = 2;          // rate his weight dblK fades out when the double ends, and eases in when he led the battle and it moved to the other doubler; also his yaw fade when his partner goes
 const DBL_YAW = 0.3;      // yawK above which he is square to his man (the fades below it are the 1v1 ramp, not measured)
+const W_SEEN = 0.01, W_LIVE = 0.001;   // weights (engW, dblK, yawK) above which a man still counts as engaged or fading (W_SEEN), or as tracked by the checks and drawn turned (W_LIVE); not measured
 const DBLK_MIN = 0.05;    // second-man weight below which a man is a plain 1v1 (no carry, not measured)
 const SQUARE_YAW = 0.9;    // yawK above which a man counts as square for the B-040 jump metric
 const CARRY_K = 2;        // rate a drawn jump from a changed partner, a turned axis or a flipped spread side is worked off
@@ -195,16 +199,16 @@ function animate(p, dt){
   p.rx = p.rx == null ? p.x : p.rx + (p.x - p.rx)*k2; p.ry = p.ry == null ? p.y : p.ry + (p.y - p.ry)*k2;
   // B-031: an engaged man is drawn square to his partner (the sim's p.face keeps the leverage angle): the leaned torso then lies along the pair axis, not off it
   if(S.phase === 'presnap' || p.ph){ p.yawK = 0; p.pushX = p.pushY = 0; p.sprX = p.sprY = 0; p.dblK = 0; p.hadBt = false; p.carX = p.carY = 0; p.axQ = null; p.sgPrev = 0; p.sgFlip = false; p.dblJ = p.baseJ = 0; p.sq = null; }   // a new rep or a physics body: no stale yaw or push
-  const q = p.engW > 0.01 && !p.ph && partnerOf(p);
-  const dk = 1 - Math.exp(-dt*DBL_K), kd = !q && p.dblK > 0.01 ? dk : k;   // B-037: a second man whose double ends fades his square yaw, push and spread slowly (no pop); everything else at the pose rate
+  const q = p.engW > W_SEEN && !p.ph && partnerOf(p);
+  const dk = 1 - Math.exp(-dt*DBL_K), kd = !q && p.dblK > W_SEEN ? dk : k;   // B-037: a second man whose double ends fades his square yaw, push and spread slowly (no pop); everything else at the pose rate
   const yk0 = p.yawK || 0;
   p.yawK = yk0 + (((q ? 1 : 0)) - yk0)*kd;
   if(q) p.sq = Math.atan2(q.rx - p.rx, p.ry - q.ry) + (p.team === 'D' ? faceLean(p, q, ball, S) : 0);   // square to the partner; a defender keeps B-022's leverage lean
-  // and drawn pushed back along the pair axis so the pair is BLOCK_D apart on screen while the sim keeps LOCK_D; the push blends with the yaw (about 0.1 s at engage and shed)
+  // and drawn pushed back along the pair axis so the pair is BLOCK_D + 2*ENG_GAP apart on screen (half each) while the sim keeps LOCK_D; a second man's gap scales with (1 + DBL_PUSH_K*dblK), so his ENG_GAP doubles too (kept: the defender gives him no ground, and the second man needs the room); the push blends with the yaw (about 0.1 s at engage and shed)
   const sec2 = !!q && isSecond(p, q), px0 = p.pushX || 0, py0 = p.pushY || 0, sx0 = p.sprX || 0, sy0 = p.sprY || 0, w0 = p.dblK || 0, half = (BLOCK_D - LOCK_D)/2 + ENG_GAP;
   if(q){ const ax = p.x - q.x, ay = p.y - q.y, al = Math.hypot(ax, ay) || 1; if((px0 || py0) && (px0*ax + py0*ay)/al < TURN_COS ) p.sgFlip = true; p.pushX = ax/al; p.pushY = ay/al; }   // a turned axis is a jump for every engaged man (B-040: the 1v1 carry too)
   // B-037: the second doubler is also drawn DBL_SPREAD sideways, away from the first blocker, so the two sets of shoulders clear each other (the defender's drawn spot is his own push from his battle blocker only)
-  if(p.bt) p.hadBt = true; else if(!sec2 && !(p.dblK > 0.01)) p.hadBt = false;   // he led the battle: if it moves to the other doubler, his weight eases in
+  if(p.bt) p.hadBt = true; else if(!sec2 && !(p.dblK > W_SEEN)) p.hadBt = false;   // he led the battle: if it moves to the other doubler, his weight eases in
   p.dblK = (p.dblK || 0) + ((sec2 ? 1 : 0) - (p.dblK || 0))*(sec2 && !p.hadBt ? k : dk);   // eased with the yaw, so the extra push and the spread fade when the double ends (he climbs, or inherits the battle)
   if(sec2){ const o = q.bt.o, tx = -(p.pushY || 0), ty = p.pushX || 0, sg = p.dbl.ringS || Math.sign(tx*(p.x - o.x) + ty*(p.y - o.y)) || 1; if(p.sgPrev && sg !== p.sgPrev) p.sgFlip = true; p.sgPrev = sg; p.sprX = tx*sg; p.sprY = ty*sg; }
   const yk = p.yawK || 0, w1 = p.dblK || 0, ex = (px, sx) => px*half*DBL_PUSH_K + sx*DBL_SPREAD;
@@ -217,7 +221,7 @@ function animate(p, dt){
   if(q) p.axQ = q; const cd = Math.exp(-dt*(w1 > DBLK_MIN ? CARRY_K : CARRY_K1)); p.carX = (p.carX || 0)*cd; p.carY = (p.carY || 0)*cd;
   ox += p.carX; oy += p.carY; p.lastOx = ox; p.lastOy = oy;
   p.drawJ = yk0 > SQUARE_YAW && p.yawK > SQUARE_YAW ? Math.hypot(ox - pox, oy - poy) : 0;   // B-040 metric: the drawn offset changed this frame, carry included, while square both frames (the engage and shed yaw ramp is not measured; the sim spot's own move is rx, ry)
-  p.mesh.position.set(p.rx + ox, 0, 50 - (p.ry + oy)); p.mesh.rotation.y = p.yawK > 0.001 && p.sq != null ? p.face + p.yawK*Math.atan2(Math.sin(p.sq - p.face), Math.cos(p.sq - p.face)) : p.face;
+  p.mesh.position.set(p.rx + ox, 0, 50 - (p.ry + oy)); p.mesh.rotation.y = p.yawK > W_LIVE && p.sq != null ? p.face + p.yawK*Math.atan2(Math.sin(p.sq - p.face), Math.cos(p.sq - p.face)) : p.face;
   p.mesh.updateMatrixWorld(true);
 }
 // ---------- pair check (B-031) ----------
@@ -230,7 +234,7 @@ function animate(p, dt){
 //   (the drills never promote a man: add &handoff=N to force one engaged man into a physics body every N frames)
 //   dblFrames, dblAnyPct, dblPadsPct, dblHeadPct (B-037): frames where the defender in a battle also has a second doubler; the share of them with any overlap / pads or torso in pads, torso or helmet / a helmet in a body, between the second man and the defender or the first blocker
 //   dblJumpMax (B-037): the largest drawn jump of a second man in one frame on a frame where his weight moves while he is already square (yawK over DBL_YAW; gate dblK moved and, for a rise, he led the battle; a new battle's engage ramp is the 1v1 one), beyond the motion of his simulated spot (yd; under 0.08), watching the push and spread fade when a double ends
-//   dblOffsetJumpMax: the largest one-frame change of a second man's extra offset (weight and raw axis, no carry; yd) on frames where he is square. dbl1v1JumpMax: the control, the same for every other square man's raw axis (the 1v1 pose's own turn)
+//   dblOffsetJumpMax: the largest one-frame change of a second man's extra offset (weight and raw axis, no carry; yd) on frames where he is square. dbl1v1JumpMax (B-040, under 0.08): the drawn offset change per frame (p.drawJ: draw offset with the carry, beyond the sim spot's own move) of every other man, counted only while yawK is over SQUARE_YAW on both frames, so the engage and shed yaw ramp (yawK 0.3-0.9) and its snaps are not counted
 //   dblFades (B-037): how many such frames were counted, by kind: climb (his double ended, no partner), inherit (the battle came to him), swap (he became second man while square)
 //   dblJumpKind: the same largest jump by kind
 //   headOffNeckMax (B-042, yd): the largest distance of any drawn man's head joint from its neck socket; limbStretchMax: the largest distance of any other joint from its rest socket on its parent, or scale away from 1 (both near 0)
@@ -238,11 +242,16 @@ function animate(p, dt){
 // B-042: every frame, every drawn man: how far a joint sits from its rest socket on its parent (headOffNeckMax: the head; limbStretchMax: any other joint, and any scale away from 1). Rig rest in rig units, as players.js builds it.
 const REST = {torso:[0, 1, 0], head:[0, 0.8, 0], shL:[0.5, 0.62, 0], shR:[-0.5, 0.62, 0], elL:[0, -0.42, 0], elR:[0, -0.42, 0], hipL:[0.2, 1, 0], hipR:[-0.2, 1, 0], kneeL:[0, -0.5, 0], kneeR:[0, -0.5, 0]};
 const restV = Object.fromEntries(Object.entries(REST).map(([k, v]) => [k, bodyV(v)]));
-const pd0 = {headOff:0, stretch:0};
-function jointCheck(p){
-  for(const k in restV){ const j = p.j[k], v = restV[k], d = Math.hypot(j.position.x - v[0], j.position.y - v[1], j.position.z - v[2]), sc = Math.max(Math.abs(j.scale.x - 1), Math.abs(j.scale.y - 1), Math.abs(j.scale.z - 1));
-    if(k === 'head') pd0.headOff = Math.max(pd0.headOff, d); else pd0.stretch = Math.max(pd0.stretch, d); pd0.stretch = Math.max(pd0.stretch, sc); }
-  const m = p.mesh.scale, b = p.body.scale; pd0.stretch = Math.max(pd0.stretch, Math.abs(m.x - 1), Math.abs(m.y - 1), Math.abs(m.z - 1), Math.abs(b.x - 1), Math.abs(b.y - 1), Math.abs(b.z - 1));
+const PAR = {head:'torso', shL:'torso', shR:'torso', hipL:'torso', hipR:'torso', elL:'shL', elR:'shR', kneeL:'hipL', kneeR:'hipR'};   // joint -> parent joint (physics.js PARTS)
+const REL = {...REST, hipL:[0.2, 0, 0], hipR:[-0.2, 0, 0]};   // each joint in its parent's frame (the rig hangs the hips from the body at hip height, the torso pivot sits there)
+const restLen = Object.fromEntries(Object.keys(PAR).map(k => [k, Math.hypot(...bodyV(REL[k]))]));
+const pd0 = {headOff:0, stretch:0, where:null, n:0}, jA = new THREE.Vector3(), jB = new THREE.Vector3();
+const jointAt = (p, k, out) => p.ph ? physJoint(p, k, out) : p.j[k].getWorldPosition(out);   // a body's mesh pivot (physJoint) or the rig's joint
+function jointCheck(p){   // every drawn man (rig or physics body, any phase): each joint's pivot distance from its parent's pivot, beyond the rest distance (a pulled-apart ragdoll shows here); a rig man's mesh and body scales too
+  if(p.ph && !p.ph.meshes) return;
+  for(const k in PAR){ const d = Math.abs(jointAt(p, k, jA).distanceTo(jointAt(p, PAR[k], jB)) - restLen[k]);
+    if(k === 'head') pd0.headOff = Math.max(pd0.headOff, d); else if(d > pd0.stretch){ pd0.stretch = d; pd0.where = {frame:pd0.n, team:p.team, pos:p.pos, joint:k, ph:!!p.ph, act:p.act, phase:S.phase}; } }
+  if(!p.ph){ const m = p.mesh.scale, b = p.body.scale; pd0.stretch = Math.max(pd0.stretch, Math.abs(m.x - 1), Math.abs(m.y - 1), Math.abs(m.z - 1), Math.abs(b.x - 1), Math.abs(b.y - 1), Math.abs(b.z - 1)); }
 }
 const PD_SHRINK = 0.03, PD_HAND = 0.06;
 const HO_ENG = 0.3, HO_FULL = 0.95, HO_DT = 1/60, HO_JOINTS = ['torso', 'shL', 'shR'], hoPrev = new Map(), hoV = new THREE.Vector3(), hoV2 = new THREE.Vector3();
@@ -276,7 +285,7 @@ let hoFrame = 0;
 export function pairCheck(){
   if(HO_EVERY && ++hoFrame % HO_EVERY === 0){ const m = ALL.find(q => !q.ph && q.yawK > HO_FULL && q.mesh.visible); if(m){ physOn(m, {bal:0.5, ttl:1.5}); const b = m.bt; if(b) ALL.forEach(q => { if(q.bt === b) q.bt = null; }); } }   // his battle ends too, as physics.js promote() does
   physRender();   // the frames check does not run main's physRender; the meshes must be synced before they are read
-  for(const p of ALL) if(!p.ph && S.phase !== 'presnap') jointCheck(p);
+  pd0.n++; for(const p of ALL) jointCheck(p);
   for(const p of ALL){   // B-036: an engaged man who became a body this frame: his torso joint's drawn jump, less what the body itself moved
     const pr = hoPrev.get(p);
     if(p.ph && pr && pr.eng){
@@ -292,11 +301,11 @@ export function pairCheck(){
       const j = Math.hypot(p.mesh.position.x - pr[0] - (p.rx - pr[2]), p.mesh.position.z - pr[1] + (p.ry - pr[3])), kind = p.dblK > pr[4] ? 'swap' : p.bt ? 'inherit' : 'climb';
       pd.dblJump = Math.max(pd.dblJump, j); pd.dblN[kind]++; pd.dblJk[kind] = Math.max(pd.dblJk[kind], j);
     }
-    if(p.dblK > 0.001 && !p.ph && S.phase !== 'presnap') dblPrev.set(p, [p.mesh.position.x, p.mesh.position.z, p.rx, p.ry, p.dblK, p.yawK]); else dblPrev.delete(p);
+    if(p.dblK > W_LIVE && !p.ph && S.phase !== 'presnap') dblPrev.set(p, [p.mesh.position.x, p.mesh.position.z, p.rx, p.ry, p.dblK, p.yawK]); else dblPrev.delete(p);
   }
   for(const p of ALL){   // B-037: per-frame change of a square man's drawn offset: a second man's extra (weight and axis), every other engaged man's raw axis (the 1v1 control)
     if(p.ph || S.phase === 'presnap' || !(p.yawK > DBL_YAW)) continue;
-    if(p.dblK > 0.001) pd.offJump = Math.max(pd.offJump, p.dblJ); else pd.ctrlJump = Math.max(pd.ctrlJump, p.drawJ);
+    if(p.dblK > W_LIVE) pd.offJump = Math.max(pd.offJump, p.dblJ); else pd.ctrlJump = Math.max(pd.ctrlJump, p.drawJ);
   }
   for(const d of ALL){
     const b = d.team === 'D' && !d.ph && d.bt, o = b && b.o;
@@ -314,7 +323,7 @@ export function pairCheck(){
 export function pairReport(){
   const med = a => a.length ? Math.round(1000*a.slice().sort((x, y) => x - y)[a.length >> 1])/1000 : null, f = pd.frames || 1, pc = n => Math.round(1000*n/f)/10;
   const r3 = x => Math.round(1000*x)/1000;
-  return {handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
+  return {handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), stretchAt:pd0.where, dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units
