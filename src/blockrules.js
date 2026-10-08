@@ -130,13 +130,14 @@ function pick(rule, p, free, ctx){
     case 'double': {
       const nb = !ctx.again && ctx.neighbour(p, rule[1] || 'playside');   // a double is set at the snap only
       const nbDbl = ctx.dblOf ? ctx.dblOf.get(nb) : nb && nb.dbl, nbBlk = ctx.blkOf ? ctx.blkOf.get(nb) : nb && nb.blk;   // B-068: the preview keeps its picks in ctx maps
-      if(!nb || nbDbl || nb.via && nb.via.length) return null;
+      const nbVia = ctx.viaOf ? ctx.viaOf.has(nb) : nb && nb.via && nb.via.length;   // B-071: a neighbour who pulls is not doubled with
+      if(!nb || nbDbl || nbVia) return null;
       if(rule[2] !== 'cov' && DEF.some(d => d.stun <= 0 && Math.abs(dx(d)) <= COVERED_DX + COVER_EPS && d.y - los <= COVERED_DY)) return null;   // covered: he has a man of his own
       const held = nbBlk && nbBlk.stun <= 0 && (nbBlk.role === 'DL' || nbBlk.y - los <= COVERED_DY) ? nbBlk : null;
       return held || nearest(line.filter(d => Math.abs(d.x - nb.x) <= COVERED_DX + COVER_EPS), d => Math.abs(d.x - nb.x));
     }
     case 'pull': {
-      if(ctx.again || p.pull) return null;   // a pull is set at the snap only
+      if(ctx.again || (!ctx.viaOf && p.pull)) return null;   // a pull is set at the snap only
       const dir = Math.sign(h - p.x) || ps;
       let d = null;
       if(rule[1] === 'kick') d = nearest(free.filter(e => inBox(e) && (e.x - h)*ps > 0 && e.y - los >= -KICK_BACK && e.y - los <= KICK_FWD), e => Math.abs(e.x - h));
@@ -165,6 +166,7 @@ const neighbourFn = (linemen, flip, ps) => (p, side) => {   // the lineman next 
   return linemen[i] && Math.abs(linemen[i].x - p.x) < NEIGHBOUR_DX ? linemen[i] : null;
 };
 // again: after the handoff. Engaged men and pullers keep theirs; every other blocker (unengaged, not pulling) is read again against where the defense is now.
+// CHANGE BOTH: previewBlocks (below) copies this claim core; mirror any edit there
 export function resolveBlocks(play, flip, again = false){
   const h = S.hole = play.hole ?? 0, rules = play.src.rules; if(!again) S.bust = []; if(!rules) return;
   const los = S.los, ps = Math.sign(h) || 1, bl = blockers(rules, flip);
@@ -266,16 +268,16 @@ export function resolveBlocks(play, flip, again = false){
   const lab = labels(); for(const u of pulls) S.pulls.push({name:u.name, kind:u.kind, tgt:lab.get(u.p.blk) || '?', p:u.p});
   S.blk = Object.fromEntries(bl.map(b => [b.name, b.p.blk ? lab.get(b.p.blk) || '?' : null]));
 }
-// B-068: the pre-snap preview. Who each blocker will block against the front as shown, and who each double's climber will climb to.
+// B-068: the pre-snap preview. CHANGE BOTH: this copies resolveBlocks' claim core (take, covering, free, the passes, the dissolve loop); an edit there needs the same edit here (B-071: checked once, 500 plays, 0 mismatches vs S.blk; the check was not committed). Who each blocker will block against the front as shown, and who each double's climber will climb to.
 // Pure: no random draws (no bust or recog roll), no writes to S or any player; picks live in local maps. Mirrors resolveBlocks' claim order
 // (pull-first pass, passes 0..2, `any`); the bust and wrong-read rolls are left out. Returns {solid:[{p, d}], dotted:[{p, d}]}.
 export function previewBlocks(play, flip){
   const rules = play.src && play.src.rules, out = {solid:[], dotted:[]}; if(!rules) return out;
   const h = play.hole ?? 0, los = S.los, ps = Math.sign(h) || 1, bl = blockers(rules, flip, h);
   const linemen = bl.filter(b => b.p.role === 'OL' || b.p === TE).map(b => b.p).sort((a, b) => a.x - b.x);
-  const blkOf = new Map(), dblOf = new Map(), lanes = new Map();
+  const blkOf = new Map(), dblOf = new Map(), lanes = new Map(), viaOf = new Set();
   if(play.scheme === 'zone') [...OL, TE].forEach(o => lanes.set(o, o.x + play.shift));
-  const ctx = {los, h, ps, again:false, blkOf, dblOf, lane:p => lanes.has(p) ? lanes.get(p) : p.lane ?? p.x, neighbour:neighbourFn(linemen, flip, ps)};
+  const ctx = {los, h, ps, again:false, blkOf, dblOf, viaOf, lane:p => lanes.has(p) ? lanes.get(p) : p.lane ?? p.x, neighbour:neighbourFn(linemen, flip, ps)};
   const claimed = new Set(), resv = new Map(), free = b => DEF.filter(d => d.stun <= 0 && (!claimed.has(d) || (resv.get(d) || {}).post === b.p));
   const take = (b, d, rule) => {
     const r = resv.get(d); if(r && r.post === b.p) dblOf.set(b.p, {d, mate:r.doubler, post:true});
@@ -283,6 +285,7 @@ export function previewBlocks(play, flip){
       const nb = ctx.neighbour(b.p, rule[1] || 'playside'); dblOf.set(b.p, {d, mate:nb, post:false});
       if(blkOf.get(nb) === d) dblOf.set(nb, {d, mate:b.p, post:true}); else resv.set(d, {post:nb, doubler:b.p});
     }
+    if(rule[0] === 'pull') viaOf.add(b.p);   // B-071: resolveBlocks sets `via` here
     blkOf.set(b.p, d); claimed.add(d);
   };
   const ROAM = ['down', 'back'];
