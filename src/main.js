@@ -95,6 +95,7 @@ function runFrames(n){
 // ?autoplay=<seconds>&sim=1&seed=S: the CPU calls and snaps a play with no input; the page steps 1/60 s synchronously (as runFrames does) until the play has run <seconds> after the snap
 // (or ended first), then keeps painting that frame with the game camera: a headless screenshot shows the play mid-action. `sim=1` only seeds Math.random, so the same seed gives the same
 // frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...,"digest":...,"offPlay":..,"defCall":..} into <pre id="autoout">. A normal load is unchanged.
+// B-089: &front=<defensive call name> forces the defense's call (DEF_CALLS, case-insensitive; an unknown name gives {"error":...}); merges with &play.
 // B-086: &stopon=cut|pull|shed[&after=N] stops on the first such event (see runAutoplay).
 // B-081: &play=<name> forces the offense's call (any play, case-insensitive; a pass play needs &pass=1; an unknown name gives {"error":...}); &cam=side|close frames the play, following the ball (a bad value gives {"error":...}).
 const TOW_FREE_T = 0.4;   // B-086: a copy of defense.js TOW_FREE_T (not exported; defense.js is another worker's): a tow sets freeT to this, a shed 0.9
@@ -109,6 +110,7 @@ function runAutoplay(sec, q){
   // B-081: &play=<name> forces the offense's call (any PLAYS entry, case-insensitive; a pass play needs &pass=1 in the URL, playbook.js loads pass plays only then, so without it a pass name reads as unknown, and the error says so); &cam=side|close frames it (camera.js setAutoCam). Neither given: as before
   const out = o => { const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify(o); document.body.appendChild(el); };
   if(q.has('play')){ const nm = q.get('play').trim().toLowerCase(), pl = PLAYS.find(p => p.name.toLowerCase() === nm); if(!pl){ out({error:'unknown play ' + q.get('play') + (q.has('pass') ? '' : ' (a pass play needs &pass=1)')}); return; } S.force = {play:pl.name}; }
+  if(q.has('front')){ const nm = q.get('front').trim().toLowerCase(), dc = DEF_CALLS.find(c => c.name.toLowerCase() === nm); if(!dc){ out({error:'unknown front ' + q.get('front')}); return; } S.force = Object.assign(S.force || {}, {front:dc.name}); setupPlay(); }   // B-089: forces the defense's call (the first setup already rolled a random one, so set up again)
   if(q.has('cam')){ const c = q.get('cam').trim().toLowerCase(); if(c !== 'side' && c !== 'close'){ out({error:'unknown cam ' + q.get('cam')}); return; } setAutoCam(c); }
   // B-086: &stopon=cut|pull|shed[&after=N]: plays run one after another (up to AUTO_STOP_PLAYS, no stop at the whistle or at <seconds>) until the event fires on live state, then N more steps (default 0) and stop;
   // autoout always carries offPlay (PLAYS[S.play].name), defCall (S.defCall.name or null), on every run. Under &stopon it gains {event, play, frame, man}: man = {id, num, pos} of the man the cams frame (the first found if two fire on one step); the event, the play number (1 = the first snap), the step it fired on (event null: it never fired). Read-only, no game logic. cut: a man with p.cutPh set (B-072-4: 1 brake, 3 plant, 2 push);
