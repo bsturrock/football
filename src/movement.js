@@ -4,6 +4,9 @@ import { clamp } from './util.js';
 // Movement physics. The velocity change is split along the current heading (speed up / brake) and
 // across it (turn). Acceleration fades toward top speed, braking is harder than accelerating, and the
 // sideways limit means a full-speed cut has to shed speed first. Rates are per player (yd/s²).
+// B-060-1: acceleration fades linearly to zero at ACC_FADE_TOP x spd (v = V(1 - e^(-t/tau)), tau = that top / acc), so a run-up takes
+// 2-3 s and 20-30 yd; ACC_FLOOR keeps a little push above it (a burst's wanted speed). FIRE_K: the lineman's get-off multiplier on acc.
+const ACC_FADE_TOP = 1, ACC_FLOOR = 0.25, FIRE_K = 1.3;
 export function steerVel(p, dvx, dvy, dt){
   const slow = p.slow || 1; dvx *= slow; dvy *= slow;   // tacklers hanging on
   const bub = p.ph && p.ph.bubble;
@@ -18,8 +21,8 @@ export function steerVel(p, dvx, dvy, dt){
   }
   const ex = dvx - p.vx, ey = dvy - p.vy;
   const par = ex*ux + ey*uy, px = ex - par*ux, py = ey - par*uy;
-  const acc = p.acc*(p.fire > 0 ? 1.9 : 1);   // get-off: a lineman's first steps out of his stance are explosive
-  const aMax = par > 0 ? acc*Math.max(0.2, 1 - (sp/(p.spd*1.15))**2) : p.brake;
+  const acc = p.acc*(p.fire > 0 ? FIRE_K : 1);   // get-off: a lineman's first steps out of his stance are explosive
+  const aMax = par > 0 ? acc*Math.max(ACC_FLOOR, 1 - sp/(p.spd*ACC_FADE_TOP)) : p.brake;
   const dPar = clamp(par, -aMax*dt, aMax*dt);
   const pl = Math.hypot(px, py), lim = p.turn*dt, k = pl > lim ? lim/pl : 1;
   p.vx += dPar*ux + px*k; p.vy += dPar*uy + py*k;
@@ -50,9 +53,12 @@ export function runRoute(w, dt){
 
 // B-034: a 40-yard dash straight upfield from a standstill, stepped through steerVel (deterministic; no game state): wanted speed
 // spd*sprint for the first burstS seconds, spd after (burstS 0 = unsprinted). Returns {t10, t40 (s), top (peak yd/s)}.
+// B-060-1: plus t90, d90 (s and yd to 90% of spd) and a stop from the peak speed: stopT (s), stopYd (yd) until he is under 0.3 yd/s.
 export function dash40(spd, acc, brake, sprint = 1, burstS = 0, dt = 1/60){
   const p = {spd, acc, brake, turn: 10 /* unused in a straight dash: no sideways error to turn */, vx: 0, vy: 0, x: 0, y: 0, fire: 0};
-  let t = 0, top = 0, t10 = 0;
-  while(p.y < 40 && t < 20){ steerVel(p, 0, spd*(t < burstS ? sprint : 1), dt); t += dt; top = Math.max(top, p.vy); if(!t10 && p.y >= 10) t10 = t; }
-  return {t10, t40: t, top};
+  let t = 0, top = 0, t10 = 0, t90 = 0, d90 = 0;
+  while(p.y < 40 && t < 20){ steerVel(p, 0, spd*(t < burstS ? sprint : 1), dt); t += dt; top = Math.max(top, p.vy); if(!t10 && p.y >= 10) t10 = t; if(!t90 && p.vy >= 0.9*spd){ t90 = t; d90 = p.y; } }
+  const t40 = t, y0 = p.y; let ts = 0;
+  while(p.vy > 0.3 && ts < 10){ steerVel(p, 0, 0, dt); ts += dt; }
+  return {t10, t40, top, t90, d90, stopT: ts, stopYd: p.y - y0};
 }

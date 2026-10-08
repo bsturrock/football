@@ -30,10 +30,11 @@ const SPLIT = {RB:['RBp', 'RBs'], LB:['LBs', 'LBc']};   // a player of this temp
 export const TEAM_OFFSET = 4;                            // each team's whole roster shifts by -4..+4
 
 // global curves: out = lo + (hi - lo)*(rating/99)^k  (yd/s, yd/s^2, yd/s^2)
+// B-060-1: accel is spd/tau (tau 1.0-1.1 s) for the linear fade in movement.js steerVel; BRAKE_K 0.65 gives a 1.5-1.7 s stop from top.
 // B-034: speed is the unsprinted top (the gear every non-carrier runs in); accel is the run-up. SPRINT x speed is the carrier's short burst top.
-export const SPRINT = 1.06, BRAKE_K = 1.2, BURST_DRAIN = 0.6;   // SPRINT: burst multiplier; BURST_DRAIN: stamina per second of burst (1 s of stamina = 1/0.6 s of burst); both read by carrier.js, BRAKE_K: braking x accel
+export const SPRINT = 1.06, BRAKE_K = 0.65, BURST_DRAIN = 0.6;   // SPRINT: burst multiplier; BURST_DRAIN: stamina per second of burst (1 s of stamina = 1/0.6 s of burst); both read by carrier.js, BRAKE_K: braking x accel
 const LEG_CURVE = [2.75, 7.20, 0.9];   // the pre-B-034 accel curve: leg force p.leg (physics.js, pile.js) from the accel rating
-const CURVES = {speed:[4.97, 10.39, 0.54], accel:[7.54, 13.35, 0.72], agility:[5.4, 16.0, 5]};
+const CURVES = {speed:[5.45, 11.4, 0.54], accel:[6.8, 10.8, 0.72], agility:[5.4, 16.0, 5]};
 const curve = (key, v) => { const [lo, hi, k] = CURVES[key]; return lo + (hi - lo)*Math.pow(v/99, k); };
 export const legOf = r => LEG_CURVE[0] + (LEG_CURVE[1] - LEG_CURVE[0])*Math.pow(r/99, LEG_CURVE[2]);
 export const spdOf = r => curve('speed', r), accOf = r => curve('accel', r), turnOf = r => curve('agility', r);
