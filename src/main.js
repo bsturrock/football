@@ -95,13 +95,18 @@ function runFrames(n){
 // (or ended first), then keeps painting that frame with the game camera: a headless screenshot shows the play mid-action. `sim=1` only seeds Math.random, so the same seed gives the same
 // frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...} into <pre id="autoout">. A normal load is unchanged.
 const AUTO_MAX_STEPS = 60*60;   // a stuck pre-snap gives up after a minute of sim time
+const r3 = v => +Number(v).toFixed(3);
+function autoDigest(){   // state digest: same seed, same values (a PNG can differ by bytes)
+  const h = ball.holder, bp = h ? heldBallPos(h) : {x:ball.fx, y:ball.fy};
+  return {play:S.play, ballState:ball.state, holderX:h ? r3(h.x) : null, holderY:h ? r3(h.y) : null, ballX:r3(bp.x), ballY:r3(bp.y), clock:r3(S.clock), los:S.los, allSum:r3(ALL.reduce((a, p) => a + p.x*1.3 + p.y, 0))};
+}
 function runAutoplay(sec){
   setCpu(true);
   let n = 0;
-  while(n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ step(1/60); camStep(1/60); syncScene(1/60); }
-  physRender(); updateCallouts(0);
+  while(n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
+  setFrameClock(null); physRender(); updateCallouts(0);
   const show = () => { renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // render only; the sim is paused
-  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1}); document.body.appendChild(el);
+  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest()}); document.body.appendChild(el);
 }
 function start(data){
   $('cpuBtn').addEventListener('click', () => { setCpu(!S.cpu); cvs.focus(); });
