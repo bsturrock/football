@@ -53,6 +53,7 @@ function liveSnap(){
   const on = [...parts.off, ...parts.def];
   ALL.filter(p => !on.includes(p)).forEach((p, i) => { p.x = p.rx = -9 + i*0.9; p.y = p.ry = -10; p.vx = p.vy = 0; });   // dead ball behind the end line, 0.9 apart (separate() pushes under SEP_R 0.56)
   // the defense needs a ball target: the play's handoff spot (RB.route[0]; Iso: behind the line between the guards), held fixed; the ball and control ring are scaled to nothing in drillStart so nothing floats there
+  QB.mesh.visible = false;   // B-054: the rep is live, the LOS-pose QB (drillStart) goes back to hidden like every other parked man
   const h = RB.route[0]; RB.x = RB.rx = h.x; RB.y = RB.ry = h.y; RB.vx = RB.vy = 0;
   giveBall(RB);   // as in a game: ball held, handoffAt set, the blockers re-read the front once more (it sees the parked men, so the clearing below comes after)
   parts.off.forEach(o => { if(o.blk && !parts.def.includes(o.blk)) o.blk = null; if(!FORCED || (o.dbl && !parts.off.includes(o.dbl.mate))) o.dbl = null; });   // B-037 (double-pose): a forced play keeps the doubles the block rules formed
