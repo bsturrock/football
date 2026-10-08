@@ -42,8 +42,8 @@ import { dist } from './util.js';
 //   double    no free LB in range                                               double (stays, asked again every frame)
 //   double    d is down, or either man was re-targeted                          both released (the zone/man code re-picks)
 //   climbing  the LB is down                                                    released (zoneBlock re-picks)
-// Pull (B-007-8). Per puller p.pull = {kind, tgt, state, t, reach}; set at the snap only (the handoff re-read keeps a puller that is pulling or engaged; one that finished unengaged takes his next rule).
-// The path is PULL_DEPTH behind the line for PULL_FLAT yd along it, then up to the aim point (offense.js runBlock runs it at PULL_V x speed); S.pulls logs {name, kind, tgt, reach} for probes.
+// Pull (B-007-8). Per puller p.pull = {kind, tgt, state, t, reach, ox}; set at the snap only (the handoff re-read keeps a puller that is pulling or engaged; one that finished unengaged takes his next rule).
+// The path is PULL_DEPTH behind the line for PULL_FLAT yd along it, then up to the aim point (offense.js runBlock runs it at PULL_V x speed); S.pulls logs {name, kind, tgt, reach} for probes. ox = the kick offset from the target's x (-dir*KICK_X for a kick, 0 otherwise); offense.js runBlock moves the last waypoint every frame to the target + ox + his velocity x the lead (the puller's time to reach him, at most PULL_LEAD_T), B-061.
 //   state     event                                                         next
 //   set       rule found a target (snap)                                    pulling (p.via = the two waypoints, p.blk = target)
 //   set       rule found no target                                          no pull (the next rule runs)
@@ -188,7 +188,7 @@ export function resolveBlocks(play, flip, again = false){
     }
     if(rule[0] === 'pull'){
       const dir = Math.sign(h - b.p.x) || ps, aim = rule[1] === 'kick' ? d.x - dir*KICK_X : d.x;
-      b.p.via = [{x:b.p.x + dir*PULL_FLAT, y:los - PULL_DEPTH}, {x:aim, y:d.y}]; b.p.pull = {kind:rule[1], tgt:d, state:'pulling', t:0, reach:null};
+      b.p.via = [{x:b.p.x + dir*PULL_FLAT, y:los - PULL_DEPTH}, {x:aim, y:d.y}]; b.p.pull = {kind:rule[1], tgt:d, state:'pulling', t:0, reach:null, ox:aim - d.x};
       pulls.push({name:b.name, kind:rule[1], p:b.p});
     }
     b.p.blk = d; claimed.add(d); if(rule[0] === 'boxS' || (b.p.lane != null && Math.abs(d.x - b.p.lane) >= ZONE_KEEP)) b.p.ruled = true; };
@@ -312,5 +312,5 @@ export function pullCheck(p, dt){
   const m = p.pull; if(!m || m.state === 'free') return;
   m.t += dt;
   if(m.tgt.stun > 0 || p.blk !== m.tgt){ m.state = 'free'; p.via = null; return; }
-  if(m.state === 'pulling' && dist(p, m.tgt) < ENGAGED){ m.state = 'engaged'; m.reach = m.t; }
+  if(m.state === 'pulling' && dist(p, m.tgt) < ENGAGED){ m.state = 'engaged'; m.reach = m.t; p.via = []; }   // B-061: reached him: drop the rest of the path so driveAt locks him this frame (the led waypoint can run ahead of a man who is already in reach)
 }
