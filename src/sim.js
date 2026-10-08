@@ -15,7 +15,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   The line gains force.pass and pressure {plays, tPressMedian, tPressP90 (s from the snap to the first defender within PRESS_YD 2 yd of the QB, over the plays that got there by PRESS_T 3 s),
 //   within2yd3sPct (share of plays with a defender within 2 yd of the QB at some live step by PRESS_T; NFL-ish 30-35), nearestMedYd (median over plays of the closest approach by PRESS_T),
 //   sackPct (plays the QB was tackled before the cut; null under &pass=draw, whose hand-off QB is never tackled), at1s {battle, free, other} (rushers = DL or mode rush, at the first live step at 1 s: in a battle (bt), free, or a body (ph)), sacks}.
-//   Under &pass the yards, ypc, spotYards and byPlay fields leave out the dropbacks cut at PRESS_END (read only pressure). &pass takes 1, draw (only with playbook.js DRAW_ON; otherwise {"error":"no Draw"}) or a pass play name; anything else (0 too) gives {"error":...}.
+//   B-048: under &pass (not draw) the QB has no drop in the sim or the game (the pass plays carry no drop data; shotgun already sets him deep), so he holds; the play ends at THROW_T 2.5 s (a throw time) or a sack, and the pressure window is THROW_T (the field name within2yd3sPct is kept: it now reads the share within 2 yd by the throw time). The yards, ypc, stuffPct, bigPct, spotYards and byPlay fields are empty/null there (a throw-time end has no yards and the sacks alone would read -6 as a rush average); read only pressure. &pass=draw keeps PRESS_END 3.5 and PRESS_T 3. &pass takes 1, draw (only with playbook.js DRAW_ON; otherwise {"error":"no Draw"}) or a pass play name; anything else (0 too) gives {"error":...}.
 //   Without &pass nothing changes (the default line is byte-identical).
 // Fields:
 //   climbFill {climbs, plays, landedPct, beforePct, startMed, travelMed, backLosMed, lifeMed, dispMed} (B-012 climb-timing): see the comment at climbWatch
@@ -80,6 +80,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 // Pile stats (and the B-008/B-010 shape keys) come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
 // physMs is null under --virtual-time-budget (performance.now does not advance during synchronous code); read it with a real clock
 const PRESS_T = 3, PRESS_END = 3.5, PRESS_YD = 2;   // B-026
+const THROW_T = 2.5;   // B-048: under &pass (not draw) the play ends here (the throw time) or at a sack; the pressure window is this long too
 const BAND_W = 20, BAND_NAMES = ['0-19', '20-39', '40-59', '60-79', '80-99'], BUST_KINDS = ['wrong', 'late', 'noclimb'], KNOW_POS = ['OL', 'TE', 'FB'];   // B-032-4
 const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0, FLAT_H = 0.66*BODY_W, STILL_V = 0.3, STILL_S = 1, STAY_T = 1, FLAT_DEG = 30, POST_S = 1, HUNG_T = 0.5, HUNG_V = 0.5, SHORT_FALL_T = 0.3, SOLO_BODIES = 2, VIOL_DEG = 10;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
@@ -362,9 +363,9 @@ export function runSim(n, step, g){
     cfBack = null; hMax = 0; let pNear = Infinity, pT = null, p1 = false, cut = false, stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = [], pullSeen = new Map(); const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
       step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
-      if(passMode && S.phase === 'live' && S.clock <= PRESS_T + 1e-6){ const dm = Math.min(...DEF.map(d => Math.hypot(d.x - QB.x, d.y - QB.y))); pNear = Math.min(pNear, dm); if(pT === null && dm <= PRESS_YD) pT = S.clock; }   // B-026
+      if(passMode && S.phase === 'live' && S.clock <= (force.pass === 'draw' ? PRESS_T : THROW_T) + 1e-6){ const dm = Math.min(...DEF.map(d => Math.hypot(d.x - QB.x, d.y - QB.y))); pNear = Math.min(pNear, dm); if(pT === null && dm <= PRESS_YD) pT = S.clock; }   // B-026
       if(passMode && S.phase === 'live' && !p1 && S.clock >= 1){ p1 = true; for(const d of DEF) if(d.role === 'DL' || d.mode === 'rush'){ if(d.ph) press.o++; else if(d.bt) press.b++; else press.f++; } }   // rushers at 1 s: in a battle, free, or a body
-      if(passMode && force.pass !== 'draw' && S.phase === 'live' && S.clock >= PRESS_END){ cut = true; S.phase = 'dead'; S.deadT = 2.2; }   // no throw: end the play here
+      if(passMode && force.pass !== 'draw' && S.phase === 'live' && S.clock >= THROW_T){ cut = true; S.phase = 'dead'; S.deadT = 2.2; }   // B-048: the throw time: end the play here
       fallen(); falls();
       if(S.phase === 'live' && S.climbRec) climbWatch();   // B-012 (climb-timing)
       const c = ball.state === 'held' ? ball.holder : null;
@@ -401,7 +402,7 @@ export function runSim(n, step, g){
     fieldO = fieldCounts(OFF); fieldD = fieldCounts(DEF);   // who was on the field for this play (pos counts), the last play's printed
     const timedOut = S.phase !== 'dead';   // hit PLAY_MAX_S: counted in timeouts, left out of yards
     if(timedOut) timeouts++;
-    else if(startY !== null && !cut){   // B-026: a dropback cut at PRESS_END has no yards
+    else if(startY !== null && !cut && !(passMode && force.pass !== 'draw')){   // B-026/B-048: under &pass (not draw) no play adds yards: a throw-time end has none and a sack's loss alone would read as a rush average
       yards.push(endY - startY);
       if(S.read) reads.push({...S.read, y:endY - startY});
       spotYards.push((S.drive === drive0 ? S.los : endY) - startY);   // where endPlay spotted it (forward progress included); a drive change (score, turnover, safety) resets los, so those use the last ball y
