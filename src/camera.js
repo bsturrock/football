@@ -7,6 +7,9 @@ import { clamp } from './util.js';
 let snapCam = true, autoMode = null;
 // B-081: ?autoplay&cam=side|close frames the play for a screenshot, following the ball; side = from the sideline at the line of scrimmage, wide enough for the DBs and LBs; close = tight behind and beside the ball carrier or QB
 export const setAutoCam = m => { autoMode = m === 'side' || m === 'close' ? m : null; snapCam = true; };
+// B-090: under &stopon the cams aim at the man whose event fired (main.js hands him over at the hit frame); null = the ball, as before
+let autoFocus = null;
+export const setAutoFocus = p => { autoFocus = p || null; snapCam = true; };
 const AUTO_FOV = {side:46, close:38}, AUTO_K = 6;
 function autoCamera(dt){
   if(camera.fov !== AUTO_FOV[autoMode]){ camera.fov = AUTO_FOV[autoMode]; camera.updateProjectionMatrix(); }
@@ -14,6 +17,7 @@ function autoCamera(dt){
   if(ball.state === 'air'){ const b = ballPos(Math.min(ball.t, 1)); fx = b.x; fy = b.y; }
   else if(ball.state === 'held' && ball.holder){ fx = ball.holder.x; fy = ball.holder.y; }
   else { fx = QB.x; fy = S.los; }
+  if(autoFocus){ fx = autoFocus.x; fy = autoFocus.y; }
   if(autoMode === 'side'){ fy = Math.max(fy, S.los) + 3; tmpPos.set(fx*0.5 + 15, 3.5, 50 - fy); tmpLook.set(fx*0.5, 1, 50 - fy); }
   else { tmpPos.set(fx + 6, 3.2, 50 - fy + 7); tmpLook.set(fx, 1, 50 - fy - 2); }
   const k = snapCam ? 1 : 1 - Math.exp(-dt*AUTO_K);
