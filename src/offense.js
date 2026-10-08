@@ -78,6 +78,7 @@ function driveAt(p, d, ref, dt){
   }
   steer(p, tx, ty, p.spd*f, dt);
 }
+const pulling = p => p.pull && p.pull.state === 'pulling';   // B-073: a puller whose pull is unresolved keeps the old no-target run (a puller with no target is B-074's)
 const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
 // man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
 // defender (pancake) frees the blocker to go find someone else.
@@ -85,7 +86,7 @@ function block(p, dt){
   const ref = runRef();
   let d = p.blk;
   if(!d || d.stun > 0){ d = p.blk = pickBlock(p, ref); }
-  if(!d){ if(p.role === 'WR'){ steer(p, ref.x + (p.x > ref.x ? LEAD_X : -LEAD_X), ref.y + 3, p.spd*LEAD_F, dt); return; } if(p.nmX == null) p.nmX = p.x; noMan(p, ref, p.nmX, dt); return; }  // nobody left: a receiver leads upfield; the line stays near it (B-073)
+  if(!d){ if(p.role === 'WR' || pulling(p)){ steer(p, ref.x + (p.x > ref.x ? LEAD_X : -LEAD_X), ref.y + 3, p.spd*LEAD_F, dt); return; } if(p.nmX == null) p.nmX = p.x; noMan(p, ref, p.nmX, dt); return; }  // nobody left: a receiver leads upfield; the line stays near it (B-073)
   driveAt(p, d, ref, dt);
 }
 // B-073: nobody in my lane or climb area: stay near the line, help the nearest engaged lineman at the hole side, else hold a fixed spot shaded toward the hole at block speed
@@ -117,7 +118,7 @@ function zoneBlock(p, dt){
     }
     p.blk = d;
   }
-  if(!d){ p.climbing = true; if(p.role === 'WR') steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*CLIMB_F, dt); else noMan(p, ref, lane, dt); return; }   // a receiver with no man still runs downfield to stalk (B-073 is the line)
+  if(!d){ p.climbing = true; if(p.role === 'WR' || pulling(p)) steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*CLIMB_F, dt); else noMan(p, ref, lane, dt); return; }   // a receiver with no man still runs downfield to stalk (B-073 is the line)
   driveAt(p, d, ref, dt);
 }
 function runBlock(p, dt){
