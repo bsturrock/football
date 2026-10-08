@@ -5,8 +5,8 @@ import { clamp } from './util.js';
 // across it (turn). Acceleration fades toward top speed, braking is harder than accelerating, and the
 // sideways limit means a full-speed cut has to shed speed first. Rates are per player (yd/s²).
 // B-060-1: acceleration fades linearly to zero at ACC_FADE_TOP x spd (v = V(1 - e^(-t/tau)), tau = that top / acc), so a run-up takes
-// 2-3 s and 20-30 yd; ACC_FLOOR keeps a little push above it (a burst's wanted speed). FIRE_K: the lineman's get-off multiplier on acc.
-const ACC_FADE_TOP = 1, ACC_FLOOR = 0.25, FIRE_K = 1.3;
+// 2-3 s and 15-20 yd to 90%; ACC_FLOOR keeps a little push above it (a burst's wanted speed). FIRE_K: the lineman's get-off multiplier on acc.
+const ACC_FADE_TOP = 1, ACC_FLOOR = 0.1, FIRE_K = 1.3;
 export function steerVel(p, dvx, dvy, dt){
   const slow = p.slow || 1; dvx *= slow; dvy *= slow;   // tacklers hanging on
   const bub = p.ph && p.ph.bubble;
