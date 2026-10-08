@@ -1,5 +1,5 @@
 import { BRAKE_K, BURST_DRAIN, KEYS, MENTAL, SPRINT, TEMPLATES, accOf, spdOf } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
-import { stepHz } from './blocking.js';
+import { CARRY_T, stepHz } from './blocking.js';
 import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { FRONTS, STUNTS } from './fronts.js';
 import { dash40 } from './movement.js';
@@ -193,7 +193,7 @@ export function runSim(n, step, g){
   // and each battle object counts once per phase it reached (battles: formed, then set, move, recover).
   const PAIR_BIN = 0.01, PAIR_BINS = 300, PAIR_FAR = 1.0, pairH = new Array(PAIR_BINS).fill(0), bseen = new WeakMap(), bat = {formed:0, set:0, move:0, recover:0}, pr = {n:0, over:0, far:0, min:Infinity}, fire = {y0:new Map(), got:new Set(), got3:new Set(), gotB:new Map(), fwd:[], fwd3:[]}, FIRE_T = 0.3;   // fire: each DL's depth at the first live frame, and how far upfield-to-backfield he got by the time his first battle formed (yd; > 0 = forward)
   // B-062 drive speed: per live battle frame (after the CARRY_T hit coast), the defender's travel since the last frame (yd/s), split by the strength matchup rStr(blocker) - rPow(defender): even (|diff| <= DRV_EVEN), blocker-strong, defender-strong
-  const DRV_EVEN = 10, DRV_AGE = 0.3, drv = {all:[], even:[], bs:[], ds:[], step:[], prev:new WeakMap()};
+  const DRV_EVEN = 10, DRV_AGE = CARRY_T, drv = {all:[], even:[], bs:[], ds:[], step:[], prev:new WeakMap()};
   const drvSample = d => {
     const b = d.bt, pv = drv.prev.get(d);
     if(pv && pv.b === b && b.age >= DRV_AGE){
