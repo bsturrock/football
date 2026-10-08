@@ -30,7 +30,7 @@ const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
 // B-060-2: situational speeds, fractions of d.spd (full only chasing in the open or on a ball in the air); scale the steered speed only, never d.acc or d.leg
 const PURSUE_F = 0.8, READ_F = 0.4, ZONE_F = 0.8, MAN_STEM_F = 0.9, RUSH_FULL_T = 1.0, OPEN_Y = 6;   // ZONE_F: zone and deep drops; MAN_STEM_F: man cover until the receiver is past his stem (then full); RUSH_FULL_T: a pass rusher runs full this long after the snap
-const FIRE_DEPTH = 1, FIRE_T = 0.5, FIRE_ACC = 1.8;   // B-064 (dl-fire): a one-gap DL aims FIRE_DEPTH yd past the line and accelerates FIRE_ACC x for FIRE_T s after the snap (stacked on movement.js p.fire x FIRE_K 1.3 for 0.35 s: about 2.3x then), so he meets the blocker at the line carrying his charge
+const FORCE_FIRE_DEPTH = -0.3, FIRE_DEPTH = 1, FIRE_T = 0.5, FIRE_ACC = 1.8;   // B-064 (dl-fire): a one-gap DL aims FIRE_DEPTH yd past the line and accelerates FIRE_ACC x for FIRE_T s after the snap (stacked on movement.js p.fire x FIRE_K 1.3 for 0.35 s: about 2.3x then), so he meets the blocker at the line carrying his charge
 const BT_KEEP_D = 1.3;   // B-023: a battle that started inside ENGAGED_D survives until its blocker is this far (drive and steering open the gap past ENGAGED_D 50 times a second)
 const RUNNER_PAST_Y = 1.0;   // B-023: the runner this far (yd) downfield of a blocked defender: the blocks break down, he is released to pursue
 const TOW_V = 4, TOW_FREE_T = 0.4;   // B-023: a blocker who is not assigned to him (o.blk is another man: a climber, a puller, a stunt pass-off) moving faster than TOW_V yd/s is passing, not blocking: the battle ends and he cannot re-engage for TOW_FREE_T s
@@ -162,7 +162,7 @@ function runFit(d, c){
   if(S.clock <= S.handoffAt + d.read + d.bite){
     // before the read: linemen attack their gap, second level read-steps with the backfield, the rest hold
     const flow = ((ball.holder || RB).x - S.flow0)*(d.rAwr/100)*0.7;
-    if(d.role === 'DL') return [j.gx, L - (j.role === 'two' ? 0.5 : FIRE_DEPTH)];   // B-064 (dl-fire): a one-gapper explodes through his gap; a two-gapper attacks the blocker and holds square
+    if(d.role === 'DL') return [j.gx, L - (j.role === 'two' ? 0.5 : j.role === 'force' ? FORCE_FIRE_DEPTH : FIRE_DEPTH)];   // B-064 (dl-fire): a one-gapper explodes through his gap; a two-gapper attacks the blocker and holds square; B-084: the edge (force) man holds the line (FORCE_FIRE_DEPTH, a hair on his side of it) instead of crossing it, so the puller meets him at the line, not 2.5 yd deep
     if(j.role === 'gap' || j.role === 'force') return [j.gx + flow, L + (d.role === 'LB' ? 3.5 : 4)];
     if(j.role === 'alley') return [j.gx*0.7 + flow*0.5, L + 7];
     if(j.role === 'deep') return [flow*0.4, L + 12];
