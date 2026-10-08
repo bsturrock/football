@@ -70,7 +70,9 @@ const DBL_PUSH_K = 1;     // his extra share of the engage push (the defender do
 const DBL_K = 2;          // rate his weight dblK fades out when the double ends, and eases in when he led the battle and it moved to the other doubler; also his yaw fade when his partner goes
 const DBL_YAW = 0.3;      // yawK above which he is square to his man (the fades below it are the 1v1 ramp, not measured)
 const DBLK_MIN = 0.05;    // second-man weight below which a man is a plain 1v1 (no carry, not measured)
+const SQUARE_YAW = 0.9;    // yawK above which a man counts as square for the B-040 jump metric
 const CARRY_K = 2;        // rate a drawn jump from a changed partner, a turned axis or a flipped spread side is worked off
+const CARRY_K1 = 6;       // B-040: the same for a plain 1v1 man (his carry must not lag the bodies)
 const TURN_COS = 0.97;    // axis turn (cosine) that counts as such a jump
 const SEC_ENGW = 0.5;     // engaged share he keeps the second-man role at through a frame where the sim's p.eng lapses
 const SIDE_R = SH_X - 0.02;   // his hand point's distance from the defender's axis
@@ -191,11 +193,12 @@ function animate(p, dt){
   if(S.phase === 'presnap' || p.ph){ p.yawK = 0; p.pushX = p.pushY = 0; p.sprX = p.sprY = 0; p.dblK = 0; p.hadBt = false; p.carX = p.carY = 0; p.axQ = null; p.sgPrev = 0; p.sgFlip = false; p.dblJ = p.baseJ = 0; p.sq = null; }   // a new rep or a physics body: no stale yaw or push
   const q = p.engW > 0.01 && !p.ph && partnerOf(p);
   const dk = 1 - Math.exp(-dt*DBL_K), kd = !q && p.dblK > 0.01 ? dk : k;   // B-037: a second man whose double ends fades his square yaw, push and spread slowly (no pop); everything else at the pose rate
-  p.yawK = (p.yawK || 0) + (((q ? 1 : 0)) - (p.yawK || 0))*kd;
+  const yk0 = p.yawK || 0;
+  p.yawK = yk0 + (((q ? 1 : 0)) - yk0)*kd;
   if(q) p.sq = Math.atan2(q.rx - p.rx, p.ry - q.ry) + (p.team === 'D' ? faceLean(p, q, ball, S) : 0);   // square to the partner; a defender keeps B-022's leverage lean
   // and drawn pushed back along the pair axis so the pair is BLOCK_D apart on screen while the sim keeps LOCK_D; the push blends with the yaw (about 0.1 s at engage and shed)
   const sec2 = !!q && isSecond(p, q), px0 = p.pushX || 0, py0 = p.pushY || 0, sx0 = p.sprX || 0, sy0 = p.sprY || 0, w0 = p.dblK || 0, half = (BLOCK_D - LOCK_D)/2;
-  if(q){ const ax = p.x - q.x, ay = p.y - q.y, al = Math.hypot(ax, ay) || 1; if((px0 || py0) && (px0*ax + py0*ay)/al < TURN_COS && (sec2 || w0 > DBLK_MIN)) p.sgFlip = true; p.pushX = ax/al; p.pushY = ay/al; }   // a turned axis counts as a jump for a second man only
+  if(q){ const ax = p.x - q.x, ay = p.y - q.y, al = Math.hypot(ax, ay) || 1; if((px0 || py0) && (px0*ax + py0*ay)/al < TURN_COS ) p.sgFlip = true; p.pushX = ax/al; p.pushY = ay/al; }   // a turned axis is a jump for every engaged man (B-040: the 1v1 carry too)
   // B-037: the second doubler is also drawn DBL_SPREAD sideways, away from the first blocker, so the two sets of shoulders clear each other (the defender's drawn spot is his own push from his battle blocker only)
   if(p.bt) p.hadBt = true; else if(!sec2 && !(p.dblK > 0.01)) p.hadBt = false;   // he led the battle: if it moves to the other doubler, his weight eases in
   p.dblK = (p.dblK || 0) + ((sec2 ? 1 : 0) - (p.dblK || 0))*(sec2 && !p.hadBt ? k : dk);   // eased with the yaw, so the extra push and the spread fade when the double ends (he climbs, or inherits the battle)
@@ -204,9 +207,12 @@ function animate(p, dt){
   p.dblJ = yk*Math.hypot(w1*ex(p.pushX || 0, p.sprX || 0) - w0*ex(px0, sx0), w1*ex(p.pushY || 0, p.sprY || 0) - w0*ex(py0, sy0));   // B-037 metric: the second man's extra offset (weight and axis) changed this frame
   p.baseJ = yk*half*Math.hypot((p.pushX || 0) - px0, (p.pushY || 0) - py0);   // the plain-1v1 control: the raw axis turned this frame, as drawn
   let off = (p.yawK || 0)*(BLOCK_D - LOCK_D)/2*(1 + DBL_PUSH_K*(p.dblK || 0)), spr = (p.yawK || 0)*(p.dblK || 0)*DBL_SPREAD, ox = (p.pushX || 0)*off + (p.sprX || 0)*spr, oy = (p.pushY || 0)*off + (p.sprY || 0)*spr;
-  if(p.axQ && q && (q !== p.axQ || p.sgFlip) && (p.yawK || 0) > 0.3 && (sec2 || (p.dblK || 0) > DBLK_MIN)){ p.sgFlip = false; p.carX = p.lastOx - ox; p.carY = p.lastOy - oy; }   // B-037: a new partner turns the draw axis at once; the old offset is carried and fades, so he glides
-  if(q) p.axQ = q; const cd = Math.exp(-dt*CARRY_K); p.carX = (p.carX || 0)*cd; p.carY = (p.carY || 0)*cd;
+  const pox = p.lastOx || 0, poy = p.lastOy || 0;
+  if(p.axQ && q && (q !== p.axQ || p.sgFlip) && (p.yawK || 0) > DBL_YAW){ p.carX = pox - ox; p.carY = poy - oy; }   // B-037, B-040: a new partner or a turned axis (a shed or lock snap) turns the draw axis at once; the old offset is carried and fades, so he glides
+  p.sgFlip = false;   // consumed, or not square / no partner: a flip never waits for a later frame
+  if(q) p.axQ = q; const cd = Math.exp(-dt*(w1 > DBLK_MIN ? CARRY_K : CARRY_K1)); p.carX = (p.carX || 0)*cd; p.carY = (p.carY || 0)*cd;
   ox += p.carX; oy += p.carY; p.lastOx = ox; p.lastOy = oy;
+  p.drawJ = yk0 > SQUARE_YAW && p.yawK > SQUARE_YAW ? Math.hypot(ox - pox, oy - poy) : 0;   // B-040 metric: the drawn offset changed this frame, carry included, while square both frames (the engage and shed yaw ramp is not measured; the sim spot's own move is rx, ry)
   p.mesh.position.set(p.rx + ox, 0, 50 - (p.ry + oy)); p.mesh.rotation.y = p.yawK > 0.001 && p.sq != null ? p.face + p.yawK*Math.atan2(Math.sin(p.sq - p.face), Math.cos(p.sq - p.face)) : p.face;
   p.mesh.updateMatrixWorld(true);
 }
@@ -275,7 +281,7 @@ export function pairCheck(){
   }
   for(const p of ALL){   // B-037: per-frame change of a square man's drawn offset: a second man's extra (weight and axis), every other engaged man's raw axis (the 1v1 control)
     if(p.ph || S.phase === 'presnap' || !(p.yawK > DBL_YAW)) continue;
-    if(p.dblK > 0.001) pd.offJump = Math.max(pd.offJump, p.dblJ); else pd.ctrlJump = Math.max(pd.ctrlJump, p.baseJ);
+    if(p.dblK > 0.001) pd.offJump = Math.max(pd.offJump, p.dblJ); else pd.ctrlJump = Math.max(pd.ctrlJump, p.drawJ);
   }
   for(const d of ALL){
     const b = d.team === 'D' && !d.ph && d.bt, o = b && b.o;

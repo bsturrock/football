@@ -17,8 +17,9 @@ import { S, selectPlay, setupPlay } from './state.js';
 // B-037 (double-pose): add &play=<play name> to force another play (a combo play forms doubles; the 1v1 and line views stay on the men over the linemen).
 // States: presnap --PRE_S--> live --REP_S--> presnap (new setupPlay). A mode switch restarts the rep from any state.
 const PRE_S = 1.2, REP_S = 4.5;
-const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (double-pose): ?play=<name> forces a play (e.g. Inside Zone: a combo, so doubles form); an unknown name falls back to Iso
+const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (double-pose): ?play=<name> forces a play (e.g. Inside Zone: a combo, so doubles form); an unknown name gives {"error":...} in <pre id="checkout"> (B-040) and the drill runs Iso
 const FORCED = PLAYS.find(p => p.name.toLowerCase() === String(PLAY_Q).toLowerCase());
+if(PLAY_Q && !FORCED && new URLSearchParams(location.search).has('frames')) window.addEventListener('DOMContentLoaded', () => { const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'unknown play ' + PLAY_Q}); document.body.appendChild(el); });   // main.js still appends its own line after this one (not my file)
 const PLAY = FORCED ? FORCED.name : 'Iso';   // Iso (the default): a man-blocking run, every lineman takes the man on him (no doubles, no pulls); a forced play is whatever ?play names
 const OL_BY_NAME = {LT, LG, C, RG, RT};
 const NOTES = {
