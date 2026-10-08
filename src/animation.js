@@ -3,12 +3,15 @@ import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
 import { physBall, physOn, physRender, physJoint } from './physics.js';
 import { PLAYS } from './playbook.js';
+import { OL_BACK } from './formations.js';
 import { ALL, BODY_H, C, G, JOINTS, QB, RB, bodyV } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
 import { $, BLOCK_D, BODY_W, FACE_RATE, LOCK_D, clamp, faceLean, faceYaw } from './util.js';
 
 // ---------- animation ----------
+const BALL_H = 0.1;   // the ball lies on the turf (yd up to its centre)
+const STANCE_LEAN = 1.3, STANCE_HEAD = 1.1;   // B-033 three-point stance: torso lean and head-up (rad about the neck); with STANCE_REACH 1.0 the down hand lands 0.98 yd ahead of the hips and the helmet front 0.96
 // joint signs: negative hip/shoulder = swing forward, positive knee = bend, positive lean/pitch = tip forward
 function targetPose(p, sp){
   // Gait: each leg's phase runs stance -> push-off -> swing -> reach. Thigh swings fore/aft around a slightly
@@ -23,7 +26,7 @@ function targetPose(p, sp){
     drop:0.04*r, pitch:0, bob:Math.abs(cs)*0.07*r};
   const arms = (l, rt, el) => { T.shL = l; T.shR = rt; T.elL = T.elR = el; };
   if(S.phase === 'presnap'){
-    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, {lean:1.2, hipL:-1.3, hipR:-1.1, kneeL:1.7, kneeR:1.5, drop:0.42, shR:-1.25, elR:0, shL:-0.5, elL:-0.6});
+    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, {lean:STANCE_LEAN, hipL:-1.3, hipR:-1.1, kneeL:1.7, kneeR:1.5, drop:0.44, shR:-1.9, elR:0, shL:-0.5, elL:-0.6, headUp:STANCE_HEAD});   // B-033: head up, the down hand on the turf at the ball tip, helmet front over it (formations.js STANCE_REACH)
     else if(p.pos === 'FB') Object.assign(T, {lean:0.75, hipL:-0.8, hipR:-0.7, kneeL:1.3, kneeR:1.2, drop:0.28}), arms(-0.9, -0.9, -0.6);   // fullback: low, hand near the ground
     else if(p === QB && PLAYS[S.play].under){ Object.assign(T, {lean:0.75, hipL:-0.7, hipR:-0.6, kneeL:1.1, kneeR:1.0, drop:0.3}); arms(-1.0, -1.0, -0.5); }   // under center
     else if(p === QB){ Object.assign(T, {lean:0.2, hipL:-0.3, hipR:-0.3, kneeL:0.5, kneeR:0.5, drop:0.08}); arms(-0.9, -0.9, -0.9); }
@@ -187,7 +190,8 @@ function animate(p, dt){
   const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
   for(const j of JOINTS) P[j] += (T[j] - P[j])*k;
   p.engW = (p.engW || 0) + ((eng ? 1 : 0) - (p.engW || 0))*(1 - Math.exp(-dt*ENG_K));
-  J.head.rotation.set(-ENG_HEAD*P.lean*p.engW, HEAD_TURN*p.engW, HEAD_TILT*p.engW);   // head up while engaged: eyes on his man, not the turf; B-042: the head stays on its neck socket and tilts to his right shoulder (B-031 slid it sideways off the neck), so the pair's helmets pass
+  p.hdUp = (p.hdUp || 0) + ((T.headUp || 0) - (p.hdUp || 0))*k;
+  J.head.rotation.set(-ENG_HEAD*P.lean*p.engW - p.hdUp, HEAD_TURN*p.engW, HEAD_TILT*p.engW);   // head up while engaged: eyes on his man, not the turf; B-042: the head stays on its neck socket and tilts to his right shoulder (B-031 slid it sideways off the neck), so the pair's helmets pass
   p.roll = ENG_ROLL*p.engW; J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   p.armZL = (p.armZL ?? ARM_Z_FREE) + ((T.armZL ?? ARM_Z_FREE) - (p.armZL ?? ARM_Z_FREE))*k; p.armZR = (p.armZR ?? -ARM_Z_FREE) + ((T.armZR ?? -ARM_Z_FREE) - (p.armZR ?? -ARM_Z_FREE))*k;   // sideways arm angles: 0.12 out free, the hand-placement angles engaged
@@ -287,7 +291,27 @@ function pdInside(a, b){   // corners of a's parts inside b's parts
 }
 const HO_EVERY = Number(new URLSearchParams(location.search).get('handoff')) || 0;   // ?handoff=N: every N frames the first fully engaged man becomes a physics body (the drills never promote one)
 let hoFrame = 0;
+// B-033 neutral zone: on presnap frames after the stance has settled (NZ_SETTLE frames), each visible OL and DL: how far his helmet front (OL: the edge toward the defense, DL: toward the offense) sits from the los,
+// and his down (right) hand against his ball tip (OL the back tip, DL the front tip; the center is skipped, the ball is in his hands). Fields of pairReport: nzOLfront (largest OL helmet front, yd past the los; at or under -nzTip = behind the back tip),
+// nzDLfront (smallest DL helmet front; at or over nzTip), nzGap (nzDLfront - nzOLfront, the daylight between the two lines' helmets; 0.31+), nzHandErr (largest |hand - his ball tip| along the field, yd), nzHandH (largest hand height above the turf), nzBallErr (largest |ball centre - los|)
+const NZ_SETTLE = 40, NZ_TIP = 0.175, nz = {n:0, ol:-9, dl:9, hand:0, h:0, ball:0, men:0}, nzV = new THREE.Vector3();
+function nzCheck(){
+  if(S.phase !== 'presnap'){ nz.n = 0; return; }
+  if(++nz.n < NZ_SETTLE) return;
+  nz.ball = Math.max(nz.ball, Math.abs(50 - ballMesh.position.z - S.los));
+  for(const p of ALL){
+    if((p.role !== 'OL' && p.role !== 'DL') || p.ph || !p.mesh.visible) continue;
+    const off = p.role === 'OL', hm = pdMeshes(p).find(([k]) => k === 'helmet')[1], bb = hm.geometry.boundingBox;
+    let fr = off ? -9 : 9;
+    for(let i = 0; i < 8; i++){ nzV.set(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y, i & 4 ? bb.max.z : bb.min.z).applyMatrix4(hm.matrixWorld); const y = 50 - nzV.z - S.los; fr = off ? Math.max(fr, y) : Math.min(fr, y); }
+    nz.men++; if(off) nz.ol = Math.max(nz.ol, fr); else nz.dl = Math.min(nz.dl, fr);
+    if(p === C) continue;
+    p.j.elR.localToWorld(nzV.set(...bodyV([0, -0.4, 0])));
+    nz.hand = Math.max(nz.hand, Math.abs(50 - nzV.z - S.los - (off ? -NZ_TIP : NZ_TIP))); nz.h = Math.max(nz.h, nzV.y);
+  }
+}
 export function pairCheck(){
+  nzCheck();
   if(HO_EVERY && ++hoFrame % HO_EVERY === 0){ const m = ALL.find(q => !q.ph && q.yawK > HO_FULL && q.mesh.visible); if(m){ physOn(m, {bal:0.5, ttl:1.5}); const b = m.bt; if(b) ALL.forEach(q => { if(q.bt === b) q.bt = null; }); } }   // his battle ends too, as physics.js promote() does
   physRender();   // the frames check does not run main's physRender; the meshes must be synced before they are read
   pd0.n++; for(const p of ALL) jointCheck(p);
@@ -328,14 +352,14 @@ export function pairCheck(){
 export function pairReport(){
   const med = a => a.length ? Math.round(1000*a.slice().sort((x, y) => x - y)[a.length >> 1])/1000 : null, f = pd.frames || 1, pc = n => Math.round(1000*n/f)/10;
   const r3 = x => Math.round(1000*x)/1000;
-  return {handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), stretchAt:pd0.where, dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
+  return {nzOLfront:r3(nz.ol), nzDLfront:r3(nz.dl), nzGap:r3(nz.dl - nz.ol), nzHandErr:r3(nz.hand), nzHandH:r3(nz.h), nzBallErr:r3(nz.ball), nzTip:NZ_TIP, nzMen:nz.men, handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), stretchAt:pd0.where, dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units
 export function syncScene(dt){
   ALL.forEach(p => animate(p, dt));
   // ball
-  if(ball.state === 'pre') ballMesh.position.copy(handPos(C, 0, 0.15, 0.55));
+  if(ball.state === 'pre'){ ballMesh.position.copy(handPos(C, 0, 0, OL_BACK/BODY_W)); ballMesh.position.y = BALL_H; }   // B-033: centred on the los (the center's hand sits at its back tip)
   else if(ball.state === 'pitch'){
     const k = Math.min(ball.t, 1);
     const a = (ball.pf === C ? handPos(C, 0, 0.15, 0.55) : handPos(ball.pf, 0, 1.5, 0.45)).clone(), b = handPos(ball.pt, 0, 1.4, 0.4);
