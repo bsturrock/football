@@ -252,6 +252,13 @@ function nearBlocker(d, o){
   for(const q of OFF) if(q !== cur && cand(q) && dist(q, d) + NEAR_SWAP < dist(cur, d)) cur = q;
   return cur;
 }
+// B-065: the gap an engaged defender fights for: his own gap (job.gx); a two-gapper holds square (null) until his read, then takes the ball-side gap
+function engagedGap(d, c){
+  const j = d.job;
+  if(!j || !S.runMode) return undefined;   // run plays only: a pass rusher keeps the old leverage
+  if(j.role !== 'two') return j.gx;
+  return S.clock <= S.handoffAt + d.read + d.bite ? null : (c.x < d.x ? j.gl : j.gr);
+}
 export function defenseAI(d, dt){
   if(d.tkCool > 0) d.tkCool -= dt;
   if(d.reachCool > 0) d.reachCool -= dt;
@@ -301,6 +308,7 @@ export function defenseAI(d, dt){
       }
       d.eng = o.eng = 0.15;
       d.faceAt = nearBlocker(d, o);   // B-020: square to his blocker (the nearer of a double team) until the battle ends
+      d.bt.gx = engagedGap(d, c);   // B-065: the lock (blocking.js) turns the pair by this gap and the strength matchup
       battle(d, o, c, dt);
     } else d.bt = null;
   } else d.bt = null;
