@@ -1,5 +1,5 @@
 import { KEYS, rateTeams } from './ratings.js';
-import { rand } from './util.js';   // B-063 (tackle-momentum)
+import { rateReset, rrand } from './util.js';   // B-063 (tackle-momentum)
 
 // ---------- rosters ----------
 // Each of the two teams (O = the offense's team, D = the defense's team) holds 46 game-day records. The 22 bodies on the field
@@ -62,8 +62,9 @@ depth();
 // Called at every newGame and every SIM_TEAM_EVERY sim plays; the same records (ids, names, numbers) are re-rated, not replaced.
 export function rateRosters(){
   const all = [...ROSTER.O, ...ROSTER.D];
+  rateReset();   // B-091
   rateTeams(all);
-  all.forEach(r => { if(r.pos === 'FB') r.mass = rand(FB_MASS[0], FB_MASS[1]); });   // B-063 (tackle-momentum)
+  all.forEach(r => { if(r.pos === 'FB') r.mass = rrand(FB_MASS[0], FB_MASS[1]); });   // B-063 (tackle-momentum)
   depth();
 }
 

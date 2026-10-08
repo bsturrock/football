@@ -10,6 +10,14 @@ export const $ = id => document.getElementById(id);
 export const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 export const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
 export const rand = (a,b) => a + Math.random()*(b-a);
+// B-091: ratings and roster weights draw here, not from play logic's Math.random. Under ?sim, sim.js installs a stream maker (setRateMaker: epoch -> mulberry32) and sets the epoch (setRateEpoch);
+// rateReset() (start of every rateRosters) restarts the stream from the epoch, so a roster is fixed by seed and epoch alone, however many times play logic made a rating call (a game ending adds a newGame call). Otherwise Math.random as before.
+let rateMake = null, rateEpoch = 0, rateStream = null;
+export const setRateMaker = f => { rateMake = f; rateStream = f(rateEpoch); };
+export const setRateEpoch = e => { rateEpoch = e; };
+export const rateReset = () => { if(rateMake) rateStream = rateMake(rateEpoch); };
+export const rrand01 = () => rateStream ? rateStream() : Math.random();
+export const rrand = (a,b) => a + rrand01()*(b-a);
 export const sigmoid = x => 1/(1 + Math.exp(-x));
 // B-021: LEAN_LAT, DBL_R and HOLD_R are body-size distances, each x0.7 (the width scale in players.js: 1.0 -> 0.7, 1.4 -> 1.0, 1.8 -> 1.26).
 // B-020 square + lean: the yaw a player wants from his faceAt (a blocker his man, a blocked defender his blocker).

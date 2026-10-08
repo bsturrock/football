@@ -1,4 +1,4 @@
-import { rand } from './util.js';
+import { rrand, rrand01 } from './util.js';
 
 // ---------- ratings ----------
 // Nine physical (KEYS) plus three mental (MENTAL) 0-99 ratings per player, all in p.rt, drawn from a position template.
@@ -79,22 +79,22 @@ function rateFlat(p){
   p.spd = spdOf(r.speed); p.acc = accOf(r.accel); p.leg = legOf(r.accel); p.brake = p.acc*BRAKE_K; p.turn = turnOf(r.agility);
   MENTAL.forEach((k, i) => p.rt[k] = midM(subs, i));
   legacy(p);
-  p.mass = rand(Math.min(...subs.map(t => TEMPLATES[t].mass[0])), Math.max(...subs.map(t => TEMPLATES[t].mass[1])));   // B-063: his own weight, drawn after everything else (a split template pools both ranges)
+  p.mass = rrand(Math.min(...subs.map(t => TEMPLATES[t].mass[0])), Math.max(...subs.map(t => TEMPLATES[t].mass[1])));   // B-063: his own weight, drawn after everything else (a split template pools both ranges)
 }
 
 const clamp99 = v => Math.max(0, Math.min(99, Math.round(v)));
-// players: [{team:'O'|'D', tpl:'OL'|'TE'|'WR'|'QB'|'RB'|'DE'|'DT'|'LB'|'CB'|'S'}]; draws from Math.random via util rand
+// players: [{team:'O'|'D', tpl:'OL'|'TE'|'WR'|'QB'|'RB'|'DE'|'DT'|'LB'|'CB'|'S'}]; draws from Math.random via util rrand (B-091: the ratings stream)
 export function rateTeams(players){
   if(flat){ players.forEach(rateFlat); return; }
-  const off = {O:Math.round(rand(-TEAM_OFFSET, TEAM_OFFSET)), D:Math.round(rand(-TEAM_OFFSET, TEAM_OFFSET))};
+  const off = {O:Math.round(rrand(-TEAM_OFFSET, TEAM_OFFSET)), D:Math.round(rrand(-TEAM_OFFSET, TEAM_OFFSET))};
   players.forEach(p => {
-    const sub = SPLIT[p.tpl] ? SPLIT[p.tpl][Math.random() < 0.5 ? 0 : 1] : p.tpl, t = TEMPLATES[sub];
+    const sub = SPLIT[p.tpl] ? SPLIT[p.tpl][rrand01() < 0.5 ? 0 : 1] : p.tpl, t = TEMPLATES[sub];
     p.sub = sub;
-    p.rt = {}; KEYS.forEach((k, i) => p.rt[k] = clamp99(rand(t.r[i][0], t.r[i][1]) + off[p.team]));
+    p.rt = {}; KEYS.forEach((k, i) => p.rt[k] = clamp99(rrand(t.r[i][0], t.r[i][1]) + off[p.team]));
     const r = p.rt;
     p.spd = spdOf(r.speed); p.acc = accOf(r.accel); p.leg = legOf(r.accel); p.brake = p.acc*BRAKE_K; p.turn = turnOf(r.agility);
-    p.mass = rand(t.mass[0], t.mass[1]);   // B-063: his own weight from the template range (one draw, as before)
-    MENTAL.forEach((k, i) => p.rt[k] = clamp99(rand(t.m[i][0], t.m[i][1])));   // after every other draw for this player
+    p.mass = rrand(t.mass[0], t.mass[1]);   // B-063: his own weight from the template range (one draw, as before)
+    MENTAL.forEach((k, i) => p.rt[k] = clamp99(rrand(t.m[i][0], t.m[i][1])));   // after every other draw for this player
     legacy(p);
   });
 }
