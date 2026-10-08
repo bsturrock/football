@@ -218,12 +218,17 @@ export function initDotsView(container) {
 
   // ---- Loop ----
   let last = performance.now();
+  let readySet = false;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     play.step(dt);
     sync();
     renderer.render(scene, camera);
+    if (!readySet) {
+      readySet = true;
+      window.__game = { ready: true, play };
+    }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
