@@ -29,7 +29,7 @@ export const PLANT_A = 7;
 // edge = (resist - hit)/tackler mass, per the tackler's tackling (yd/s); over THRU_EDGE the runner runs through (tackler off his feet,
 // runner keeps most of his speed), over BOUNCE_EDGE the tackler bounces off (staggered, runner slowed a little), else the grab roll below.
 const THRU_EDGE = 6, BOUNCE_EDGE = 4.5, EDGE_NOISE = 0.5, THRU_KEEP = 0.9, BOUNCE_KEEP = 0.8;
-// S.tkLog: contact outcomes for the sim readout (sim.js reads it through S, so it imports nothing from here): {o: 'big'|'thru'|'bounce'|'evade'|'grab', edge, cm, dm} (cm, dm: weight x speed into the hit)
+// S.tkLog: contact outcomes for the sim readout (sim.js reads it through S, so it imports nothing from here): {o: 'big'|'thru'|'bounce'|'evade'|'grab', edge, t (S.clock, s), cm, dm} (cm, dm: weight x speed into the hit)
 const logTk = (o, edge, c, d) => { const L = S.tkLog || (S.tkLog = []); if(L.length < 20000) L.push({o, edge, t:+S.clock.toFixed(2), cm:c.mass*Math.hypot(c.vx, c.vy), dm:d.mass*Math.hypot(d.vx, d.vy)}); };
 const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates' surge keeps him up: downP rate x max(PILE_HOLD_MIN, 1/(1 + K*offensive pushers)); the floor 0.2 bounds the slowdown at 5x, and pile.js whistles (STALL_T 1.0 s stalled, PUSH_MAX_T 1.5 s of pushing) so the hold is never open-ended
 export const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
