@@ -14,7 +14,7 @@ import { offenseAI } from './offense.js';
 import { pileUpdate } from './pile.js';
 import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender, physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
-import { ALL, DEF, OFF, QB, RB } from './players.js';
+import { ALL, DEF, OFF, QB, RB, rate } from './players.js';
 import { heldBallPos, endPlay, newGame, nextPlay, trackProgress } from './rules.js';
 import { camera, cvs, renderer, scene } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
@@ -126,6 +126,7 @@ function start(data){
     if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
   requestAnimationFrame(frame);
 }
+rate();   // B-078 (load-no-random): ratings draw Math.random, so they are rolled here, after every import (and sim.js's seedRandom), not at players.js load
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
 const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
 (window.CANNON ? Promise.resolve(window.CANNON) : import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js'))
