@@ -19,7 +19,10 @@ import { S, selectPlay, setupPlay } from './state.js';
 const PRE_S = 1.2, REP_S = 4.5;
 const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (double-pose): ?play=<name> forces a play (e.g. Inside Zone: a combo, so doubles form); an unknown name gives {"error":...} in <pre id="checkout"> (B-040) and the drill runs Iso
 const FORCED = PLAYS.find(p => p.name.toLowerCase() === String(PLAY_Q).toLowerCase());
-if(PLAY_Q && !FORCED && new URLSearchParams(location.search).has('frames')) window.addEventListener('DOMContentLoaded', () => { const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'unknown play ' + PLAY_Q}); document.body.appendChild(el); });   // main.js still appends its own line after this one (not my file)
+if(PLAY_Q && !FORCED && new URLSearchParams(location.search).has('frames')){   // B-042: an unknown ?play= on a frames run gives the one error line and main.js runs no frames of its own
+  const u = new URL(location.href); u.searchParams.delete('frames'); history.replaceState(null, '', u);
+  window.addEventListener('DOMContentLoaded', () => { const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'unknown play ' + PLAY_Q}); document.body.appendChild(el); });
+}
 const PLAY = FORCED ? FORCED.name : 'Iso';   // Iso (the default): a man-blocking run, every lineman takes the man on him (no doubles, no pulls); a forced play is whatever ?play names
 const SIDE = new URLSearchParams(location.search).get('cam') === 'side';   // B-042: ?cam=behind (default, as before) | side
 const OL_BY_NAME = {LT, LG, C, RG, RT};

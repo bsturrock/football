@@ -53,7 +53,7 @@ function targetPose(p, sp){
 // whose blocker won the get-off (phase 'recover') is driven back, sitting higher. Visual only: reads battle state, never writes it.
 const ENG_K = 24, ENG_HEAD = 0.6, DRIVE_V = 0.8, CHURN_SP = 6;   // pose blend rate (95% in 0.125 s), head-up share of the lean, pair speed (yd/s) that counts as driving, stride speed (yd/s) the legs churn at
 // B-031: the pair is solved together. A man's hands go to his partner's chest plate at the drawn distance between them (two-bone arm solve from his shoulder),
-// so spacing, lean and reach agree whatever the phase; the heads sit over opposite shoulders so the helmets pass each other; the blocker's hands go inside the
+// so spacing, lean and reach agree whatever the phase; B-042: the head never leaves its neck socket: each man rolls a little (ENG_ROLL, a shoulder dip) and turns and tilts his head (HEAD_TURN, HEAD_TILT) to his right so the helmets pass, and the arm solve and the partner's plate target follow the roll; the blocker's hands go inside the
 // defender's. All in yards: SH_Y/SH_Z the shoulder on the torso axis, ARM_A/ARM_B upper arm and forearm, PAD_Y/PAD_D where the hands land: a point on the partner's torso, low enough to stay under his chin, and the torso's half depth.
 const SH_Y = 0.62*BODY_H, ARM_A = 0.42*BODY_H, ARM_B = 0.4*BODY_H, PAD_Y = 0.4*BODY_H, PAD_D = 0.21*BODY_W, SH_X = 0.5*BODY_W;
 // B-037 second doubler (yd, 1/s unless noted). His second-man weight dblK (0..1) scales an extra draw offset: more push (the defender gives him no ground) and a spread away from the first blocker.
@@ -65,6 +65,7 @@ const SH_Y = 0.62*BODY_H, ARM_A = 0.42*BODY_H, ARM_B = 0.4*BODY_H, PAD_Y = 0.4*B
 //   steady second      his double ends: he climbs (no partner) or the battle comes to him (isSecond false)       easing out
 //   easing out         dblK falls to 0 at DBL_K                       plain 1v1 (or the new battle man, whose base offset is B-031's)
 //   any                presnap, or he becomes a physics body          everything reset to 0
+const ENG_GAP = 0.08;   // B-042: extra drawn push (yd, each man) so upright torsos do not sink into each other
 const DBL_SPREAD = 0.4;   // sideways draw offset away from the first blocker
 const DBL_PUSH_K = 1;     // his extra share of the engage push (the defender does not give ground to him, so the full gap is his)
 const DBL_K = 2;          // rate his weight dblK fades out when the double ends, and eases in when he led the battle and it moved to the other doubler; also his yaw fade when his partner goes
@@ -200,7 +201,7 @@ function animate(p, dt){
   p.yawK = yk0 + (((q ? 1 : 0)) - yk0)*kd;
   if(q) p.sq = Math.atan2(q.rx - p.rx, p.ry - q.ry) + (p.team === 'D' ? faceLean(p, q, ball, S) : 0);   // square to the partner; a defender keeps B-022's leverage lean
   // and drawn pushed back along the pair axis so the pair is BLOCK_D apart on screen while the sim keeps LOCK_D; the push blends with the yaw (about 0.1 s at engage and shed)
-  const sec2 = !!q && isSecond(p, q), px0 = p.pushX || 0, py0 = p.pushY || 0, sx0 = p.sprX || 0, sy0 = p.sprY || 0, w0 = p.dblK || 0, half = (BLOCK_D - LOCK_D)/2;
+  const sec2 = !!q && isSecond(p, q), px0 = p.pushX || 0, py0 = p.pushY || 0, sx0 = p.sprX || 0, sy0 = p.sprY || 0, w0 = p.dblK || 0, half = (BLOCK_D - LOCK_D)/2 + ENG_GAP;
   if(q){ const ax = p.x - q.x, ay = p.y - q.y, al = Math.hypot(ax, ay) || 1; if((px0 || py0) && (px0*ax + py0*ay)/al < TURN_COS ) p.sgFlip = true; p.pushX = ax/al; p.pushY = ay/al; }   // a turned axis is a jump for every engaged man (B-040: the 1v1 carry too)
   // B-037: the second doubler is also drawn DBL_SPREAD sideways, away from the first blocker, so the two sets of shoulders clear each other (the defender's drawn spot is his own push from his battle blocker only)
   if(p.bt) p.hadBt = true; else if(!sec2 && !(p.dblK > 0.01)) p.hadBt = false;   // he led the battle: if it moves to the other doubler, his weight eases in
@@ -209,7 +210,7 @@ function animate(p, dt){
   const yk = p.yawK || 0, w1 = p.dblK || 0, ex = (px, sx) => px*half*DBL_PUSH_K + sx*DBL_SPREAD;
   p.dblJ = yk*Math.hypot(w1*ex(p.pushX || 0, p.sprX || 0) - w0*ex(px0, sx0), w1*ex(p.pushY || 0, p.sprY || 0) - w0*ex(py0, sy0));   // B-037 metric: the second man's extra offset (weight and axis) changed this frame
   p.baseJ = yk*half*Math.hypot((p.pushX || 0) - px0, (p.pushY || 0) - py0);   // the plain-1v1 control: the raw axis turned this frame, as drawn
-  let off = (p.yawK || 0)*(BLOCK_D - LOCK_D)/2*(1 + DBL_PUSH_K*(p.dblK || 0)), spr = (p.yawK || 0)*(p.dblK || 0)*DBL_SPREAD, ox = (p.pushX || 0)*off + (p.sprX || 0)*spr, oy = (p.pushY || 0)*off + (p.sprY || 0)*spr;
+  let off = (p.yawK || 0)*half*(1 + DBL_PUSH_K*(p.dblK || 0)), spr = (p.yawK || 0)*(p.dblK || 0)*DBL_SPREAD, ox = (p.pushX || 0)*off + (p.sprX || 0)*spr, oy = (p.pushY || 0)*off + (p.sprY || 0)*spr;
   const pox = p.lastOx || 0, poy = p.lastOy || 0;
   if(p.axQ && q && (q !== p.axQ || p.sgFlip) && (p.yawK || 0) > DBL_YAW){ p.carX = pox - ox; p.carY = poy - oy; }   // B-037, B-040: a new partner or a turned axis (a shed or lock snap) turns the draw axis at once; the old offset is carried and fades, so he glides
   p.sgFlip = false;   // consumed, or not square / no partner: a flip never waits for a later frame
