@@ -37,7 +37,9 @@ G.numPlane = quiet(() => new THREE.PlaneGeometry(0.5*BODY_W, 0.375*BODY_H));
 const mats = {};
 export const mat = c => mats[c] || (mats[c] = new THREE.MeshLambertMaterial({color:c}));
 export const JOINTS = ['lean','twist','hipL','hipR','kneeL','kneeR','shL','shR','elL','elR','drop','pitch','bob'];
-function makePlayer(team, role){
+// B-078: the skin and stride draws (and three.js's uuid draws) run on the private stream, so loading this module leaves Math.random untouched
+const makePlayer = (team, role) => quiet(() => makePlayerRaw(team, role));
+function makePlayerRaw(team, role){
   const t = TEAM[team], skin = SKIN[Math.floor(Math.random()*SKIN.length)];
   const g = new THREE.Group(), body = new THREE.Group();
   const pivot = (parent, x, y, z=0) => { const p = new THREE.Group(); p.position.set(...bodyV([x, y, z])); parent.add(p); return p; };
