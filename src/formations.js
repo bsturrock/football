@@ -12,14 +12,18 @@ const QB_UNDER = 0.6, WR_OFF = 0.75;   // the QB under center stands QB_UNDER be
 export const OL_GAP = 1.35, OL_BACK = NEUTRAL_Z/2 + STANCE_REACH, OLD_GAP = 2.2;
 export const GRID_K = OL_GAP/OLD_GAP;   // a lateral number written on the old 2.2 yd line grid (a gap x, a hole, a lane window) times this sits on the new one
 export const BOX_X = 8*GRID_K;   // the box's half width (blockrules.js's 'any' rule, sim.js's boxMean)
+// B-053: the line sets in a shallow V, the center furthest up (hand on the ball); a guard / tackle is set back this many yd more than the center, the tight end level with his tackle.
+export const GUARD_BACK = 0.25, TACKLE_BACK = 0.5;
+const OL_SETBACK = [TACKLE_BACK, GUARD_BACK, 0, GUARD_BACK, TACKLE_BACK];   // by OL index, left tackle to right tackle
+const TE_BACK = OL_BACK + TACKLE_BACK;
 const TE_X = 3*OL_GAP;
 const WR_X = [-20, 20, -11];   // WR slots by index; a personnel with fewer receivers uses the first ones
 export const FORMS = [
-  {name:'11 Gun',   pers:'11', under:false, qb:4.5, rb:[1.8, 4.5], te:[TE_X, OL_BACK], wr:WR_X},
-  {name:'11 Under', pers:'11', under:true,  qb:OL_BACK + QB_UNDER, rb:[0, 6.5],   te:[TE_X, OL_BACK], wr:WR_X},
-  {name:'21 I',     pers:'21', under:true,  qb:OL_BACK + QB_UNDER, rb:[0, 6.8],   te:[TE_X, OL_BACK], fb:[0, 4.0], wr:WR_X},
-  {name:'12 Under', pers:'12', under:true,  qb:OL_BACK + QB_UNDER, rb:[0, 6.5],   te:[TE_X, OL_BACK], te2:[-TE_X, OL_BACK], wr:WR_X},
-  {name:'22 Heavy', pers:'22', under:true,  qb:OL_BACK + QB_UNDER, rb:[0, 6.8],   te:[TE_X, OL_BACK], te2:[-TE_X, OL_BACK], fb:[0, 4.0], wr:WR_X}
+  {name:'11 Gun',   pers:'11', under:false, qb:4.5, rb:[1.8, 4.5], te:[TE_X, TE_BACK], wr:WR_X},
+  {name:'11 Under', pers:'11', under:true,  qb:OL_BACK + QB_UNDER, rb:[0, 6.5],   te:[TE_X, TE_BACK], wr:WR_X},
+  {name:'21 I',     pers:'21', under:true,  qb:OL_BACK + QB_UNDER, rb:[0, 6.8],   te:[TE_X, TE_BACK], fb:[0, 4.0], wr:WR_X},
+  {name:'12 Under', pers:'12', under:true,  qb:OL_BACK + QB_UNDER, rb:[0, 6.5],   te:[TE_X, TE_BACK], te2:[-TE_X, TE_BACK], wr:WR_X},
+  {name:'22 Heavy', pers:'22', under:true,  qb:OL_BACK + QB_UNDER, rb:[0, 6.8],   te:[TE_X, TE_BACK], te2:[-TE_X, TE_BACK], fb:[0, 4.0], wr:WR_X}
 ];
 const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 export const formByName = v => (v == null ? null : FORMS.find(f => norm(f.name) === norm(v))) || null;
@@ -32,7 +36,7 @@ export function chooseForm(under, name, pers){
 // put the eleven on the field; `place(body, x, y)` is state.js's (it also resets the body); B = {OL, QB, RB, TE, WRs, EXTRA} from players.js
 export function lineUp(form, los, flip, place, B){
   const {OL, QB, RB, TE, WRs, EXTRA} = B;
-  OL.forEach((o, i) => place(o, (i-2)*OL_GAP, los - OL_BACK));
+  OL.forEach((o, i) => place(o, (i-2)*OL_GAP, los - OL_BACK - OL_SETBACK[i]));
   place(QB, 0, los - form.qb);
   place(RB, form.rb[0]*flip, los - form.rb[1]);
   place(TE, form.te[0]*flip, los - form.te[1]);
