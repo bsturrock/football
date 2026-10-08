@@ -6,7 +6,7 @@ import { ballMesh, ctrlRing } from './markers.js';
 import { offenseAI } from './offense.js';
 import { physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
-import { ALL, DL, LG, LT, OL, RB, RG, RT, C } from './players.js';
+import { ALL, DL, LG, LT, OL, QB, RB, RG, RT, C } from './players.js';
 import { camera } from './scene.js';
 import { S, selectPlay, setupPlay } from './state.js';
 
@@ -44,6 +44,7 @@ function newRep(){
     parts = {off:[lineman], def:[d]};
   } else parts = {off:[...OL], def:[...DL]};
   ALL.forEach(p => { p.mesh.visible = parts.off.includes(p) || parts.def.includes(p); });
+  if(LOS && mode === 'line') QB.mesh.visible = true;   // B-052: the photo angle also shows the QB under center (looked at only: he is not a drilled man and never runs)
 }
 // snap with the full front on the field (the block rules read all of it), then take everyone else off
 function liveSnap(){
@@ -85,7 +86,7 @@ export function drillCamera(dt){
   if(camera.fov !== 40){ camera.fov = 40; camera.updateProjectionMatrix(); }
   const line = mode === 'line';
   tgt.set(cx, 1, 50 - cy);
-  if(LOS){ want.set(cx + 7.5, 1.7, 50 - cy + 6); tgt.set(cx - 0.5, 0.7, 50 - cy - 0.3); }   // B-052
+  if(LOS){ want.set(cx + 6, 1.5, 50 - cy + 5); tgt.set(cx - 1, 0.6, 50 - cy - 0.5); }   // B-052
   else if(SIDE) want.set(cx + (line ? 13 : 7), line ? 2.4 : 2, 50 - cy);   // B-042 ?cam=side: side-on at the line, both teams in view
   else want.set(cx + (line ? 3 : 5), line ? 8 : 4.2, 50 - cy + (line ? 14 : 7));
   const k = snapCam ? 1 : 1 - Math.exp(-dt*3); snapCam = false;

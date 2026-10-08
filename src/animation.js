@@ -12,7 +12,10 @@ import { $, BLOCK_D, BODY_W, FACE_RATE, LOCK_D, clamp, faceLean, faceYaw } from 
 // ---------- animation ----------
 const BALL_H = 0.1;   // the ball lies on the turf (yd up to its centre)
 const STANCE_HIPZ = 0.22;   // B-052: hips splayed sideways in the line stance (rad each side): the wide base of the photo
-const STANCE_LEAN = 1.05, STANCE_HEAD = 0.85;   // B-033 three-point stance: torso lean and head-up (rad about the neck); with STANCE_REACH 1.0 the down hand lands 0.98 yd ahead of the hips and the helmet front 0.96
+// B-052 line stances (rig yards: hip to knee 0.5, knee to foot 0.5, shoulder 0.62 up the torso, arm 0.84): OL hips down near knee height, thighs near parallel to the turf, back close to level, head up with eyes level; DL hips higher than the head over a steeper reach.
+// The shoulder swing shR is solved so the down hand lands on the turf at the ball tip: with the hand 1.0 ahead of the hips, shR = -(lean + forward angle of the arm), the arm angle from vertical atan(fwd/down).
+const STANCE_OL = {lean:1.35, hipL:-1.45, hipR:-1.25, kneeL:1.5, kneeR:1.45, drop:0.42, shR:-1.89, headUp:1.4};
+const STANCE_DL = {lean:1.7, hipL:-0.95, hipR:-0.8, kneeL:1.05, kneeR:0.95, drop:0.19, shR:-2.21, headUp:1.65};
 // joint signs: negative hip/shoulder = swing forward, positive knee = bend, positive lean/pitch = tip forward
 function targetPose(p, sp){
   // Gait: each leg's phase runs stance -> push-off -> swing -> reach. Thigh swings fore/aft around a slightly
@@ -27,9 +30,9 @@ function targetPose(p, sp){
     drop:0.04*r, pitch:0, bob:Math.abs(cs)*0.07*r};
   const arms = (l, rt, el) => { T.shL = l; T.shR = rt; T.elL = T.elR = el; };
   if(S.phase === 'presnap'){
-    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, {lean:STANCE_LEAN, hipL:-1.2, hipR:-1.0, kneeL:1.35, kneeR:1.2, drop:0.46, shR:-1.7, elR:0, shL:-0.75, elL:-1.0, armZL:0.5, headUp:STANCE_HEAD, hipZ:STANCE_HIPZ});   // B-052: wide base (hip splay), elbows out, off-hand forearm toward the knee; B-033: head up, the down hand on the turf at the ball tip, helmet front over it (formations.js STANCE_REACH)
+    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, p.role === 'DL' ? STANCE_DL : STANCE_OL, {elR:0, shL:-0.75, elL:-1.0, armZL:0.5, hipZ:STANCE_HIPZ});   // B-052: OL/TE and DL stances (above), elbows out, off-hand forearm toward the knee, hips splayed; B-033: the down hand on the turf at the ball tip, helmet front over it (formations.js STANCE_REACH)
     else if(p.pos === 'FB') Object.assign(T, {lean:0.75, hipL:-0.8, hipR:-0.7, kneeL:1.3, kneeR:1.2, drop:0.28}), arms(-0.9, -0.9, -0.6);   // fullback: low, hand near the ground
-    else if(p === QB && PLAYS[S.play].under){ Object.assign(T, {lean:0.75, hipL:-0.7, hipR:-0.6, kneeL:1.1, kneeR:1.0, drop:0.3}); arms(-1.0, -1.0, -0.5); }   // under center
+    else if(p === QB && PLAYS[S.play].under){ Object.assign(T, {lean:0.45, hipL:-0.9, hipR:-0.8, kneeL:1.2, kneeR:1.1, drop:0.21, headUp:0.55, hipZ:0.12, armZL:-0.3, armZR:0.3}); arms(-0.89, -0.89, -0.15); }   // B-052 under center: knees bent, eyes up, both hands in to the center's seat (arm 0.84 reaches 0.6 ahead, 0.65 up)   // under center
     else if(p === QB){ Object.assign(T, {lean:0.2, hipL:-0.3, hipR:-0.3, kneeL:0.5, kneeR:0.5, drop:0.08}); arms(-0.9, -0.9, -0.9); }
     else { Object.assign(T, {lean:0.45, hipL:-0.55, hipR:-0.35, kneeL:0.9, kneeR:0.7, drop:0.15}); arms(-0.3, -0.3, -0.7); }
     return T;
