@@ -42,6 +42,7 @@ const SQUEEZE_IN = 1, BOUNCE_V = 2.5, SQUEEZE_X = 0.6*GRID_K, SQUEEZE_Y = 0.5, S
 const BACK_HOME_X =1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K, CHASE_X = 2*GRID_K, ALLEY_X = 1*GRID_K;   // CHASE_X: the ball is this far to the backside of the force man, he chases; ALLEY_X: the ball is this far to the alley man's side, he fills
 // B-085: free, shed and backside linemen chase the ball by role. Only the backside edge (force) man stays home (boot, reverse, cutback), and only the d.home roll; backside interior men pursue flat on an intercept angle
 // (their target is never deeper than the runner once he is across the line, and L+FLAT_Y while he is behind it, so they run the line, not away from him); a playside gap man fills his gap while the ball is at the line, then closes on the runner once within FILL_CLOSE yd
+const FLOW_OUT = 1.5;   // B-089: the force DL widens (FIRE_DEPTH) while the ball has moved this far toward his side from where the back lined up; otherwise it is an inside run and he holds (FORCE_FIRE_DEPTH)
 const FILL_CLOSE = 3, FILL_BAND = 0.5, FLAT_Y = 0.5;   // FILL_BAND: dead band on FILL_CLOSE (in at 3 yd, out past 3.5, d.fillL). DL only: LBs also carry role 'gap' and keep the old rules; FLAT_Y: a flat chaser's target is at least this far past the line
 const backsideOf = (j, bx) => bx*j.side < -BACK_HOME_X;   // the ball went away from this gap's side
 const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
@@ -162,13 +163,14 @@ function stuntFit(d){
 }
 // where the job sends him this frame
 function runFit(d, c){
+  const latch = d.sqzL; d.sqzL = false;   // B-089: the latch lives only through consecutive contain() frames; any other return leaves it clear
   d.sqz = false;   // B-084: set only by contain() this frame, so the chase and backside-home branches never leave it on for avoidBlockers
   if(d.stunt){ const t = stuntFit(d); if(t) return t; }
   let j = d.job; const L = S.los, bx = c.x, by = c.y;
   if(S.clock <= S.handoffAt + d.read + d.bite){
     // before the read: linemen attack their gap, second level read-steps with the backfield, the rest hold
     const flow = ((ball.holder || RB).x - S.flow0)*(d.rAwr/100)*0.7;
-    if(d.role === 'DL') return [j.gx, L - (j.role === 'two' ? 0.5 : j.role === 'force' ? FORCE_FIRE_DEPTH : FIRE_DEPTH)];   // B-064 (dl-fire): a one-gapper explodes through his gap; a two-gapper attacks the blocker and holds square; B-084: the edge (force) man holds the line (FORCE_FIRE_DEPTH, a hair on his side of it) instead of crossing it, so the puller meets him at the line, not 2.5 yd deep
+    if(d.role === 'DL') return [j.gx, L - (j.role === 'two' ? 0.5 : j.role === 'force' && ((ball.holder || RB).x - S.flow0)*j.side < FLOW_OUT ? FORCE_FIRE_DEPTH : FIRE_DEPTH)];   // B-064 (dl-fire): a one-gapper explodes through his gap; a two-gapper attacks the blocker and holds square; B-084: the edge (force) man holds the line (FORCE_FIRE_DEPTH, a hair on his side of it) instead of crossing it, so the puller meets him at the line, not 2.5 yd deep
     if(j.role === 'gap' || j.role === 'force') return [j.gx + flow, L + (d.role === 'LB' ? 3.5 : 4)];
     if(j.role === 'alley') return [j.gx*0.7 + flow*0.5, L + 7];
     if(j.role === 'deep') return [flow*0.4, L + 12];
@@ -186,7 +188,7 @@ function runFit(d, c){
   const lev = levShade(d), inside = () => [px - dir*lev + e, py];                 // pursue keeping inside leverage: no cutback behind him
   // B-084: the edge squeezes while the ball is clearly inside him and not bouncing out: outside leverage on the ball's line (SQUEEZE_X), at the line (meets the puller there), not wide and deep. SQUEEZE_BACK keeps him from closing more than this inside his own gap line
   // latched (d.sqzL) so the switch has a dead band: in at SQUEEZE_IN inside him, out only when the ball is outside him by SQUEEZE_X or bounces
-  const squeeze = side => { const off = (bx - d.x)*side; d.sqzL = c.svx*side < BOUNCE_V && (d.sqzL ? off < SQUEEZE_X : off < -SQUEEZE_IN); return d.sqzL; };
+  const squeeze = side => { const off = (bx - d.x)*side; d.sqzL = c.svx*side < BOUNCE_V && (latch ? off < SQUEEZE_X : off < -SQUEEZE_IN); return d.sqzL; };
   const contain = side => {
     d.sqz = squeeze(side);
     if(dist(d, c) <= 3) return [px + side*CONTAIN_SHOULDER, py];                                     // close: attack his outside shoulder
