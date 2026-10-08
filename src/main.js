@@ -90,6 +90,24 @@ function runFrames(n){
   const show = () => { camStep(1/60); renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // B-042 (axis-glide): the canvas shows the pose at frame N (a screenshot reads it); render only, the sim is untouched
   const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify(Object.assign({frames_run:n}, pairReport())); document.body.appendChild(el);
 }
+// ---------- autoplay (B-046) ----------
+// ?autoplay=<seconds>&sim=1&seed=S: the CPU calls and snaps a play with no input; the page steps 1/60 s synchronously (as runFrames does) until the play has run <seconds> after the snap
+// (or ended first), then keeps painting that frame with the game camera: a headless screenshot shows the play mid-action. `sim=1` only seeds Math.random, so the same seed gives the same
+// frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...} into <pre id="autoout">. A normal load is unchanged.
+const AUTO_MAX_STEPS = 60*60;   // a stuck pre-snap gives up after a minute of sim time
+const r3 = v => +Number(v).toFixed(3);
+function autoDigest(){   // state digest: same seed, same values (a PNG can differ by bytes)
+  const h = ball.holder, bp = h ? heldBallPos(h) : {x:ball.fx, y:ball.fy};
+  return {play:S.play, ballState:ball.state, holderX:h ? r3(h.x) : null, holderY:h ? r3(h.y) : null, ballX:r3(bp.x), ballY:r3(bp.y), clock:r3(S.clock), los:S.los, allSum:r3(ALL.reduce((a, p) => a + p.x*1.3 + p.y, 0))};
+}
+function runAutoplay(sec){
+  setCpu(true);
+  let n = 0;
+  while(n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
+  setFrameClock(null); physRender(); updateCallouts(0);
+  const show = () => { renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // render only; the sim is paused
+  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest()}); document.body.appendChild(el);
+}
 function start(data){
   $('cpuBtn').addEventListener('click', () => { setCpu(!S.cpu); cvs.focus(); });
   $('camBtn').addEventListener('click', () => { setCam(S.cam === 'tv' ? 'behind' : 'tv'); cvs.focus(); });
@@ -98,6 +116,7 @@ function start(data){
   const q = new URLSearchParams(location.search);
   selectPlay(0); setupPlay();
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
+  if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0)); return; }
   if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
     if(q.has('frames') && drillError){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:drillError}); document.body.appendChild(el); return; }   // B-042 (axis-glide)
