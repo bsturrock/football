@@ -27,7 +27,7 @@ function steerVel(p, vx, vy, dt){
 const CUT_AHEAD = 3, CUT_WIDE = 1.2, CUT_BEHIND = 0.3, CUT_HOLE = 1.2, CUT_BRAKE_T = 0.15, CUT_PUSH_T = 0.3, CUT_BRAKE_TO = 0.15, CUT_PLANT_T0 = 0.1, CUT_PLANT_T = 0.1, CUT_LAT_A = 28, CUT_V = 4.5, CUT_AGI_LO = 0.6, CUT_CD = 0.8, CUT_EDGE = 3, CUT_FAST = 0.7, UPFIELD = Math.PI;
 function cutStart(p, dir, why){
   const k = CUT_AGI_LO + (1 - CUT_AGI_LO)*p.rt.agility/99, s0 = Math.hypot(p.vx, p.vy);
-  p.rd.cut = {dir, k, t:0, x0:p.x, s0, vy0:p.vy};
+  p.rd.cut = {dir, k, t:0, x0:p.x, s0, vx0:p.vx, vy0:p.vy};
   p.rd.cc = 0; p.faceHold = UPFIELD; p.cutDir = dir; p.cutPh = 1;
   if(S.cutLog) S.cutLog.cuts++;
 }
@@ -46,7 +46,7 @@ function cutStep(p, dt){
     }
     const to = c.vy0*CUT_BRAKE_TO;
     p.cutPh = c.t < CUT_PLANT_T0 ? 1 : c.t < CUT_PLANT_T0 + CUT_PLANT_T ? 3 : 2;   // brake, plant (the foot is pinned), push
-    if(c.t < CUT_BRAKE_T) p.vy = c.vy0 + (to - c.vy0)*(c.t/CUT_BRAKE_T);   // brake: forward speed falls to near zero
+    if(c.t < CUT_BRAKE_T){ const f = 1 + (CUT_BRAKE_TO - 1)*(c.t/CUT_BRAKE_T); p.vx = c.vx0*f; p.vy = c.vy0*f; }   // brake: his whole velocity falls to CUT_BRAKE_TO of what it was (a sideways run too), near zero
     else { p.vy = to; p.vx += c.dir*CUT_LAT_A*c.k*dt; if(c.dir*p.vx > CUT_V*c.k) p.vx = c.dir*CUT_V*c.k; }   // push: planted, leaning, pushing off sideways
     return;
   }

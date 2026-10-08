@@ -205,6 +205,7 @@ function gaitPose(T, p, sp){
 // sideways as the hip splay), so the foot stays on its spot while the hips travel over it. Through the whole cut: hips low, ball arm tucked, torso leaning (a roll) into the push. One weight, p.cuW
 // (eased at CUT_K; CUT_BRAKE_W of it in the brake, full in the plant and push; zero for a man who is down, falling, in an act or on a physics body), drives the lean, the drop and the roll; p.plW (CUT_PLANT_K) the plant leg.
 const CUT_K = 22, CUT_PLANT_K = 40, CUT_BRAKE_W = 0.4, CUT_LEAN = 0.35, CUT_ROLL = 0.3, CUT_DROP = 0.2, CUT_HIPZ = 0.22, CUT_PLANT_AHEAD = 0.35, CUT_LEG = 0.95, CUT_PLANT_KNEE = 0.35, CUT_ARM_L = -0.45, CUT_ARM_R = -0.9;
+const PLANT_JOINTS = ['hipL', 'hipR', 'kneeL', 'kneeR'];
 function cutPose(T, p){
   const w = p.cuW || 0, pw = p.plW || 0; if(w < 0.01) return;
   const mix = (a, v, k) => (a ?? 0) + (v - (a ?? 0))*k;
@@ -234,12 +235,12 @@ function animate(p, dt){
   p.bpW = (p.bpW || 0) + ((want && trav >= GAIT_BACK ? 1 : 0) - (p.bpW || 0))*gk;
   if(trav >= GAIT_SHUFFLE) p.gSide = side;
   const T = targetPose(p, sp); gaitPose(T, p, sp); cutPose(T, p); const P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
-  for(const j of JOINTS) P[j] += (T[j] - P[j])*k;
+  for(const j of JOINTS) P[j] += (T[j] - P[j])*(p.plW > 0.01 && PLANT_JOINTS.includes(j) ? k + (1 - k)*p.plW : k);   // the pinned foot's joints follow the body at once (the pose ease would drag the foot)
   p.engW = (p.engW || 0) + ((eng ? 1 : 0) - (p.engW || 0))*(1 - Math.exp(-dt*ENG_K));
   p.hdUp = (p.hdUp || 0) + ((T.headUp || 0) - (p.hdUp || 0))*k;
   J.head.rotation.set(-ENG_HEAD*P.lean*p.engW - p.hdUp, HEAD_TURN*p.engW, HEAD_TILT*p.engW);   // head up while engaged: eyes on his man, not the turf; B-042: the head stays on its neck socket and tilts to his right shoulder (B-031 slid it sideways off the neck), so the pair's helmets pass
   p.roll = ENG_ROLL*p.engW + CUT_ROLL*(p.cuW || 0)*(p.cutDir || 0); J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
-  p.hipZ = (p.hipZ || 0) + ((T.hipZ || 0) - (p.hipZ || 0))*k; J.hipL.rotation.z = p.hipZ; J.hipR.rotation.z = -p.hipZ;   // B-052: sideways hip splay, only in the presnap stance
+  p.hipZ = (p.hipZ || 0) + ((T.hipZ || 0) - (p.hipZ || 0))*(p.plW > 0.01 ? k + (1 - k)*p.plW : k); J.hipL.rotation.z = p.hipZ; J.hipR.rotation.z = -p.hipZ;   // B-052: sideways hip splay, only in the presnap stance
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   p.armZL = (p.armZL ?? ARM_Z_FREE) + ((T.armZL ?? ARM_Z_FREE) - (p.armZL ?? ARM_Z_FREE))*k; p.armZR = (p.armZR ?? -ARM_Z_FREE) + ((T.armZR ?? -ARM_Z_FREE) - (p.armZR ?? -ARM_Z_FREE))*k;   // sideways arm angles: 0.12 out free, the hand-placement angles engaged
   J.shL.rotation.set(P.shL, 0, p.armZL); J.shR.rotation.set(P.shR, 0, p.armZR); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
