@@ -12,6 +12,7 @@ import { clamp, dist, faceYaw } from './util.js';
 // `bal` is how much he's still on his feet: legs hold him up, keep him upright and drive him where
 // he wants to go. A tackle is just the tacklers' grips and leg drive beating that, and then gravity.
 const PH_DT = 1/180, PH_G = 10.7, MASS_KG = 0.45, ARM_GRIP = 10;
+const LIM_W_DEF = 60, LIM_W = {faL:80, faR:80, snL:80, snR:80};   // B-044: joint-limit spring frequency (rad/s) per part; was 40 for all (explicit step 1/180: keep under about 100)
 // physics bubble: players near a live ragdoll become full bodies (ph.bubble) so ragdolls and piles hit them.
 // States per player (all in bubbleUpdate / physOn / physOff):
 //   animated    p.ph null, no collision body
@@ -189,7 +190,7 @@ function rotVec(q, out){
 }
 function physMuscles(p, ph){
   // athletes never go limp: braced while falling or fighting, still holding posture once down
-  const tone = ph.rest ? 0.35 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
+  const tone = ph.rest ? 0.35 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone);
   ph.viol = 0; ph.violP = ph.violP || []; ph.violP.length = 0;   // B-038: the worst joint excess past its limit (rad) at this substep (sim jointViol reads it)
   PARTS.forEach((d, i) => {
     if(!d.p) return;
@@ -211,6 +212,7 @@ function physMuscles(p, ph){
     pb.quaternion.vmult(rv, tw); cb.quaternion.conjugate(qc); qc.vmult(tw, rv);    // error, child frame
     pb.quaternion.vmult(rt, tw); qc.vmult(tw, rt);                                  // limit push, child frame
     cb.angularVelocity.vsub(pb.angularVelocity, dw); qc.vmult(dw, dw);             // relative spin, child frame
+    const wL = LIM_W[d.n] || LIM_W_DEF;   // B-044: stiffer soft limits, the hinges (knee, elbow) most
     const I = cb.inertia, kd = 2*wn + (out ? 2*wL : 0);
     tw.set(I.x*(wn*wn*rv.x + wL*wL*rt.x - kd*dw.x), I.y*(wn*wn*rv.y + wL*wL*rt.y - kd*dw.y), I.z*(wn*wn*rv.z + wL*wL*rt.z - kd*dw.z));
     cb.quaternion.vmult(tw, tw);                                                    // to world
