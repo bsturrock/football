@@ -1,4 +1,4 @@
-import { DEF, RECV } from './players.js';
+import { RECV } from './players.js';
 import { scene, toWorld } from './scene.js';
 
 // ---------- ball + markers ----------
@@ -31,17 +31,14 @@ const quiet = fn => { const r = Math.random; Math.random = () => 0.5; try { retu
 const blockMat = new THREE.MeshBasicMaterial({color:0x4fd2ff, transparent:true, opacity:.8, depthWrite:false});   // one material and one group, like the fit lines before: the same two uuid draws at load
 export const blockGroup = new THREE.Group();
 scene.add(blockGroup);
-const DASH = 0.5, GAP = 0.4;
+const BLOCK_W = 0.4, DASH = 0.5, GAP = 0.4;
 function dotted(a, b, w, material, group){
   const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
   for(let t = 0; t < len; t += DASH + GAP){ const e = Math.min(t + DASH, len); seg({x:a.x + dx*t/len, y:a.y + dy*t/len}, {x:a.x + dx*e/len, y:a.y + dy*e/len}, w, material, group); }
 }
-// The red fit lines (removed, B-068) each drew 8 Math.random numbers (a Mesh uuid and a PlaneGeometry uuid), which moved the seeded ?sim stream. Spend the same draws here so
-// seeded runs (?sim, ?drill) stay byte-identical to the builds before; delete this and rebase the sim baselines when that no longer matters.
-export function legacyFitDraws(){ for(const d of DEF) if(d.fit && Math.hypot(d.fit.x - d.x, d.fit.y - d.y) >= 0.05) for(let i = 0; i < 8; i++) Math.random(); }
 export function drawBlocks(pv){   // pv: blockrules.js previewBlocks {solid, dotted}, or null for a pass play
   blockGroup.children.forEach(c => c.geometry.dispose()); blockGroup.clear();
-  if(pv) quiet(() => { for(const l of pv.solid) seg(l.p, l.d, 0.2, blockMat, blockGroup); for(const l of pv.dotted) dotted(l.p, l.d, 0.2, blockMat, blockGroup); });
+  if(pv) quiet(() => { for(const l of pv.solid) seg(l.p, l.d, BLOCK_W, blockMat, blockGroup); for(const l of pv.dotted) dotted(l.p, l.d, BLOCK_W, blockMat, blockGroup); });
   blockGroup.visible = true;
 }
 export function drawRoutes(){

@@ -1,7 +1,7 @@
 import { resetCam } from './camera.js';
 import { assignFits } from './defense.js';
 import { clearCallouts, hideBanner, updateHUD } from './hud.js';
-import { drawBlocks, drawRoutes, legacyFitDraws, routeGroup } from './markers.js';
+import { drawBlocks, drawRoutes, routeGroup } from './markers.js';
 import { previewBlocks } from './blockrules.js';
 import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
@@ -108,7 +108,6 @@ export function setupPlay(keep = false){
   if(boxS) place(boxS, boxS.side*SS_ROLL.x, L + SS_ROLL.d);
   S.box = inBox + (boxS ? 1 : 0);
   assignFits(call, boxS);
-  legacyFitDraws();   // B-068: the old fit lines' random draws, kept so seeded runs stay identical (markers.js)
   S.handoffAt = Infinity;
   RB.auto = false;
   OFF.forEach(o => { o.blk = null; o.dbl = null; o.ruled = false; o.lane = null; o.via = null; o.pull = null; o.rr = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
