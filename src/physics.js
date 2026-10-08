@@ -52,6 +52,8 @@ const PARTS_RIG = [
 ];
 // B-021: sizes and centers above are rig units; the pair in players.js (BODY_H, BODY_W) makes them the drawn body
 const PARTS = PARTS_RIG.map(d => ({...d, size:bodyV(d.size), c:bodyV(d.c)}));
+// B-045 brace: off his feet and free (no grip on or from him, no latch), the arms reach for the turf: upper arm swings forward and down (back if he falls on his back), elbows bent, so hands meet it with the knees
+const BRACE = {sh:0.6, shBack:0.6, out:0.3, el:0.7, k:1};   // shoulder x (rad, forward), shoulder x when falling backward, shoulder spread z, elbow bend (rad), pose strength
 const HAND_Y = -0.2*BODY_H;   // the hand end of a forearm (rig -0.2 down its length)
 const PI_ = Object.fromEntries(PARTS.map((d, i) => [d.n, i]));
 let PW = null;
@@ -59,7 +61,7 @@ const PHYS = [];
 const GRP = {ground:1, proxy:2, part:4};
 export function physInit(){
   PW = new CANNON.World({gravity: new CANNON.Vec3(0, -PH_G, 0)});
-  [qc, qd, qe] = [0, 0, 0].map(() => new CANNON.Quaternion()); [rv, rt, tw, dw] = [0, 0, 0, 0].map(() => new CANNON.Vec3());
+  [qc, qd, qe] = [0, 0, 0].map(() => new CANNON.Quaternion()); [rv, rt, tw, dw] = [0, 0, 0, 0].map(() => new CANNON.Vec3()); bz = new CANNON.Vec3(0, 0, 1); bEul = new THREE.Euler();
   PW.solver.iterations = 20; PW.allowSleep = false;
   const turf = new CANNON.Material('turf'), body = new CANNON.Material('body');
   // soft contact correction: overlapping bodies ease apart instead of exploding apart
@@ -182,6 +184,7 @@ export function gripGap(d){
   return m;
 }
 let qc, qd, qe, rv, rt, tw, dw;
+const BRACE_X = {uaL:1, uaR:1, faL:1, faR:1}; let bz, bEul;
 // rotation vector (axis * angle) of a cannon quaternion
 function rotVec(q, out){
   let {x, y, z, w} = q; if(w < 0){ x = -x; y = -y; z = -z; w = -w; }
@@ -191,6 +194,8 @@ function rotVec(q, out){
 function physMuscles(p, ph){
   // athletes never go limp: braced while falling or fighting, still holding posture once down
   const tone = ph.rest ? 0.35 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
+  const brace = ph.bal <= 0 && !ph.getUp && !ph.rest && !ph.grips.length && !ph.reach && !p.latch;
+  const fz = brace ? ph.bodies[0].quaternion.vmult(bz).y : 0;   // chest direction's height: < 0 face down (falling forward), > 0.1 falling backward
   ph.viol = 0; ph.violP = ph.violP || []; ph.violP.length = 0;   // B-038: the worst joint excess past its limit (rad) at this substep (sim jointViol reads it)
   PARTS.forEach((d, i) => {
     if(!d.p) return;
@@ -198,6 +203,7 @@ function physMuscles(p, ph){
     // current and wanted orientation of the part relative to its parent
     pb.quaternion.conjugate(qc); qc.mult(cb.quaternion, qd);                       // qd = rel now
     rigQ(p, PARTS[PI_[d.p]].j, tq); rigQ(p, d.j, tq2); tq.invert().multiply(tq2);    // rel wanted (rig)
+    if(brace && BRACE_X[d.n]){ const sd = d.n.endsWith("L") ? 1 : -1, x = d.n[0] === "u" ? (fz > 0.1 ? BRACE.shBack : -BRACE.sh) : -BRACE.el; tq.setFromEuler(bEul.set(x*BRACE.k, 0, d.n[0] === "u" ? sd*BRACE.out : 0)); }   // B-045
     qe.set(tq.x, tq.y, tq.z, tq.w); qd.conjugate(qc); qe.mult(qc, qe);             // error = want * now^-1 (parent frame)
     rotVec(qe, rv);
     // joint limits: how far outside the human range (rotation vector vs the rig's rest pose), parent frame
