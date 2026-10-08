@@ -32,16 +32,17 @@ const THRU_EDGE = 6, BOUNCE_EDGE = 4.5, EDGE_NOISE = 0.5, THRU_KEEP = 0.9, BOUNC
 // S.tkLog: contact outcomes for the sim readout (sim.js reads it through S, so it imports nothing from here): {o: 'big'|'thru'|'bounce'|'evade'|'grab', edge, t (S.clock, s), cm, dm} (cm, dm: weight x speed into the hit)
 const logTk = (o, edge, c, d) => { const L = S.tkLog || (S.tkLog = []); if(L.length < 20000) L.push({o, tech:d.tech, edge, t:+S.clock.toFixed(2), cm:c.mass*Math.hypot(c.vx, c.vy), dm:d.mass*Math.hypot(d.vx, d.vy)}); };
 const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates' surge keeps him up: downP rate x max(PILE_HOLD_MIN, 1/(1 + K*offensive pushers)); the floor 0.2 bounds the slowdown at 5x, and pile.js whistles (STALL_T 1.0 s stalled, PUSH_MAX_T 1.5 s of pushing) so the hold is never open-ended
-// B-069 (tackle-technique): how the tackler makes the hit. 'dive' = last-ditch (from behind, or at full stretch), 'shoulder' = the speed edge (BOOM), else 'wrap' (square: breaks down, chest to chest, arms around, legs drive).
+// B-069 (tackle-technique): how the tackler makes the hit. 'diveBehind' / 'diveStretch' = last-ditch (chasing from behind; or a non-big hit at the far end of the lunge band), 'shoulder' = the speed edge (BOOM), else 'wrap' (square: breaks down, chest to chest, arms around, legs drive).
 // d.tech is set at contact and logged (S.tkLog tech). Launch: forward kick (yd/s), up (m/s) and spin (forward lean rate, rad/s-ish, physOn spin); lower than before so he hits from his feet.
-const TECH = {wrap:{kick:2.4, up:0, lean:0}, shoulder:{kick:2.6, up:0.15, lean:1.2}, dive:{kick:3.0, up:0.3, lean:2.5}};
-const STRETCH_DD = 1.3*BODY_W;   // the open-field dive range (tackleUpdate)
+const TECH = {wrap:{kick:2.4, up:0, lean:0}, shoulder:{kick:3.0, up:0.15, lean:1.2}, diveBehind:{kick:3.0, up:0.3, lean:2.5}, diveStretch:{kick:3.0, up:0.3, lean:2.5}};
+const LUNGE_DD = 1.3*BODY_W, STRETCH_DD = 1.85*BODY_W;   // open-field lunge starts at LUNGE_DD (tackleUpdate; 2*BODY_W is its limit); only its far end is a stretch dive, nearer ones wrap
 function pickTech(d, c, dd, big, cAway, nx, ny){
   const behind = cAway > 2 && cAway > 0.7*Math.hypot(c.vx, c.vy) && d.vx*nx + d.vy*ny > 0;   // chasing him from behind: he's running straight away from the tackler
-  if(behind || dd > STRETCH_DD && !big) return 'dive';
+  if(behind) return 'diveBehind';
+  if(dd > STRETCH_DD && !big) return 'diveStretch';
   return big ? 'shoulder' : 'wrap';
 }
-const launch = (d, nx, ny, tech, extra=0) => { const T = TECH[tech]; return {vx:d.vx + nx*(T.kick + extra), vy:d.vy + ny*(T.kick + extra), up:T.up, spin:{x:nx*T.lean, y:ny*T.lean}}; };
+const launch = (d, nx, ny, tech) => { const T = TECH[tech]; return {vx:d.vx + nx*T.kick, vy:d.vy + ny*T.kick, up:T.up, spin:{x:nx*T.lean, y:ny*T.lean}}; };
 export const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
 function tackleNote(c){ return c === QB && !S.runMode ? 'SACKED' : null; }
 // a teammate already has him (or he's going down): no open-field duel, just get on him and finish it
@@ -71,7 +72,7 @@ function attemptTackle(d, c, dd){
     c.falling = true; c.act = 'fall'; c.actT = 99;
     physOn(c, {bal:0});
     d.latch = c; d.grip = 'wrap'; d.act = 'wrap'; d.actT = 99; d.faceAt = c;
-    physOn(d, {bal:d.tech === 'dive' ? 0 : 0.3, ...launch(d, nx, ny, d.tech, 0.4)});   // shoulder (or a dive) into him, arms wrap right after
+    physOn(d, {bal:d.tech.startsWith('dive') ? 0 : 0.3, ...launch(d, nx, ny, d.tech)});   // shoulder (or a dive) into him, arms wrap right after
     physGrip(d, c, 'wrap');
     callout(d, 'BOOM!', 'bad'); toast('BIG HIT');
     return;
@@ -79,6 +80,7 @@ function attemptTackle(d, c, dd){
   const runEdge = edge + rand(-EDGE_NOISE, EDGE_NOISE);
   if(runEdge > BOUNCE_EDGE){
     const thru = runEdge > THRU_EDGE, k = thru ? THRU_KEEP : BOUNCE_KEEP;
+    d.tech = null;   // no technique: the outcome decides what he does
     logTk(thru ? 'thru' : 'bounce', edge, c, d);
     c.vx *= k; c.vy *= k; physTouch(c);   // the hit counts as contact: down if he falls after it
     d.tkCool = 2;
@@ -95,9 +97,10 @@ function attemptTackle(d, c, dd){
   const evade = c.rBrk*0.6 + slide*4 + (headOn < -0.3 ? 8 : 0) + rand(-12, 12);
   const grab = d.rTkl + rand(-12, 12);
   if(evade > grab + 12){
+    d.tech = 'diveStretch';   // he lunges at where the runner was
     logTk('evade', edge, c, d);
     d.stun = 1.6; d.act = 'dive'; d.actT = 1.6; d.tkCool = 2;
-    physOn(d, {bal:0, vx:d.vx + nx*1.5, vy:d.vy + ny*1.5, up:1, ttl:1.2});   // dives at where he was and comes up empty
+    physOn(d, {bal:0, vx:d.vx + nx*1.5, vy:d.vy + ny*1.5, up:0.4, ttl:1.2});   // dives at where he was and comes up empty
     callout(d, slide > 4 ? 'Juked!' : 'Slipped it', 'good');
     return;
   }
@@ -146,7 +149,7 @@ export function tackleUpdate(c, dt){
       }
       continue;
     }
-    if(dd > 1.3*BODY_W){
+    if(dd > LUNGE_DD){
       // open field (past the line, no blocker on him): a defender closing within 2 yd dives at him.
       // The physics decides whether his hands get there; if not he comes up empty.
       const close = ((c.x - d.x)*(d.vx - c.vx) + (c.y - d.y)*(d.vy - c.vy))/dd;
