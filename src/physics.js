@@ -52,8 +52,8 @@ const PARTS_RIG = [
 ];
 // B-021: sizes and centers above are rig units; the pair in players.js (BODY_H, BODY_W) makes them the drawn body
 const PARTS = PARTS_RIG.map(d => ({...d, size:bodyV(d.size), c:bodyV(d.c)}));
-// B-045 brace: off his feet and free (no grip on or from him, no latch), the arms reach for the turf: upper arm swings forward and down (back if he falls on his back), elbows bent, so hands meet it with the knees
-const BRACE = {sh:0.6, shBack:0.6, out:0.3, el:0.7, k:1};   // shoulder x (rad, forward), shoulder x when falling backward, shoulder spread z, elbow bend (rad), pose strength
+// B-045 brace: off his feet (bal 0, not getting up, not at rest) and free, the arms reach for the turf: upper arm swings forward and down (back if he falls on his back), elbows bent, so hands meet it with the knees. Only HIS OWN grips, reach or latch block it (a tackler on him does not); the ball holder's ball arm (faR/uaR) stays on the rig pose so the ball is not reached forward (physBall rides faR)
+const BRACE = {sh:0.6, shBack:0.6, out:0.3, el:0.7};   // target angles (rad): shoulder x forward, shoulder x when falling backward, shoulder spread z, elbow bend
 const HAND_Y = -0.2*BODY_H;   // the hand end of a forearm (rig -0.2 down its length)
 const PI_ = Object.fromEntries(PARTS.map((d, i) => [d.n, i]));
 let PW = null;
@@ -203,7 +203,7 @@ function physMuscles(p, ph){
     // current and wanted orientation of the part relative to its parent
     pb.quaternion.conjugate(qc); qc.mult(cb.quaternion, qd);                       // qd = rel now
     rigQ(p, PARTS[PI_[d.p]].j, tq); rigQ(p, d.j, tq2); tq.invert().multiply(tq2);    // rel wanted (rig)
-    if(brace && BRACE_X[d.n]){ const sd = d.n.endsWith("L") ? 1 : -1, x = d.n[0] === "u" ? (fz > 0.1 ? BRACE.shBack : -BRACE.sh) : -BRACE.el; tq.setFromEuler(bEul.set(x*BRACE.k, 0, d.n[0] === "u" ? sd*BRACE.out : 0)); }   // B-045
+    if(brace && BRACE_X[d.n] && !(ball.state === 'held' && ball.holder === p && d.n[2] === 'R')){ const sd = d.n.endsWith("L") ? 1 : -1, x = d.n[0] === "u" ? (fz > 0.1 ? BRACE.shBack : -BRACE.sh) : -BRACE.el; tq.setFromEuler(bEul.set(x, 0, d.n[0] === "u" ? sd*BRACE.out : 0)); }   // B-045
     qe.set(tq.x, tq.y, tq.z, tq.w); qd.conjugate(qc); qe.mult(qc, qe);             // error = want * now^-1 (parent frame)
     rotVec(qe, rv);
     // joint limits: how far outside the human range (rotation vector vs the rig's rest pose), parent frame
