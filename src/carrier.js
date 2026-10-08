@@ -3,7 +3,7 @@ import { PLAYS } from './playbook.js';
 import { GRID_K } from './formations.js';
 import { ALL, BODY_W, C, DEF, LG, LT, OFF, RG, RT } from './players.js';
 import { isBody, physBall, physDown, physTouched } from './physics.js';
-import { SPRINT, lack } from './ratings.js';
+import { BURST_DRAIN, SPRINT, lack } from './ratings.js';
 import { S } from './state.js';
 import { HW, PILE_R, clamp, dist, rand } from './util.js';
 
@@ -20,7 +20,7 @@ function steerVel(p, vx, vy, dt){
 export function burst(p, want, dt){
   if(p.stam == null) p.stam = 1;
   const on = want && p.stam > 0;
-  p.stam = clamp(p.stam + (on ? -0.6 : 0.08)*dt, 0, 1);
+  p.stam = clamp(p.stam + (on ? -BURST_DRAIN : 0.08)*dt, 0, 1);
   return on ? SPRINT : 1;
 }
 function raceMargin(p, qx, qy){

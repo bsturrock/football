@@ -319,15 +319,15 @@ export function physStep(dt){
       if(p.latch && p.latch.ph && S.phase === 'live'){   // tackler: plant against his motion and drive through him
         const r = p.latch.ph.bodies[0], t = ph.bodies[0], dx = r.position.x - t.position.x, dz = r.position.z - t.position.z, l = Math.hypot(dx, dz) || 1;
         const sg = S.pile && S.pile.state === 'pushing' && S.pile.pushersO > S.pile.pushersD ? PLANT_HOLD : 1;   // feature (pile-push)
-        const F = ph.reach || p.grip === 'wrap' ? ph.M*p.acc*(p.rTkl/80)*1.25*sg : 0;   // arm tackle: just hanging on, dragging his weight
+        const F = ph.reach || p.grip === 'wrap' ? ph.M*p.leg*(p.rTkl/80)*1.25*sg : 0;   // arm tackle: just hanging on, dragging his weight   // B-034 (speed-scale)
         t.applyForce(new CANNON.Vec3(dx/l*F, 0, dz/l*F));
-        if(ph.reach) physLegs(p, ph, r.velocity.x + dx/l*3, r.velocity.z + dz/l*3, p.acc*1.2, BODY_H, 1.0);   // still reaching: run through him
+        if(ph.reach) physLegs(p, ph, r.velocity.x + dx/l*3, r.velocity.z + dz/l*3, p.leg*1.2, BODY_H, 1.0);   // still reaching: run through him   // B-034 (speed-scale)
         else physLegs(p, ph, 0, 0, PLANT_A*gripK(p)*sg, BODY_H, 1.0);   // got him: plant, low pad level, can't lift him
       } else if(ph.drv && ph.drv.until > phClock && S.phase === 'live' && p !== c){   // pile push: a wanted velocity and leg force from pile.js
         physLegs(p, ph, ph.drv.vx, -ph.drv.vy, ph.drv.a); if(ph.bubble) physYaw(p, ph);
-      } else if(p === c) physLegs(p, ph, p.vx, -p.vy, p.acc*(p.rBrk/75), 1.3*BODY_H, DEF.some(d => d.latch === p) ? 1.0 : 1.3);   // runner: where his steering wants to go
-      else if(ph.bubble){ physLegs(p, ph, p.wx ?? p.vx, -(p.wy ?? p.vy), p.acc); physYaw(p, ph); }   // his intent, not what the collisions left of it
-      else physLegs(p, ph, p.vx, -p.vy, p.acc);
+      } else if(p === c) physLegs(p, ph, p.vx, -p.vy, p.leg*(p.rBrk/75), 1.3*BODY_H, DEF.some(d => d.latch === p) ? 1.0 : 1.3);   // runner: where his steering wants to go   // B-034 (speed-scale)
+      else if(ph.bubble){ physLegs(p, ph, p.wx ?? p.vx, -(p.wy ?? p.vy), p.leg); physYaw(p, ph); }   // his intent, not what the collisions left of it   // B-034 (speed-scale)
+      else physLegs(p, ph, p.vx, -p.vy, p.leg);   // B-034 (speed-scale)
     }
     PW.step(PH_DT); phClock += PH_DT;
     for(const q of PW.contacts){ const a = q.bi.pl, b = q.bj.pl; if(a && b && a.team !== b.team) a.hitT = b.hitT = phClock;   // opposing bodies touching

@@ -48,11 +48,11 @@ export function runRoute(w, dt){
   else steer(w, w.x, w.y, 0, dt);
 }
 
-// B-034: a 40-yard dash straight upfield from a standstill at spd*sprint, stepped through steerVel (deterministic; no game state).
-// Returns {t10, t40 (s), top (peak yd/s)}.
-export function dash40(spd, acc, brake, sprint, dt = 1/60){
+// B-034: a 40-yard dash straight upfield from a standstill, stepped through steerVel (deterministic; no game state): wanted speed
+// spd*sprint for the first burstS seconds, spd after (burstS 0 = unsprinted). Returns {t10, t40 (s), top (peak yd/s)}.
+export function dash40(spd, acc, brake, sprint = 1, burstS = 0, dt = 1/60){
   const p = {spd, acc, brake, turn: 10, vx: 0, vy: 0, x: 0, y: 0, fire: 0};
   let t = 0, top = 0, t10 = 0;
-  while(p.y < 40 && t < 20){ steerVel(p, 0, spd*sprint, dt); t += dt; top = Math.max(top, p.vy); if(!t10 && p.y >= 10) t10 = t; }
+  while(p.y < 40 && t < 20){ steerVel(p, 0, spd*(t < burstS ? sprint : 1), dt); t += dt; top = Math.max(top, p.vy); if(!t10 && p.y >= 10) t10 = t; }
   return {t10, t40: t, top};
 }

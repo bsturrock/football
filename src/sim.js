@@ -1,4 +1,4 @@
-import { BRAKE_K, KEYS, MENTAL, SPRINT, TEMPLATES, accOf, spdOf } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
+import { BRAKE_K, BURST_DRAIN, KEYS, MENTAL, SPRINT, TEMPLATES, accOf, spdOf } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { FRONTS, STUNTS } from './fronts.js';
 import { dash40 } from './movement.js';
@@ -34,7 +34,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //     solo {plays, falls, noTurf, turfMedS, turfP90S, peakVMed, peakVP90, top03Med, top06Med}: the episodes of plays that never had more than SOLO_BODIES 2 tackle/ragdoll bodies (p.ph, not bubble) at once in live play; noTurf = never landed (live or late);
 //       turf*S = seconds to the first landing (live or late); peakV = fastest downward torso speed (yd/s) during the episode; top03/top06 = torso top (yd) at 0.3 / 0.6 s off his feet (episodes that lasted that long)
 //     jointViol {bodySteps, steps, pct, byJoint}: sim steps (SIM_DT, live and dead ball) summed over every physics body (bubble included), pre-snap steps included (B-044); steps = those with any joint past its limit (physics.js PARTS lim) by over VIOL_DEG 10 deg at the last substep; pct = steps/bodySteps; byJoint = steps per part name (torso, head, uaL, faL, ... snR)
-//   speed40 {template: {t40, t10, top, mph}} (B-034): a 40-yard dash from a standstill per template at its mid ratings (split templates RB, LB: RBp/RBs, LBs/LBc listed separately), stepped through movement.js steerVel at spd*SPRINT; t40 and t10 in s, top the peak speed in yd/s, mph the same in mph (NFL combine 40 averages: C 5.21, G 5.27, T 5.32, DT 5.06, WR 4.52, CB 4.48; Next Gen top speeds: skill 20-23 mph, OL about 17); deterministic, same every run
+//   speed40 {template: {t40, t10, top, mph, burst: {t40, t10, top, mph}}} (B-034): a 40-yard dash from a standstill per template at its mid ratings (split templates RB, LB: RBp/RBs, LBs/LBc listed separately), stepped through movement.js steerVel at spd (the gear everyone but the carrier runs in); burst = the carrier's burst: spd*SPRINT for 1/BURST_DRAIN s (the stamina carrier.js burst() has), then spd; t40 and t10 in s, top the peak speed in yd/s, mph the same in mph (NFL combine 40 averages: C 5.21, G 5.27, T 5.32, DT 5.06, WR 4.52, CB 4.48; Next Gen top speeds: skill 20-23 mph, OL about 17); deterministic, same every run
 //   bodiesMax: total physics body count; pile counters count tackle/ragdoll bodies only (p.ph && !p.ph.bubble)
 //   physMs {median/p95}: NOT reliable here (performance.now does not advance in one synchronous task): never compare; use ?debug in a real browser for frame and physics ms
 //   read {n: zone plays decided, noDecision: stuffed before deciding, wrongPct: share not the noiseless best lane, choices {name: {n, ypc}}, wrongYpc, rightYpc} (from S.read)
@@ -77,7 +77,8 @@ function seedRandom(seed){
 const pct = (xs, q) => { if(!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return +s[Math.min(s.length - 1, Math.floor(q*s.length))].toFixed(3); };
 const med = xs => { if(!xs.length) return null; const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return +(s.length % 2 ? s[m] : (s[m-1] + s[m])/2).toFixed(3); };
 const mean = xs => xs.length ? +(xs.reduce((a, b) => a + b, 0)/xs.length).toFixed(3) : null;
-const speed40 = () => { const o = {}; for(const [k, T] of Object.entries(TEMPLATES)){ const m = i => (T.r[i][0] + T.r[i][1])/2, acc = accOf(m(1)), r = dash40(spdOf(m(0)), acc, acc*BRAKE_K, SPRINT); o[k] = {t40:+r.t40.toFixed(2), t10:+r.t10.toFixed(2), top:+r.top.toFixed(2), mph:+(r.top*2.045).toFixed(1)}; } return o; };
+const speed40 = () => { const o = {}; for(const [k, T] of Object.entries(TEMPLATES)){ const m = i => (T.r[i][0] + T.r[i][1])/2, spd = spdOf(m(0)), acc = accOf(m(1)), f = r => ({t40:+r.t40.toFixed(2), t10:+r.t10.toFixed(2), top:+r.top.toFixed(2), mph:+(r.top*2.045).toFixed(1)});
+    o[k] = {...f(dash40(spd, acc, acc*BRAKE_K)), burst:f(dash40(spd, acc, acc*BRAKE_K, SPRINT, 1/BURST_DRAIN))}; } return o; };
 function out(o){
   const el = document.createElement('pre'); el.id = 'simout'; el.textContent = JSON.stringify(o); document.body.appendChild(el);
 }
