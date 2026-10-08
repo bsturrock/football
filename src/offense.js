@@ -111,7 +111,7 @@ function zoneBlock(p, dt){
     }
     p.blk = d;
   }
-  if(!d){ p.climbing = true; noMan(p, ref, lane, dt); return; }
+  if(!d){ p.climbing = true; if(p.role === 'WR') steer(p, lane, Math.max(p.y + 2, S.los + 3), p.spd*CLIMB_F, dt); else noMan(p, ref, lane, dt); return;   // a receiver with no man still runs downfield to stalk (B-073 is the line) }
   driveAt(p, d, ref, dt);
 }
 function runBlock(p, dt){
