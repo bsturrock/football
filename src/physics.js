@@ -166,6 +166,7 @@ function lockGrip(d, c, kind){
     const g = new CANNON.PointToPointConstraint(hb, new CANNON.Vec3(0, HAND_Y, 0), best, loc);
     // what his hands can hold (force); one hand holds a lot less than a runner's legs pull
     const cap = d.mass*MASS_KG*(kind === 'wrap' ? 150 : ARM_GRIP)*(d.rTkl/80);
+    // B-056: a grip keeps cannon's default 1/60 SPOOK terms on purpose (not JOINT_K/PH_DT): the force caps above were tuned on that softness
     g.collideConnected = false; PW.addConstraint(g); D.grips.push({c:g, on:c, hb, best, loc, born:D.t, cap});
   }
 }
