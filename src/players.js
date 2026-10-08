@@ -25,8 +25,9 @@ export const TEAM = {
 const SKIN = [0x5c3a1e, 0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d];
 // jersey number on the back: one canvas texture per number, shared; a body swaps its map when a sub changes his number
 // three.js draws Math.random for object uuids; the number art does that on a private stream so a seeded ?sim line is the same with or without it
-let qk = new URLSearchParams(location.search).has('sim') ? 12345 : (Date.now() % 2147483646) + 1;   // fixed under ?sim, varied on a normal load
-const quiet = f => { const r = Math.random; Math.random = () => (qk = qk*16807 % 2147483647)/2147483647; try { return f(); } finally { Math.random = r; } };
+const QK_SIM_SEED = 12345, LCG_M = 2147483647;   // the private stream's fixed seed under ?sim, and its Lehmer modulus
+let qk = new URLSearchParams(location.search).has('sim') ? QK_SIM_SEED : (Date.now() % (LCG_M - 1)) + 1;   // fixed under ?sim, varied on a normal load
+const quiet = f => { const r = Math.random; Math.random = () => (qk = qk*16807 % LCG_M)/LCG_M; try { return f(); } finally { Math.random = r; } };
 const numTex = {};
 const numTexture = n => numTex[n] || (numTex[n] = quiet(() => {
   const c = document.createElement('canvas'); c.width = 64; c.height = 48; const x = c.getContext('2d');
@@ -81,6 +82,5 @@ export const DL = [], LBs = [], CBs = [], SFs = [];
 export const DEF = DB, ALL = [...OFF, ...DEF];
 // ratings: nine 0-99 per record from a position template (src/ratings.js), 46 records a team; newGame draws them again
 export const rate = () => rateRosters();
-bindSlots({QB, OL, TE, RB, flex:FLEX, WRs, EXTRA, RECV, ROUTE_KEYS, DEF:DB, DL, LBs, CBs, SFs});
-rate();
+bindSlots({QB, OL, TE, RB, flex:FLEX, WRs, EXTRA, RECV, ROUTE_KEYS, DEF:DB, DL, LBs, CBs, SFs});   // B-078: rate() runs from main.js, after seeding
 subIn();   // default 11 personnel and nickel: today's twenty-two
