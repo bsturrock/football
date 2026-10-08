@@ -30,7 +30,7 @@ const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
 // B-060-2: situational speeds, fractions of d.spd (full only chasing in the open or on a ball in the air); scale the steered speed only, never d.acc or d.leg
 const PURSUE_F = 0.8, READ_F = 0.4, ZONE_F = 0.8, MAN_STEM_F = 0.9, RUSH_FULL_T = 1.0, OPEN_Y = 6;   // ZONE_F: zone and deep drops; MAN_STEM_F: man cover until the receiver is past his stem (then full); RUSH_FULL_T: a pass rusher runs full this long after the snap
-const FIRE_DEPTH = 1.5, FIRE_T = 0.5, FIRE_ACC = 1.7;   // B-064 (dl-fire): a run-play DL aims FIRE_DEPTH yd past the line and runs full speed for FIRE_T s after the snap, so he meets the blocker at or past the line carrying his charge
+const FIRE_DEPTH = 1, FIRE_T = 0.5, FIRE_ACC = 1.8;   // B-064 (dl-fire): a one-gap DL aims FIRE_DEPTH yd past the line and accelerates FIRE_ACC x for FIRE_T s after the snap (stacked on movement.js p.fire x FIRE_K 1.3 for 0.35 s: about 2.3x then), so he meets the blocker at the line carrying his charge
 const BT_KEEP_D = 1.3;   // B-023: a battle that started inside ENGAGED_D survives until its blocker is this far (drive and steering open the gap past ENGAGED_D 50 times a second)
 const RUNNER_PAST_Y = 1.0;   // B-023: the runner this far (yd) downfield of a blocked defender: the blocks break down, he is released to pursue
 const TOW_V = 4, TOW_FREE_T = 0.4;   // B-023: a blocker who is not assigned to him (o.blk is another man: a climber, a puller, a stunt pass-off) moving faster than TOW_V yd/s is passing, not blocking: the battle ends and he cannot re-engage for TOW_FREE_T s
@@ -139,7 +139,7 @@ export function assignFits(call, boxS){
     d.home = Math.random() >= HOME_P*lack(d, 'pursuit');                // discipline: a poor pursuer abandons the backside early
     d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
-    d.fit = d.job.gx != null && (d.role === 'DL' || d.role === 'LB' || d === boxS) ? {x:d.job.gx, y:d.role === 'DL' ? L - 0.5 : L + 1.5} : null;
+    d.fit = d.job.gx != null && (d.role === 'DL' || d.role === 'LB' || d === boxS) ? {x:d.job.gx, y:d.role === 'DL' ? L - (d.job.role === 'two' ? 0.5 : FIRE_DEPTH) : L + 1.5} : null;
   });
   S.flow0 = RB.x;
 }
@@ -160,7 +160,7 @@ function runFit(d, c){
   if(S.clock <= S.handoffAt + d.read + d.bite){
     // before the read: linemen attack their gap, second level read-steps with the backfield, the rest hold
     const flow = ((ball.holder || RB).x - S.flow0)*(d.rAwr/100)*0.7;
-    if(d.role === 'DL') return [j.gx, L - FIRE_DEPTH];   // B-064 (dl-fire): explode through the gap
+    if(d.role === 'DL') return [j.gx, L - (j.role === 'two' ? 0.5 : FIRE_DEPTH)];   // B-064 (dl-fire): a one-gapper explodes through his gap; a two-gapper attacks the blocker and holds square
     if(j.role === 'gap' || j.role === 'force') return [j.gx + flow, L + (d.role === 'LB' ? 3.5 : 4)];
     if(j.role === 'alley') return [j.gx*0.7 + flow*0.5, L + 7];
     if(j.role === 'deep') return [flow*0.4, L + 12];
@@ -309,7 +309,7 @@ export function defenseAI(d, dt){
     const open = c && attack && S.runMode && (c.y > d.y + RUNNER_PAST_Y || c.y > S.los + OPEN_Y);
     const reading = S.runMode && c && PLAYS[S.play].run && d.role !== 'DL' && S.clock <= S.handoffAt + d.read + d.bite;   // run plays only: a catch sets runMode too
     const rush = attack && !S.runMode && (d.role === 'DL' || d.mode === 'rush') && S.clock < RUSH_FULL_T;
-    const fire = attack && S.runMode && d.role === 'DL' && S.clock < FIRE_T;   // B-064 (dl-fire): acceleration is x FIRE_ACC for the get-off (acceleration, not wanted speed, limits the first yards; offense.js:98 does the same for a blocker)
+    const fire = attack && d.role === 'DL' && d.job && d.job.role !== 'two' && S.clock < FIRE_T;   // B-064 (dl-fire): every one-gap DL fires on every snap, run or pass (he can't know the play yet); acceleration is x FIRE_ACC for the get-off, on top of movement.js p.fire x FIRE_K 1.3 for its first 0.35 s (about 2.2x then, FIRE_ACC alone after) (acceleration, not wanted speed, limits the first yards; offense.js:98 does the same for a blocker)
     d.fireAcc = fire;
     sp *= open || rush || fire ? 1 : reading ? READ_F : attack ? PURSUE_F : d.mode === 'cover' ? (d.assign && d.assign.wp > 0 ? 1 : MAN_STEM_F) : ZONE_F;
   }
