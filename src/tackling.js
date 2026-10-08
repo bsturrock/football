@@ -24,6 +24,12 @@ import { clamp, dist, rand } from './util.js';
 //   any state  ball dead (touchdown, out of bounds, endPlay elsewhere): tackleUpdate stops, physStep rests him, or a get-up in progress finishes (physOff when upright); the next setup's physClear removes what is left
 const GETUP_WAIT = 0.3, GETUP_MAX = 3, FALL_MAX_T = 4, FALL_SETTLE = 0.4;   // s on the turf before he gets up, tries per body, play-ending fall time, s before a fresh body may get up
 export const PLANT_A = 7;
+// B-063 (tackle-momentum): the runner's weight times speed into the hit, against the tackler's, decides a clear win.
+// edge = (resist - hit)/tackler mass, per the tackler's tackling (yd/s); over THRU_EDGE the runner runs through (tackler off his feet,
+// runner keeps most of his speed), over BOUNCE_EDGE the tackler bounces off (staggered, runner slowed a little), else the grab roll below.
+const THRU_EDGE = 6, BOUNCE_EDGE = 4.5, EDGE_NOISE = 0.5, THRU_KEEP = 0.9, BOUNCE_KEEP = 0.8;
+// S.tkLog: contact outcomes for the sim readout (sim.js reads it through S, so it imports nothing from here): {o: 'big'|'thru'|'bounce'|'evade'|'grab', edge, cm, dm} (cm, dm: weight x speed into the hit)
+const logTk = (o, edge, c, d) => { const L = S.tkLog || (S.tkLog = []); if(L.length < 20000) L.push({o, edge, cm:c.mass*Math.hypot(c.vx, c.vy), dm:d.mass*Math.hypot(d.vx, d.vy)}); };
 const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates' surge keeps him up: downP rate x max(PILE_HOLD_MIN, 1/(1 + K*offensive pushers)); the floor 0.2 bounds the slowdown at 5x, and pile.js whistles (STALL_T 1.0 s stalled, PUSH_MAX_T 1.5 s of pushing) so the hold is never open-ended
 export const gripK = d => (d.grip === 'wrap' ? 1 : 0.5)*(d.rTkl/80);
 function tackleNote(c){ return c === QB && !S.runMode ? 'SACKED' : null; }
@@ -46,7 +52,9 @@ function attemptTackle(d, c, dd){
   const headOn = cs > 0.5 ? -(c.vx*nx + c.vy*ny)/cs : 0;          // 1: runner coming straight at him, -1: running away
   d.face = Math.atan2(c.x - d.x, d.y - c.y);
   const bigScore = (hit - resist)/c.mass*(d.rTkl/80) + rand(-1, 1);
+  const edge = (resist - hit)/d.mass*(80/d.rTkl);
   if(bigScore > 3.0){
+    logTk('big', edge, c, d);
     // he's knocked off his feet; the tackler launches through him, wraps, and the bodies collide for real
     c.falling = true; c.act = 'fall'; c.actT = 99;
     physOn(c, {bal:0});
@@ -56,15 +64,32 @@ function attemptTackle(d, c, dd){
     callout(d, 'BOOM!', 'bad'); toast('BIG HIT');
     return;
   }
+  const runEdge = edge + rand(-EDGE_NOISE, EDGE_NOISE);
+  if(runEdge > BOUNCE_EDGE){
+    const thru = runEdge > THRU_EDGE, k = thru ? THRU_KEEP : BOUNCE_KEEP;
+    logTk(thru ? 'thru' : 'bounce', edge, c, d);
+    c.vx *= k; c.vy *= k;
+    d.tkCool = 2;
+    if(thru){   // knocked back and off his feet, comes up later
+      d.stun = 1.6; d.act = 'dive'; d.actT = 1.6;
+      physOn(d, {bal:0, vx:d.vx - nx*3, vy:d.vy - ny*3, up:0.6, ttl:1.4});
+    } else {    // staggers back on his feet
+      d.stun = 0.9; d.vx -= nx*2.5; d.vy -= ny*2.5;
+    }
+    callout(d, thru ? 'Run over!' : 'Bounced off', 'good');
+    return;
+  }
   const slide = Math.abs((c.vx - d.vx)*ny - (c.vy - d.vy)*nx);   // relative speed across the line of impact
   const evade = c.rBrk*0.6 + slide*4 + (headOn < -0.3 ? 8 : 0) + rand(-12, 12);
   const grab = d.rTkl + rand(-12, 12);
   if(evade > grab + 12){
+    logTk('evade', edge, c, d);
     d.stun = 1.6; d.act = 'dive'; d.actT = 1.6; d.tkCool = 2;
     physOn(d, {bal:0, vx:d.vx + nx*1.5, vy:d.vy + ny*1.5, up:1, ttl:1.2});   // dives at where he was and comes up empty
     callout(d, slide > 4 ? 'Juked!' : 'Slipped it', 'good');
     return;
   }
+  logTk('grab', edge, c, d);
   d.latch = c; d.grip = headOn < -0.3 || grab < evade + 5 ? 'arm' : 'wrap';
   d.act = 'wrap'; d.actT = 99; d.faceAt = c;
   physOn(c, {bal:1});
