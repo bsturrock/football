@@ -76,7 +76,7 @@ const CARRY_K1 = 6;       // B-040: the same for a plain 1v1 man (his carry must
 const TURN_COS = 0.97;    // axis turn (cosine) that counts as such a jump
 const SEC_ENGW = 0.5;     // engaged share he keeps the second-man role at through a frame where the sim's p.eng lapses
 const SIDE_R = SH_X - 0.02;   // his hand point's distance from the defender's axis
-const HAND_IN = 0.12, HAND_OUT = 0.36, HEAD_X = 0.36, HAND_PRESS = -0.13;   // hand sideways offsets from the pair axis (blocker inside, defender outside), head sideways offset (rig units), how far the hand presses into the chest (yd)
+const HAND_IN = 0.12, HAND_OUT = 0.36, ENG_ROLL = 0.6, HEAD_TILT = 0.15, HEAD_TURN = 0.2, HAND_PRESS = -0.13;   // hand sideways offsets from the pair axis (blocker inside, defender outside), head tilt and turn (rad, about his own neck), how far the hand presses into the chest (yd)
 // arm solver limits: closest and farthest reach kept off the straight and folded extremes (yd), elbow range (rad), sideways angle range (rad), asin clamp for the first guess, Newton steps and stop error (yd), finite difference step, singular limit; free-arm sideways angle (rad)
 const REACH_MIN = 0.03, REACH_MAX = 0.02, EL_MIN = -2.7, EL_MAX = -0.05, ARM_Z_MAX = 1.2, ARM_Z_GUESS = 0.9, NEWTON_N = 5, NEWTON_ERR = 0.002, FD_H = 1e-3, DET_MIN = 1e-6, ARM_Z_FREE = 0.12;
 let frameClock = null;   // ms; the ?frames check sets it so the fight wiggle is the same every run (a normal page keeps real time)
@@ -121,8 +121,9 @@ const eV = new THREE.Vector3();
 // the hand target of one arm (side +1 left, -1 right): a point on the partner's chest plate, in this man's rig frame. The partner's plate is a point of his own rig
 // (his sideways u, up the torso PAD_Y, front PAD_D), carried to the world by his mesh and back by this man's.
 function handAt(p, q, side, hand){
-  const ql = q.pose.lean, qt = q.pose.twist, u = -side*hand, f = PAD_Y*Math.sin(ql) + PAD_D*Math.cos(ql) - HAND_PRESS;
-  eV.set(u*Math.cos(qt) + f*Math.sin(qt), q.body.position.y + BODY_H + PAD_Y*Math.cos(ql) - PAD_D*Math.sin(ql), -u*Math.sin(qt) + f*Math.cos(qt));
+  const ql = q.pose.lean, qt = q.pose.twist, qr = q.roll || 0, u0 = -side*hand, u = u0*Math.cos(qr) - PAD_Y*Math.sin(qr), yy = u0*Math.sin(qr) + PAD_Y*Math.cos(qr);   // his roll tilts the plate sideways (B-042)
+  const f = yy*Math.sin(ql) + PAD_D*Math.cos(ql) - HAND_PRESS;
+  eV.set(u*Math.cos(qt) + f*Math.sin(qt), q.body.position.y + BODY_H + yy*Math.cos(ql) - PAD_D*Math.sin(ql), -u*Math.sin(qt) + f*Math.cos(qt));
   return p.mesh.worldToLocal(q.mesh.localToWorld(eV));
 }
 // the second doubler's hand target: the defender's near side (the side facing p), a SIDE_R out from his axis, the two hands HAND_IN either side of that point along his side
@@ -144,9 +145,10 @@ function engagedPose(T, p, s, cs){
     const tw = p.pose.twist, ct = Math.cos(tw), st = Math.sin(tw), hand = p.team === 'O' ? HAND_IN : HAND_OUT;
     for(let side = 1; side >= -1; side -= 2){
       const t = q ? (sec ? handAtSide(p, q, side, hand) : handAt(p, q, side, hand)) : eV.set(-side*hand, BODY_H, BLOCK_D - PAD_D);
-      const sx = side*SH_X*ct, sz = -side*SH_X*st + SH_Y*Math.sin(lean), sy = BODY_H + p.body.position.y + SH_Y*Math.cos(lean);   // shoulder in the rig frame
+      const cr = Math.cos(p.roll || 0), sr = Math.sin(p.roll || 0), ax = side*SH_X*cr - SH_Y*sr, ay = side*SH_X*sr + SH_Y*cr;   // roll, then twist, then lean (the torso's Euler order)
+      const sx = ax*ct, sz = -ax*st*Math.cos(lean) + ay*Math.sin(lean), sy = BODY_H + p.body.position.y + ay*Math.cos(lean) + ax*st*Math.sin(lean);   // shoulder in the rig frame
       const x = t.x - sx, z = t.z - sz, y = t.y - sy;
-      const a = armTo(lean, x*ct - z*st, y, x*st + z*ct);
+      const lat = x*ct - z*st, a = armTo(lean, lat*cr + y*sr, y*cr - lat*sr, x*st + z*ct);   // the shoulder frame is rolled with the torso
       if(side > 0){ T.shL = a.sh + l; T.elL = a.el; T.armZL = a.z; } else { T.shR = a.sh + r; T.elR = a.el; T.armZR = a.z; }
     }
   };
@@ -179,8 +181,8 @@ function animate(p, dt){
   const T = targetPose(p, sp), P = p.pose, k = 1 - Math.exp(-dt*(eng ? ENG_K : 16)), J = p.j;
   for(const j of JOINTS) P[j] += (T[j] - P[j])*k;
   p.engW = (p.engW || 0) + ((eng ? 1 : 0) - (p.engW || 0))*(1 - Math.exp(-dt*ENG_K));
-  J.head.rotation.x = -ENG_HEAD*P.lean*p.engW; J.head.position.x = -HEAD_X*BODY_W*p.engW;   // B-031: head over his right shoulder, so the pair's helmets pass   // head up while engaged: eyes on his man, not the turf
-  J.torso.rotation.set(P.lean, P.twist, 0);
+  J.head.rotation.set(-ENG_HEAD*P.lean*p.engW, HEAD_TURN*p.engW, HEAD_TILT*p.engW);   // head up while engaged: eyes on his man, not the turf; B-042: the head stays on its neck socket and tilts to his right shoulder (B-031 slid it sideways off the neck), so the pair's helmets pass
+  p.roll = ENG_ROLL*p.engW; J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   p.armZL = (p.armZL ?? ARM_Z_FREE) + ((T.armZL ?? ARM_Z_FREE) - (p.armZL ?? ARM_Z_FREE))*k; p.armZR = (p.armZR ?? -ARM_Z_FREE) + ((T.armZR ?? -ARM_Z_FREE) - (p.armZR ?? -ARM_Z_FREE))*k;   // sideways arm angles: 0.12 out free, the hand-placement angles engaged
   J.shL.rotation.set(P.shL, 0, p.armZL); J.shR.rotation.set(P.shR, 0, p.armZR); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
@@ -229,7 +231,17 @@ function animate(p, dt){
 //   dblOffsetJumpMax: the largest one-frame change of a second man's extra offset (weight and raw axis, no carry; yd) on frames where he is square. dbl1v1JumpMax: the control, the same for every other square man's raw axis (the 1v1 pose's own turn)
 //   dblFades (B-037): how many such frames were counted, by kind: climb (his double ended, no partner), inherit (the battle came to him), swap (he became second man while square)
 //   dblJumpKind: the same largest jump by kind
+//   headOffNeckMax (B-042, yd): the largest distance of any drawn man's head joint from its neck socket; limbStretchMax: the largest distance of any other joint from its rest socket on its parent, or scale away from 1 (both near 0)
 //   headHeadPct: helmet corner in the partner's helmet; armArmPct: an arm corner in the partner's arm; anyPct: any of the above
+// B-042: every frame, every drawn man: how far a joint sits from its rest socket on its parent (headOffNeckMax: the head; limbStretchMax: any other joint, and any scale away from 1). Rig rest in rig units, as players.js builds it.
+const REST = {torso:[0, 1, 0], head:[0, 0.8, 0], shL:[0.5, 0.62, 0], shR:[-0.5, 0.62, 0], elL:[0, -0.42, 0], elR:[0, -0.42, 0], hipL:[0.2, 1, 0], hipR:[-0.2, 1, 0], kneeL:[0, -0.5, 0], kneeR:[0, -0.5, 0]};
+const restV = Object.fromEntries(Object.entries(REST).map(([k, v]) => [k, bodyV(v)]));
+const pd0 = {headOff:0, stretch:0};
+function jointCheck(p){
+  for(const k in restV){ const j = p.j[k], v = restV[k], d = Math.hypot(j.position.x - v[0], j.position.y - v[1], j.position.z - v[2]), sc = Math.max(Math.abs(j.scale.x - 1), Math.abs(j.scale.y - 1), Math.abs(j.scale.z - 1));
+    if(k === 'head') pd0.headOff = Math.max(pd0.headOff, d); else pd0.stretch = Math.max(pd0.stretch, d); pd0.stretch = Math.max(pd0.stretch, sc); }
+  const m = p.mesh.scale, b = p.body.scale; pd0.stretch = Math.max(pd0.stretch, Math.abs(m.x - 1), Math.abs(m.y - 1), Math.abs(m.z - 1), Math.abs(b.x - 1), Math.abs(b.y - 1), Math.abs(b.z - 1));
+}
 const PD_SHRINK = 0.03, PD_HAND = 0.06;
 const HO_ENG = 0.3, HO_FULL = 0.95, HO_DT = 1/60, HO_JOINTS = ['torso', 'shL', 'shR'], hoPrev = new Map(), hoV = new THREE.Vector3(), hoV2 = new THREE.Vector3();
 const pd = {offJump:0, ctrlJump:0, dblJk:{climb:0, inherit:0, swap:0}, dblN:{climb:0, inherit:0, swap:0}, dblJump:0, dbl:0, dblAny:0, dblPad:0, dblHead:0, handoffs:0, hoTorso:0, hoShoulder:0, frames:0, dSim:[], dRen:[], headBody:0, padBody:0, armBody:0, headHead:0, armArm:0, any:0};
@@ -262,6 +274,7 @@ let hoFrame = 0;
 export function pairCheck(){
   if(HO_EVERY && ++hoFrame % HO_EVERY === 0){ const m = ALL.find(q => !q.ph && q.yawK > HO_FULL && q.mesh.visible); if(m){ physOn(m, {bal:0.5, ttl:1.5}); const b = m.bt; if(b) ALL.forEach(q => { if(q.bt === b) q.bt = null; }); } }   // his battle ends too, as physics.js promote() does
   physRender();   // the frames check does not run main's physRender; the meshes must be synced before they are read
+  for(const p of ALL) if(!p.ph && S.phase !== 'presnap') jointCheck(p);
   for(const p of ALL){   // B-036: an engaged man who became a body this frame: his torso joint's drawn jump, less what the body itself moved
     const pr = hoPrev.get(p);
     if(p.ph && pr && pr.eng){
@@ -299,7 +312,7 @@ export function pairCheck(){
 export function pairReport(){
   const med = a => a.length ? Math.round(1000*a.slice().sort((x, y) => x - y)[a.length >> 1])/1000 : null, f = pd.frames || 1, pc = n => Math.round(1000*n/f)/10;
   const r3 = x => Math.round(1000*x)/1000;
-  return {handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
+  return {handoffs:pd.handoffs, handoffTorso:r3(pd.hoTorso), handoffShoulder:r3(pd.hoShoulder), handoffMax:r3(Math.max(pd.hoTorso, pd.hoShoulder)), frames:pd.frames, headOffNeckMax:r3(pd0.headOff), limbStretchMax:r3(pd0.stretch), dblJumpMax:r3(pd.dblJump), dblOffsetJumpMax:r3(pd.offJump), dbl1v1JumpMax:r3(pd.ctrlJump), dblFades:pd.dblN, dblJumpKind:{climb:r3(pd.dblJk.climb), inherit:r3(pd.dblJk.inherit), swap:r3(pd.dblJk.swap)}, dblFrames:pd.dbl, dblAnyPct:Math.round(1000*pd.dblAny/(pd.dbl || 1))/10, dblPadsPct:Math.round(1000*pd.dblPad/(pd.dbl || 1))/10, dblHeadPct:Math.round(1000*pd.dblHead/(pd.dbl || 1))/10, medDsim:med(pd.dSim), medDrender:med(pd.dRen), headInBodyPct:pc(pd.headBody), padsInBodyPct:pc(pd.padBody), armInBodyPct:pc(pd.armBody), headHeadPct:pc(pd.headHead), armArmPct:pc(pd.armArm), anyPct:pc(pd.any)};
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units

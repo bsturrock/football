@@ -21,6 +21,7 @@ const PLAY_Q = new URLSearchParams(location.search).get('play');   // B-037 (dou
 const FORCED = PLAYS.find(p => p.name.toLowerCase() === String(PLAY_Q).toLowerCase());
 if(PLAY_Q && !FORCED && new URLSearchParams(location.search).has('frames')) window.addEventListener('DOMContentLoaded', () => { const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'unknown play ' + PLAY_Q}); document.body.appendChild(el); });   // main.js still appends its own line after this one (not my file)
 const PLAY = FORCED ? FORCED.name : 'Iso';   // Iso (the default): a man-blocking run, every lineman takes the man on him (no doubles, no pulls); a forced play is whatever ?play names
+const SIDE = new URLSearchParams(location.search).get('cam') === 'side';   // B-042: ?cam=behind (default, as before) | side
 const OL_BY_NAME = {LT, LG, C, RG, RT};
 const NOTES = {
   '1v1': 'One lineman against the defender over him. Watch: does he stay square and locked on the man, how does the defender rotate or shed, does the block drive him back.',
@@ -81,7 +82,8 @@ export function drillCamera(dt){
   if(camera.fov !== 40){ camera.fov = 40; camera.updateProjectionMatrix(); }
   const line = mode === 'line';
   tgt.set(cx, 1, 50 - cy);
-  want.set(cx + (line ? 3 : 5), line ? 8 : 4.2, 50 - cy + (line ? 14 : 7));
+  if(SIDE) want.set(cx + (line ? 13 : 7), line ? 2.4 : 2, 50 - cy);   // B-042 ?cam=side: side-on at the line, both teams in view
+  else want.set(cx + (line ? 3 : 5), line ? 8 : 4.2, 50 - cy + (line ? 14 : 7));
   const k = snapCam ? 1 : 1 - Math.exp(-dt*3); snapCam = false;
   look.lerp(tgt, k); pos.lerp(want, k);
   camera.position.copy(pos); camera.lookAt(look);
