@@ -95,7 +95,9 @@ function runFrames(n){
 // ?autoplay=<seconds>&sim=1&seed=S: the CPU calls and snaps a play with no input; the page steps 1/60 s synchronously (as runFrames does) until the play has run <seconds> after the snap
 // (or ended first), then keeps painting that frame with the game camera: a headless screenshot shows the play mid-action. `sim=1` only seeds Math.random, so the same seed gives the same
 // frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...} into <pre id="autoout">. A normal load is unchanged.
+// B-086: &stopon=cut|pull|shed[&after=N] stops on the first such event (see runAutoplay).
 // B-081: &play=<name> forces the offense's call (any play, case-insensitive; a pass play needs &pass=1; an unknown name gives {"error":...}); &cam=side|close frames the play, following the ball (a bad value gives {"error":...}).
+const AUTO_STOP_PLAYS = 30;   // B-086: &stopon runs at most this many plays' worth of steps
 const AUTO_MAX_STEPS = 60*60;   // a stuck pre-snap gives up after a minute of sim time
 const r3 = v => +Number(v).toFixed(3);
 function autoDigest(){   // state digest: same seed, same values (a PNG can differ by bytes)
@@ -107,12 +109,23 @@ function runAutoplay(sec, q){
   const out = o => { const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify(o); document.body.appendChild(el); };
   if(q.has('play')){ const nm = q.get('play').trim().toLowerCase(), pl = PLAYS.find(p => p.name.toLowerCase() === nm); if(!pl){ out({error:'unknown play ' + q.get('play') + (q.has('pass') ? '' : ' (a pass play needs &pass=1)')}); return; } S.force = {play:pl.name}; }
   if(q.has('cam')){ const c = q.get('cam').trim().toLowerCase(); if(c !== 'side' && c !== 'close'){ out({error:'unknown cam ' + q.get('cam')}); return; } setAutoCam(c); }
+  // B-086: &stopon=cut|pull|shed[&after=N]: plays run one after another (up to AUTO_STOP_PLAYS, no stop at the whistle or at <seconds>) until the event fires on live state, then N more steps (default 0) and stop;
+  // autoout gains {event, play, frame}: the event, the play number (1 = the first snap), the step it fired on (event null: it never fired). Read-only, no game logic. cut: a man with p.cutPh set (B-072-4: 1 brake, 3 plant, 2 push);
+  // pull: a puller reached his target (p.pull.reach set); shed: a defender with freeFrom set and freeT running (a battle ended, he beat the blocker). An unknown event gives {"error":...}
+  const EVENTS = {cut: () => ALL.some(p => p.cutPh), pull: () => (S.pulls || []).some(u => u.p.pull && u.p.pull.reach !== null), shed: () => DEF.some(d => d.freeFrom && d.freeT > 0)};
+  const stopon = q.has('stopon') ? q.get('stopon').trim().toLowerCase() : null, after = Math.max(0, Math.floor(Number(q.get('after')) || 0));
+  if(stopon !== null && !EVENTS[stopon]){ out({error:'unknown stopon ' + q.get('stopon') + ' (cut|pull|shed)'}); return; }
   setCpu(true);
-  let n = 0;
-  while(n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
+  let n = 0, plays = 0, prev = S.phase, hit = null, left = after;
+  if(stopon){
+    while(n++ < AUTO_MAX_STEPS*AUTO_STOP_PLAYS && plays <= AUTO_STOP_PLAYS && S.phase !== 'over'){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60);
+      if(S.phase === 'live' && prev !== 'live') plays++; prev = S.phase;
+      if(hit){ if(left-- <= 0) break; } else if(S.phase === 'live' && EVENTS[stopon]()){ hit = {event:stopon, play:plays, frame:n}; if(left-- <= 0) break; } }
+  }
+  while(!stopon && n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
   setFrameClock(null); physRender(); updateCallouts(0);
   const show = () => { renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // render only; the sim is paused
-  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest()}); document.body.appendChild(el);
+  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest(), ...(stopon ? hit || {event:null, play:plays, frame:null} : {})}); document.body.appendChild(el);
 }
 function start(data){
   $('cpuBtn').addEventListener('click', () => { setCpu(!S.cpu); cvs.focus(); });
