@@ -296,7 +296,7 @@ export function climbCheck(p, dt){
   if(m.state !== 'double') return;
   const d = m.d;
   if(d.stun > 0 || p.blk !== d || m.mate.blk !== d){ m.state = 'released'; if(m.mate.dbl) m.mate.dbl.state = 'released'; return; }
-  if(dist(p, d) < ENGAGED) m.t += dt;
+  if(dist(p, d) < ENGAGED){ m.t += dt; if(m.y0 === undefined) m.y0 = d.y; }   // B-012 (climb-timing): y0 = where the double began, for the readout
   const backer = e => e.role === 'LB' && e.stun <= 0 && !OFF.some(o => o !== p && o.blk === e);   // unblocked: the tight end's edge man is not one to climb to
   const commit = e => dist(e, d) < CLIMB_NEAR || dist(e, p) < CLIMB_NEAR || (dist(e, p) < CLIMB_RANGE && e.vy < -COMMIT_V*e.spd);
   const extra = m.bust === 'late' ? LATE_CLIMB_T : 0;   // B-032-3: a late climber waits this much longer
@@ -306,7 +306,7 @@ export function climbCheck(p, dt){
   const lb = nearest(DEF.filter(e => backer(e) && dist(e, p) < CLIMB_RANGE && e.y >= p.y - BEHIND_Y), e => dist(e, p));
   if(!lb) return;
   p.blk = lb; p.ruled = true; m.state = 'climbing'; m.lb = lb; if(m.mate.dbl) m.mate.dbl.state = 'released'; S.climbed = true;
-  (S.climbRec || (S.climbRec = [])).push({p, lb, t0:S.clock, land:null, fill:null});   // B-012 (climb-timing): the sim's climb-before-fill readout
+  (S.climbRec || (S.climbRec = [])).push({p, lb, t0:S.clock, land:null, fill:null, life:m.t, disp:d.y - (m.y0 === undefined ? d.y : m.y0)});   // B-012 (climb-timing): the sim's climb-before-fill readout
 }
 // the puller's check, every frame from offense.js while he has a pull: engaged when he reaches the target, free when the target goes down
 export function pullCheck(p, dt){
