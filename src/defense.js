@@ -22,6 +22,7 @@ import { DBL_R, bearing, dist, rand } from './util.js';
 //             steps around to his leverage side (outside for the force man and a support man who took the force job, toward the ball for the rest) for AVOID_T s
 //   fighting  won the FIGHT_P = shed/99 - 0.3 roll: runs straight through the blocker, quick shed move on contact. A force man or acting force whose blocker sits on his
 //             outside (leverage side) always fights through, whatever the roll: he never gives up the edge
+//   squeezing B-084: a force man with the ball clearly inside him (d.sqzL, latched; d.sqz is set only the frames contain() runs) takes the blocker on at the line and always fights through, never stepping wide around him
 //   held      engaged (d.bt): the line battle owns him; avoid state cleared
 // Backside (ball away from his side, not past los+BACK_L): stays home near his gap unless the runner closes within BACK_D. Designed runs only (PLAYS[S.play].run),
 //   gap and force roles only, and only men who passed the d.home roll (a poor pursuer abandons the backside early)
@@ -30,7 +31,7 @@ const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
 const levShade = d => 0.8*(0.5 + d.rt.pursuit/200);   // LEV_SHADE: how far he keeps to his leverage side
 // B-060-2: situational speeds, fractions of d.spd (full only chasing in the open or on a ball in the air); scale the steered speed only, never d.acc or d.leg
 const PURSUE_F = 0.8, READ_F = 0.4, ZONE_F = 0.8, MAN_STEM_F = 0.9, RUSH_FULL_T = 1.0, OPEN_Y = 6;   // ZONE_F: zone and deep drops; MAN_STEM_F: man cover until the receiver is past his stem (then full); RUSH_FULL_T: a pass rusher runs full this long after the snap
-const FORCE_FIRE_DEPTH = -0.3, FIRE_DEPTH = 1, FIRE_T = 0.5, FIRE_ACC = 1.8;   // B-064 (dl-fire): a one-gap DL aims FIRE_DEPTH yd past the line and accelerates FIRE_ACC x for FIRE_T s after the snap (stacked on movement.js p.fire x FIRE_K 1.3 for 0.35 s: about 2.3x then), so he meets the blocker at the line carrying his charge
+const FORCE_FIRE_DEPTH = -0.3, FIRE_DEPTH = 1, FIRE_T = 0.5, FIRE_ACC = 1.8;   // FORCE_FIRE_DEPTH (B-084): the edge (force) DL aims this far past the line (negative = a hair on his own side) so he holds the line and the puller meets him there, not 2.5 yd across it. B-064 (dl-fire): a one-gap DL aims FIRE_DEPTH yd past the line and accelerates FIRE_ACC x for FIRE_T s after the snap (stacked on movement.js p.fire x FIRE_K 1.3 for 0.35 s: about 2.3x then), so he meets the blocker at the line carrying his charge
 const BT_KEEP_D = 1.3;   // B-023: a battle that started inside ENGAGED_D survives until its blocker is this far (drive and steering open the gap past ENGAGED_D 50 times a second)
 const RUNNER_PAST_Y = 1.0;   // B-023: the runner this far (yd) downfield of a blocked defender: the blocks break down, he is released to pursue
 const TOW_V = 4, TOW_FREE_T = 0.4;   // B-023: a blocker who is not assigned to him (o.blk is another man: a climber, a puller, a stunt pass-off) moving faster than TOW_V yd/s is passing, not blocking: the battle ends and he cannot re-engage for TOW_FREE_T s
@@ -137,7 +138,7 @@ export function assignFits(call, boxS){
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
     d.read = (d.mode === 'rush' && d.role === 'LB') || (d.stunt && d.stunt.blitz) ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
-    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false; d.sqz = false; d.fhOff = false; d.fh = null; d.faceHold = null;
+    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false; d.sqz = false; d.sqzL = false; d.fhOff = false; d.fh = null; d.faceHold = null;
     d.home = Math.random() >= HOME_P*lack(d, 'pursuit');                // discipline: a poor pursuer abandons the backside early
     d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
@@ -157,6 +158,7 @@ function stuntFit(d){
 }
 // where the job sends him this frame
 function runFit(d, c){
+  d.sqz = false;   // B-084: set only by contain() this frame, so the chase and backside-home branches never leave it on for avoidBlockers
   if(d.stunt){ const t = stuntFit(d); if(t) return t; }
   let j = d.job; const L = S.los, bx = c.x, by = c.y;
   if(S.clock <= S.handoffAt + d.read + d.bite){
@@ -178,8 +180,9 @@ function runFit(d, c){
   d.lastAim = [px, py];
   if(d.hold){ if(S.clock < d.hold.until){ px = d.hold.x; py = d.hold.y; } else d.hold = null; }
   const lev = levShade(d), inside = () => [px - dir*lev + e, py];                 // pursue keeping inside leverage: no cutback behind him
-  // B-084: the edge squeezes while the ball is clearly inside him and not bouncing out: outside leverage on the ball's line (SQUEEZE_X), at the line (meets the puller there), not wide and deep
-  const squeeze = side => (bx - d.x)*side < -SQUEEZE_IN && c.svx*side < BOUNCE_V;
+  // B-084: the edge squeezes while the ball is clearly inside him and not bouncing out: outside leverage on the ball's line (SQUEEZE_X), at the line (meets the puller there), not wide and deep. SQUEEZE_BACK keeps him from closing more than this inside his own gap line
+  // latched (d.sqzL) so the switch has a dead band: in at SQUEEZE_IN inside him, out only when the ball is outside him by SQUEEZE_X or bounces
+  const squeeze = side => { const off = (bx - d.x)*side; d.sqzL = c.svx*side < BOUNCE_V && (d.sqzL ? off < SQUEEZE_X : off < -SQUEEZE_IN); return d.sqzL; };
   const contain = side => {
     d.sqz = squeeze(side);
     if(dist(d, c) <= 3) return [px + side*CONTAIN_SHOULDER, py];                                     // close: attack his outside shoulder
