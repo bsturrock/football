@@ -1,4 +1,5 @@
 import { KEYS, rateTeams } from './ratings.js';
+import { rand } from './util.js';   // B-063 (tackle-momentum)
 
 // ---------- rosters ----------
 // Each of the two teams (O = the offense's team, D = the defense's team) holds 46 game-day records. The 22 bodies on the field
@@ -11,7 +12,7 @@ const UNIT = {QB:'O', RB:'O', FB:'O', WR:'O', TE:'O', OL:'O', DE:'D', DT:'D', LB
 const TPL = {FB:'RB'};   // ratings template (ratings.js TEMPLATES); a fullback rates as a power back
 // engine role (what role checks read): the receivers' group takes every offensive skill player, as the old WR/TE/RB bodies did
 const ROLE = {QB:'QB', RB:'WR', FB:'WR', WR:'WR', TE:'WR', OL:'OL', DE:'DL', DT:'DL', LB:'LB', CB:'CB', S:'S'};
-export const FB_MASS = 245;
+export const FB_MASS = [240, 255];   // B-063 (tackle-momentum): lb range; each fullback draws his own
 // personnel: counts of bodies by group. Offense {RB, FB, TE, WR} plus QB and 5 OL; defense {DL, LB, CB, S}
 export const PERSONNEL = {
   off: {'11':{RB:1, FB:0, TE:1, WR:3}, '12':{RB:1, FB:0, TE:2, WR:2}, '21':{RB:1, FB:1, TE:1, WR:2}, '22':{RB:1, FB:1, TE:2, WR:1}},
@@ -62,7 +63,7 @@ depth();
 export function rateRosters(){
   const all = [...ROSTER.O, ...ROSTER.D];
   rateTeams(all);
-  all.forEach(r => { if(r.pos === 'FB') r.mass = FB_MASS; });
+  all.forEach(r => { if(r.pos === 'FB') r.mass = rand(FB_MASS[0], FB_MASS[1]); });   // B-063 (tackle-momentum)
   depth();
 }
 
