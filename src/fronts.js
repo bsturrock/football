@@ -95,7 +95,7 @@ function reshapeBackers(dl, lbs, strongForce = true){
 //   blitz   the backer nearest the A or B gap (a coin picks the side) shoots it; whoever held that gap takes the gap he left
 //   safety  the strong safety comes down from depth 7 through the strong C gap (the force when the front has none on that side)
 // Stunt states, per defender (d.stunt = {st, via, t0, blitz}; defense.js drives it, stuntStep is the transition table):
-//   aligned  event S.clock >= STUNT_T              -> looping (has a via) or gap
+//   aligned  event S.clock >= STUNT_T (BLITZ_DELAY for a blitzer)              -> looping (has a via) or gap
 //   looping  event VIA_T s since the waypoint began, or within 0.5 yd of it -> gap
 //   gap      event handoff made (S.clock > S.handoffAt), or GAP_MAX s in the gap -> free
 //   free     normal run fit on his new gap (terminal)
@@ -112,7 +112,8 @@ export const STUNTS = {
 const ORDER = ['DW', 'CW', 'BW', 'AW', 'AS', 'BS', 'CS', 'DS'];
 const shiftGap = (g, dir) => ORDER[Math.max(1, Math.min(ORDER.length - 2, ORDER.indexOf(g) + dir))];   // the line never slants past the C gaps
 export function stuntStep(s, t, nearVia, released){
-  if(s.st === 'aligned' && t >= STUNT_T){ s.st = s.via ? 'looping' : 'gap'; s.t0 = t; }
+  if(s.st === 'aligned' && t >= (s.blitz ? BLITZ_DELAY : STUNT_T)){   // a blitzer leaves at BLITZ_DELAY, the rest of the stunt at STUNT_T (B-011)
+    s.st = s.via ? 'looping' : 'gap'; s.t0 = t; }
   else if(s.st === 'looping' && (t - s.t0 >= VIA_T || nearVia)){ s.st = 'gap'; s.t0 = t; }
   else if(s.st === 'gap' && (released || t - s.t0 >= GAP_MAX)) s.st = 'free';
   return s.st;
