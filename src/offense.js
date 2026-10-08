@@ -1,5 +1,5 @@
 import { BEHIND_Y, CLIMB_LANE_DX, ENGAGE_R, LANE_DX, ZONE_KEEP, PULL_V, PULL_VIA_R, climbCheck, pullCheck, rereadCheck } from './blockrules.js';
-import { autoCarry, burst } from './carrier.js';
+import { autoCarry, burst, cutEnd } from './carrier.js';   // B-072-3 (carrier-cuts): cutEnd
 import { GRID_K } from './formations.js';
 import { keys } from './input.js';
 import { runRoute, steer, steerVel } from './movement.js';
@@ -147,7 +147,7 @@ export function offenseAI(p, dt, inp){
     }
   }
   if(p === c && p.auto){                                              // runner follows the path until you take over
-    if(inp.on) p.auto = false;
+    if(inp.on){ p.auto = false; cutEnd(p); }   // B-072-3 (carrier-cuts)
     else {
       autoCarry(p, dt);
       return;
