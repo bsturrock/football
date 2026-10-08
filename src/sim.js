@@ -18,7 +18,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   Under &pass the yards, ypc, spotYards and byPlay fields leave out the dropbacks cut at PRESS_END (read only pressure). &pass takes 1, draw (only with playbook.js DRAW_ON; otherwise {"error":"no Draw"}) or a pass play name; anything else (0 too) gives {"error":...}.
 //   Without &pass nothing changes (the default line is byte-identical).
 // Fields:
-//   climbFill {climbs, plays, landedPct, beforePct, startMed, travelMed, backLosMed} (B-012 climb-timing): see the comment at climbWatch
+//   climbFill {climbs, plays, landedPct, beforePct, startMed, travelMed, backLosMed, lifeMed, dispMed} (B-012 climb-timing): see the comment at climbWatch
 //   speedRole {OL, DL, LB, WR, CB, S, ...}: mean speed as a fraction of top (p.spd) per role over live frames (ball held or in the air; the runner and QB left out); offense.js logSpeed (B-060-2)
 //   plays, timeouts, ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards {mean, median, p10, p90, max}
 //   spotYards {mean, median}: the spot endPlay ended at minus los; a score or turnover uses the last ball y

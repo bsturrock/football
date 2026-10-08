@@ -57,7 +57,7 @@ function driveAt(p, d, ref, dt){
     tx = d.x + (ux*c - uy*n)/ul*DBL_R; ty = d.y + (ux*n + uy*c)/ul*DBL_R;
   }
   let f = p.beatT > 0 ? BEATEN_F : RUN_BLOCK_F;
-  if(p.dbl && p.dbl.state === 'climbing' && p.dbl.lb === d && p.beatT <= 0){   // B-012 (climb-timing): the climber runs to where the linebacker will be, at climb speed, not block speed
+  if(p.dbl && p.dbl.state === 'climbing' && p.dbl.lb === d && p.beatT <= 0 && dist(p, d) >= ENGAGE_R){   // B-012 (climb-timing): before contact only (a landed climber blocks at block speed, no lead feedback): the climber runs to where the linebacker will be, at climb speed
     const k = Math.min(CLIMB_LEAD_T, dist(p, d)/Math.max(p.spd*CLIMB_F, 1));
     tx += d.vx*k; ty += d.vy*k; f = CLIMB_F;
   }
