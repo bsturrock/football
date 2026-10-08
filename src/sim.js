@@ -18,6 +18,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   Under &pass the yards, ypc, spotYards and byPlay fields leave out the dropbacks cut at PRESS_END (read only pressure). &pass takes 1, draw (only with playbook.js DRAW_ON; otherwise {"error":"no Draw"}) or a pass play name; anything else (0 too) gives {"error":...}.
 //   Without &pass nothing changes (the default line is byte-identical).
 // Fields:
+//   climbFill {climbs, plays, landedPct, beforePct, startMed, travelMed, backLosMed} (B-012 climb-timing): see the comment at climbWatch
 //   speedRole {OL, DL, LB, WR, CB, S, ...}: mean speed as a fraction of top (p.spd) per role over live frames (ball held or in the air; the runner and QB left out); offense.js logSpeed (B-060-2)
 //   plays, timeouts, ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards {mean, median, p10, p90, max}
 //   spotYards {mean, median}: the spot endPlay ended at minus los; a score or turnover uses the last ball y
@@ -296,18 +297,25 @@ export function runSim(n, step, g){
     if(olRecog === null) return; [...ROSTER.O.filter(r => r.pos === 'OL' || r.pos === 'TE'), ...OFF.filter(o => o.pos === 'OL' || o.pos === 'TE')].forEach(r => { r.rt.recog = olRecog; }); };
   setRecog();
   const blkLog = {}, pullReach = {}, MIRROR_SLOT = {LT:'RT', RT:'LT', LG:'RG', RG:'LG'}, slotOf = nm => S.flip > 0 ? nm : MIRROR_SLOT[nm] || nm;   // B-030: a copy of blockrules.js MIRROR on purpose (sim.js must load before players.js, which rolls at load, so it cannot import blockrules.js): the rule slot (the play's base side), whichever way the play flipped
+  // B-012 (climb-timing): per climb (blockrules.js S.climbRec): land = the climber within CLIMB_LAND_R of his linebacker; fill = the runner within CLIMB_FILL_R of that linebacker.
+  // climbFill {climbs, plays, landedPct, beforePct (landed before the fill; no fill by the whistle counts as before), startMed (snap to climb start), travelMed (start to land), backLosMed (snap to the back at the line)}
+  const CLIMB_LAND_R = 0.98 /* a copy of blockrules.js ENGAGE_R: sim.js loads before it */, CLIMB_FILL_R = 1.5, cf = {climbs:0, landed:0, before:0, plays:0, start:[], travel:[], backLos:[]}; let cfBack = null;
+  const climbWatch = () => { const c = ball.state === 'held' ? ball.holder : null;
+    if(c === RB && cfBack === null && c.y >= S.los) cfBack = S.clock;
+    for(const r of S.climbRec){ if(r.land === null && Math.hypot(r.p.x - r.lb.x, r.p.y - r.lb.y) < CLIMB_LAND_R) r.land = S.clock; if(r.fill === null && c && Math.hypot(c.x - r.lb.x, c.y - r.lb.y) < CLIMB_FILL_R) r.fill = S.clock; } };
   const press = {plays:0, tp:[], near:[], sacks:0, b:0, f:0, o:0};   // B-026
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
     shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); DEF.forEach(p => { p.towT = undefined; });
     curPlay = i; bodMax[i] = 0; fallsEnded = true; fe.clear();
-    hMax = 0; let pNear = Infinity, pT = null, p1 = false, cut = false, stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = []; const drive0 = S.drive;
+    cfBack = null; hMax = 0; let pNear = Infinity, pT = null, p1 = false, cut = false, stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = []; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
       step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
       if(passMode && S.phase === 'live' && S.clock <= PRESS_T + 1e-6){ const dm = Math.min(...DEF.map(d => Math.hypot(d.x - QB.x, d.y - QB.y))); pNear = Math.min(pNear, dm); if(pT === null && dm <= PRESS_YD) pT = S.clock; }   // B-026
       if(passMode && S.phase === 'live' && !p1 && S.clock >= 1){ p1 = true; for(const d of DEF) if(d.role === 'DL' || d.mode === 'rush'){ if(d.ph) press.o++; else if(d.bt) press.b++; else press.f++; } }   // rushers at 1 s: in a battle, free, or a body
       if(passMode && force.pass !== 'draw' && S.phase === 'live' && S.clock >= PRESS_END){ cut = true; S.phase = 'dead'; S.deadT = 2.2; }   // no throw: end the play here
       fallen(); falls();
+      if(S.phase === 'live' && S.climbRec) climbWatch();   // B-012 (climb-timing)
       const c = ball.state === 'held' ? ball.holder : null;
       if(S.phase === 'live' && c){
         const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; tally(calls, pname); tally(byFront[S.front] || (byFront[S.front] = {}), pname); tally(byCall[S.defCall.name] || (byCall[S.defCall.name] = {}), pname);
@@ -332,6 +340,7 @@ export function runSim(n, step, g){
       }
     }
     if(passMode && pNear < Infinity){ press.plays++; press.near.push(pNear); if(pT !== null) press.tp.push(pT); if(!cut && !S.runMode && ball.holder === QB) press.sacks++; }   // B-026: sack = the play ended with the QB still in the pass set
+    if(S.climbRec && S.climbRec.length){ cf.plays++; if(cfBack !== null) cf.backLos.push(cfBack); for(const r of S.climbRec){ cf.climbs++; cf.start.push(r.t0); if(r.land !== null){ cf.landed++; cf.travel.push(r.land - r.t0); } if(r.land !== null && (r.fill === null || r.land <= r.fill)) cf.before++; } }   // B-012 (climb-timing)
     closeWin(); if(!fallsEnded) endFalls();   // a PLAY_MAX_S play ends live: close its episodes here, not into the next play
     for(const u of pullsNow){ const pk = slotOf(u.name) + ' ' + u.kind, r = pullReach[pk] || (pullReach[pk] = {n:0, reached:0}); r.n++; if(u.p.pull && u.p.pull.reach !== null) r.reached++; }
     for(let k = 0; k < POST_S/SIM_DT && S.phase === 'dead'; k++){ step(SIM_DT); fallen(); falls(); }   // the dead ball: the pile settles, measured POST_S s after the whistle (S.deadT is 2.2 s, so no next play starts)
@@ -368,6 +377,7 @@ export function runSim(n, step, g){
     liveHung:{steps:hung.n, medSpineUp:med(hung.up)}, pileTop:{n:pileTops.length, p90:pct(pileTops, 0.9)}, gripTop:{n:gripTops.length, p90:pct(gripTops, 0.9)}, liveTop:{n:tops.length, p90:pct(tops, 0.9), max:tops.length ? +Math.max(...tops).toFixed(2) : null, latchedOnStanding:{n:topsL.length, p90:pct(topsL, 0.9)}, other:{n:topsO.length, p90:pct(topsO, 0.9)}}, fallToTurfS:{falls:fallS.length + fallFail, failed:fallFail, failedShort:fallShort, lateOk:fallLate, p90:pct(fallS, 0.9)}, kneesFirst:{legPct:+(100*kinds.leg/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), armPct:+(100*kinds.arm/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), bodyPct:+(100*kinds.body/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), n:kinds.leg + kinds.arm + kinds.body}, handFirst:{legPct:+(100*kindsH.leg/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), armPct:+(100*kindsH.arm/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), bodyPct:+(100*kindsH.body/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), n:kindsH.leg + kindsH.arm + kindsH.body}, solo:soloOut(),
     jointViol:{bodySteps:vSteps, steps:vBad, pct:vSteps ? +(100*vBad/vSteps).toFixed(3) : null, byJoint:vPart},
     speed40:speed40(),
+    climbFill:{climbs:cf.climbs, plays:cf.plays, landedPct:cf.climbs ? +(100*cf.landed/cf.climbs).toFixed(1) : null, beforePct:cf.climbs ? +(100*cf.before/cf.climbs).toFixed(1) : null, startMed:med(cf.start), travelMed:med(cf.travel), backLosMed:med(cf.backLos)},   // B-012 (climb-timing)
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
     blk:blkLog, pullReach:Object.fromEntries(Object.entries(pullReach).map(([k, r]) => [k, {...r, pct:+(100*r.reached/r.n).toFixed(1)}])),

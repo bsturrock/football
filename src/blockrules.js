@@ -169,7 +169,7 @@ export function resolveBlocks(play, flip, again = false){
     return linemen[i] && Math.abs(linemen[i].x - p.x) < NEIGHBOUR_DX ? linemen[i] : null;
   }};
   const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rr && p.rr.state !== 'set') || p.bustWrong);   // engaged, pulling, or in a double (driving or climbing)
-  if(!again){ S.climbed = false; S.pulls = []; S.blkEv = []; OFF.forEach(o => { o.rr = null; }); }
+  if(!again){ S.climbed = false; S.climbRec = []; S.pulls = []; S.blkEv = []; OFF.forEach(o => { o.rr = null; }); }
   for(const b of bl) if(!keep(b.p)){ b.p.blk = null; b.p.ruled = false; b.p.dbl = null; if(!again){ b.p.via = null; b.p.pull = null; } }
   if(!again) for(const b of bl) b.p.bustWrong = false;
   const claimed = new Set(OFF.map(o => o.blk).filter(Boolean));
@@ -306,6 +306,7 @@ export function climbCheck(p, dt){
   const lb = nearest(DEF.filter(e => backer(e) && dist(e, p) < CLIMB_RANGE && e.y >= p.y - BEHIND_Y), e => dist(e, p));
   if(!lb) return;
   p.blk = lb; p.ruled = true; m.state = 'climbing'; m.lb = lb; if(m.mate.dbl) m.mate.dbl.state = 'released'; S.climbed = true;
+  (S.climbRec || (S.climbRec = [])).push({p, lb, t0:S.clock, land:null, fill:null});   // B-012 (climb-timing): the sim's climb-before-fill readout
 }
 // the puller's check, every frame from offense.js while he has a pull: engaged when he reaches the target, free when the target goes down
 export function pullCheck(p, dt){
