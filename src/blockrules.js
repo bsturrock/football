@@ -24,9 +24,10 @@ import { dist } from './util.js';
 //            leaves the end man to the kick-out and joins the guard's man)
 //   later    never matches: it pushes the next rule to the next pass, after every blocker's first rules have claimed (B-030: on an odd front the tackle's 'down' claims the 5-tech before the kicker's pull picks the man outside him; on an even front the tackle's 'cov' double has already left the end man to the kick)
 //   back     nearest line man away from the hole from me (head up counts); none = no target, the next rule runs (B-030)
-//   pull     ['pull','kick'|'wrap'|'trap']: I leave the line and run to a target the rule picks (B-007-8, states below); no target = the next rule
+//   pull     ['pull','kick'|'wrap'|'lead'|'trap']: I leave the line and run to a target the rule picks (B-007-8, states below); no target = the next rule
 //            kick  the first defender outside the hole (playside of it) with y within los-KICK_BACK..los+KICK_FWD; the nearest to the hole; I aim at his inside shoulder (KICK_X)
 //            wrap  the nearest unblocked playside linebacker beyond los+WRAP_Y; ['pull','wrap','ps'] the one nearest the hole instead (B-030: the double climbs to the Mike, the wrapper takes the playside backer)
+//            lead  (B-016) no kick-out man outside the hole: the box defender on my playside nearest the hole, the first threat (the Toss guard leads up on him)
 //            trap  the first line man past the center on my pull side that nobody blocks
 //   deep     the safety nearest me;  corner  the corner covering me;  any  nearest man in the box within ANY_DX of me (nobody is sent across the formation)
 // A rule may carry a guard (B-030, per form): rule.need = a blocker name that must be on the field, rule.not = one that must not (a Power with no fullback sends the guard to kick; with one, to wrap).
@@ -137,6 +138,7 @@ function pick(rule, p, free, ctx){
       let d = null;
       if(rule[1] === 'kick') d = nearest(free.filter(e => inBox(e) && (e.x - h)*ps > 0 && e.y - los >= -KICK_BACK && e.y - los <= KICK_FWD), e => Math.abs(e.x - h));
       else if(rule[1] === 'wrap') d = nearest(free.filter(e => e.role === 'LB' && e.x*ps > -PLAYSIDE_X && e.y - los > WRAP_Y), e => rule[2] === 'ps' ? Math.abs(e.x - h) : Math.hypot(dx(e), e.y - p.y));
+      else if(rule[1] === 'lead') d = nearest(free.filter(e => inBox(e) && dx(e)*ps > 0 && e.y - los <= BOX_Y), e => Math.abs(e.x - h));
       else if(rule[1] === 'trap') d = nearest(free.filter(e => e.role === 'DL' && (e.x - C.x)*dir > 0), e => Math.abs(e.x - C.x));
       if(!d) return null;
       return d;
@@ -200,6 +202,12 @@ export function resolveBlocks(play, flip, again = false){
     }
   }
   const stunting = !again && DEF.some(isCrosser); if(!again) S.blkStunt = stunting;   // only a play with a crossing stunt rolls awareness: other plays draw no random numbers
+  // B-016: claim order. A blocker whose first rule is a pull claims before any plain rule: the man he leaves the line for (a trap, a kick-out) is picked while he is still free,
+  // not left after the linemen nearest the hole took everyone (the pull rule falls to the next rule when it finds no one, as before)
+  if(!again) for(const b of bl){
+    const r = b.spec[0]; if(b.p.blk || !r || r[0] !== 'pull' || !allowed(r)) continue;
+    const d = pick(r, b.p, free(b), ctx); if(d) take(b, d, r);
+  }
   for(let k = 0; k < 3; k++) for(const b of bl){
     if(b.p.blk || !b.spec[k]) continue;
     if(b.bust && !b.entry.kind && b.spec[k] && allowed(b.spec[k]) && !['later', 'pass', 'pull', 'double'].includes(b.spec[k][0])){
