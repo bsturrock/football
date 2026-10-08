@@ -40,7 +40,7 @@ const INSIDE_DBL = {LT:OL_ZONE_DBL, LG:OL_ZONE_DBL, C:OL_ZONE_DBL, RG:OL_ZONE_DB
 const OZ_PS = [['reach'],['on'],['backer','near']], OZ_BS = [['down'],['backer','near']];
 const OUTSIDE_ZONE = {LT:OZ_BS, LG:OZ_BS, C:OZ_PS, RG:OZ_PS, RT:OZ_PS, TE:[['boxS'],['reach'],['on']], ...EXTRAS, ...WR_DEEP};
 // route points: [yards toward the middle, yards downfield from the line]
-const PASS_GAME = false;
+const PASS_GAME = new URLSearchParams(location.search).has('pass');   // pass-rush (B-026): sim &pass enables pass plays
 export const PLAYS = [
   {name:'Slants',        out:{pts:[[0,3],[7,9]], go:true},    slot:{pts:[[0,3],[7,9]], go:true},
                          te:{pts:[[0,10],[0,40]], go:true},   rb:{pts:[[-5,1],[-8,3]], go:false}},
