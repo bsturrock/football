@@ -3,7 +3,7 @@ import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { FRONTS, STUNTS } from './fronts.js';
 import { dash40 } from './movement.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
-import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './util.js';
+import { BODY_H, BODY_W, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './util.js';
 
 // ---------- SIM OUTPUT FIELDS (the one line in <pre id="simout">; CLAUDE.md "Sim check" points here) ----------
 // Run: ?sim=N&seed=S (same seed, same line). Force params: &play=<run play>&front=<defensive call> (case-insensitive; an unknown or pass play gives {"error":...}), &form=&side=L|R, &stunt=<name from STUNTS in fronts.js> (B-011: that stunt on the chosen front, or on every drawn call; case-insensitive; unknown gives {"error":...}; echoed as force.stunt; a safety stunt on a call that rolls a safety down, or a blitz stunt on Run Blitz, gives {"error":...} with &front and is skipped without it; call names and byCall stay the drawn call's name, so Slant Left under &stunt=Tex runs Tex)
@@ -55,8 +55,8 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   calls {play: n}, byFront {front: {play: n}}, slant {'Slant Left','Slant Right': {play: n}}: what the CPU called (B-007-13)
 //   with &pers/&dpers: force.pers/dpers, field {off, def} (position counts on the last play) and roster {O, D, ids unique, on}
 //   facing {frames, sqPct, errDeg, leanDeg, maxLeanDeg, maxOffDeg, heldFrames, sqPctWithHeld, errDegWithHeld, turnBack {n, medianS, p90S}, holdTurnBack {n, medianS, p90S}} (B-020):
-//     a shadow face per defender turned by animate's rule (the sim never runs animate); sqPct/errDeg/leanDeg over battle frames (sqPct within 25 deg of square, errDeg off-square with the
-//     intended lean removed); turnBack: seconds from a shed until the shadow face is within 25 deg of his velocity heading (still frames dropped).
+//     B-077: the defender's real p.face (movement.js faceStep, stepped by main.js step() for the game and the sim alike; the B-020 shadow face is gone); sqPct/errDeg/leanDeg over battle frames (sqPct within 25 deg of square, errDeg off-square with the
+//     intended lean removed); turnBack: seconds from a shed until his face is within 25 deg of his velocity heading (still frames dropped).
 //     B-023: the hold-through-a-gap rule is gone, so heldFrames is 0, sqPctWithHeld = sqPct, errDegWithHeld = errDeg and holdTurnBack.n is 0.
 //   faceHold {LB, DB: {n, heldS, sqPct, ends, endMedS, endP90S}} (B-072-2): per non-blitzing LB / DB per play (defense.js holdFacing; d.fh): n men-plays that held a facing, sqPct the share of
 //     their hold time within 30 deg of the hold (square to the line / toward the QB), heldS the mean hold time per man-play, ends how many committed or turned before the whistle, endMedS/endP90S the
@@ -164,15 +164,13 @@ export function runSim(n, step, g){
   if(force.front || force.pass || force.stunt || force.pers || force.dpers || force.form || force.side) setupPlay();   // the first play was set up before the force existed
   const yards = [], spotYards = [], wins = [], physMs = [];
   const byPlay = {}, boxes = [], frees = [], calls = {}, byFront = {}, byCall = {}, tally = (o, k) => { o[k] = (o[k] || 0) + 1; };   // B-007-13: counts of the plays run, overall, per front, per defensive call
-  // B-020: animate() does not run here, so p.face never moves. Each defender gets a shadow face that turns by animate's rule
-  // (face += wrap(target - face)*min(1, dt*FACE_RATE); target = faceYaw, else his velocity heading when speed > FACE_V), reset each play to his p.face.
-  // Engaged frames (a battle, not a body, not stunned) score the shadow face against the bearing to his blocker or nearest double-teamer:
+  // B-020/B-077: engaged frames (a battle, not a body, not stunned) score the defender's real d.face (faceStep runs in step()) against the bearing to his blocker or nearest double-teamer:
   // errDeg = off square with the intended lean removed, leanDeg = the lean itself, sqPct = share of frames within SQUARE_DEG of square including the lean.
-  // Turn-back: from a battle ending (shed, step-around) until the shadow face is within SQUARE_DEG of his velocity heading, capped at TURN_MAX s.
-  const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0, hFrames:0, hSquare:0, hErr:0}, shadow = new Map(), turn = {shed:[], hold:[]};
+  // Turn-back: from a battle ending (shed, step-around) until d.face is within SQUARE_DEG of his velocity heading, capped at TURN_MAX s.
+  const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0, hFrames:0, hSquare:0, hErr:0}, tb = new Map(), turn = {shed:[], hold:[]};
   const wrap = a => Math.atan2(Math.sin(a), Math.cos(a)), deg = r => r*180/Math.PI;
-  // B-022 jitter: every engaged player (a battle object, live, not a body; blockers and defenders apart) gets a shadow face turned by
-  // animate's rule. Per engaged frame: |turn| of the shadow face, a reversal when the turn's sign flips (turns under JIT_EPS rad ignored),
+  // B-022 jitter: every engaged player (a battle object, live, not a body; blockers and defenders apart) reads its real p.face (B-077).
+  // Per engaged frame: |turn| of p.face, a reversal when the turn's sign flips (turns under JIT_EPS rad ignored),
   // and the position's second difference |x[t] - 2x[t-1] + x[t-2]| (yd, both axes) for position jitter that is not facing.
   const JIT_EPS = 0.002, JIT_ONSET_DEG = 25, JIT_JUMP_DEG = 10, JIT_SMALL_DEG = 10, JIT_FLICKER_S = 0.5, jit = {D:{n:0, turn:0, rev:0, pos:0, lean:0, bear:0, flips:0, b:[0,0,0], nb:[0,0,0], sw:0, on:0, onMode:0, onJump:0, onSlow:0}, O:{n:0, turn:0, rev:0, pos:0, lean:0, bear:0, flips:0, b:[0,0,0], nb:[0,0,0], on:0, onMode:0, onJump:0, onSlow:0}}, js = new Map(); jit.lost = {}; jit.flicker = 0;
   const jitter = () => {
@@ -182,7 +180,8 @@ export function runSim(n, step, g){
       const sp = Math.hypot(p.vx, p.vy), fy = faceYaw(p, ball, S), tgt = fy !== null ? fy : (sp > FACE_V ? Math.atan2(p.vx, -p.vy) : null);
       let turn = 0, err = 0, lean = null, bear = null; const ft = p.faceAt;
       if(fy !== null && ft){ lean = faceLean(p, ft, ball, S); bear = bearing(p, ft); }
-      if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && tgt !== null){ const e = err = wrap(tgt - m.f); turn = e*Math.min(1, SIM_DT*FACE_RATE); m.f += turn; }
+      if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && tgt !== null){ err = wrap(tgt - m.f); turn = wrap(p.face - m.f); }   // B-077: the turn is the real p.face's change this step, err the gap it was turning to close
+      m.f = p.face;
       const eng = (p.team === 'D' ? !!p.bt : battles.has(p.bt)) && !p.ph && !p.latch && p.stun <= 0 && p.act !== 'down';
       if(p.team === 'D' && (eng || m.wasEng) && tgt !== null){   // big-turn onsets (target over JIT_ONSET_DEG off the face, the frame before it was not) and what moved: the target kind (faceAt vs heading), a jump of the target, or the face lagging a moving one
         const big = Math.abs(deg(err)) > JIT_ONSET_DEG, was = m.big === true;
@@ -259,15 +258,14 @@ export function runSim(n, step, g){
         let r = bseen.get(d.bt); if(!r){ r = new Set(); bseen.set(d.bt, r); bat.formed++; if(d.role === 'DL' && fire.y0.has(d) && !fire.got.has(d)){ fire.got.add(d); fire.gotB.set(d, d.bt); fire.fwd.push(fire.y0.get(d) - d.y); dlD.contact.push(S.los - d.y); } }   // B-064 (dl-fire)
         if(!r.has(d.bt.phase)){ r.add(d.bt.phase); bat[d.bt.phase]++; }
       }
-      let m = shadow.get(d); if(!m){ m = {f:d.face, eng:false, hold:false, t:null, k:null}; shadow.set(d, m); }
-      const sp = Math.hypot(d.vx, d.vy), fy = faceYaw(d, ball, S), vy = sp > FACE_V ? Math.atan2(d.vx, -d.vy) : null, tgt = fy !== null ? fy : vy;
-      if(!d.ph && d.act !== 'down' && d.act !== 'dive' && d.act !== 'fall' && tgt !== null) { const e = wrap(tgt - m.f); m.f += e*Math.min(1, SIM_DT*FACE_RATE); }
+      let m = tb.get(d); if(!m){ m = {eng:false, hold:false, t:null, k:null}; tb.set(d, m); }   // B-077: the real d.face (movement.js faceStep); m holds only the turn-back timer
+      const sp = Math.hypot(d.vx, d.vy), vy = sp > FACE_V ? Math.atan2(d.vx, -d.vy) : null;
       const live = !d.ph && !d.latch && d.stun <= 0, eng = !!d.bt && live, hold = false;   // B-023: no hold-through-a-gap rule any more; the fields stay (heldFrames 0)
       if(eng || hold){
         const qs = [...(d.bt ? [d.bt.o] : []), ...(d.faceAt ? [d.faceAt] : []), ...OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < HOLD_R)];
         let e = Infinity, off = Infinity, lean = 0;
         for(const q of qs){
-          const l = faceLean(d, q, ball, S), x = Math.abs(wrap(m.f - bearing(d, q) - l)), y = Math.abs(wrap(m.f - bearing(d, q)));
+          const l = faceLean(d, q, ball, S), x = Math.abs(wrap(d.face - bearing(d, q) - l)), y = Math.abs(wrap(d.face - bearing(d, q)));
           if(x < e){ e = x; off = y; lean = Math.abs(l); }
         }
         if(eng){
@@ -283,7 +281,7 @@ export function runSim(n, step, g){
         else {
           m.t += SIM_DT;
           if(vy === null) m.t = null;   // standing still after the shed or the hold: no heading to turn back to, not a turn-back
-          else if(vy !== null && Math.abs(wrap(m.f - vy)) <= SQUARE_DEG*Math.PI/180){ turn[m.k].push(m.t); m.t = null; }
+          else if(vy !== null && Math.abs(wrap(d.face - vy)) <= SQUARE_DEG*Math.PI/180){ turn[m.k].push(m.t); m.t = null; }
           else if(m.t >= TURN_MAX){ turn[m.k].push(TURN_MAX); m.t = null; }
         }
       }
@@ -365,7 +363,7 @@ export function runSim(n, step, g){
 
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
-    shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); dlD.d1.clear(); dlD.dR.clear(); DEF.forEach(p => { p.towT = undefined; });
+    tb.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); dlD.d1.clear(); dlD.dR.clear(); DEF.forEach(p => { p.towT = undefined; });
     curPlay = i; bodMax[i] = 0; fallsEnded = true; fe.clear();
     cfBack = null; hMax = 0; let pNear = Infinity, pT = null, p1 = false, cut = false, stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = [], pullSeen = new Map(); const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
