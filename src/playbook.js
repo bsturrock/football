@@ -31,6 +31,7 @@ const OL_ZONE_DBL = [['double','playside'],['on'],['down']];
 // B-030: Power / Counter playside. LG: double the nose with the center (uncovered), else the man on him; LT: join the guard's man even when covered, else down. need / not: the form's personnel (blockrules.js allowed)
 const need = (r, n) => Object.assign(r, {need:n}), not = (r, n) => Object.assign(r, {not:n});
 const PWR_LT = [['double','backside','cov'],['down']], PWR_LG = [['double','backside'],['on'],['down']];
+export const DRAW_ON = false;   // B-051: the Draw is out of the game for now (user L-1007-130); true puts its row back in PLAYS
 export const DRAW_DELAY = 0.9;   // B-007-12: seconds from the snap to the Draw handoff
 const DRAW_OL = [['pass'],['on'],['down']];   // 'pass' is held by offense.js (pass set until the handoff); the handoff re-read takes the man on him
 const DUO_OL = [['double','playside'],['double','backside'],['on']], ISO_OL = [['on'],['down'],['backer','near']];
@@ -102,7 +103,7 @@ export const PLAYS = [
   {name:'Iso', run:'hand', scheme:'man', hole:-1.1, forms:['21 I', '22 Heavy'], mesh:[0.5,-2.6],   // the fullback leads into the middle backer, everybody blocks the man on him
    rules:{LT:ISO_OL, LG:ISO_OL, C:ISO_OL, RG:ISO_OL, RT:ISO_OL, TE:[['on'],['down']], FB:[['backer','mike'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
    path:[[-0.7,-3.0],[-1.1,0.5],[-1.1,8]]}
-].filter(p => PASS_GAME || p.run);
+].filter(p => (PASS_GAME || p.run) && (DRAW_ON || p.name !== 'Draw'));
 // ---------- orientation ----------
 // B-021: x in the plays above is on the old 2.2 yd line grid (hole 1.1 = the A gap); orient() puts it on the new one (formations.js GRID_K, x0.61).
 // The plays above are written for the base side (tight end right) and, for under-center plays, the QB under center. orient() rewrites
