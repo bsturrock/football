@@ -47,7 +47,7 @@ import { dist } from './util.js';
 //   state     event                                                         next
 //   set       rule found a target (snap)                                    pulling (p.via = the two waypoints, p.blk = target)
 //   set       rule found no target                                          no pull (the next rule runs)
-//   pulling   target down (stun), under PULL_REPICK_T                         pulling (holds: runs at the fallen man's spot)
+//   pulling   target down (stun), under PULL_REPICK_T                         pulling (holds: runs at the hole, handoff re-read keeps him)
 //   pulling   target down, PULL_REPICK_T passed, pullPick found a man          pulling (m.tgt = p.blk = the new man, B-074)
 //   pulling   target down, PULL_REPICK_T passed, nobody                        free: via cleared, p.blk re-picked by block()
 //   pulling   within ENGAGED of the target                                  engaged (reach = t; p.locked, kept all play)
@@ -174,7 +174,7 @@ export function resolveBlocks(play, flip, again = false){
   const los = S.los, ps = Math.sign(h) || 1, bl = blockers(rules, flip);
   const linemen = bl.filter(b => b.p.role === 'OL' || b.p === TE).map(b => b.p).sort((a, b) => a.x - b.x);
   const ctx = {los, h, ps, again, neighbour:neighbourFn(linemen, flip, ps)};
-  const keep = p => again && p.blk && p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rr && p.rr.state !== 'set') || p.bustWrong);   // engaged, pulling, or in a double (driving or climbing)
+  const keep = p => again && p.blk && ((p.pull && p.pull.state === 'pulling' && p.pull.lost > 0) /* B-074: a puller reading his next man keeps the pull */ || p.blk.stun <= 0 && (p.locked || p.eng > 0 || (p.via && p.via.length) || (p.dbl && p.dbl.state !== 'released') || (p.rr && p.rr.state !== 'set') || p.bustWrong));   // engaged, pulling, or in a double (driving or climbing)
   if(!again){ S.climbed = false; S.climbRec = []; S.pulls = []; S.blkEv = []; OFF.forEach(o => { o.rr = null; }); }
   for(const b of bl) if(!keep(b.p)){ b.p.blk = null; b.p.ruled = false; b.p.dbl = null; if(!again){ b.p.via = null; b.p.pull = null; } }
   if(!again) for(const b of bl) b.p.bustWrong = false;
@@ -368,7 +368,7 @@ export const PULL_REPICK_T = 0.2;
 export function pullCheck(p, dt, pick){
   const m = p.pull; if(!m || m.state === 'free') return;
   m.t += dt;
-  if(m.tgt.stun > 0 && p.blk === m.tgt && pick && m.state === 'pulling'){
+  if(m.tgt.stun > 0 && (p.blk === m.tgt || p.blk == null) && pick && m.state === 'pulling'){
     m.lost = (m.lost || 0) + dt; if(m.lost < PULL_REPICK_T) return;
     const d = pick(p, m.tgt); m.lost = 0;
     if(d){ m.tgt = p.blk = d; m.repicks = (m.repicks || 0) + 1; return; }

@@ -137,7 +137,6 @@ function pullPick(p){
 function runBlock(p, dt){
   const play = PLAYS[S.play];
   if(p.pull) pullCheck(p, dt, pullPick);
-  if(p.pull && p.pull.state === 'pulling' && p.pull.lost > 0 && !(p.via && p.via.length)){ driveAt(p, p.pull.tgt, runRef(), dt); return; }   // B-074: reading it: keeps running at the fallen man's spot
   if(p.pull && p.pull.late && p.pull.t < p.pull.late && p.via && p.via.length){ steer(p, p.x, p.y, 0, dt); p.faceAt = p.blk; return; }   // B-032-3: a busting puller leaves late
   if(play.run && p.via && p.via.length){                       // pulling: get through the waypoints first
     const v = p.via[0];
@@ -149,6 +148,7 @@ function runBlock(p, dt){
       p.faceAt = p.blk; return;   // eyes on the kick-out man
     }
   }
+  if(p.pull && p.pull.state === 'pulling' && p.pull.lost > 0){ const r = runRef(); steer(p, r.x, r.y, p.spd*PULL_V, dt); return; }   // B-074: his man is down, reading the next one: runs at the hole at pull speed (no engage, no lock on the fallen man; pullCheck re-picks)
   if(p.dbl) climbCheck(p, dt);
   if(p.rr) rereadCheck(p, dt);   // B-007-9: a stunt moved my man; re-read every 0.1 s
   if(play.run && p.lane != null) zoneBlock(p, dt); else block(p, dt);
