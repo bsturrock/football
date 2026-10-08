@@ -15,7 +15,7 @@ export function logSpeed(p, top){   // B-060-2 readout: S.speedRole[role] = {n, 
   const r = S.speedRole || (S.speedRole = {}), k = p.role, e = r[k] || (r[k] = {n:0, sum:0});
   e.n++; e.sum += Math.hypot(p.vx, p.vy)/top;
 }
-// a pass route at stem speed (full once past the first waypoint or with the ball in the air); the RB's run path and the run-play WRs stay plain runRoute
+// a pass route at stem speed (full once past the first waypoint or with the ball in the air); only the RB's pre-handoff path stays plain runRoute (on run plays the WRs go to runBlock: runMode is set at the snap)
 const route = (p, dt) => runRoute(p, dt, ball.state === 'air' || p.wp > 0 ? 1 : STEM_F);
 const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
