@@ -242,6 +242,7 @@ function animate(p, dt){
 //   dblFades (B-037): how many such frames were counted, by kind: climb (his double ended, no partner), inherit (the battle came to him), swap (he became second man while square)
 //   dblJumpKind: the same largest jump by kind
 //   headOffNeckMax (B-042, yd): the largest distance of any drawn man's head joint from its neck socket; limbStretchMax: the largest distance of any other joint from its rest socket on its parent, or scale away from 1 (both near 0)
+//   nzOLfront, nzDLfront, nzGap, nzHandErr, nzHandH, nzBallErr (B-033): the pre-snap neutral-zone measures, listed above nzCheck
 //   headHeadPct: helmet corner in the partner's helmet; armArmPct: an arm corner in the partner's arm; anyPct: any of the above
 // B-042: every frame, every drawn man: how far a joint sits from its rest socket on its parent (headOffNeckMax: the head; limbStretchMax: any other joint, and any scale away from 1). Rig rest in rig units, as players.js builds it.
 const REST = {torso:[0, 1, 0], head:[0, 0.8, 0], shL:[0.5, 0.62, 0], shR:[-0.5, 0.62, 0], elL:[0, -0.42, 0], elR:[0, -0.42, 0], hipL:[0.2, 1, 0], hipR:[-0.2, 1, 0], kneeL:[0, -0.5, 0], kneeR:[0, -0.5, 0]};
@@ -291,10 +292,10 @@ function pdInside(a, b){   // corners of a's parts inside b's parts
 }
 const HO_EVERY = Number(new URLSearchParams(location.search).get('handoff')) || 0;   // ?handoff=N: every N frames the first fully engaged man becomes a physics body (the drills never promote one)
 let hoFrame = 0;
-// B-033 neutral zone: on presnap frames after the stance has settled (NZ_SETTLE frames), each visible OL and DL: how far his helmet front (OL: the edge toward the defense, DL: toward the offense) sits from the los,
+// B-033 neutral zone (pairReport fields nz*): on presnap frames after the stance has settled (NZ_SETTLE frames), each visible OL and DL: how far his helmet front (OL: the edge toward the defense, DL: toward the offense) sits from the los,
 // and his down (right) hand against his ball tip (OL the back tip, DL the front tip; the center is skipped, the ball is in his hands). Fields of pairReport: nzOLfront (largest OL helmet front, yd past the los; at or under -nzTip = behind the back tip),
 // nzDLfront (smallest DL helmet front; at or over nzTip), nzGap (nzDLfront - nzOLfront, the daylight between the two lines' helmets; 0.31+), nzHandErr (largest |hand - his ball tip| along the field, yd), nzHandH (largest hand height above the turf), nzBallErr (largest |ball centre - los|)
-const NZ_SETTLE = 40, NZ_TIP = 0.175, nz = {n:0, ol:-9, dl:9, hand:0, h:0, ball:0, men:0}, nzV = new THREE.Vector3();
+const NZ_SETTLE = 40, NZ_TIP = ballMesh.geometry.parameters.radius*ballMesh.scale.z, nz = {n:0, ol:-9, dl:9, hand:0, h:0, ball:0, men:0}, nzV = new THREE.Vector3();
 function nzCheck(){
   if(S.phase !== 'presnap'){ nz.n = 0; return; }
   if(++nz.n < NZ_SETTLE) return;
@@ -356,13 +357,16 @@ export function pairReport(){
 }
 const tmpV = new THREE.Vector3();
 const handPos = (p, x, y, z) => p.mesh.localToWorld(tmpV.set(...bodyV([x, y, z])));   // B-021: callers give rig units
+// B-033: the ball before the snap, centred on the los (the center's hand sits at its back tip) and on the turf; the pitch from the center starts at the same spot (no jump at the snap)
+const snapV = new THREE.Vector3();
+const snapSpot = () => { handPos(C, 0, 0, OL_BACK/BODY_W); snapV.copy(tmpV); snapV.y = BALL_H; return snapV; };
 export function syncScene(dt){
   ALL.forEach(p => animate(p, dt));
   // ball
-  if(ball.state === 'pre'){ ballMesh.position.copy(handPos(C, 0, 0, OL_BACK/BODY_W)); ballMesh.position.y = BALL_H; }   // B-033: centred on the los (the center's hand sits at its back tip)
+  if(ball.state === 'pre') ballMesh.position.copy(snapSpot());
   else if(ball.state === 'pitch'){
     const k = Math.min(ball.t, 1);
-    const a = (ball.pf === C ? handPos(C, 0, 0.15, 0.55) : handPos(ball.pf, 0, 1.5, 0.45)).clone(), b = handPos(ball.pt, 0, 1.4, 0.4);
+    const a = (ball.pf === C ? snapSpot() : handPos(ball.pf, 0, 1.5, 0.45)).clone(), b = handPos(ball.pt, 0, 1.4, 0.4);
     ballMesh.position.lerpVectors(a, b, k); ballMesh.position.y += Math.sin(k*Math.PI)*0.6;
   } else if(ball.state === 'held'){
     const c = ball.holder;
