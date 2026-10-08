@@ -36,7 +36,9 @@ const RUNNER_PAST_Y = 1.0;   // B-023: the runner this far (yd) downfield of a b
 const TOW_V = 4, TOW_FREE_T = 0.4;   // B-023: a blocker who is not assigned to him (o.blk is another man: a climber, a puller, a stunt pass-off) moving faster than TOW_V yd/s is passing, not blocking: the battle ends and he cannot re-engage for TOW_FREE_T s
 const ENGAGED_D = 0.91;   // B-021: a defender locks onto a blocker this close (was 1.3, x0.7 body width)
 // B-021: run-fit windows on the old 2.2 yd line grid, carried onto the new one (x GRID_K): the backside stay-home line, the gap fill window, the contain offsets and the outflanked margin
-const BACK_HOME_X = 1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K, CHASE_X = 2*GRID_K, ALLEY_X = 1*GRID_K;   // CHASE_X: the ball is this far to the backside of the force man, he chases; ALLEY_X: the ball is this far to the alley man's side, he fills
+// B-084: edge squeeze. SQUEEZE_IN: the ball is this far inside the edge man (yd) to count as an inside run; BOUNCE_V: the carrier moving outward faster than this (yd/s) widens him; SQUEEZE_X: his outside leverage on the ball's line; SQUEEZE_Y: his depth past the line
+const SQUEEZE_IN = 1, BOUNCE_V = 2.5, SQUEEZE_X = 0.6*GRID_K, SQUEEZE_Y = 0.5, SQUEEZE_BACK = 1.5*GRID_K;   // SQUEEZE_BACK: he never closes more than this inside his own gap line
+const BACK_HOME_X =1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CONTAIN_SHOULDER = 0.5*GRID_K, OUTFLANKED_X = 0.5*GRID_K, CHASE_X = 2*GRID_K, ALLEY_X = 1*GRID_K;   // CHASE_X: the ball is this far to the backside of the force man, he chases; ALLEY_X: the ball is this far to the alley man's side, he fills
 const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
 
 // pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
@@ -135,7 +137,7 @@ export function assignFits(call, boxS){
   CBs.forEach(c => c.job = {role:'support', side:Math.sign(c.x) || 1});
   DEF.forEach(d => {
     d.read = (d.mode === 'rush' && d.role === 'LB') || (d.stunt && d.stunt.blitz) ? 0 : 0.6 - d.rt.recog/250;   // recognition: 0.24 s (95) .. 0.38 s (55)
-    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false; d.fhOff = false; d.fh = null; d.faceHold = null;
+    d.aimK = 1; d.aimT = 0; d.hold = null; d.lastDir = 0; d.lastAim = null; d.avoid = null; d.avoidAt = 0; d.actForce = false; d.sqz = false; d.fhOff = false; d.fh = null; d.faceHold = null;
     d.home = Math.random() >= HOME_P*lack(d, 'pursuit');                // discipline: a poor pursuer abandons the backside early
     d.bite = ['gap', 'force', 'alley'].includes(d.job.role) && d.role !== 'DL' && Math.random() < BITE_P*lack(d, 'recog') ? BITE_T : 0;   // only roles that read-step with the flow
     d.levErr = rand(-1, 1)*(1 - d.rAwr/100)*2;                          // poor awareness = sloppier angles
@@ -176,9 +178,14 @@ function runFit(d, c){
   d.lastAim = [px, py];
   if(d.hold){ if(S.clock < d.hold.until){ px = d.hold.x; py = d.hold.y; } else d.hold = null; }
   const lev = levShade(d), inside = () => [px - dir*lev + e, py];                 // pursue keeping inside leverage: no cutback behind him
-  const contain = side => dist(d, c) > 3
-    ? [bx + side*CONTAIN_X + e, Math.max(L + 1, by + 1.5)]            // get outside and in front of him
-    : [px + side*CONTAIN_SHOULDER, py];                                      // close: attack his outside shoulder
+  // B-084: the edge squeezes while the ball is clearly inside him and not bouncing out: outside leverage on the ball's line (SQUEEZE_X), at the line (meets the puller there), not wide and deep
+  const squeeze = side => (bx - d.x)*side < -SQUEEZE_IN && c.svx*side < BOUNCE_V;
+  const contain = side => {
+    d.sqz = squeeze(side);
+    if(dist(d, c) <= 3) return [px + side*CONTAIN_SHOULDER, py];                                     // close: attack his outside shoulder
+    if(d.sqz) return [side*Math.max(bx*side + SQUEEZE_X, (d.job.gx != null ? d.job.gx*side : d.x*side) - SQUEEZE_BACK) + e, Math.max(L + SQUEEZE_Y, by)];
+    return [bx + side*CONTAIN_X + e, Math.max(L + 1, by + 1.5)];                                     // get outside and in front of him
+  };
   // backside: ball went away from my side and hasn't cleared los+BACK_L: stay home on the cutback unless he closes on me
   if(d.home && PLAYS[S.play].run && (j.role === 'gap' || j.role === 'force') && bx*s < -BACK_HOME_X && by < L + BACK_L && dist(d, c) > BACK_D) return [j.gx + (bx - j.gx)*0.25, L + 0.5];
   switch(j.role){
@@ -235,7 +242,7 @@ function avoidBlockers(d, c, tx, ty){
   if(toBlk > 0.3){                                              // the blocker sits on my leverage side
     if(force) fight = true;                                     // the force man never gives up the edge: through him
     else lat = [-lat[0], -lat[1]];
-  }
+  } else if(force && d.sqz) fight = true;                       // B-084: a squeezing edge takes the blocker on at the line, never steps wide around him
   d.avoid = {st:fight ? 'fight' : 'avoid', o:best, until:S.clock + AVOID_T, lat};
   return fight ? [tx, ty] : stepAround(d, d.avoid, tx, ty);
 }
