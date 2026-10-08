@@ -43,7 +43,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 // Pile stats (and the B-008/B-010 shape keys) come from game state (tackle/ragdoll bodies near the holder, p.ph without .bubble), not from any pile code.
 // physMs is null under --virtual-time-budget (performance.now does not advance during synchronous code); read it with a real clock
 const BAND_W = 20, BAND_NAMES = ['0-19', '20-39', '40-59', '60-79', '80-99'], BUST_KINDS = ['wrong', 'late', 'noclimb'], KNOW_POS = ['OL', 'TE', 'FB'];   // B-032-4
-const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0, FLAT_H = 0.66*BODY_W, STILL_V = 0.3, STILL_S = 1, STAY_T = 1, FLAT_DEG = 30, POST_S = 1;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
+const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4, PUSH_GAIN = 0.5, PLAY_MAX_S = 40, BOX_DY = 5, BOX_CX = 0, SIM_TEAM_EVERY = 20, BIG_YD = 10, STUFF_YD = 0, FLAT_H = 0.66*BODY_W, STILL_V = 0.3, STILL_S = 1, STAY_T = 1, FLAT_DEG = 30, POST_S = 1, HUNG_T = 0.5, HUNG_V = 0.5, SHORT_FALL_T = 0.3, SOLO_BODIES = 2, VIOL_DEG = 10;   // box: defenders within BOX_DY of the line and BOX_DX of the snap spot (field x BOX_CX; the center drifts by the handoff)
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
 // sim.js first and its imports (ratings.js, formations.js, roster.js, util.js) are pure and roll nothing at load, so player ratings and masses (rolled at load) are seeded too.
@@ -193,6 +193,31 @@ export function runSim(n, step, g){
     const q = physPose(p); flat.n++; if(Math.abs(q.spineY) < Math.sin(FLAT_DEG*Math.PI/180)) flat.ok++;
     hMax = Math.max(hMax, q.topY);
   } };
+  // B-038: falls. Hung = off his feet over HUNG_T, not on the turf, nearly still. A fall episode is keyed by his ph (fallT counts bal 0 and not getting up).
+  // Episode: first turf part kind (kneesFirst), peak fall speed, torso top at 0.3 and 0.6 s (solo-hit check: plays with at most 2 tackle bodies).
+  const hung = {n:0, up:[]}, tops = [], topsL = [], topsO = [], fallS = [], fe = new Map(), eps = [], bodMax = [], kinds = {leg:0, arm:0, body:0};
+  let fallFail = 0, fallShort = 0, fallLate = 0, vSteps = 0, vBad = 0, curPlay = 0; const vPart = {}, PART_N = ['torso','head','uaL','faL','uaR','faR','thL','snL','thR','snR'];
+  const falls = () => {
+    const live = S.phase === 'live', seen = new Set();
+    for(const p of ALL) if(p.ph){
+      const q = physPose(p); vSteps++; if(q.viol > VIOL_DEG*Math.PI/180) vBad++;
+      (q.violP || []).forEach((x, i) => { if(x > VIOL_DEG*Math.PI/180) vPart[PART_N[i]] = (vPart[PART_N[i]] || 0) + 1; });
+      if(q.fallT <= 0) continue;
+      seen.add(p.ph);
+      let e = fe.get(p.ph); if(!e){ fe.set(p.ph, e = {ok:false, w:false, play:curPlay, turf:null, pk:0, t03:null, t06:null}); eps.push(e); }
+      e.pk = Math.max(e.pk, -q.vy); e.dur = q.fallT;
+      if(e.t03 === null && q.fallT >= 0.3) e.t03 = q.topY;
+      if(e.t06 === null && q.fallT >= 0.6) e.t06 = q.topY;
+      const dn = !!q.kind;
+      if(!live && !e.w){ e.w = true; if(!e.ok){ fallFail++; if(q.fallT < SHORT_FALL_T) fallShort++; } }   // the whistle came before he reached the turf (short: it began under SHORT_FALL_T before)
+      if(dn && !e.ok){ e.ok = true; e.turf = q.fallT; kinds[q.kind]++; if(e.w) fallLate++; else fallS.push(q.fallT); }
+      if(live && q.fallT > HUNG_T && !p.ph.bubble){
+        tops.push(q.topY); (p.latch && p.latch.ph && p.latch.ph.bal > 0 ? topsL : topsO).push(q.topY);
+        if(!dn && physSpeed(p) < HUNG_V){ hung.n++; hung.up.push(q.spineY); }
+      }
+    }
+    for(const [ph, e] of fe) if(!seen.has(ph)){ if(!e.w && !e.ok) fallFail++; fe.delete(ph); }   // ended in live play (got up) without the turf
+  };
   let timeouts = 0, pushPlays = 0, bodiesMax = 0, win = null;
   const closeWin = () => {   // a window counts once it lasted WINDOW_T
     if(win && win.t >= WINDOW_T) wins.push({dur:win.t, gain:win.y1 - win.y0, off:win.off});
@@ -223,10 +248,11 @@ export function runSim(n, step, g){
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
     shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); DEF.forEach(p => { p.towT = undefined; });
+    curPlay = i; bodMax[i] = 0;
     hMax = 0; let stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = []; const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
       step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
-      fallen();
+      fallen(); falls();
       const c = ball.state === 'held' ? ball.holder : null;
       if(S.phase === 'live' && c){
         const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; tally(calls, pname); tally(byFront[S.front] || (byFront[S.front] = {}), pname); tally(byCall[S.defCall.name] || (byCall[S.defCall.name] = {}), pname);
@@ -239,7 +265,7 @@ export function runSim(n, step, g){
           boxes.push(inBox.length);
           frees.push(inBox.filter(d => d.stun <= 0 && !(d.eng > 0) && !d.bt && !OFF.some(o => o.blk === d)).length);
         }
-        const cnt = physCount(); bodiesMax = Math.max(bodiesMax, cnt.players);
+        const cnt = physCount(); bodiesMax = Math.max(bodiesMax, cnt.players); bodMax[i] = Math.max(bodMax[i], ALL.filter(q => q.ph && !q.ph.bubble).length);
         if(cnt.players) physMs.push(perf.phys);
         liveT += SIM_DT;
         if(c.ph && physPose(c).touched && physSpeed(c) < STILL_V){ stillT += SIM_DT; stillBest = Math.max(stillBest, stillT); } else stillT = 0;
@@ -252,7 +278,7 @@ export function runSim(n, step, g){
     }
     closeWin();
     for(const u of pullsNow){ const pk = slotOf(u.name) + ' ' + u.kind, r = pullReach[pk] || (pullReach[pk] = {n:0, reached:0}); r.n++; if(u.p.pull && u.p.pull.reach !== null) r.reached++; }
-    for(let k = 0; k < POST_S/SIM_DT && S.phase === 'dead'; k++){ step(SIM_DT); fallen(); }   // the dead ball: the pile settles, measured POST_S s after the whistle (S.deadT is 2.2 s, so no next play starts)
+    for(let k = 0; k < POST_S/SIM_DT && S.phase === 'dead'; k++){ step(SIM_DT); fallen(); falls(); }   // the dead ball: the pile settles, measured POST_S s after the whistle (S.deadT is 2.2 s, so no next play starts)
     if(startY !== null && S.bust) tallyBust(S.bust);   // B-032-4: the plays that snapped
     if(startY !== null){ playLen.push(liveT); if(stillBest > STILL_S) stillPlays++; stillMax.push(stillBest); if(hMax > 0) heights.push(hMax/FLAT_H); }
     fieldO = fieldCounts(OFF); fieldD = fieldCounts(DEF);   // who was on the field for this play (pos counts), the last play's printed
@@ -273,6 +299,8 @@ export function runSim(n, step, g){
     nextPlay(); if(S.phase === 'over') newGame();   // a finished game starts the next one
     setRecog();   // B-007-9
   }
+  const soloOut = () => { const se = eps.filter(e => bodMax[e.play] <= SOLO_BODIES), tn = se.filter(e => e.turf !== null).map(e => e.turf);
+    return {plays:new Set(se.map(e => e.play)).size, falls:se.length, noTurf:se.filter(e => e.turf === null).length, turfMedS:med(tn), turfP90S:pct(tn, 0.9), peakVMed:med(se.map(e => e.pk)), peakVP90:pct(se.map(e => e.pk), 0.9), top03Med:med(se.filter(e => e.t03 !== null).map(e => e.t03)), top06Med:med(se.filter(e => e.t06 !== null).map(e => e.t06))}; };
   const pushes = wins.filter(w => w.off && w.gain >= PUSH_GAIN);
   const byPlayOut = {}; for(const k of Object.keys(byPlay).sort()){ const b = byPlay[k]; byPlayOut[k] = {n:b.ys.length, ypc:mean(b.ys), stuffPct:+(100*b.stuff/b.ys.length).toFixed(1)}; }
   const bustOut = {plays:bustT.plays, rolled:bustT.rolled, byFamily:Object.fromEntries(Object.entries(bustT.byFamily).map(([k, f]) => [k, {rolled:f.rolled, busts:f.busts, pct:f.rolled ? +(100*f.busts/f.rolled).toFixed(1) : null, byKind:f.byKind}])), byBand:Object.fromEntries(BAND_NAMES.map((nm, i) => [nm, {rolled:bustT.byBand[i].rolled, busts:bustT.byBand[i].busts, pct:bustT.byBand[i].rolled ? +(100*bustT.byBand[i].busts/bustT.byBand[i].rolled).toFixed(1) : null}]))};
@@ -281,6 +309,8 @@ export function runSim(n, step, g){
     pushDurS:{median:med(pushes.map(w => w.dur)), p90:pct(pushes.map(w => w.dur), 0.9)},
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     stillPlays, stillMaxS:{p90:pct(stillMax, 0.9), max:stillMax.length ? +Math.max(...stillMax).toFixed(2) : null}, flatFrames:flat.n, flatPct:flat.n ? +(100*flat.ok/flat.n).toFixed(1) : null, heightLayers:{median:med(heights), p90:pct(heights, 0.9), max:heights.length ? +Math.max(...heights).toFixed(2) : null}, playS:{median:med(playLen), p90:pct(playLen, 0.9), max:playLen.length ? +Math.max(...playLen).toFixed(2) : null},
+    liveHung:{steps:hung.n, medSpineUp:med(hung.up)}, liveTop:{n:tops.length, p90:pct(tops, 0.9), max:tops.length ? +Math.max(...tops).toFixed(2) : null, latchedOnStanding:{n:topsL.length, p90:pct(topsL, 0.9)}, other:{n:topsO.length, p90:pct(topsO, 0.9)}}, fallToTurfS:{falls:fallS.length + fallFail, failed:fallFail, failedShort:fallShort, lateOk:fallLate, p90:pct(fallS, 0.9)}, kneesFirst:{legPct:+(100*kinds.leg/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), armPct:+(100*kinds.arm/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), bodyPct:+(100*kinds.body/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), n:kinds.leg + kinds.arm + kinds.body}, solo:soloOut(),
+    jointViol:{bodySteps:vSteps, steps:vBad, pct:vSteps ? +(100*vBad/vSteps).toFixed(3) : null, byJoint:vPart},
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
     blk:blkLog, pullReach:Object.fromEntries(Object.entries(pullReach).map(([k, r]) => [k, {...r, pct:+(100*r.reached/r.n).toFixed(1)}])),

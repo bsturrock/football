@@ -190,6 +190,7 @@ function rotVec(q, out){
 function physMuscles(p, ph){
   // athletes never go limp: braced while falling or fighting, still holding posture once down
   const tone = ph.rest ? 0.35 : 0.8 + 0.2*ph.bal, wn = 18*Math.sqrt(tone), wL = 40;
+  ph.viol = 0; ph.violP = ph.violP || []; ph.violP.length = 0;   // B-038: the worst joint excess past its limit (rad) at this substep (sim jointViol reads it)
   PARTS.forEach((d, i) => {
     if(!d.p) return;
     const pb = ph.bodies[PI_[d.p]], cb = ph.bodies[i];
@@ -199,11 +200,12 @@ function physMuscles(p, ph){
     qe.set(tq.x, tq.y, tq.z, tq.w); qd.conjugate(qc); qe.mult(qc, qe);             // error = want * now^-1 (parent frame)
     rotVec(qe, rv);
     // joint limits: how far outside the human range (rotation vector vs the rig's rest pose), parent frame
-    rotVec(qd, rt); let out = false;
+    rotVec(qd, rt); let out = false, ex = 0;
     for(const [ax, k] of [['x', 0], ['y', 1], ['z', 2]]){
       const v = rt[ax], [lo, hi] = d.lim[k];
-      rt[ax] = v < lo ? lo - v : v > hi ? hi - v : 0; if(rt[ax]) out = true;
+      rt[ax] = v < lo ? lo - v : v > hi ? hi - v : 0; if(rt[ax]){ out = true; ex = Math.max(ex, Math.abs(rt[ax])); }
     }
+    ph.viol = Math.max(ph.viol, ex); ph.violP[i] = ex;
     // everything into the child's own axes, so each axis uses its real inertia (a limb twists far easier
     // about its length than it swings; one averaged inertia made that axis overshoot and spin)
     pb.quaternion.vmult(rv, tw); cb.quaternion.conjugate(qc); qc.vmult(tw, rv);    // error, child frame
@@ -345,7 +347,7 @@ function physMeasure(p, ph, dt){
   const t = ph.bodies[0], q = t.quaternion, he = t.shapes[0].halfExtents;
   const sy = q.vmult(new CANNON.Vec3(0, 1, 0)).y, ex = q.vmult(new CANNON.Vec3(he.x, 0, 0)), ey = q.vmult(new CANNON.Vec3(0, he.y, 0)), ez = q.vmult(new CANNON.Vec3(0, 0, he.z));
   ph.spineY = sy; ph.topY = t.position.y + Math.abs(ex.y) + Math.abs(ey.y) + Math.abs(ez.y);
-  ph.touched = physTouched(p);
+  ph.touched = physTouched(p); ph.kind = physDownKind(p);
   ph.fallT = ph.bal <= 0 && !ph.getUp ? (ph.fallT || 0) + dt : 0;   // time off his feet, on the turf or not (a body propped on others settles too)
   const slow = Math.hypot(t.velocity.x, t.velocity.y, t.velocity.z) < PROP_V;
   ph.propFor = ph.bal <= 0 && !physDown(p) && t.position.y < PROP_Y*BODY_H && slow && phClock - (ph.propT ?? -99) < PROP_FRESH ? (ph.propFor || 0) + dt : 0;
@@ -361,26 +363,32 @@ function physSettle(ph){
 }
 // geometry: down when any part but a hand or foot touches the turf (head, knee, elbow end of the forearm, upper arm,
 // thigh/hip, torso). Hand end of the forearm and the shins' foot end never count.
-export function physDown(p){
-  const ph = p.ph; if(!ph) return false;
+// the part that is on the turf (the lowest one past its threshold), as an index into PARTS, or -1
+function physDownPart(p){
+  const ph = p.ph; if(!ph) return -1;
+  let best = -1, bm = 0;
   for(let i = 0; i < PARTS.length; i++){
-    const b = ph.bodies[i], n = PARTS[i].n, he = b.shapes[0].halfExtents;
+    const b = ph.bodies[i], n = PARTS[i].n, he = b.shapes[0].halfExtents; let m;
     if(n === 'snL' || n === 'snR' || n === 'faL' || n === 'faR'){   // one end only: knee end of the shin (0.14), elbow end of the forearm (ELBOW_DOWN_Y)
       const end = b.pointToWorldFrame(new CANNON.Vec3(0, he.y, 0));   // local +y is the knee / elbow end
-      if(end.y < (n[0] === 's' ? 0.14*BODY_H : ELBOW_DOWN_Y)) return true; continue;
+      m = end.y - (n[0] === 's' ? 0.14*BODY_H : ELBOW_DOWN_Y);
+    } else {   // lowest corner of the box
+      const q = b.quaternion, ex = q.vmult(new CANNON.Vec3(he.x, 0, 0)), ey = q.vmult(new CANNON.Vec3(0, he.y, 0)), ez = q.vmult(new CANNON.Vec3(0, 0, he.z));
+      m = b.position.y - Math.abs(ex.y) - Math.abs(ey.y) - Math.abs(ez.y) - 0.06;
     }
-    // lowest corner of the box
-    const q = b.quaternion, ex = q.vmult(new CANNON.Vec3(he.x, 0, 0)), ey = q.vmult(new CANNON.Vec3(0, he.y, 0)), ez = q.vmult(new CANNON.Vec3(0, 0, he.z));
-    if(b.position.y - Math.abs(ex.y) - Math.abs(ey.y) - Math.abs(ez.y) < 0.06) return true;
+    if(m < bm){ bm = m; best = i; }
   }
-  return false;
+  return best;
 }
+export const physDown = p => physDownPart(p) >= 0;
+// B-038: which kind of part is down: 'leg' (shin, thigh: knees first), 'arm' (braced), 'body' (torso, head), '' (none)
+export const physDownKind = p => { const i = physDownPart(p); return i < 0 ? '' : /^(sn|th)/.test(PARTS[i].n) ? 'leg' : /^(fa|ua)/.test(PARTS[i].n) ? 'arm' : 'body'; };
 // a defender touched him within CONTACT_T s
 export const physTouch = p => { p.hitT = phClock; };   // a hand on him from an animated defender counts as contact
 export const physTouched = (p, w = CONTACT_T) => phClock - (p.hitT ?? -99) <= w;   // w: how recent (rules.js asks for a shorter window)
 // the runner's down: a part is on the turf and he was touched (an untouched stumble isn't down, he gets up)
 // sim.js reads body state only through these (B-008/B-010): pose {fallT s off his feet, spineY torso up-axis y (1 upright, 0 flat), topY torso top yd, touched}, and the torso's horizontal speed yd/s
-export const physPose = p => ({fallT:p.ph.fallT || 0, spineY:p.ph.spineY, topY:p.ph.topY, touched:p.ph.touched});
+export const physPose = p => ({fallT:p.ph.fallT || 0, spineY:p.ph.spineY, topY:p.ph.topY, touched:p.ph.touched, bal:p.ph.bal, viol:p.ph.viol || 0, violP:p.ph.violP, vy:p.ph.bodies[0].velocity.y, kind:p.ph.kind});
 export const physSpeed = p => p.ph ? Math.hypot(p.ph.bodies[0].velocity.x, p.ph.bodies[0].velocity.z) : 0;
 export const physPropped = p => !!p.ph && (p.ph.propFor || 0) >= PROP_T;
 export const physDownC = p => (physDown(p) || physPropped(p)) && physTouched(p);
