@@ -97,6 +97,7 @@ function runFrames(n){
 // ?autoplay=<seconds>&sim=1&seed=S: the CPU calls and snaps a play with no input; the page steps 1/60 s synchronously (as runFrames does) until the play has run <seconds> after the snap
 // (or ended first), then keeps painting that frame with the game camera: a headless screenshot shows the play mid-action. `sim=1` only seeds Math.random, so the same seed gives the same
 // frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...} into <pre id="autoout">. A normal load is unchanged.
+// B-081: &play=<name> forces the offense's call (any play, case-insensitive; a pass play needs &pass=1; an unknown name gives {"error":...}); &cam=side|close frames the play, following the ball (a bad value gives {"error":...}).
 const AUTO_MAX_STEPS = 60*60;   // a stuck pre-snap gives up after a minute of sim time
 const r3 = v => +Number(v).toFixed(3);
 function autoDigest(){   // state digest: same seed, same values (a PNG can differ by bytes)
