@@ -1,6 +1,6 @@
 import { BRAKE_K, BURST_DRAIN, KEYS, MENTAL, SPRINT, TEMPLATES, accOf, spdOf } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
 import { BOX_X as BOX_DX, formByName } from './formations.js';
-// Random streams (B-091): play logic reads Math.random (mulberry32 of the seed); ratings.js and roster.js weights read a second mulberry32 per epoch (seed ^ RATE_SALT, restarted at every rating call; util.js rrand), so a roster depends on seed and epoch floor(play/SIM_TEAM_EVERY) alone.
+// Random streams (B-091): play logic reads Math.random (mulberry32 of the seed); ratings.js and roster.js weights read a second mulberry32 per epoch (seed ^ RATE_SALT, restarted at every rating call; util.js rrand), so a roster depends on seed and epoch floor(plays done / SIM_TEAM_EVERY) alone.
 import { FRONTS, STUNTS } from './fronts.js';
 import { dash40 } from './movement.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
@@ -27,7 +27,7 @@ import { BODY_H, BODY_W, HOLD_R, PILE_R, bearing, faceLean, faceYaw, setRateEpoc
 //   speedRole {OL, DL, LB, WR, CB, S, ...}: mean speed as a fraction of top (p.spd) per role over live frames (ball held or in the air; the runner and QB left out); offense.js logSpeed (B-060-2)
 //   plays, timeouts, ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards {mean, median, p10, p90, max}
 //   spotYards {mean, median}: the spot endPlay ended at minus los; a score or turnover uses the last ball y
-//   teams {regens, every, O, D}: mean ratings; rosterAvg {O, D, mass} (B-091: the same over all 23 records of a side and the mean mass, so a roster is read apart from who is on the field; fixed by seed and regen count alone); rateTeams runs every SIM_TEAM_EVERY = 20 plays, a no-op under flat ratings except that every player redraws his weight (B-063, tackle-momentum)
+//   teams {regens, every, O, D}: mean ratings of the last play's on-field 22 (following personnel), so they can still move with play logic; rosterAvg {O, D, mass} (B-091): the same over all 23 records of a side plus the mean mass, the stream-only gauge, fixed by seed and epoch floor(plays done / SIM_TEAM_EVERY) alone (newGame rates without bumping regens); rateTeams runs every SIM_TEAM_EVERY = 20 plays, a no-op under flat ratings except that every player redraws his weight (B-063, tackle-momentum)
 //   pileWindows, pushPlays, pushPlayRate, pushDurS, pushGainYd; pile {whistles, frames per state, pushPlays, pushGainYd, pushDurS}: pile.js's own record of plays that reached pushing (session totals)
 //   B-008/B-010 pile shape: stillPlays/stillMaxS (plays where the runner, in contact (touched within 1 s), moved under STILL_V yd/s for over STILL_S s in a row; the longest such stretch, s),
 //     flatPct/flatFrames (share of frames (live, then POST_S 1 s of dead ball after the whistle) a body off his feet STAY_T s or more and on the turf or with the torso top under BODY_H yd (a tackler hanging upright on a runner still on his feet is not a pile body) had its torso within FLAT_DEG of horizontal), heightLayers {median, p90, max} (per play, the highest torso top of a body off his feet STAY_T s or more and on the turf or with the torso top under BODY_H yd (a tackler hanging upright on a runner still on his feet is not a pile body), in body widths (FLAT_H 0.66 BODY_W: a body lying on his side; on his back or front he is 0.4 BODY_W)),
@@ -94,8 +94,8 @@ const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4
 // B-079: three.js draws one uuid per Mesh, Group, Geometry and Material from Math.random, and its MathUtils is frozen (r128), so generateUUID cannot be swapped. Instead, under ?sim,
 // Math.random reads a private stream (the same mulberry32, fixed seed) while the modules load, and main.js calls endLoad() after its imports, before rate(): the seeded stream starts there, untouched by
 // the load-time uuids, so a mesh added at load no longer shifts any seeded number. (Meshes made during play still draw seeded uuids, so a new in-play mesh shifts the seeded results.)
-// B-091: a second mulberry32 per epoch (seed ^ RATE_SALT plus the epoch, restarted at each rating call), is read only by ratings.js rateTeams (team offsets, sub-template coin, ratings, mass, mental) and roster.js (FB mass) through util.js rrand. Rosters are then fixed by seed
-// and epoch (play / SIM_TEAM_EVERY) alone, even when a finished game adds a newGame rating call: an extra Math.random in play logic (AI, physics) no longer reshuffles who plays. (Seeded numbers shifted once when rosters moved to this stream.)
+// B-091: a second mulberry32 per epoch (seed ^ RATE_SALT plus epoch × 0x9E3779B1, restarted at each rating call), is read only by ratings.js rateTeams (team offsets, sub-template coin, ratings, mass, mental) and roster.js (FB mass) through util.js rrand. Rosters are then fixed by seed
+// and epoch (floor(plays done / SIM_TEAM_EVERY)) alone, even when a finished game adds a newGame rating call: an extra Math.random in play logic (AI, physics) no longer reshuffles who plays. (Seeded numbers shifted once when rosters moved to this stream.)
 const RATE_SALT = 0x5A17ED;
 const Q = new URLSearchParams(location.search);
 let loading = true;
