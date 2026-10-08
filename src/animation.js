@@ -1,7 +1,7 @@
 import { stepHz } from './blocking.js';
 import { setHint } from './hud.js';
 import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
-import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
+import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, blockGroup, landRing, routeGroup } from './markers.js';
 import { physBall, physOn, physRender, physJoint, physSocket } from './physics.js';
 import { PLAYS } from './playbook.js';
 import { OL_BACK, OL_SETBACK } from './formations.js';
@@ -392,7 +392,7 @@ export function syncScene(dt){
     const a = ballPos(Math.min(ball.t, 1)), b = ballPos(Math.min(ball.t + 0.02, 1.02));
     ballMesh.position.copy(toWorld(a.x, a.y, a.h)); ballMesh.lookAt(toWorld(b.x, b.y, b.h));
   }
-  if(S.cpu){ routeGroup.visible = false; fitGroup.visible = false; }   // broadcast look: no playbook overlays
+  if(S.cpu){ routeGroup.visible = false; blockGroup.visible = false; }   // broadcast look: no playbook overlays
   // markers
   ctrlRing.visible = S.phase === 'live' || S.phase === 'presnap';
   ctrlRing.position.set(S.ctrl.x, 0.05, 50 - S.ctrl.y);

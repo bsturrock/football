@@ -1,6 +1,6 @@
 import { setCam, setCpu } from './cpu.js';
 import { toast } from './hud.js';
-import { fitGroup, routeGroup } from './markers.js';
+import { blockGroup, routeGroup } from './markers.js';
 import { resolveBlocks } from './blockrules.js';
 import { PLAYS } from './playbook.js';
 import { BODY_W, C, DEF, DL, EXTRA, LG, LT, OL, QB, RB, RECV, RG, RT, TE } from './players.js';
@@ -58,7 +58,7 @@ export function snap(){
   DL.forEach(d => { d.fire = 0.35; d.fireDelay = 0.15 - d.rAwr/1000; });
   S.ctrl = run ? RB : QB;
   pitch(C, QB, PLAYS[S.play].under ? 0.15 : 0.3);   // under center: hand-to-hand snap
-  fitGroup.visible = false;
+  blockGroup.visible = false;
   if(run){
     const play = PLAYS[S.play];
     if(play.scheme === 'zone') [...OL, TE].forEach(o => { o.lane = o.x + play.shift; });

@@ -117,6 +117,7 @@ function start(data){
   if(data && typeof data.score === 'number') Object.assign(S, {score:data.score, tds:data.tds||0, drive:data.drive||1, los:data.los||25, down:data.down||1, toGo:data.toGo||10});
   const q = new URLSearchParams(location.search);
   selectPlay(0); setupPlay();
+  if(q.get('cpu') === '0') setCpu(false);   // B-068: start in user view (the C key off), so a shot sees the pre-snap block lines
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
   if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0)); return; }
   if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop

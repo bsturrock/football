@@ -1,7 +1,8 @@
 import { resetCam } from './camera.js';
 import { assignFits } from './defense.js';
 import { clearCallouts, hideBanner, updateHUD } from './hud.js';
-import { drawFits, drawRoutes, routeGroup } from './markers.js';
+import { drawBlocks, drawRoutes, routeGroup } from './markers.js';
+import { previewBlocks } from './blockrules.js';
 import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
 import { chooseForm, formByName, lineUp } from './formations.js';
@@ -61,6 +62,7 @@ function assignRoutes(){
     const l = Math.hypot(b.x-a.x, b.y-a.y) || 1; w.goDir = {x:(b.x-a.x)/l, y:(b.y-a.y)/l};
   });
   drawRoutes(); routeGroup.visible = true;
+  drawBlocks(play.run ? previewBlocks(play, S.flip) : null);   // B-068: who each blocker will block, from the shown front
 }
 function place(p, x, y){
   p.x = x; p.y = y; p.vx = p.vy = 0; p.stun = 0; p.latch = null; p.tkCool = 0; p.downP = 0; p.slow = 1; p.latAcc = 0; p.svx = 0; p.svy = 0; p.tripT = 0; p.reachCool = 0; p.bt = null; p.freeFrom = null; p.freeT = 0; p.beatT = 0; p.locked = false; p.ruled = false; p.accel = 0; p.falling = false; p.slip = 0; p.grip = null; p.fire = 0; p.fireDelay = 0;
@@ -107,7 +109,6 @@ export function setupPlay(keep = false){
   S.box = inBox + (boxS ? 1 : 0);
   assignFits(call, boxS);
   S.handoffAt = Infinity;
-  drawFits();
   RB.auto = false;
   OFF.forEach(o => { o.blk = null; o.dbl = null; o.ruled = false; o.lane = null; o.via = null; o.pull = null; o.rr = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
   S.bust = [];   // B-032-2 (bust-roll)
