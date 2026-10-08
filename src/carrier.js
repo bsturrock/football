@@ -20,7 +20,7 @@ function steerVel(p, vx, vy, dt){
 }
 // ---------- plant and push-off cuts (B-072-3, B-072-4) ----------
 // A defender squaring the carrier within CUT_AHEAD yd ahead (lateral reach CUT_WIDE), or the hole he reads moving by CUT_HOLE yd, starts a cut, in three steps:
-// brake (CUT_BRAKE_T s: forward speed falls linearly to CUT_BRAKE_TO x the speed he came in at; the plant window CUT_PLANT_T s from CUT_PLANT_T0 pins the outside foot, p.cutPh 1 brake, 3 plant), push (CUT_PUSH_T s: forward speed held there, near zero,
+// brake (CUT_BRAKE_T s: his whole velocity (sideways run too) falls linearly to CUT_BRAKE_TO x what it was; the plant window CUT_PLANT_T s from CUT_PLANT_T0 pins the outside foot, p.cutPh 1 brake, 3 plant), push (CUT_PUSH_T s: forward speed held there, near zero,
 // sideways speed builds at CUT_LAT_A yd/s2 (agility CUT_AGI_LO..1 scales it and the peak CUT_V); no instant kick; p.cutPh 2), go (the cut ends: normal steering and his B-060 acceleration
 // take him from the slower speed, p.cutPh 0). He keeps faceHold upfield (PI; movement.js caps the sideways speed and draws the sidestep gait). Away from the defender, toward the better race.
 // CUT_CD s between cuts, counted from a cut's end; no cut below CUT_FAST of top speed. No defender ahead, no cut. S.cutLog (sim.js readout) counts carries, cuts, lateral step and speed kept.

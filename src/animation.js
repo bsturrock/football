@@ -201,10 +201,11 @@ function gaitPose(T, p, sp){
 }
 // B-072-4 plant and push-off (carrier.js cutStep sets p.cutPh 1 brake / 3 plant / 2 push and p.cutDir, the way he pushes, +1 = to +x). Brake and push run the normal stride (the brake's steps
 // shorten as he slows; the push is the B-072-1 sidestep gait, its cadence rising with his sideways speed); only the plant window (about CUT_PLANT_T s at the switch, forward speed near
-// zero) pins a foot: the outside foot (opposite the push) is put down CUT_PLANT_AHEAD yd ahead of the hip and its hip angle follows how far the body has moved since (forward as a thigh angle,
+// zero) pins a foot: the outside foot (opposite the push) is put down CUT_PLANT_AHEAD (x BODY_H) ahead of the hip and its hip angle follows how far the body has moved since (forward as a thigh angle,
 // sideways as the hip splay), so the foot stays on its spot while the hips travel over it. Through the whole cut: hips low, ball arm tucked, torso leaning (a roll) into the push. One weight, p.cuW
 // (eased at CUT_K; CUT_BRAKE_W of it in the brake, full in the plant and push; zero for a man who is down, falling, in an act or on a physics body), drives the lean, the drop and the roll; p.plW (CUT_PLANT_K) the plant leg.
-const CUT_K = 22, CUT_PLANT_K = 40, CUT_BRAKE_W = 0.4, CUT_LEAN = 0.35, CUT_ROLL = 0.3, CUT_DROP = 0.2, CUT_HIPZ = 0.22, CUT_PLANT_AHEAD = 0.35, CUT_LEG = 0.95, CUT_PLANT_KNEE = 0.35, CUT_ARM_L = -0.45, CUT_ARM_R = -0.9;
+// CUT_PLANT_AHEAD is in BODY_H units, not yd
+const CUT_K = 22, CUT_PLANT_K = 18, CUT_BRAKE_W = 0.4, CUT_LEAN = 0.35, CUT_ROLL = 0.3, CUT_DROP = 0.2, CUT_HIPZ = 0.22, CUT_PLANT_AHEAD = 0.35, CUT_LEG = 0.95, CUT_PLANT_KNEE = 0.35, CUT_ARM_L = -0.45, CUT_ARM_R = -0.9;
 const PLANT_JOINTS = ['hipL', 'hipR', 'kneeL', 'kneeR'];
 function cutPose(T, p){
   const w = p.cuW || 0, pw = p.plW || 0; if(w < 0.01) return;
@@ -212,7 +213,7 @@ function cutPose(T, p){
   T.lean = mix(T.lean, 0.2 + CUT_LEAN, w); T.drop = mix(T.drop, CUT_DROP, w);
   T.shL = mix(T.shL, CUT_ARM_L, w); T.shR = mix(T.shR, CUT_ARM_R, w); T.elL = mix(T.elL, -1.0, w); T.elR = mix(T.elR, -1.85, w);   // ball arm stays tucked
   if(pw < 0.01) return;
-  const pl = p.cutDir > 0 ? 'L' : 'R', L = CUT_LEG*BODY_H, fwd = clamp((CUT_PLANT_AHEAD*BODY_H - (p.y - p.plY))/L, -0.9, 0.9), side = clamp(((p.x - p.plX)*p.cutDir)/L, 0, 0.6);   // forward travel since the plant (upfield is +y)
+  const pl = p.cuDir > 0 ? 'L' : 'R', L = CUT_LEG*BODY_H, fwd = clamp((CUT_PLANT_AHEAD*BODY_H - (p.y - p.plY))/L, -0.9, 0.9), side = clamp(((p.x - p.plX)*p.cuDir)/L, 0, 0.6);   // forward travel since the plant (upfield is +y)
   T['hip' + pl] = mix(T['hip' + pl], -Math.asin(fwd), pw); T['knee' + pl] = mix(T['knee' + pl], CUT_PLANT_KNEE, pw);
   T.hipZ = mix(T.hipZ, CUT_HIPZ + Math.asin(side), pw); T.twist = mix(T.twist, 0, pw);
 }
@@ -224,6 +225,7 @@ function animate(p, dt){
   const cutOn = p.cutPh && p.faceHold != null && !p.act && !p.ph && !p.falling;   // as gaitPose's want: a tackled, falling or acting man drops the pose
   if(p.cutPh === 3 && !p.plant){ p.plant = true; p.plX = p.x; p.plY = p.y; } else if(p.cutPh !== 3) p.plant = false;
   p.cuW = (p.cuW || 0) + ((cutOn ? (p.cutPh === 1 ? CUT_BRAKE_W : 1) : 0) - (p.cuW || 0))*(1 - Math.exp(-dt*CUT_K));
+  if(p.cutDir) p.cuDir = p.cutDir;   // the roll keeps its side until cuW has decayed (a takeover's cutEnd zeroes cutDir at once)
   p.plW = (p.plW || 0) + ((cutOn && p.cutPh === 3 ? 1 : 0) - (p.plW || 0))*(1 - Math.exp(-dt*CUT_PLANT_K));
   p.stride += stepsHz > 0 ? Math.PI*stepsHz*dt : sp > 0.3 ? 2*Math.PI*(1.1 + 0.16*sp)*dt : 0;   // cadence rises with speed (~2.2 strides/s flat out)
   if(p.actT > 0){ p.actT -= dt; if(p.actT <= 0) p.act = null; }
@@ -239,7 +241,7 @@ function animate(p, dt){
   p.engW = (p.engW || 0) + ((eng ? 1 : 0) - (p.engW || 0))*(1 - Math.exp(-dt*ENG_K));
   p.hdUp = (p.hdUp || 0) + ((T.headUp || 0) - (p.hdUp || 0))*k;
   J.head.rotation.set(-ENG_HEAD*P.lean*p.engW - p.hdUp, HEAD_TURN*p.engW, HEAD_TILT*p.engW);   // head up while engaged: eyes on his man, not the turf; B-042: the head stays on its neck socket and tilts to his right shoulder (B-031 slid it sideways off the neck), so the pair's helmets pass
-  p.roll = ENG_ROLL*p.engW + CUT_ROLL*(p.cuW || 0)*(p.cutDir || 0); J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
+  p.roll = ENG_ROLL*p.engW + CUT_ROLL*(p.cuW || 0)*(p.cuDir || 0); J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
   p.hipZ = (p.hipZ || 0) + ((T.hipZ || 0) - (p.hipZ || 0))*(p.plW > 0.01 ? k + (1 - k)*p.plW : k); J.hipL.rotation.z = p.hipZ; J.hipR.rotation.z = -p.hipZ;   // B-052: sideways hip splay, only in the presnap stance
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   p.armZL = (p.armZL ?? ARM_Z_FREE) + ((T.armZL ?? ARM_Z_FREE) - (p.armZL ?? ARM_Z_FREE))*k; p.armZR = (p.armZR ?? -ARM_Z_FREE) + ((T.armZR ?? -ARM_Z_FREE) - (p.armZR ?? -ARM_Z_FREE))*k;   // sideways arm angles: 0.12 out free, the hand-placement angles engaged
