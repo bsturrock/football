@@ -1,4 +1,4 @@
-import { runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
+import { endLoad, runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
 import { pairCheck, pairReport, setFrameClock, syncScene } from './animation.js';
 import { CARRY_T, separate, stepHz } from './blocking.js';
 import { setAutoCam, updateCamera } from './camera.js';
@@ -9,15 +9,16 @@ import { drillCamera, drillError, drillStart, drillTick } from './drill.js';
 import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
-import { faceStep, steer } from './movement.js';
-import { offenseAI } from './offense.js';
+import { steer } from './movement.js';
+import { flushOlRecs, offenseAI } from './offense.js';
 import { pileUpdate } from './pile.js';
-import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender, physStep } from './physics.js';
+import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DEF, OFF, QB, RB, rate } from './players.js';
 import { heldBallPos, endPlay, newGame, nextPlay, trackProgress } from './rules.js';
 import { camera, cvs, renderer, scene } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
+import { perf, stepWith } from './step.js';
 import { tackleUpdate } from './tackling.js';
 import { $, HW, clamp, dist } from './util.js';
 
@@ -56,20 +57,17 @@ function liveUpdate(dt){
     if(S.phase === 'live'){ trackProgress(c); pileUpdate(c, dt); }   // progress again after the tackle (no first-frame spot lag), then the pile push and stall whistle
   }
 }
-const perf = {phys:0, bodies:0};   // last step's physics ms and body count (read by ?debug and the sim)
-// one render-free simulation step (the sim runner calls this too)
-export function step(dt){
+// the game's part of a step: the CPU, then the live or dead-ball phase
+function gameUpdate(dt){
   cpuTick(dt);
   if(S.phase === 'live') liveUpdate(dt);
   else if(S.phase === 'dead'){
     ALL.forEach(p => steer(p, p.x, p.y, 0, dt));
     S.deadT -= dt; if(S.deadT <= 0) nextPlay();
   }
-  ALL.forEach(p => faceStep(p, dt, ball, S));   // B-072-1: facing is sim state (movement.js), turned here for the game and the sim alike
-  const t0 = performance.now();
-  physStep(dt);
-  perf.phys = performance.now() - t0; perf.bodies = physCount().players;
 }
+// one render-free simulation step (the sim runner calls this too); the shared tail (facing, physics) is step.js
+export const step = dt => stepWith(dt, gameUpdate);
 let last = performance.now(), tick = step, camStep = updateCamera;   // ?drill swaps both (src/drill.js)
 function frame(now){
   const raw = now - last, dt = clamp(raw/1000, 0, 0.05); last = now;
@@ -126,12 +124,13 @@ function start(data){
   if(q.get('cpu') === '0') setCpu(false);   // B-068: start in user view (the C key off), so a shot sees the pre-snap block lines
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
   if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0), q); return; }
-  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, flushOlRecs, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
     if(q.has('frames') && drillError){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:drillError}); document.body.appendChild(el); return; }   // B-042 (axis-glide)
     if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
   requestAnimationFrame(frame);
 }
+endLoad();   // B-079: every import has run (three.js uuids drew from the private stream); the seeded stream starts here
 rate();   // B-078 (load-no-random): ratings draw Math.random, so they are rolled here, after every import (and sim.js's seedRandom), not at players.js load
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
 const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});

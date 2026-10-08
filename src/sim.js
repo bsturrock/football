@@ -3,7 +3,7 @@ import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { FRONTS, STUNTS } from './fronts.js';
 import { dash40 } from './movement.js';
 import { ROSTER, fieldCounts, persName, rateRosters } from './roster.js';
-import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './util.js';
+import { BODY_H, BODY_W, HOLD_R, PILE_R, bearing, faceLean, faceYaw } from './util.js';
 
 // ---------- SIM OUTPUT FIELDS (the one line in <pre id="simout">; CLAUDE.md "Sim check" points here) ----------
 // Run: ?sim=N&seed=S (same seed, same line). Force params: &play=<run play>&front=<defensive call> (case-insensitive; an unknown or pass play gives {"error":...}), &form=&side=L|R, &stunt=<name from STUNTS in fronts.js> (B-011: that stunt on the chosen front, or on every drawn call; case-insensitive; unknown gives {"error":...}; echoed as force.stunt; a safety stunt on a call that rolls a safety down, or a blitz stunt on Run Blitz, gives {"error":...} with &front and is skipped without it; call names and byCall stay the drawn call's name, so Slant Left under &stunt=Tex runs Tex)
@@ -20,6 +20,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 // Fields:
 //   climbFill {climbs, plays, landedPct, beforePct, startMed, travelMed, backLosMed, lifeMed, dispMed} (B-012 climb-timing): see the comment at climbWatch
 //   cuts {carries, cuts, perCarry, latStepMed, speedKept} (B-072-3): carrier.js jump cuts: carries seen, cuts started, per carry; latStepMed = median lateral travel (yd) over the cut burst; speedKept = median speed (hypot of vx, vy) at the burst's end / at its start, over cuts that began at 70% or more of top speed (CUT_FAST) (null with no cut)
+//   olDepth {records, noMan {n, med, p90}, beaten {n, med, p90}, faceMedS, neverFaced} (B-080, from B-073 offense.js noteBlocker / flushOlRecs): one record per OL/TE/WR blocker per snapped play that moved; noMan = records with a deepest depth past the line with no man (noMax > 0, yd); beaten = records with an overshoot (over > 0, yd, farthest from the spot he was beaten); faceMedS = median seconds from beaten to within ENGAGE_R of his man (face >= 0); neverFaced = records with face < 0 (every record that never got back on a man, noMan-only ones too). B-073 targets: noMan med under 3 yd, beaten med about 1 yd
 //   speedRole {OL, DL, LB, WR, CB, S, ...}: mean speed as a fraction of top (p.spd) per role over live frames (ball held or in the air; the runner and QB left out); offense.js logSpeed (B-060-2)
 //   plays, timeouts, ypc, stuffPct (yards <= 0), bigPct (yards >= 10), yards {mean, median, p10, p90, max}
 //   spotYards {mean, median}: the spot endPlay ended at minus los; a score or turnover uses the last ball y
@@ -44,7 +45,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   physMs {median/p95}: NOT reliable here (performance.now does not advance in one synchronous task): never compare; use ?debug in a real browser for frame and physics ms
 //   read {n: zone plays decided, noDecision: stuffed before deciding, wrongPct: share not the noiseless best lane, choices {name: {n, ypc}}, wrongYpc, rightYpc} (from S.read)
 //   blk {"front R|L": {slot: {target label: n}}} (B-030): S.blk at the snap per defensive front and flip (R = tight end right), keyed by the rule slot (the play's base side: a flipped play's LT is the base RT), the target labels from blockrules.js labels() (DL0.. left to right on the field, LB0.., CB, S);
-//     pullReach {"slot kind" (base slot): {n, reached, pct}}: pullers per slot and kind, and how many got within ENGAGED of the target at some point in the play (p.pull.reach set)
+//     pullReach {"slot kind" (base slot): {n, reached, rp, repReached, pct}}: pullers per slot and kind, and how many got within ENGAGED of the target at some point in the play (p.pull.reach set); B-084: edge {n, xMed, depthMed} (a key beside the slot kinds): the kick-out man's spot the first frame a kick puller reaches him, xMed = median |his x - S.hole| (yd outside the hole), depthMed = median of his y - S.los (past the line); B-074: rp = total re-picks (p.pull.repicks: his target went down and he took another man), repReached = pullers that re-picked at least once and still reached a target
 //   force; byPlay; boxMean; freeBox
 //   blkEv {stuntPlays: plays with a crossing stunt (slants count) at the snap, passed, missed, wrong}: blockers' stunt re-read events from S.blkEv
 //   tackle {n, byOutcome {big, thru, bounce, evade, grab: n}, thruAt [S.clock, s, of the first 5 run-throughs] (B-063), byBand {"<0","0-2","2-4","4-5","5-6","6-8","8+": {n, big, thru, bounce, evade, grab}}} (B-063, tackle-momentum): attemptTackle outcomes (S.tkLog, tackling.js), banded by the runner's edge (resist - hit)/tackler mass, yd/s
@@ -55,8 +56,8 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //   calls {play: n}, byFront {front: {play: n}}, slant {'Slant Left','Slant Right': {play: n}}: what the CPU called (B-007-13)
 //   with &pers/&dpers: force.pers/dpers, field {off, def} (position counts on the last play) and roster {O, D, ids unique, on}
 //   facing {frames, sqPct, errDeg, leanDeg, maxLeanDeg, maxOffDeg, heldFrames, sqPctWithHeld, errDegWithHeld, turnBack {n, medianS, p90S}, holdTurnBack {n, medianS, p90S}} (B-020):
-//     a shadow face per defender turned by animate's rule (the sim never runs animate); sqPct/errDeg/leanDeg over battle frames (sqPct within 25 deg of square, errDeg off-square with the
-//     intended lean removed); turnBack: seconds from a shed until the shadow face is within 25 deg of his velocity heading (still frames dropped).
+//     B-077: the defender's real p.face (movement.js faceStep, stepped once in step.js stepWith for the game, the drill and the sim alike; the B-020 shadow face is gone); sqPct/errDeg/leanDeg over battle frames (sqPct within 25 deg of square, errDeg off-square with the
+//     intended lean removed); turnBack: seconds from a shed until his face is within 25 deg of his velocity heading (still frames dropped).
 //     B-023: the hold-through-a-gap rule is gone, so heldFrames is 0, sqPctWithHeld = sqPct, errDegWithHeld = errDeg and holdTurnBack.n is 0.
 //   faceHold {LB, DB: {n, heldS, sqPct, ends, endMedS, endP90S}} (B-072-2): per non-blitzing LB / DB per play (defense.js holdFacing; d.fh): n men-plays that held a facing, sqPct the share of
 //     their hold time within 30 deg of the hold (square to the line / toward the QB), heldS the mean hold time per man-play, ends how many committed or turned before the whistle, endMedS/endP90S the
@@ -86,11 +87,18 @@ const SQUARE_DEG = 25, FACE_V = 0.4, TURN_MAX = 2, SIM_DT = 1/60, WINDOW_T = 0.4
 
 // mulberry32; replaces Math.random only when ?sim is on. It runs when this module loads, and main.js imports
 // sim.js first and its imports (ratings.js, formations.js, roster.js, util.js) are pure and roll nothing at load, so player ratings and masses (rolled at load) are seeded too.
+// Importing modules before seedRandom is safe: no module draws Math.random at load; players.js and three.js uuids use private streams.
+// B-079: three.js draws one uuid per Mesh, Group, Geometry and Material from Math.random, and its MathUtils is frozen (r128), so generateUUID cannot be swapped. Instead, under ?sim,
+// Math.random reads a private stream (the same mulberry32, fixed seed) while the modules load, and main.js calls endLoad() after its imports, before rate(): the seeded stream starts there, untouched by
+// the load-time uuids, so a mesh added at load no longer shifts any seeded number. (Meshes made during play still draw seeded uuids, so a new in-play mesh shifts the seeded results.)
 const Q = new URLSearchParams(location.search);
+let loading = true;
+export function endLoad(){ loading = false; }
 if(Q.has('sim')) seedRandom(Number(Q.get('seed')) || 1);
 function seedRandom(seed){
-  let a = seed >>> 0;
-  Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const stream = s0 => { let a = s0 >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; };
+  const seeded = stream(seed), priv = stream(0x9E3779B9);
+  Math.random = () => loading ? priv() : seeded();
 }
 const pct = (xs, q) => { if(!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return +s[Math.min(s.length - 1, Math.floor(q*s.length))].toFixed(3); };
 const med = xs => { if(!xs.length) return null; const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return +(s.length % 2 ? s[m] : (s[m-1] + s[m])/2).toFixed(3); };
@@ -103,7 +111,7 @@ function out(o){
 
 // g: the game objects (B-070: and blocking.js's CARRY_T and stepHz, since importing blocking.js here loads players.js and rolls the roster before seedRandom), passed in by main.js so this file imports only pure modules (it must load before any module that rolls random numbers)
 export function runSim(n, step, g){
-  const {CARRY_T, stepHz, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball} = g;
+  const {CARRY_T, stepHz, flushOlRecs, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball} = g;
   const ballY = h => h.ph ? 50 - physBall(h).z : h.y;
   S.speedRole = {};   // B-060-2
   S.cutLog = {carries:0, cuts:0, lat:[], keep:[]};   // B-072-3: carrier.js jump cuts
@@ -157,15 +165,13 @@ export function runSim(n, step, g){
   if(force.front || force.pass || force.stunt || force.pers || force.dpers || force.form || force.side) setupPlay();   // the first play was set up before the force existed
   const yards = [], spotYards = [], wins = [], physMs = [];
   const byPlay = {}, boxes = [], frees = [], calls = {}, byFront = {}, byCall = {}, tally = (o, k) => { o[k] = (o[k] || 0) + 1; };   // B-007-13: counts of the plays run, overall, per front, per defensive call
-  // B-020: animate() does not run here, so p.face never moves. Each defender gets a shadow face that turns by animate's rule
-  // (face += wrap(target - face)*min(1, dt*FACE_RATE); target = faceYaw, else his velocity heading when speed > FACE_V), reset each play to his p.face.
-  // Engaged frames (a battle, not a body, not stunned) score the shadow face against the bearing to his blocker or nearest double-teamer:
+  // B-020/B-077: engaged frames (a battle, not a body, not stunned) score the defender's real d.face (faceStep runs in step.js stepWith) against the bearing to his blocker or nearest double-teamer:
   // errDeg = off square with the intended lean removed, leanDeg = the lean itself, sqPct = share of frames within SQUARE_DEG of square including the lean.
-  // Turn-back: from a battle ending (shed, step-around) until the shadow face is within SQUARE_DEG of his velocity heading, capped at TURN_MAX s.
-  const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0, hFrames:0, hSquare:0, hErr:0}, shadow = new Map(), turn = {shed:[], hold:[]};
+  // Turn-back: from a battle ending (shed, step-around) until d.face is within SQUARE_DEG of his velocity heading, capped at TURN_MAX s.
+  const fc = {frames:0, square:0, err:0, lean:0, maxLean:0, maxOff:0, hFrames:0, hSquare:0, hErr:0}, tb = new Map(), turn = {shed:[], hold:[]};
   const wrap = a => Math.atan2(Math.sin(a), Math.cos(a)), deg = r => r*180/Math.PI;
-  // B-022 jitter: every engaged player (a battle object, live, not a body; blockers and defenders apart) gets a shadow face turned by
-  // animate's rule. Per engaged frame: |turn| of the shadow face, a reversal when the turn's sign flips (turns under JIT_EPS rad ignored),
+  // B-022 jitter: every engaged player (a battle object, live, not a body; blockers and defenders apart) reads its real p.face (B-077).
+  // Per engaged frame: |turn| of p.face, a reversal when the turn's sign flips (turns under JIT_EPS rad ignored),
   // and the position's second difference |x[t] - 2x[t-1] + x[t-2]| (yd, both axes) for position jitter that is not facing.
   const JIT_EPS = 0.002, JIT_ONSET_DEG = 25, JIT_JUMP_DEG = 10, JIT_SMALL_DEG = 10, JIT_FLICKER_S = 0.5, jit = {D:{n:0, turn:0, rev:0, pos:0, lean:0, bear:0, flips:0, b:[0,0,0], nb:[0,0,0], sw:0, on:0, onMode:0, onJump:0, onSlow:0}, O:{n:0, turn:0, rev:0, pos:0, lean:0, bear:0, flips:0, b:[0,0,0], nb:[0,0,0], on:0, onMode:0, onJump:0, onSlow:0}}, js = new Map(); jit.lost = {}; jit.flicker = 0;
   const jitter = () => {
@@ -175,7 +181,8 @@ export function runSim(n, step, g){
       const sp = Math.hypot(p.vx, p.vy), fy = faceYaw(p, ball, S), tgt = fy !== null ? fy : (sp > FACE_V ? Math.atan2(p.vx, -p.vy) : null);
       let turn = 0, err = 0, lean = null, bear = null; const ft = p.faceAt;
       if(fy !== null && ft){ lean = faceLean(p, ft, ball, S); bear = bearing(p, ft); }
-      if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && tgt !== null){ const e = err = wrap(tgt - m.f); turn = e*Math.min(1, SIM_DT*FACE_RATE); m.f += turn; }
+      if(!p.ph && p.act !== 'down' && p.act !== 'dive' && p.act !== 'fall' && tgt !== null){ err = wrap(tgt - m.f); turn = wrap(p.face - m.f); }   // B-077: the turn is the real p.face's change this step, err the gap it was turning to close
+      m.f = p.face;
       const eng = (p.team === 'D' ? !!p.bt : battles.has(p.bt)) && !p.ph && !p.latch && p.stun <= 0 && p.act !== 'down';
       if(p.team === 'D' && (eng || m.wasEng) && tgt !== null){   // big-turn onsets (target over JIT_ONSET_DEG off the face, the frame before it was not) and what moved: the target kind (faceAt vs heading), a jump of the target, or the face lagging a moving one
         const big = Math.abs(deg(err)) > JIT_ONSET_DEG, was = m.big === true;
@@ -252,15 +259,14 @@ export function runSim(n, step, g){
         let r = bseen.get(d.bt); if(!r){ r = new Set(); bseen.set(d.bt, r); bat.formed++; if(d.role === 'DL' && fire.y0.has(d) && !fire.got.has(d)){ fire.got.add(d); fire.gotB.set(d, d.bt); fire.fwd.push(fire.y0.get(d) - d.y); dlD.contact.push(S.los - d.y); } }   // B-064 (dl-fire)
         if(!r.has(d.bt.phase)){ r.add(d.bt.phase); bat[d.bt.phase]++; }
       }
-      let m = shadow.get(d); if(!m){ m = {f:d.face, eng:false, hold:false, t:null, k:null}; shadow.set(d, m); }
-      const sp = Math.hypot(d.vx, d.vy), fy = faceYaw(d, ball, S), vy = sp > FACE_V ? Math.atan2(d.vx, -d.vy) : null, tgt = fy !== null ? fy : vy;
-      if(!d.ph && d.act !== 'down' && d.act !== 'dive' && d.act !== 'fall' && tgt !== null) { const e = wrap(tgt - m.f); m.f += e*Math.min(1, SIM_DT*FACE_RATE); }
+      let m = tb.get(d); if(!m){ m = {eng:false, hold:false, t:null, k:null}; tb.set(d, m); }   // B-077: the real d.face (movement.js faceStep); m holds only the turn-back timer
+      const sp = Math.hypot(d.vx, d.vy), vy = sp > FACE_V ? Math.atan2(d.vx, -d.vy) : null;
       const live = !d.ph && !d.latch && d.stun <= 0, eng = !!d.bt && live, hold = false;   // B-023: no hold-through-a-gap rule any more; the fields stay (heldFrames 0)
       if(eng || hold){
         const qs = [...(d.bt ? [d.bt.o] : []), ...(d.faceAt ? [d.faceAt] : []), ...OFF.filter(q => q.blk === d && !(q.ph && q.ph.bubble) && Math.hypot(q.x - d.x, q.y - d.y) < HOLD_R)];
         let e = Infinity, off = Infinity, lean = 0;
         for(const q of qs){
-          const l = faceLean(d, q, ball, S), x = Math.abs(wrap(m.f - bearing(d, q) - l)), y = Math.abs(wrap(m.f - bearing(d, q)));
+          const l = faceLean(d, q, ball, S), x = Math.abs(wrap(d.face - bearing(d, q) - l)), y = Math.abs(wrap(d.face - bearing(d, q)));
           if(x < e){ e = x; off = y; lean = Math.abs(l); }
         }
         if(eng){
@@ -276,12 +282,14 @@ export function runSim(n, step, g){
         else {
           m.t += SIM_DT;
           if(vy === null) m.t = null;   // standing still after the shed or the hold: no heading to turn back to, not a turn-back
-          else if(vy !== null && Math.abs(wrap(m.f - vy)) <= SQUARE_DEG*Math.PI/180){ turn[m.k].push(m.t); m.t = null; }
+          else if(vy !== null && Math.abs(wrap(d.face - vy)) <= SQUARE_DEG*Math.PI/180){ turn[m.k].push(m.t); m.t = null; }
           else if(m.t >= TURN_MAX){ turn[m.k].push(TURN_MAX); m.t = null; }
         }
       }
     }
   };
+  const edgeAt = {x:[], d:[]}, edgeSeen = new WeakSet();   // B-084 readout: kick-out man's spot at the puller's first reach (yd outside the hole, yd past the line)
+  const olRecs = [];   // B-080: offense.js flushOlRecs fills it at each play end: {id, noMax, over, face}
   const stillMax = [], flat = {n:0, ok:0}, heights = [], playLen = []; let stillPlays = 0;
   let hMax = 0;
   const fallen = () => { for(const p of ALL) if(p.ph && !p.ph.bubble && physPose(p).fallT >= STAY_T && (physDown(p) || physPose(p).topY < BODY_H)){   // fallen bodies: tilt and height
@@ -358,7 +366,7 @@ export function runSim(n, step, g){
 
   let regens = 0, fieldO = null, fieldD = null; const reads = [];   // S.read per play (B-006-3): {key, choice, wrong}, null when the play had no zone read
   for(let i = 0; i < n; i++){
-    shadow.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); dlD.d1.clear(); dlD.dR.clear(); DEF.forEach(p => { p.towT = undefined; });
+    tb.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); dlD.d1.clear(); dlD.dR.clear(); DEF.forEach(p => { p.towT = undefined; });
     curPlay = i; bodMax[i] = 0; fallsEnded = true; fe.clear();
     cfBack = null; hMax = 0; let pNear = Infinity, pT = null, p1 = false, cut = false, stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = [], pullSeen = new Map(); const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
@@ -373,7 +381,8 @@ export function runSim(n, step, g){
         const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; tally(calls, pname); tally(byFront[S.front] || (byFront[S.front] = {}), pname); tally(byCall[S.defCall.name] || (byCall[S.defCall.name] = {}), pname);
           const bf = blkLog[S.front + ' ' + (S.flip > 0 ? 'R' : 'L')] || (blkLog[S.front + ' ' + (S.flip > 0 ? 'R' : 'L')] = {}); for(const [nm, tg] of Object.entries(S.blk || {})){ const bn = slotOf(nm), bs = bf[bn] || (bf[bn] = {}); bs[tg] = (bs[tg] || 0) + 1; }
           pullsNow = (S.pulls || []).slice(); }
-        for(const u of pullsNow){ const pl = u.p.pull; if(pl && pl.reach === null && !pullSeen.has(u)) pullSeen.set(u, pl.tgt.stun > 0 ? 'stunned' : u.p.blk !== pl.tgt ? 'reblocked' : null); if(pullSeen.get(u) === null && pl && pl.reach === null && (pl.tgt.stun > 0 || u.p.blk !== pl.tgt)) pullSeen.set(u, pl.tgt.stun > 0 ? 'stunned' : 'reblocked'); }   // B-007-13: call shares overall, per front, per defensive call
+        for(const u of pullsNow){ const pl = u.p.pull; if(pl && pl.reach !== null && u.kind === 'kick' && !edgeSeen.has(pl)){ edgeSeen.add(pl); const dx = pl.tgt.x - S.hole; edgeAt.x.push(Math.abs(dx)); edgeAt.d.push(pl.tgt.y - S.los); }   // worker-4 (B-084): the kick-out man's spot the first frame the puller reaches him
+         if(pl && pl.reach === null && !pullSeen.has(u)) pullSeen.set(u, pl.tgt.stun > 0 ? 'stunned' : u.p.blk !== pl.tgt ? 'reblocked' : null); if(pullSeen.get(u) === null && pl && pl.reach === null && (pl.tgt.stun > 0 || u.p.blk !== pl.tgt)) pullSeen.set(u, pl.tgt.stun > 0 ? 'stunned' : 'reblocked'); }   // B-007-13: call shares overall, per front, per defensive call
         endY = y;
         if(c === RB && !measured){   // the back gets the ball: count the box, and who is free in it
           measured = true;
@@ -395,10 +404,10 @@ export function runSim(n, step, g){
     if(passMode && pNear < Infinity){ press.plays++; press.near.push(pNear); if(pT !== null) press.tp.push(pT); if(!cut && !S.runMode && ball.holder === QB) press.sacks++; }   // B-026: sack = the play ended with the QB still in the pass set
     if(S.climbRec && S.climbRec.length){ cf.plays++; if(cfBack !== null) cf.backLos.push(cfBack); for(const r of S.climbRec){ cf.climbs++; cf.start.push(r.t0); cf.life.push(r.life); cf.disp.push(r.disp); if(r.land !== null){ cf.landed++; cf.travel.push(r.land - r.t0); } if(r.land !== null && (r.fill === null || r.land <= r.fill)) cf.before++; } }   // B-012 (climb-timing)
     closeWin(); if(!fallsEnded) endFalls();   // a PLAY_MAX_S play ends live: close its episodes here, not into the next play
-    for(const u of pullsNow){ const pk = slotOf(u.name) + ' ' + u.kind, r = pullReach[pk] || (pullReach[pk] = {n:0, reached:0}); r.n++; if(u.p.pull && u.p.pull.reach !== null) r.reached++; else { const w = pullWhy[pk] || (pullWhy[pk] = {stunned:0, reblocked:0, over:0}); w[pullSeen.get(u) || 'over']++; } }
+    for(const u of pullsNow){ const pk = slotOf(u.name) + ' ' + u.kind, r = pullReach[pk] || (pullReach[pk] = {n:0, reached:0, rp:0, repReached:0}); r.n++; const rpk = u.p.pull ? u.p.pull.repicks || 0 : 0; r.rp += rpk; if(rpk && u.p.pull.reach !== null) r.repReached++; if(u.p.pull && u.p.pull.reach !== null) r.reached++; else { const w = pullWhy[pk] || (pullWhy[pk] = {stunned:0, reblocked:0, over:0}); w[pullSeen.get(u) || 'over']++; } }
     for(let k = 0; k < POST_S/SIM_DT && S.phase === 'dead'; k++){ step(SIM_DT); fallen(); falls(); }   // the dead ball: the pile settles, measured POST_S s after the whistle (S.deadT is 2.2 s, so no next play starts)
     if(startY !== null && S.bust) tallyBust(S.bust);   // B-032-4: the plays that snapped
-    if(startY !== null){ playLen.push(liveT); if(stillBest > STILL_S) stillPlays++; stillMax.push(stillBest); if(hMax > 0) heights.push(hMax/FLAT_H); }
+    if(startY !== null){ flushOlRecs(olRecs); playLen.push(liveT); if(stillBest > STILL_S) stillPlays++; stillMax.push(stillBest); if(hMax > 0) heights.push(hMax/FLAT_H); }
     fieldO = fieldCounts(OFF); fieldD = fieldCounts(DEF);   // who was on the field for this play (pos counts), the last play's printed
     const timedOut = S.phase !== 'dead';   // hit PLAY_MAX_S: counted in timeouts, left out of yards
     if(timedOut) timeouts++;
@@ -420,6 +429,8 @@ export function runSim(n, step, g){
   }
   const soloOut = () => { const se = eps.filter(e => bodMax[e.play] <= SOLO_BODIES), tn = se.filter(e => e.turf !== null).map(e => e.turf);
     return {plays:new Set(se.map(e => e.play)).size, falls:se.length, noTurf:se.filter(e => e.turf === null).length, turfMedS:med(tn), turfP90S:pct(tn, 0.9), peakVMed:med(se.map(e => e.pk)), peakVP90:pct(se.map(e => e.pk), 0.9), top03Med:med(se.filter(e => e.t03 !== null).map(e => e.t03)), top06Med:med(se.filter(e => e.t06 !== null).map(e => e.t06))}; };
+  const olDepthOut = () => { const nm = olRecs.filter(r => r.noMax > 0).map(r => r.noMax), ov = olRecs.filter(r => r.over > 0).map(r => r.over), fc0 = olRecs.filter(r => r.face >= 0).map(r => r.face);
+    return {records:olRecs.length, noMan:{n:nm.length, med:med(nm), p90:pct(nm, 0.9)}, beaten:{n:ov.length, med:med(ov), p90:pct(ov, 0.9)}, faceMedS:med(fc0), neverFaced:olRecs.filter(r => r.face < 0).length}; };
   const pushes = wins.filter(w => w.off && w.gain >= PUSH_GAIN);
   const byPlayOut = {}; for(const k of Object.keys(byPlay).sort()){ const b = byPlay[k]; byPlayOut[k] = {n:b.ys.length, ypc:mean(b.ys), stuffPct:+(100*b.stuff/b.ys.length).toFixed(1)}; }
   // B-063 (tackle-momentum): contact outcomes by the runner's edge band, (resist - hit)/tackler mass in yd/s, from S.tkLog (tackling.js attemptTackle)
@@ -440,10 +451,11 @@ export function runSim(n, step, g){
     liveHung:{steps:hung.n, medSpineUp:med(hung.up)}, pileTop:{n:pileTops.length, p90:pct(pileTops, 0.9)}, gripTop:{n:gripTops.length, p90:pct(gripTops, 0.9)}, liveTop:{n:tops.length, p90:pct(tops, 0.9), max:tops.length ? +Math.max(...tops).toFixed(2) : null, latchedOnStanding:{n:topsL.length, p90:pct(topsL, 0.9)}, other:{n:topsO.length, p90:pct(topsO, 0.9)}}, fallToTurfS:{falls:fallS.length + fallFail, failed:fallFail, failedShort:fallShort, lateOk:fallLate, p90:pct(fallS, 0.9)}, kneesFirst:{legPct:+(100*kinds.leg/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), armPct:+(100*kinds.arm/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), bodyPct:+(100*kinds.body/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), n:kinds.leg + kinds.arm + kinds.body}, handFirst:{legPct:+(100*kindsH.leg/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), armPct:+(100*kindsH.arm/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), bodyPct:+(100*kindsH.body/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), n:kindsH.leg + kindsH.arm + kindsH.body}, solo:soloOut(),
     jointViol:{bodySteps:vSteps, steps:vBad, pct:vSteps ? +(100*vBad/vSteps).toFixed(3) : null, byJoint:vPart},
     speed40:speed40(),
+    olDepth:olDepthOut(),   // B-080
     climbFill:{climbs:cf.climbs, plays:cf.plays, landedPct:cf.climbs ? +(100*cf.landed/cf.climbs).toFixed(1) : null, beforePct:cf.climbs ? +(100*cf.before/cf.climbs).toFixed(1) : null, startMed:med(cf.start), travelMed:med(cf.travel), backLosMed:med(cf.backLos), lifeMed:med(cf.life), dispMed:med(cf.disp)},   // B-012 (climb-timing)
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
     read:{n:reads.filter(r => r.choice).length, noDecision:reads.filter(r => !r.choice).length, wrongPct:reads.some(r => r.choice) ? +(100*reads.filter(r => r.wrong).length/reads.filter(r => r.choice).length).toFixed(1) : null, choices:reads.filter(r => r.choice).reduce((o, r) => { const c = o[r.choice] || (o[r.choice] = {n:0, ypc:0}); c.ypc = +((c.ypc*c.n + r.y)/++c.n).toFixed(2); return o; }, {}), wrongYpc:mean(reads.filter(r => r.choice && r.wrong).map(r => r.y)), rightYpc:mean(reads.filter(r => r.choice && !r.wrong).map(r => r.y))},
-    blk:blkLog, pullWhy, pullReach:Object.fromEntries(Object.entries(pullReach).map(([k, r]) => [k, {...r, pct:+(100*r.reached/r.n).toFixed(1)}])),
+    blk:blkLog, pullWhy, pullReach:{...Object.fromEntries(Object.entries(pullReach).map(([k, r]) => [k, {...r, pct:+(100*r.reached/r.n).toFixed(1)}])), edge:{n:edgeAt.x.length, xMed:med(edgeAt.x), depthMed:med(edgeAt.d)}},
     faceHold:{LB:fhOut(fhR.LB), DB:fhOut(fhR.DB)},   // B-072-2
     speedRole:Object.fromEntries(Object.entries(S.speedRole).map(([k, e]) => [k, +(e.sum/e.n).toFixed(3)])),   // B-060-2
     cuts:{carries:S.cutLog.carries, cuts:S.cutLog.cuts, perCarry:S.cutLog.carries ? +(S.cutLog.cuts/S.cutLog.carries).toFixed(3) : null, latStepMed:med(S.cutLog.lat), speedKept:med(S.cutLog.keep)},   // B-072-3

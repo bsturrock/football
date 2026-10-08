@@ -1,15 +1,14 @@
 import { separate } from './blocking.js';
 import { defenseAI } from './defense.js';
-import { faceStep } from './movement.js';
 import { setDrillBar } from './hud.js';
 import { giveBall, snap } from './input.js';
 import { ballMesh, ctrlRing } from './markers.js';
 import { offenseAI } from './offense.js';
-import { physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
 import { ALL, DL, LG, LT, OL, QB, RB, RG, RT, C } from './players.js';
 import { camera } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
+import { stepWith } from './step.js';
 
 // ---------- blocking drill (B-019) ----------
 // ?drill=1v1 | line. One run-block rep after another on the game's own code: setupPlay lines the offense and the front up, snap() resolves
@@ -66,7 +65,7 @@ export function setMode(m){
 export function drillStart(){
   S.drill = true; ballMesh.scale.setScalar(0); ctrlRing.scale.setScalar(0);   // the ball (in hidden hands) and the ring (under hidden QB/RB) would float on empty grass
   setDrillBar(mode, note(mode), setMode); newRep(); }
-export function drillTick(dt){
+function drillUpdate(dt){
   t += dt;
   if(S.phase === 'presnap'){ if(t >= PRE_S) liveSnap(); }
   else {
@@ -77,9 +76,8 @@ export function drillTick(dt){
     separate();
     if(t >= PRE_S + REP_S) newRep();
   }
-  ALL.forEach(p => faceStep(p, dt, ball, S));   // B-072-1: facing is sim state
-  physStep(dt);
 }
+export const drillTick = dt => stepWith(dt, drillUpdate);   // the rep's flow, then the shared tail (facing, physics: step.js)
 const look = new THREE.Vector3(), pos = new THREE.Vector3(), want = new THREE.Vector3(), tgt = new THREE.Vector3();
 let snapCam = true;
 // framed on the rep: the drilled men's centre, close and low from the offense's side; the line view stands back
