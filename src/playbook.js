@@ -98,7 +98,7 @@ export const PLAYS = [
    rules:{LT:DRAW_OL, LG:DRAW_OL, C:DRAW_OL, RG:DRAW_OL, RT:DRAW_OL, TE:[['pass'],['on'],['down']], FB:[['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
    path:[[1.1,-2.5],[1.1,0.5],[1.1,8]]},
   {name:'Duo', run:'hand', scheme:'man', hole:1.1, forms:['21 I', '12 Under', '22 Heavy'], mesh:[-0.5,-2.6],   // double teams at the point of attack, back picks his gap
-   rules:{LT:DUO_OL, LG:DUO_OL, C:DUO_OL, RG:DUO_OL, RT:DUO_OL, TE:[['on'],['down']], ...EXTRAS, ...WR_ON},
+   rules:{LT:DUO_OL, LG:DUO_OL, C:DUO_OL, RG:DUO_OL, RT:DUO_OL, TE:[['on'],['double','backside'],['down']], ...EXTRAS, ...WR_ON},
    path:[[0.7,-3.0],[1.1,0.5],[1.1,8]]},
   {name:'Iso', run:'hand', scheme:'man', hole:-1.1, forms:['21 I', '22 Heavy'], mesh:[0.5,-2.6],   // the fullback leads into the middle backer, everybody blocks the man on him
    rules:{LT:ISO_OL, LG:ISO_OL, C:ISO_OL, RG:ISO_OL, RT:ISO_OL, TE:[['on'],['down']], FB:[['backer','mike'],['backer','ps'],['any']], TE2:[['on'],['reach']], ...WR_ON},
