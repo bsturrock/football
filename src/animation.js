@@ -11,7 +11,8 @@ import { $, BLOCK_D, BODY_W, FACE_RATE, LOCK_D, clamp, faceLean, faceYaw } from 
 
 // ---------- animation ----------
 const BALL_H = 0.1;   // the ball lies on the turf (yd up to its centre)
-const STANCE_LEAN = 1.3, STANCE_HEAD = 1.1;   // B-033 three-point stance: torso lean and head-up (rad about the neck); with STANCE_REACH 1.0 the down hand lands 0.98 yd ahead of the hips and the helmet front 0.96
+const STANCE_HIPZ = 0.22;   // B-052: hips splayed sideways in the line stance (rad each side): the wide base of the photo
+const STANCE_LEAN = 1.05, STANCE_HEAD = 0.85;   // B-033 three-point stance: torso lean and head-up (rad about the neck); with STANCE_REACH 1.0 the down hand lands 0.98 yd ahead of the hips and the helmet front 0.96
 // joint signs: negative hip/shoulder = swing forward, positive knee = bend, positive lean/pitch = tip forward
 function targetPose(p, sp){
   // Gait: each leg's phase runs stance -> push-off -> swing -> reach. Thigh swings fore/aft around a slightly
@@ -26,7 +27,7 @@ function targetPose(p, sp){
     drop:0.04*r, pitch:0, bob:Math.abs(cs)*0.07*r};
   const arms = (l, rt, el) => { T.shL = l; T.shR = rt; T.elL = T.elR = el; };
   if(S.phase === 'presnap'){
-    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, {lean:STANCE_LEAN, hipL:-1.3, hipR:-1.1, kneeL:1.7, kneeR:1.5, drop:0.44, shR:-1.9, elR:0, shL:-0.5, elL:-0.6, headUp:STANCE_HEAD});   // B-033: head up, the down hand on the turf at the ball tip, helmet front over it (formations.js STANCE_REACH)
+    if(p.role === 'OL' || p.role === 'DL' || p.pos === 'TE') Object.assign(T, {lean:STANCE_LEAN, hipL:-1.2, hipR:-1.0, kneeL:1.35, kneeR:1.2, drop:0.46, shR:-1.7, elR:0, shL:-0.75, elL:-1.0, armZL:0.5, headUp:STANCE_HEAD, hipZ:STANCE_HIPZ});   // B-052: wide base (hip splay), elbows out, off-hand forearm toward the knee; B-033: head up, the down hand on the turf at the ball tip, helmet front over it (formations.js STANCE_REACH)
     else if(p.pos === 'FB') Object.assign(T, {lean:0.75, hipL:-0.8, hipR:-0.7, kneeL:1.3, kneeR:1.2, drop:0.28}), arms(-0.9, -0.9, -0.6);   // fullback: low, hand near the ground
     else if(p === QB && PLAYS[S.play].under){ Object.assign(T, {lean:0.75, hipL:-0.7, hipR:-0.6, kneeL:1.1, kneeR:1.0, drop:0.3}); arms(-1.0, -1.0, -0.5); }   // under center
     else if(p === QB){ Object.assign(T, {lean:0.2, hipL:-0.3, hipR:-0.3, kneeL:0.5, kneeR:0.5, drop:0.08}); arms(-0.9, -0.9, -0.9); }
@@ -193,6 +194,7 @@ function animate(p, dt){
   p.hdUp = (p.hdUp || 0) + ((T.headUp || 0) - (p.hdUp || 0))*k;
   J.head.rotation.set(-ENG_HEAD*P.lean*p.engW - p.hdUp, HEAD_TURN*p.engW, HEAD_TILT*p.engW);   // head up while engaged: eyes on his man, not the turf; B-042: the head stays on its neck socket and tilts to his right shoulder (B-031 slid it sideways off the neck), so the pair's helmets pass
   p.roll = ENG_ROLL*p.engW; J.torso.rotation.set(P.lean, P.twist, p.roll);   // B-042: engaged, he rolls to his right about the hips: the head (on its neck) and shoulders clear his partner's
+  p.hipZ = (p.hipZ || 0) + ((T.hipZ || 0) - (p.hipZ || 0))*k; J.hipL.rotation.z = p.hipZ; J.hipR.rotation.z = -p.hipZ;   // B-052: sideways hip splay, only in the presnap stance
   J.hipL.rotation.x = P.hipL; J.hipR.rotation.x = P.hipR; J.kneeL.rotation.x = P.kneeL; J.kneeR.rotation.x = P.kneeR;
   p.armZL = (p.armZL ?? ARM_Z_FREE) + ((T.armZL ?? ARM_Z_FREE) - (p.armZL ?? ARM_Z_FREE))*k; p.armZR = (p.armZR ?? -ARM_Z_FREE) + ((T.armZR ?? -ARM_Z_FREE) - (p.armZR ?? -ARM_Z_FREE))*k;   // sideways arm angles: 0.12 out free, the hand-placement angles engaged
   J.shL.rotation.set(P.shL, 0, p.armZL); J.shR.rotation.set(P.shR, 0, p.armZR); J.elL.rotation.x = P.elL; J.elR.rotation.x = P.elR;
