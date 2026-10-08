@@ -1,5 +1,4 @@
 import { BRAKE_K, BURST_DRAIN, KEYS, MENTAL, SPRINT, TEMPLATES, accOf, spdOf } from './ratings.js';   // ratings.js, roster.js, formations.js (pure) and util.js roll nothing at load, so importing them before seedRandom runs is safe
-import { CARRY_T, stepHz } from './blocking.js';
 import { BOX_X as BOX_DX, formByName } from './formations.js';
 import { FRONTS, STUNTS } from './fronts.js';
 import { dash40 } from './movement.js';
@@ -93,9 +92,9 @@ function out(o){
   const el = document.createElement('pre'); el.id = 'simout'; el.textContent = JSON.stringify(o); document.body.appendChild(el);
 }
 
-// g: the game objects, passed in by main.js so this file's only import is ratings.js (it must load before any module that rolls random numbers)
+// g: the game objects (B-070: and blocking.js's CARRY_T and stepHz, since importing blocking.js here loads players.js and rolls the roster before seedRandom), passed in by main.js so this file imports only pure modules (it must load before any module that rolls random numbers)
 export function runSim(n, step, g){
-  const {physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball} = g;
+  const {CARRY_T, stepHz, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball} = g;
   const ballY = h => h.ph ? 50 - physBall(h).z : h.y;
   S.speedRole = {};   // B-060-2
   if(!window.CANNON){ out({error:'physics failed to load'}); return; }
