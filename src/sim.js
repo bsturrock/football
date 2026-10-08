@@ -28,11 +28,11 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //     liveHung {steps, medSpineUp}: live-ball sim steps (SIM_DT) summed over bodies, bubble bodies excluded, where a body off his feet over HUNG_T 0.5 s was not down (physDown) and moved under HUNG_V 0.5 yd/s; medSpineUp = median torso up-axis y of those steps (1 upright, 0 flat)
 //     liveTop {n, p90, max, latchedOnStanding {n, p90}, other {n, p90}}: torso top (yd) per live-ball sim step per body (bubble bodies excluded) off his feet over HUNG_T s, down or not; latchedOnStanding = a tackler latched on a runner still on his feet (bal > 0), other = all else
 //     fallToTurfS {falls, failed, failedShort, lateOk, p90}: per episode, seconds from bal 0 to the first part on the turf (a hand or foot does not count: physDown). falls = reached before the whistle + failed; p90 over those that reached it before the whistle;
-//       failed = not on the turf at the whistle / PLAY_MAX_S, or he got up first; failedShort = failed ones that began under SHORT_FALL_T 0.3 s before then (too late to land); lateOk = of the failed at the whistle, landed within the POST_S 1 s of dead ball
+//       failed = not on the turf at the whistle / PLAY_MAX_S, or he got up first (a body that loses p.ph in live play, got up or tackled out, counts as failed, B-044); failedShort = failed ones that began under SHORT_FALL_T 0.3 s before then (too late to land); lateOk = of the failed at the whistle, landed within the POST_S 1 s of dead ball
 //     kneesFirst {legPct, armPct, bodyPct, n}: share of episodes (live landings and late ones) by the lowest part when he first touched the turf: shin/thigh (legPct), forearm/upper arm (armPct), torso/head (bodyPct)
 //     solo {plays, falls, noTurf, turfMedS, turfP90S, peakVMed, peakVP90, top03Med, top06Med}: the episodes of plays that never had more than SOLO_BODIES 2 tackle/ragdoll bodies (p.ph, not bubble) at once in live play; noTurf = never landed (live or late);
 //       turf*S = seconds to the first landing (live or late); peakV = fastest downward torso speed (yd/s) during the episode; top03/top06 = torso top (yd) at 0.3 / 0.6 s off his feet (episodes that lasted that long)
-//     jointViol {bodySteps, steps, pct, byJoint}: sim steps (SIM_DT, live and dead ball) summed over every physics body (bubble included); steps = those with any joint past its limit (physics.js PARTS lim) by over VIOL_DEG 10 deg at the last substep; pct = steps/bodySteps; byJoint = steps per part name (torso, head, uaL, faL, ... snR)
+//     jointViol {bodySteps, steps, pct, byJoint}: sim steps (SIM_DT, live and dead ball) summed over every physics body (bubble included), pre-snap steps included (B-044); steps = those with any joint past its limit (physics.js PARTS lim) by over VIOL_DEG 10 deg at the last substep; pct = steps/bodySteps; byJoint = steps per part name (torso, head, uaL, faL, ... snR)
 //   bodiesMax: total physics body count; pile counters count tackle/ragdoll bodies only (p.ph && !p.ph.bubble)
 //   physMs {median/p95}: NOT reliable here (performance.now does not advance in one synchronous task): never compare; use ?debug in a real browser for frame and physics ms
 //   read {n: zone plays decided, noDecision: stuffed before deciding, wrongPct: share not the noiseless best lane, choices {name: {n, ypc}}, wrongYpc, rightYpc} (from S.read)
@@ -251,7 +251,7 @@ export function runSim(n, step, g){
       const kind = q.kind, dn = !!kind;
       if(dn && !e.ok){ e.ok = true; e.turf = q.fallT; kinds[kind]++; fallS.push(q.fallT); }
       if(q.fallT > HUNG_T && !p.ph.bubble){
-        tops.push(q.topY); (p.latch && p.latch.ph && p.latch.ph.bal > 0 ? topsL : topsO).push(q.topY);
+        tops.push(q.topY); (p.latch && p.latch.ph && physPose(p.latch).bal > 0 ? topsL : topsO).push(q.topY);
         if(!dn && physSpeed(p) < HUNG_V){ hung.n++; hung.up.push(q.spineY); }
       }
     }
