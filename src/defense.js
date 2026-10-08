@@ -43,6 +43,7 @@ const BACK_HOME_X =1.5*GRID_K, FILL_DX = 2.5*GRID_K, CONTAIN_X = 1.5*GRID_K, CON
 // B-085: free, shed and backside linemen chase the ball by role. Only the backside edge (force) man stays home (boot, reverse, cutback), and only the d.home roll; backside interior men pursue flat on an intercept angle
 // (their target is never deeper than the runner once he is across the line, and L+FLAT_Y while he is behind it, so they run the line, not away from him); a playside gap man fills his gap while the ball is at the line, then closes on the runner once within FILL_CLOSE yd
 const FLOW_OUT = 1.5;   // B-089: the force DL widens (FIRE_DEPTH) while the ball has moved this far toward his side from where the back lined up; otherwise it is an inside run and he holds (FORCE_FIRE_DEPTH)
+let snapQB = 0, snapRB = 0, snapClk = Infinity, snapN = 0;   // B-089: each ball carrier's x at the snap (QB and RB; the first runFit of a play: S.clock restarts at 0 on the snap, so a lower clock than the last call is a new play), and a play counter for d.wideN
 const FILL_CLOSE = 3, FILL_BAND = 0.5, FLAT_Y = 0.5;   // FILL_BAND: dead band on FILL_CLOSE (in at 3 yd, out past 3.5, d.fillL). DL only: LBs also carry role 'gap' and keep the old rules; FLAT_Y: a flat chaser's target is at least this far past the line
 const backsideOf = (j, bx) => bx*j.side < -BACK_HOME_X;   // the ball went away from this gap's side
 const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
@@ -161,8 +162,12 @@ function stuntFit(d){
   if(s.st === 'gap') return [d.job.gx, L + 0.5];
   return null;
 }
+// B-089: the force DL widens once the ball has moved FLOW_OUT toward his side from his own snap spot, and stays wide for the play (no flicker back at the handoff)
+function wide(d, j){ if(d.wideN !== snapN && (ball.holder === QB ? QB.x - snapQB : (ball.holder || RB).x - snapRB)*j.side >= FLOW_OUT) d.wideN = snapN; return d.wideN === snapN; }
 // where the job sends him this frame
 function runFit(d, c){
+  if(S.clock < snapClk){ snapQB = QB.x; snapRB = RB.x; snapN++; }   // B-089: the references for the force man's outside-flow read, taken at the snap whatever the formation did to the back; each holder is read against his own snap spot, so a gun back's alignment is not flow
+  snapClk = S.clock;
   const latch = d.sqzL; d.sqzL = false;   // B-089: the latch lives only through consecutive contain() frames; any other return leaves it clear
   d.sqz = false;   // B-084: set only by contain() this frame, so the chase and backside-home branches never leave it on for avoidBlockers
   if(d.stunt){ const t = stuntFit(d); if(t) return t; }
@@ -170,7 +175,7 @@ function runFit(d, c){
   if(S.clock <= S.handoffAt + d.read + d.bite){
     // before the read: linemen attack their gap, second level read-steps with the backfield, the rest hold
     const flow = ((ball.holder || RB).x - S.flow0)*(d.rAwr/100)*0.7;
-    if(d.role === 'DL') return [j.gx, L - (j.role === 'two' ? 0.5 : j.role === 'force' && ((ball.holder || RB).x - S.flow0)*j.side < FLOW_OUT ? FORCE_FIRE_DEPTH : FIRE_DEPTH)];   // B-064 (dl-fire): a one-gapper explodes through his gap; a two-gapper attacks the blocker and holds square; B-084: the edge (force) man holds the line (FORCE_FIRE_DEPTH, a hair on his side of it) instead of crossing it, so the puller meets him at the line, not 2.5 yd deep
+    if(d.role === 'DL') return [j.gx, L - (j.role === 'two' ? 0.5 : j.role === 'force' && !wide(d, j) ? FORCE_FIRE_DEPTH : FIRE_DEPTH)];   // B-064 (dl-fire): a one-gapper explodes through his gap; a two-gapper attacks the blocker and holds square; B-084: the edge (force) man holds the line (FORCE_FIRE_DEPTH, a hair on his side of it) instead of crossing it, so the puller meets him at the line, not 2.5 yd deep
     if(j.role === 'gap' || j.role === 'force') return [j.gx + flow, L + (d.role === 'LB' ? 3.5 : 4)];
     if(j.role === 'alley') return [j.gx*0.7 + flow*0.5, L + 7];
     if(j.role === 'deep') return [flow*0.4, L + 12];
