@@ -42,8 +42,8 @@ import { dist } from './util.js';
 //   double    no free LB in range                                               double (stays, asked again every frame)
 //   double    d is down, or either man was re-targeted                          both released (the zone/man code re-picks)
 //   climbing  the LB is down                                                    released (zoneBlock re-picks)
-// Pull (B-007-8). Per puller p.pull = {kind, tgt, state, t, reach}; set at the snap only (the handoff re-read keeps a puller that is pulling or engaged; one that finished unengaged takes his next rule).
-// The path is PULL_DEPTH behind the line for PULL_FLAT yd along it, then up to the aim point (offense.js runBlock runs it at PULL_V x speed); S.pulls logs {name, kind, tgt, reach} for probes.
+// Pull (B-007-8). Per puller p.pull = {kind, tgt, state, t, reach, ox}; set at the snap only (the handoff re-read keeps a puller that is pulling or engaged; one that finished unengaged takes his next rule).
+// The path is PULL_DEPTH behind the line for PULL_FLAT yd along it, then up to the aim point (offense.js runBlock runs it at PULL_V x speed); S.pulls logs {name, kind, tgt, reach} for probes. ox = the kick offset from the target's x (-dir*KICK_X for a kick, 0 otherwise); offense.js runBlock moves the last waypoint every frame to the target + ox + his velocity x the lead (the puller's time to reach him, at most PULL_LEAD_T), B-061.
 //   state     event                                                         next
 //   set       rule found a target (snap)                                    pulling (p.via = the two waypoints, p.blk = target)
 //   set       rule found no target                                          no pull (the next rule runs)
