@@ -32,6 +32,7 @@ import { BODY_H, BODY_W, FACE_RATE, HOLD_R, PILE_R, bearing, faceLean, faceYaw }
 //     fallToTurfS {falls, failed, failedShort, lateOk, p90}: per episode, seconds from bal 0 to the first part on the turf (a hand or foot does not count: physDown). falls = reached before the whistle + failed; p90 over those that reached it before the whistle;
 //       failed = not on the turf at the whistle / PLAY_MAX_S, or he got up first (a body that loses p.ph in live play, got up or tackled out, counts as failed, B-044); failedShort = failed ones that began under SHORT_FALL_T 0.3 s before then (too late to land); lateOk = of the failed at the whistle, landed within the POST_S 1 s of dead ball
 //     kneesFirst {legPct, armPct, bodyPct, n}: share of episodes (live landings and late ones) by the lowest part when he first touched the turf: shin/thigh (legPct), forearm/upper arm (armPct), torso/head (bodyPct)
+//     handFirst {legPct, armPct, bodyPct, n} (B-045): kneesFirst again, but the first touch counts the hand end of a forearm too (the brace: hands reach the turf before the elbow does); arm = hand, forearm or upper arm. kneesFirst is unchanged (elbow end only)
 //     solo {plays, falls, noTurf, turfMedS, turfP90S, peakVMed, peakVP90, top03Med, top06Med}: the episodes of plays that never had more than SOLO_BODIES 2 tackle/ragdoll bodies (p.ph, not bubble) at once in live play; noTurf = never landed (live or late);
 //       turf*S = seconds to the first landing (live or late); peakV = fastest downward torso speed (yd/s) during the episode; top03/top06 = torso top (yd) at 0.3 / 0.6 s off his feet (episodes that lasted that long)
 //     jointViol {bodySteps, steps, pct, byJoint}: sim steps (SIM_DT, live and dead ball) summed over every physics body (bubble included), pre-snap steps included (B-044); steps = those with any joint past its limit (physics.js PARTS lim) by over VIOL_DEG 10 deg at the last substep; pct = steps/bodySteps; byJoint = steps per part name (torso, head, uaL, faL, ... snR)
@@ -237,7 +238,7 @@ export function runSim(n, step, g){
   // B-038: falls. Hung = off his feet over HUNG_T, not on the turf, nearly still. A fall episode is keyed by his ph (fallT counts bal 0 and not getting up) and opens only in live play;
   // endFalls closes the play's open episodes (the whistle, or PLAY_MAX_S): one not on the turf by then is failed (short if it began under SHORT_FALL_T before). The dead-ball seconds only
   // watch those episodes for a late landing (lateOk). Episode: first turf part kind (kneesFirst), peak fall speed, torso top at 0.3 and 0.6 s (solo-hit check: plays with at most SOLO_BODIES tackle bodies).
-  const hung = {n:0, up:[]}, tops = [], pileTops = [], gripTops = [], topsL = [], topsO = [], fallS = [], fe = new Map(), eps = [], bodMax = [], kinds = {leg:0, arm:0, body:0};
+  const hung = {n:0, up:[]}, tops = [], pileTops = [], gripTops = [], topsL = [], topsO = [], fallS = [], fe = new Map(), eps = [], bodMax = [], kinds = {leg:0, arm:0, body:0}, kindsH = {leg:0, arm:0, body:0};
   let fallFail = 0, fallShort = 0, fallLate = 0, vSteps = 0, vBad = 0, curPlay = 0, fallsEnded = false; const vPart = {};
   const endFalls = () => { fallsEnded = true; for(const e of fe.values()){ e.w = true; if(!e.ok){ fallFail++; if(e.dur < SHORT_FALL_T) fallShort++; } } };
   const falls = () => {
@@ -247,10 +248,12 @@ export function runSim(n, step, g){
       const q = physPose(p); vSteps++; if(q.viol > VIOL_DEG*Math.PI/180){ vBad++; q.violOver(VIOL_DEG*Math.PI/180).forEach(n => { vPart[n] = (vPart[n] || 0) + 1; }); }
       if(q.fallT <= 0) continue;
       let e = fe.get(p.ph);
+      if(e && !e.hk){ const kh = q.kindH; if(kh){ e.hk = kh; kindsH[kh]++; } }   // B-045: first touch with the hand end of a forearm counted (live or late)
       if(!live){ if(e && !e.ok){ const k = q.kind; if(k){ e.ok = true; e.turf = q.fallT; kinds[k]++; fallLate++; } } continue; }   // dead ball: only a late landing of an episode that was open at the whistle
       seen.add(p.ph);
       if(!e){ fe.set(p.ph, e = {ok:false, w:false, play:curPlay, turf:null, pk:0, t03:null, t06:null}); eps.push(e); }
       e.pk = Math.max(e.pk, -q.vy); e.dur = q.fallT;
+      if(!e.hk){ const kh = q.kindH; if(kh){ e.hk = kh; kindsH[kh]++; } }
       if(e.t03 === null && q.fallT >= 0.3) e.t03 = q.topY;
       if(e.t06 === null && q.fallT >= 0.6) e.t06 = q.topY;
       const kind = q.kind, dn = !!kind;
@@ -360,7 +363,7 @@ export function runSim(n, step, g){
     pushDurS:{median:med(pushes.map(w => w.dur)), p90:pct(pushes.map(w => w.dur), 0.9)},
     pushGainYd:{median:med(pushes.map(w => w.gain)), p90:pct(pushes.map(w => w.gain), 0.9)},
     stillPlays, stillMaxS:{p90:pct(stillMax, 0.9), max:stillMax.length ? +Math.max(...stillMax).toFixed(2) : null}, flatFrames:flat.n, flatPct:flat.n ? +(100*flat.ok/flat.n).toFixed(1) : null, heightLayers:{median:med(heights), p90:pct(heights, 0.9), max:heights.length ? +Math.max(...heights).toFixed(2) : null}, playS:{median:med(playLen), p90:pct(playLen, 0.9), max:playLen.length ? +Math.max(...playLen).toFixed(2) : null},
-    liveHung:{steps:hung.n, medSpineUp:med(hung.up)}, pileTop:{n:pileTops.length, p90:pct(pileTops, 0.9)}, gripTop:{n:gripTops.length, p90:pct(gripTops, 0.9)}, liveTop:{n:tops.length, p90:pct(tops, 0.9), max:tops.length ? +Math.max(...tops).toFixed(2) : null, latchedOnStanding:{n:topsL.length, p90:pct(topsL, 0.9)}, other:{n:topsO.length, p90:pct(topsO, 0.9)}}, fallToTurfS:{falls:fallS.length + fallFail, failed:fallFail, failedShort:fallShort, lateOk:fallLate, p90:pct(fallS, 0.9)}, kneesFirst:{legPct:+(100*kinds.leg/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), armPct:+(100*kinds.arm/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), bodyPct:+(100*kinds.body/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), n:kinds.leg + kinds.arm + kinds.body}, solo:soloOut(),
+    liveHung:{steps:hung.n, medSpineUp:med(hung.up)}, pileTop:{n:pileTops.length, p90:pct(pileTops, 0.9)}, gripTop:{n:gripTops.length, p90:pct(gripTops, 0.9)}, liveTop:{n:tops.length, p90:pct(tops, 0.9), max:tops.length ? +Math.max(...tops).toFixed(2) : null, latchedOnStanding:{n:topsL.length, p90:pct(topsL, 0.9)}, other:{n:topsO.length, p90:pct(topsO, 0.9)}}, fallToTurfS:{falls:fallS.length + fallFail, failed:fallFail, failedShort:fallShort, lateOk:fallLate, p90:pct(fallS, 0.9)}, kneesFirst:{legPct:+(100*kinds.leg/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), armPct:+(100*kinds.arm/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), bodyPct:+(100*kinds.body/Math.max(1, kinds.leg + kinds.arm + kinds.body)).toFixed(1), n:kinds.leg + kinds.arm + kinds.body}, handFirst:{legPct:+(100*kindsH.leg/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), armPct:+(100*kindsH.arm/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), bodyPct:+(100*kindsH.body/Math.max(1, kindsH.leg + kindsH.arm + kindsH.body)).toFixed(1), n:kindsH.leg + kindsH.arm + kindsH.body}, solo:soloOut(),
     jointViol:{bodySteps:vSteps, steps:vBad, pct:vSteps ? +(100*vBad/vSteps).toFixed(3) : null, byJoint:vPart},
     speed40:speed40(),
     bodiesMax, physMs:physMs.some(x => x > 0) ? {median:med(physMs), p95:pct(physMs, 0.95)} : {median:null, p95:null},
