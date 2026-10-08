@@ -95,12 +95,15 @@ function noMan(p, ref, lane, dt){
   for(const o of OFF){ if(o === p || !o.blk || !o.locked || o.blk.stun > 0 || o.role === 'WR') continue; const k = dist(o, p); if(k < hd && (o.x - p.x)*(ref.x - p.x) >= 0){ hd = k; h = o.blk; t = o; } }
   const r = noteBlocker(p); r.noMax = Math.max(r.noMax, p.y - S.los);
   p.blk = null; p.ruled = false;   // nothing is kept: the lane / climb search runs again next frame, so a backer or rusher crossing his face is picked up
-  if(h){   // help: a shoulder of the teammate's man, on my side of the pair's axis (no p.blk: the pair stays one-on-one in blocking.js)
-    const ux = h.x - t.x, uy = h.y - t.y, ul = Math.hypot(ux, uy) || 1, s = (ux*(p.y - h.y) - uy*(p.x - h.x)) >= 0 ? 1 : -1;
-    const tx = h.x + ux/ul*FIT_UP*0.5 + -uy/ul*s*DBL_SHOULDER*1.5, ty = h.y + uy/ul*FIT_UP*0.5 + ux/ul*s*DBL_SHOULDER*1.5;
+  if(h){   // help: the second-man ring spot beside the teammate (B-025: DBL_R from his man, DBL_ARC round from the teammate), side latched per teammate; no p.blk (the pair stays one-on-one in blocking.js)
+    const ux = t.x - h.x, uy = t.y - h.y, ul = Math.hypot(ux, uy) || 1;
+    if(!p.nmSide || p.nmSide.t !== t) p.nmSide = {t, s: Math.sign(ux*(p.y - h.y) - uy*(p.x - h.x)) || 1};
+    const s = p.nmSide.s, c = Math.cos(DBL_ARC*s), n = Math.sin(DBL_ARC*s);
+    const tx = h.x + (ux*c - uy*n)/ul*DBL_R, ty = h.y + (ux*n + uy*c)/ul*DBL_R;
     if(dist(p, h) < ENGAGE_R) p.eng = 0.15;
     p.faceAt = h; steer(p, tx, ty, p.spd*RUN_BLOCK_F, dt); return;
   }
+  p.nmSide = null;
   steer(p, lane + Math.max(-NM_SHADE_MAX, Math.min(NM_SHADE_MAX, (ref.x - lane)*NM_SHADE)), S.los + NM_DEPTH, p.spd*RUN_BLOCK_F, dt);
 }
 // zone: block whoever is in my lane at the line; if the lane is empty, climb to a linebacker in my area.
@@ -154,7 +157,7 @@ const drawHold = () => { const d = PLAYS[S.play].delay; return d && S.handoffAt 
 export function offenseAI(p, dt, inp){
   if(p.role !== 'QB' && p !== (ball.holder)) logSpeed(p, p.spd);
   p.faceAt = null;
-  if(S.phase === 'presnap'){ p.olRec = null; p.nmX = null; }   // B-073: a fresh record and home spot each play
+  if(S.phase === 'presnap'){ p.olRec = null; p.nmX = null; p.nmSide = null; }   // B-073: a fresh record and home spot each play
   else if(p.beatT <= 0 && p.olRec) p.olRec.b = null;
   if(p.falling) return;                                   // going down: tackleUpdate moves him
   const c = ball.state === 'held' ? ball.holder : null, run = PLAYS[S.play].run;
