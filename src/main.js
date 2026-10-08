@@ -10,7 +10,7 @@ import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
 import { faceStep, steer } from './movement.js';
-import { offenseAI } from './offense.js';
+import { flushOlRecs, offenseAI } from './offense.js';
 import { pileUpdate } from './pile.js';
 import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender, physStep } from './physics.js';
 import { DEF_CALLS, PLAYS } from './playbook.js';
@@ -126,7 +126,7 @@ function start(data){
   if(q.get('cpu') === '0') setCpu(false);   // B-068: start in user view (the C key off), so a shot sees the pre-snap block lines
   if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
   if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0), q); return; }
-  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, flushOlRecs, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
   if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
     if(q.has('frames') && drillError){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:drillError}); document.body.appendChild(el); return; }   // B-042 (axis-glide)
     if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
