@@ -3,8 +3,8 @@ import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, fitGroup, landRing, routeGroup } from './markers.js';
 import { physBall, physOn, physRender, physJoint, physSocket } from './physics.js';
 import { PLAYS } from './playbook.js';
-import { OL_BACK } from './formations.js';
-import { ALL, BODY_H, C, G, JOINTS, QB, RB, bodyV } from './players.js';
+import { GUARD_BACK, OL_BACK, TACKLE_BACK } from './formations.js';
+import { ALL, BODY_H, C, G, JOINTS, OL, QB, RB, bodyV } from './players.js';
 import { toWorld } from './scene.js';
 import { S, ball } from './state.js';
 import { $, BLOCK_D, BODY_W, FACE_RATE, LOCK_D, clamp, faceLean, faceYaw } from './util.js';
@@ -300,9 +300,9 @@ function pdInside(a, b){   // corners of a's parts inside b's parts
 const HO_EVERY = Number(new URLSearchParams(location.search).get('handoff')) || 0;   // ?handoff=N: every N frames the first fully engaged man becomes a physics body (the drills never promote one)
 let hoFrame = 0;
 // B-033 neutral zone (pairReport fields nz*): on presnap frames after the stance has settled (NZ_SETTLE frames), each visible OL and DL: how far his helmet front (OL: the edge toward the defense, DL: toward the offense) sits from the los,
-// and his down (right) hand against his ball tip (OL the back tip, DL the front tip; the center is skipped, the ball is in his hands). Fields of pairReport: nzOLfront (largest OL helmet front, yd past the los; at or under -nzTip = behind the back tip),
+// and his down (right) hand against his ball tip (OL the back tip, DL the front tip; B-059: an OL's expected spot is the back tip minus his slot's V setback, TACKLE_BACK / GUARD_BACK by his index in players.js OL, as formations.js sets him; the center is skipped, the ball is in his hands). Fields of pairReport: nzOLfront (largest OL helmet front, yd past the los; at or under -nzTip = behind the back tip),
 // nzDLfront (smallest DL helmet front; at or over nzTip), nzGap (nzDLfront - nzOLfront, the daylight between the two lines' helmets; 0.31+), nzHandErr (largest |hand - his ball tip| along the field, yd), nzHandH (largest hand height above the turf), nzBallErr (largest |ball centre - los|)
-const NZ_SETTLE = 40, NZ_TIP = ballMesh.geometry.parameters.radius*ballMesh.scale.z, nz = {n:0, ol:-9, dl:9, hand:0, h:0, ball:0, men:0, c:0}, nzV = new THREE.Vector3();
+const NZ_SETBACK = [TACKLE_BACK, GUARD_BACK, 0, GUARD_BACK, TACKLE_BACK], NZ_SETTLE = 40, NZ_TIP = ballMesh.geometry.parameters.radius*ballMesh.scale.z, nz = {n:0, ol:-9, dl:9, hand:0, h:0, ball:0, men:0, c:0}, nzV = new THREE.Vector3();
 function nzCheck(){
   if(S.phase !== 'presnap'){ nz.n = 0; return; }
   if(++nz.n < NZ_SETTLE) return;
@@ -315,7 +315,7 @@ function nzCheck(){
     nz.men++; if(off) nz.ol = Math.max(nz.ol, fr); else nz.dl = Math.min(nz.dl, fr);
     if(p === C){ p.j.elR.localToWorld(nzV.set(...bodyV([0, -0.4, 0]))); nz.c = Math.max(nz.c, nzV.distanceTo(ballMesh.position)); continue; }   // B-052: the center's right hand against the ball centre
     p.j.elR.localToWorld(nzV.set(...bodyV([0, -0.4, 0])));
-    nz.hand = Math.max(nz.hand, Math.abs(50 - nzV.z - S.los - (off ? -NZ_TIP : NZ_TIP))); nz.h = Math.max(nz.h, nzV.y);
+    nz.hand = Math.max(nz.hand, Math.abs(50 - nzV.z - S.los - (off ? -NZ_TIP - NZ_SETBACK[OL.indexOf(p)] : NZ_TIP))); nz.h = Math.max(nz.h, nzV.y);
   }
 }
 export function pairCheck(){
