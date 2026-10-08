@@ -1,7 +1,7 @@
 import { C, CBs, DEF, EXTRA, LBs, LG, LT, OFF, RG, RT, SFs, TE, WRs } from './players.js';
 import { lack } from './ratings.js';
 import { S } from './state.js';
-import { BOX_X, GRID_K as GK, OL_GAP } from './formations.js';
+import { BOX_X, GRID_K as GK, OL_GAP, TACKLE_BACK } from './formations.js';
 import { dist } from './util.js';
 
 // ---------- block rules (B-007-6) ----------
@@ -56,7 +56,7 @@ import { dist } from './util.js';
 // B-021: the windows below were written on the old 2.2 yd line grid; GK (formations.js GRID_K) carries them onto the new line grid (OL_GAP 1.35 yd): x0.61.
 // KICK_X is a shoulder width, so it takes the body width (x0.7) instead.
 export const ENGAGE_R = 0.98;   // B-021: two bodies this close are locked up (was 1.4, x0.7 body width); offense.js and blockrules read it
-export const PULL_V = 1.3, PULL_DEPTH = 1.8, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, PLAYSIDE_X = 1.5*GK, KICK_X = 0.35, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
+export const PULL_V = 1.3, PULL_DEPTH = 1.8 + TACKLE_BACK /* B-053 (ol-v-set): the tackles sit TACKLE_BACK deeper, the path stays as clear of them as before */, PULL_FLAT = 1.2, PULL_VIA_R = 0.8, PLAYSIDE_X = 1.5*GK, KICK_X = 0.35, KICK_BACK = 1, KICK_FWD = 3, WRAP_Y = 1.5;   // PULL_VIA_R: a waypoint counts as reached this close
 // Re-read on a stunt (B-007-9). A slant counts as a crossing stunt for the re-read and for the WRONG roll (every line man's gap moves); a blitz does not. Per lineman p.rr = {state, d, home, t, acc, miss}; set at the snap for a man whose target is a stunting defender (crossing stunt: d.stunt, not a blitzer).
 // Awareness (p.rt.recog) sets the mistakes: READ_O = READ_BASE - recog/READ_K is how long he takes to see his man left, MISS_P*lack keeps his old man MISS_HOLD s more, WRONG_P*lack takes his second rule's man at the snap.
 // offense.js rereadCheck asks every REREAD_DT while he has an rr; events go to S.blkEv ({name, ev:'passed'|'missed'|'wrong', t}).
