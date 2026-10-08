@@ -35,7 +35,7 @@ const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates'
 // B-069 (tackle-technique): how the tackler makes the hit. 'diveBehind' / 'diveStretch' = last-ditch (chasing from behind; or a non-big hit at the far end of the lunge band), 'shoulder' = the speed edge (BOOM), else 'wrap' (square: breaks down, chest to chest, arms around, legs drive).
 // d.tech is set at contact and logged (S.tkLog tech). Launch: forward kick (yd/s), up (m/s) and spin (forward lean rate, rad/s-ish, physOn spin); lower than before so he hits from his feet.
 const TECH = {wrap:{kick:2.4, up:0, lean:0}, shoulder:{kick:3.0, up:0.15, lean:1.2}, diveBehind:{kick:3.0, up:0.3, lean:2.5}, diveStretch:{kick:3.0, up:0.3, lean:2.5}};
-const LUNGE_DD = 1.3*BODY_W, STRETCH_DD = 1.85*BODY_W;   // open-field lunge starts at LUNGE_DD (tackleUpdate; 2*BODY_W is its limit); only its far end is a stretch dive, nearer ones wrap
+const LUNGE_DD = 1.3*BODY_W, STRETCH_DD = 1.95*BODY_W;   // open-field lunge starts at LUNGE_DD (tackleUpdate; 2*BODY_W is its limit); only its far end is a stretch dive, nearer ones wrap
 function pickTech(d, c, dd, big, cAway, nx, ny){
   const behind = cAway > 2 && cAway > 0.7*Math.hypot(c.vx, c.vy) && d.vx*nx + d.vy*ny > 0;   // chasing him from behind: he's running straight away from the tackler
   if(behind) return 'diveBehind';
