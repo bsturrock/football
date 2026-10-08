@@ -3,8 +3,8 @@
 // x is yards from the center on the base (right-hand) side; dy is yards behind the line. flip -1 mirrors every skill player
 // (QB, backs, TE, WR) across the center; the five linemen stay. A formation names its personnel (roster.js PERSONNEL.off), so subIn
 // puts its fullback and second tight end on the field. `under`: the QB is under center (otherwise shotgun).
-// B-021: NFL splits, 3-4 ft between linemen (center to center 1.35 yd = 4 ft); the tight end is one split outside the tackle, linemen are
-// OL_BACK yd behind the line. fronts.js builds its alignment grid from the same OL_GAP.
+// B-021: NFL splits, 3-4 ft between linemen (center to center 1.35 yd = 4 ft); the tight end is one split outside the tackle, the center is
+// OL_BACK yd behind the line and the V (B-053) sets each guard and tackle deeper by OL_SETBACK per slot (GUARD_BACK, TACKLE_BACK), the tight end level with his tackle (TE_BACK). fronts.js builds its alignment grid from the same OL_GAP.
 // B-027 neutral zone: the ball is one ball length deep (NEUTRAL_Z, about 0.31 yd), centred on the line; only the snapper's hands reach in.
 // A lineman stands STANCE_REACH (hands to body centre) outside the zone's edge, so OL and DL centres are NEUTRAL_Z + 2*STANCE_REACH = 2.31 yd (B-033: hands at the ball tips, helmet fronts over them, so the daylight between helmets is NEUTRAL_Z) apart.
 export const NEUTRAL_Z = 0.31, STANCE_REACH = 1.0;
