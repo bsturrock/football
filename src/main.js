@@ -1,7 +1,7 @@
 import { endLoad, runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
 import { pairCheck, pairReport, setFrameClock, syncScene } from './animation.js';
 import { CARRY_T, separate, stepHz } from './blocking.js';
-import { setAutoCam, updateCamera } from './camera.js';
+import { setAutoCam, setAutoFocus, updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
 import { DEF_OFF_WHISTLE, defOffStep } from './defoff.js';
@@ -94,7 +94,7 @@ function runFrames(n){
 // ---------- autoplay (B-046) ----------
 // ?autoplay=<seconds>&sim=1&seed=S: the CPU calls and snaps a play with no input; the page steps 1/60 s synchronously (as runFrames does) until the play has run <seconds> after the snap
 // (or ended first), then keeps painting that frame with the game camera: a headless screenshot shows the play mid-action. `sim=1` only seeds Math.random, so the same seed gives the same
-// frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...} into <pre id="autoout">. A normal load is unchanged.
+// frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...,"digest":...,"offPlay":..,"defCall":..} into <pre id="autoout">. A normal load is unchanged.
 // B-086: &stopon=cut|pull|shed[&after=N] stops on the first such event (see runAutoplay).
 // B-081: &play=<name> forces the offense's call (any play, case-insensitive; a pass play needs &pass=1; an unknown name gives {"error":...}); &cam=side|close frames the play, following the ball (a bad value gives {"error":...}).
 const TOW_FREE_T = 0.4;   // B-086: a copy of defense.js TOW_FREE_T (not exported; defense.js is another worker's): a tow sets freeT to this, a shed 0.9
@@ -111,9 +111,9 @@ function runAutoplay(sec, q){
   if(q.has('play')){ const nm = q.get('play').trim().toLowerCase(), pl = PLAYS.find(p => p.name.toLowerCase() === nm); if(!pl){ out({error:'unknown play ' + q.get('play') + (q.has('pass') ? '' : ' (a pass play needs &pass=1)')}); return; } S.force = {play:pl.name}; }
   if(q.has('cam')){ const c = q.get('cam').trim().toLowerCase(); if(c !== 'side' && c !== 'close'){ out({error:'unknown cam ' + q.get('cam')}); return; } setAutoCam(c); }
   // B-086: &stopon=cut|pull|shed[&after=N]: plays run one after another (up to AUTO_STOP_PLAYS, no stop at the whistle or at <seconds>) until the event fires on live state, then N more steps (default 0) and stop;
-  // autoout gains {event, play, frame}: the event, the play number (1 = the first snap), the step it fired on (event null: it never fired). Read-only, no game logic. cut: a man with p.cutPh set (B-072-4: 1 brake, 3 plant, 2 push);
+  // autoout always carries offPlay (PLAYS[S.play].name), defCall (S.defCall.name or null), on every run. Under &stopon it gains {event, play, frame, man}: man = {id, num, pos} of the man the cams frame (the first found if two fire on one step); the event, the play number (1 = the first snap), the step it fired on (event null: it never fired). Read-only, no game logic. cut: a man with p.cutPh set (B-072-4: 1 brake, 3 plant, 2 push);
   // pull: a puller reached his target (p.pull.reach set); shed: a defender with freeFrom set and freeT above TOW_FREE_T (a real shed sets 0.9; a tow, a passing blocker, sets only 0.4). An unknown event gives {"error":...}
-  const EVENTS = {cut: () => ALL.some(p => p.cutPh), pull: () => (S.pulls || []).some(u => u.p.pull && u.p.pull.reach !== null), shed: () => DEF.some(d => d.freeFrom && d.freeT > TOW_FREE_T)};
+  const EVENTS = {cut: () => ALL.find(p => p.cutPh), pull: () => (S.pulls || []).find(u => u.p.pull && u.p.pull.reach !== null)?.p, shed: () => DEF.find(d => d.freeFrom && d.freeT > TOW_FREE_T)};   // B-090: each returns the event's man (or a falsy value); the cams aim at him from the hit frame
   const stopon = q.has('stopon') ? q.get('stopon').trim().toLowerCase() : null, after = Math.max(0, Math.floor(Number(q.get('after')) || 0));
   if(stopon !== null && !EVENTS[stopon]){ out({error:'unknown stopon ' + q.get('stopon') + ' (cut|pull|shed)'}); return; }
   setCpu(true);
@@ -122,12 +122,12 @@ function runAutoplay(sec, q){
     while(n++ < AUTO_MAX_STEPS*AUTO_STOP_PLAYS && S.phase !== 'over'){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60);
       if(S.phase === 'live' && prev !== 'live') plays++; prev = S.phase;
       if(plays > AUTO_STOP_PLAYS) break;   // the cap: no event is read in a play past it
-      if(hit){ if(left-- <= 0) break; } else if(S.phase === 'live' && EVENTS[stopon]()){ hit = {event:stopon, play:plays, frame:n}; if(left-- <= 0) break; } }
+      if(hit){ if(left-- <= 0) break; } else if(S.phase === 'live'){ const man = EVENTS[stopon](); if(man){ hit = {event:stopon, play:plays, frame:n, man:{id:man.id, num:man.num, pos:man.pos}}; setAutoFocus(man); if(left-- <= 0) break; } } }
   }
   while(!stopon && n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
   setFrameClock(null); physRender(); updateCallouts(0);
   const show = () => { renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // render only; the sim is paused
-  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest(), ...(stopon ? hit || {event:null, play:plays, frame:null} : {})}); document.body.appendChild(el);
+  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest(), offPlay:PLAYS[S.play].name, defCall:S.defCall ? S.defCall.name : null, ...(stopon ? hit || {event:null, play:plays, frame:null} : {})}); document.body.appendChild(el);
 }
 function start(data){
   $('cpuBtn').addEventListener('click', () => { setCpu(!S.cpu); cvs.focus(); });
