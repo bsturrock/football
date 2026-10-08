@@ -9,7 +9,7 @@ import { S, ball } from './state.js';
 import { BODY_W, dist } from './util.js';
 
 // B-060-2: situational speeds, fractions of p.spd (top speed only in a dead sprint); scale the speed passed to steer/steerVel only, never p.acc or p.leg
-const RUN_BLOCK_F = 0.45, BEATEN_F = 0.3, PASS_SET_F = 0.3, CLIMB_F = 0.7, LEAD_F = 0.7, STEM_F = 0.8;
+const RUN_BLOCK_F = 0.45, BEATEN_F = 0.3, PASS_SET_F = 0.3, CLIMB_F = 1.0, LEAD_F = 0.7, STEM_F = 0.8;
 export function logSpeed(p, top){   // B-060-2 readout: S.speedRole[role] = {n, sum} of speed/top while the play is live (ball held or in the air)
   if(S.phase === 'presnap' || (ball.state !== 'held' && ball.state !== 'air')) return;
   const r = S.speedRole || (S.speedRole = {}), k = p.role, e = r[k] || (r[k] = {n:0, sum:0});
@@ -21,6 +21,7 @@ const PULL_LEAD_T = 1.0, PULL_LEAD_V = 4;   // B-061: the puller aims where the 
 const DRAW_LEAD = 0.6;   // B-007-12: the back leaves his hold this long before the handoff time so he is at the QB's hip then
 const DRAW_SET = 1.8;    // B-007-12: the line sets this much deeper than a pass set, so the rush runs upfield into it
 const LEAD_X = 2.5*GRID_K;   // B-021: a blocker with nobody left leads upfield this far off the ball side (was 2.5, old line grid)
+const CLIMB_LEAD_T = 0.6;   // B-012 (climb-timing): the climber aims this many seconds of the linebacker's velocity ahead of him, at most (his own time to arrive when shorter)
 const FIT_UP = 0.6;   // B-021: a blocker aims this far in front of his man's centre (was 0.85, x0.7 body width)
 const DBL_ARC = 75*Math.PI/180, DBL_R = BODY_W + 0.05;   // B-025: while the battle blocker (d.bt.o) is locked on, the second man fits up on the defender's ring DBL_ARC round from him (centres 2*DBL_R*sin(arc/2) = 0.9 apart, clear of BODY_W), on the side he is already on
 const DBL_SHOULDER = 0.32;   // B-021: was 0.45, x0.7   // two blockers on one defender: each takes a shoulder this far off his centre
@@ -55,7 +56,12 @@ function driveAt(p, d, ref, dt){
     const s = p.dbl.ringS, c = Math.cos(DBL_ARC*s), n = Math.sin(DBL_ARC*s);
     tx = d.x + (ux*c - uy*n)/ul*DBL_R; ty = d.y + (ux*n + uy*c)/ul*DBL_R;
   }
-  steer(p, tx, ty, p.spd*(p.beatT > 0 ? BEATEN_F : RUN_BLOCK_F), dt);
+  let f = p.beatT > 0 ? BEATEN_F : RUN_BLOCK_F;
+  if(p.dbl && p.dbl.state === 'climbing' && p.dbl.lb === d && p.beatT <= 0 && dist(p, d) >= ENGAGE_R){   // B-012 (climb-timing): before contact only (a landed climber blocks at block speed, no lead feedback): the climber runs to where the linebacker will be, at climb speed
+    const k = Math.min(CLIMB_LEAD_T, dist(p, d)/Math.max(p.spd*CLIMB_F, 1));
+    tx += d.vx*k; ty += d.vy*k; f = CLIMB_F;
+  }
+  steer(p, tx, ty, p.spd*f, dt);
 }
 const claimed = (p, d) => OFF.some(o => o !== p && o.blk === d);
 // man / gap: the assignment is kept all play, even after getting beaten. Only a knocked-down
