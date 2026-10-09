@@ -1,4 +1,4 @@
-import { BEHIND_Y, CLIMB_LANE_DX, ENGAGE_R, LANE_DX, ZONE_KEEP, PULL_V, PULL_VIA_R, climbCheck, pullCheck, rereadCheck } from './blockrules.js';
+import { BEHIND_Y, CLIMB_LANE_DX, ENGAGE_R, LANE_DX, ZONE_KEEP, PULL_V, PULL_ACC, PULL_TURN, PULL_VIA_R, climbCheck, pullCheck, rereadCheck } from './blockrules.js';
 import { autoCarry, burst, cutEnd } from './carrier.js';   // B-072-3 (carrier-cuts): cutEnd
 import { GRID_K } from './formations.js';
 import { keys } from './input.js';
@@ -138,13 +138,14 @@ function runBlock(p, dt){
   const play = PLAYS[S.play];
   if(p.pull) pullCheck(p, dt, pullPick);
   if(p.pull && p.pull.late && p.pull.t < p.pull.late && p.via && p.via.length){ steer(p, p.x, p.y, 0, dt); p.faceAt = p.blk; return; }   // B-032-3: a busting puller leaves late
-  if(play.run && p.via && p.via.length){                       // pulling: get through the waypoints first
+  if(play.run && p.via && p.via.length && !(p.pull && p.pull.lost > 0 && p.via.length === 1)){   // (his man is down on the last leg: the B-074 hole run below takes over) pulling: get through the waypoints first
     const v = p.via[0];
     if(p.pull && p.via.length === 1 && p.blk === p.pull.tgt){ const lead = Math.min(PULL_LEAD_T, Math.hypot(p.blk.x - p.x, p.blk.y - p.y)/Math.max(Math.hypot(p.vx, p.vy), PULL_LEAD_V)); v.x = p.blk.x + p.pull.ox + p.blk.vx*lead; v.y = p.blk.y + p.blk.vy*lead; }   // B-061: the last waypoint is the target as he is now, not where he stood at the snap (the run-up now takes 1-2 s, he moves)
-    if(Math.hypot(v.x - p.x, v.y - p.y) < PULL_VIA_R) p.via.shift();
+    const onTgt = p.pull && p.via.length === 1 && p.blk === p.pull.tgt;   // B-082: the last leg is the man himself (led ahead of him): the puller keeps pull speed until pullCheck engages him; he does not drop to block speed at the led point and trail a man running away
+    if(!onTgt && Math.hypot(v.x - p.x, v.y - p.y) < PULL_VIA_R) p.via.shift();
     else {   // pulling: full speed through the waypoints (no arrive braking), quicker feet than a normal OL
-      const dx = v.x - p.x, dy = v.y - p.y, l = Math.hypot(dx, dy), a = p.acc, t = p.turn, s = p.spd*PULL_V;
-      p.acc *= 1.6; p.turn *= 1.8; steerVel(p, dx/l*s, dy/l*s, dt); p.acc = a; p.turn = t;
+      const dx = v.x - p.x, dy = v.y - p.y, l = Math.hypot(dx, dy) || 1, a = p.acc, t = p.turn, s = p.spd*PULL_V;
+      p.acc *= PULL_ACC; p.turn *= PULL_TURN; steerVel(p, dx/l*s, dy/l*s, dt); p.acc = a; p.turn = t;
       p.faceAt = p.blk; return;   // eyes on the kick-out man
     }
   }
