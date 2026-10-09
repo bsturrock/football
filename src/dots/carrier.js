@@ -1,5 +1,6 @@
-// Ball carrier movement: playside gap windows, the fixed A -> B -> C hole read,
-// the QB/RB mesh handoff check, and carrier steering. Pure: no THREE, DOM, timers.
+// Ball carrier movement: playside gap windows frozen at the snap, the A -> B -> C
+// hole read with an A default, read-time and depth locks, the QB/RB mesh handoff
+// check, and carrier steering. Pure: no THREE, DOM, timers.
 import { steerStep } from './steering.js';
 import { BODY_RADIUS } from './blocking.js';
 import { PLAYSIDE_SIGN, A_GAP_HALF } from './numbering.js';
@@ -11,8 +12,10 @@ export const GAP_BACK = 2 * BODY_RADIUS;
 export const GAP_DEPTH = 4 * BODY_RADIUS;
 export const LOCK_DEPTH = 2 * BODY_RADIUS;
 export const RUN_DEPTH = 10; // yards past the line the carrier runs once committed
+// Timing tunable, not a body size: seconds from the handoff to a forced commit.
+export const READ_TIME = 0.75;
 
-// Windows for the playside gaps, from live offensive-line x. `numbers` are
+// Windows for the playside gaps, from offensive-line x. `numbers` are
 // playside-positive whatever the direction; `side` is -1 or +1.
 export function gapWindows(players, numbers, side) {
   const line = (n) => players.find((p) => p.team === 'offense' && numbers[p.id] === n);
@@ -50,22 +53,33 @@ export function readHole(players, windows, los, idx) {
   return idx;
 }
 
-export function startRun(players, runDef, { snapToId, playside }) {
+// The gap the RB runs for read index `idx`: READS[idx], except that when `idx` is
+// the last read present in `windows` and that gap is closed, he defaults to A.
+export function pickGap(players, windows, los, idx) {
+  let last = -1;
+  READS.forEach((g, i) => { if (windows[g]) last = i; });
+  if (idx === last && !gapOpen(players, windows[READS[idx]], los)) return READS[0];
+  return READS[idx];
+}
+
+export function startRun(players, runDef, { snapToId, playside, numbers }) {
   const q = players.find((p) => p.id === snapToId);
   return {
     carrier: runDef.carrier,
     side: PLAYSIDE_SIGN[playside],
     mesh: { x: q.x, y: q.y + MESH_AHEAD },
+    windows: gapWindows(players, numbers, PLAYSIDE_SIGN[playside]),
     read: 0,
     gap: READS[0],
     locked: false,
     carried: false,
+    readTime: 0,
     x: null,
     aim: { x: q.x, y: q.y + MESH_AHEAD },
   };
 }
 
-export function stepCarrier(players, run, { los, numbers, ballHeld, holdId }, dt) {
+export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
   const rb = players.find((p) => p.id === run.carrier);
   let handoff = false;
   if (!run.carried && ballHeld && Math.hypot(rb.x - run.mesh.x, rb.y - run.mesh.y) <= HANDOFF_DIST) {
@@ -73,11 +87,11 @@ export function stepCarrier(players, run, { los, numbers, ballHeld, holdId }, dt
     handoff = true;
   }
   if (run.carried && !run.locked) {
-    const W = gapWindows(players, numbers, run.side);
-    run.read = readHole(players, W, los, run.read);
-    run.gap = READS[run.read];
-    run.aim = { x: gapCenter(W[run.gap]), y: los };
-    if (rb.y >= los - LOCK_DEPTH) {
+    run.read = readHole(players, run.windows, los, run.read);
+    run.gap = pickGap(players, run.windows, los, run.read);
+    run.aim = { x: gapCenter(run.windows[run.gap]), y: los };
+    run.readTime += dt;
+    if (rb.y >= los - LOCK_DEPTH || run.readTime >= READ_TIME - 1e-9) {
       run.locked = true;
       run.x = run.aim.x;
     }
