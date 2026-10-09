@@ -61,7 +61,7 @@ function cutStep(p, dt){
   if(!d0 && !moved) return;
   const lim = HW - CUT_EDGE;
   let dir = moved ? Math.sign(hx - p.x) : 0;
-  if(!dir){ const ml = raceMargin(p, p.x - 1.5, p.y + 2), mr = raceMargin(p, p.x + 1.5, p.y + 2); dir = mr >= ml ? 1 : -1; }
+  if(!dir){ const ml = raceMargin(p, p.x - 1.5, p.y + 2), mr = raceMargin(p, p.x + 1.5, p.y + 2); dir = mr === ml ? playSide(p) : mr > ml ? 1 : -1; }   // B-017: an exact tie goes to the play side, not field-right
   if(Math.abs(p.x + dir*1.5) > lim && Math.abs(p.x - dir*1.5) <= lim) dir = -dir;
   cutStart(p, dir);
 }
@@ -82,14 +82,17 @@ function raceMargin(p, qx, qy){
   }
   return m;
 }
+// B-017: the side of the designed hole from the runner (+1 / -1; the strength-relative weak side when he stands on it), the tie-break every lane pick below shares so a flipped play is the mirror image
+const playSide = p => Math.sign((S.hole ?? 0) - p.x) || -S.flip;
 // at the line: read the blocking and take the gap he wins, staying close to the designed hole
 function readHole(p, dt){
-  const hole = S.hole ?? 0, y = S.los + 1;
-  let best = p.holeX ?? hole, bs = -1e9;
-  for(let x = hole - 5*GRID_K; x <= hole + 5*GRID_K; x += 0.5*GRID_K){
+  const hole = S.hole ?? 0, y = S.los + 1, ps = playSide(p);
+  let best = p.holeX ?? hole, bs = -1e9, bb = -1e9, bd = Infinity;
+  for(let k = -10; k <= 10; k++){   // B-017: every lane is scored and the plain best wins, so the scan order cannot side the pick: ties go to the lane nearest the designed hole, then the play side
+    const x = hole + k*0.5*GRID_K;
     if(Math.abs(x) > HW - 1.5) continue;
-    const sc = raceMargin(p, x, y) + raceMargin(p, x, y + 3)*0.6 - Math.abs(x - hole)*0.05 - Math.abs(x - p.x)*0.03;
-    if(sc > bs + (x === p.holeX ? 0 : 0.08)){ bs = sc; best = x; }    // a little hysteresis: don't dance
+    const sc = raceMargin(p, x, y) + raceMargin(p, x, y + 3)*0.6 - Math.abs(x - hole)*0.05 - Math.abs(x - p.x)*0.03, h = sc + (x === p.holeX ? 0.08 : 0), dd = Math.abs(x - hole);   // 0.08: a little hysteresis, a bonus on the lane he holds: don't dance
+    if(h > bb || (h === bb && (dd < bd || (dd === bd && (x - hole)*ps > 0)))){ bb = h; bs = sc; bd = dd; best = x; }
   }
   p.holeX = best;
   const sp = p.spd*burst(p, bs > 0.2, dt);
@@ -165,6 +168,7 @@ function openField(p, dt){
   if(p.ofT <= 0){
     p.ofT = 0.1;
     let best = p.ofLane ?? 0, bs = -1e9;
+    const ps = playSide(p);   // an angle's sign is its x side (dx = sin), so the play side is the same sign
     const vn = lack(p, 'vision')*OF_NOISE;
     for(let a = -90; a <= 90; a += 10){
       const r = a*Math.PI/180, dx = Math.sin(r), dy = Math.cos(r);
@@ -175,7 +179,7 @@ function openField(p, dt){
         if(Math.abs(qx) > HW - 1) side = 4;
       }
       const sc = m*3 + dy*1.6 - side - (a === p.ofLane ? 0 : 0.15) + vn*rand(-1, 1)*3;   // noise on the margin (x3 like the margin itself)
-      if(sc > bs){ bs = sc; best = a; }
+      if(sc > bs || (sc === bs && (Math.abs(a) < Math.abs(best) || (Math.abs(a) === Math.abs(best) && a*ps > 0)))){ bs = sc; best = a; }   // B-017: plain best; an exact tie goes to the straighter lane, then the play side
     }
     p.ofLane = best; p.ofMargin = bs;
   }
