@@ -1,1 +1,2 @@
 - 2026-10-08 F-1 Top-down dot field: OL vs 6-man box (R-1) f1b4e3a
+- 2026-10-09 F-2 OL staggered V alignment (R-2) e872dff
