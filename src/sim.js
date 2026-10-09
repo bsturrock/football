@@ -354,15 +354,17 @@ export function runSim(n, step, g){
   const SPLIT_NEAR = 2, splitG = {}, splitP = {}, splitAcc = () => ({ys:[], stuff:0, big:0, role:{}, freedN:0, freedMade:0, freedNear:0, fMin:[]});
   const splitAdd = (g, y, role, fr) => { g.ys.push(y); if(y <= STUFF_YD) g.stuff++; if(y >= BIG_YD) g.big++; g.role[role] = (g.role[role] || 0) + 1;
     if(fr){ g.freedN++; if(fr.made) g.freedMade++; if(fr.min <= SPLIT_NEAR) g.freedNear++; g.fMin.push(fr.min); } };
-  const splitRec = (pn, list, y, tkr, fMinV) => {
+  const splitRec = (pn, list, y, tkr, fMinV, base, baseMin) => {
     const hits = list.filter(e => e.kind && BUST_KINDS.includes(e.kind)), wr = hits.filter(e => e.kind === 'wrong'), freed = wr.map(e => e.free).filter(Boolean);
     const role = tkr ? tkr.role : 'none', keys = ['all', hits.length ? 'bust' : 'clean'];
     if(wr.length) keys.push('wrong'); if(hits.some(e => e.kind !== 'wrong')) keys.push('lateOrNoclimb');
     const fr = freed.length ? {made:freed.includes(tkr), min:fMinV} : null;
     for(const k of keys){ splitAdd(splitG[k] || (splitG[k] = splitAcc()), y, role, k === 'wrong' ? fr : null); }
+    if(base && !hits.length){ const g = splitG.baseline || (splitG.baseline = {n:0, made:0, near:0, snap:[], min:[]}); g.n++; if(base === tkr) g.made++; if(baseMin <= SPLIT_NEAR) g.near++; g.snap.push(base.snapD); g.min.push(baseMin); }   // B-039: the unblocked DL/LB nearest the hole, on clean plays
+    if(fr){ const g = splitG.freedSnap || (splitG.freedSnap = {snap:[]}); for(const e of wr) if(e.free && e.snapD !== undefined) g.snap.push(e.snapD); }
     const pp = splitP[pn] || (splitP[pn] = {bust:[], clean:[]}); pp[hits.length ? 'bust' : 'clean'].push(y);
   };
-  const splitOut = g => ({n:g.ys.length, ypc:mean(g.ys), stuffPct:g.ys.length ? +(100*g.stuff/g.ys.length).toFixed(1) : null, bigPct:g.ys.length ? +(100*g.big/g.ys.length).toFixed(1) : null, tackler:g.role, ...(g.freedN ? {freed:{n:g.freedN, madeTackle:g.freedMade, within2yd:g.freedNear, minDistMed:med(g.fMin)}} : {})});
+  const splitOut = g => g.snap && g.n === undefined ? {snapDistMed:med(g.snap), n:g.snap.length} : g.snap ? {n:g.n, madeTackle:g.made, within2yd:g.near, snapDistMed:med(g.snap), minDistMed:med(g.min)} : ({n:g.ys.length, ypc:mean(g.ys), stuffPct:g.ys.length ? +(100*g.stuff/g.ys.length).toFixed(1) : null, bigPct:g.ys.length ? +(100*g.big/g.ys.length).toFixed(1) : null, tackler:g.role, ...(g.freedN ? {freed:{n:g.freedN, madeTackle:g.freedMade, within2yd:g.freedNear, minDistMed:med(g.fMin)}} : {})});
   const tallyBust = list => {
     bustT.plays++;
     for(const e of list){
@@ -395,7 +397,7 @@ export function runSim(n, step, g){
     setRateEpoch((i + 1)/SIM_TEAM_EVERY | 0);   // B-091: every rating call after play i (the regen, or newGame when the game ended) draws epoch floor((i+1)/SIM_TEAM_EVERY)'s roster
     tb.clear(); js.clear(); fire.y0.clear(); fire.got.clear(); fire.got3.clear(); fire.gotB.clear(); dlD.d1.clear(); dlD.dR.clear(); DEF.forEach(p => { p.towT = undefined; });
     curPlay = i; bodMax[i] = 0; fallsEnded = true; fe.clear();
-    cfBack = null; hMax = 0; let fMin = Infinity, lastNear = null; let pNear = Infinity, pT = null, p1 = false, cut = false, stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = [], pullSeen = new Map(), pullWon = new Set(); const drive0 = S.drive;
+    cfBack = null; hMax = 0; let fMin = Infinity, lastNear = null, base = null, baseMin = Infinity; let pNear = Infinity, pT = null, p1 = false, cut = false, stillT = 0, stillBest = 0, liveT = 0, startY = null, endY = 0, t = 0, pushed = false, pname = null, measured = false, pullsNow = [], pullSeen = new Map(), pullWon = new Set(); const drive0 = S.drive;
     while(S.phase !== 'dead' && t < PLAY_MAX_S){
       step(SIM_DT); t += SIM_DT; if(S.phase === 'live') facing();
       if(passMode && S.phase === 'live' && S.clock <= (force.pass === 'draw' ? PRESS_T : THROW_T) + 1e-6){ const dm = Math.min(...DEF.map(d => Math.hypot(d.x - QB.x, d.y - QB.y))); pNear = Math.min(pNear, dm); if(pT === null && dm <= PRESS_YD) pT = S.clock; }   // B-026
@@ -405,7 +407,8 @@ export function runSim(n, step, g){
       if(S.phase === 'live' && S.climbRec) climbWatch();   // B-012 (climb-timing)
       const c = ball.state === 'held' ? ball.holder : null;
       if(S.phase === 'live' && c){
-        const y = ballY(c); if(startY === null){ startY = S.los; pname = PLAYS[S.play].name; tally(calls, pname); tally(byFront[S.front] || (byFront[S.front] = {}), pname); tally(byCall[S.defCall.name] || (byCall[S.defCall.name] = {}), pname);
+        const y = ballY(c); if(startY === null){ startY = S.los; if(!passMode && PLAYS[S.play].run){ const blocked = new Set(OFF.map(o => o.blk).filter(Boolean)); let bd = Infinity; base = null; for(const d of DEF) if((d.role === 'DL' || d.role === 'LB') && !blocked.has(d)){ const dd = Math.hypot(d.x - S.hole, d.y - S.los); if(dd < bd){ bd = dd; base = d; } } if(base) base.snapD = bd; for(const e of S.bust || []) if(e.free) e.snapD = Math.hypot(e.free.x - S.hole, e.free.y - S.los); }   // B-039: the unblocked DL/LB nearest the hole at the snap (the baseline for a freed man)
+          pname = PLAYS[S.play].name; tally(calls, pname); tally(byFront[S.front] || (byFront[S.front] = {}), pname); tally(byCall[S.defCall.name] || (byCall[S.defCall.name] = {}), pname);
           const bf = blkLog[S.front + ' ' + (S.flip > 0 ? 'R' : 'L')] || (blkLog[S.front + ' ' + (S.flip > 0 ? 'R' : 'L')] = {}); for(const [nm, tg] of Object.entries(S.blk || {})){ const bn = slotOf(nm), bs = bf[bn] || (bf[bn] = {}); bs[tg] = (bs[tg] || 0) + 1; }
           pullsNow = (S.pulls || []).slice(); }
         for(const u of pullsNow){ const pl = u.p.pull; if(pl && pl.reach !== null && u.kind === 'kick' && !edgeSeen.has(pl)){ edgeSeen.add(pl); const dx = pl.tgt.x - S.hole; edgeAt.x.push(Math.abs(dx)); edgeAt.d.push(pl.tgt.y - S.los); }   // worker-4 (B-084): the kick-out man's spot the first frame the puller reaches him
@@ -413,6 +416,7 @@ export function runSim(n, step, g){
         endY = y;
         if(!passMode && PLAYS[S.play].run && c !== QB){   // B-039: nearest defender to the carrier (the tackler, at the last live frame) and the freed man's closest approach
           let bd = Infinity; for(const d of DEF){ const dd = Math.hypot(d.x - c.x, d.y - ballY(c)); if(dd < bd){ bd = dd; lastNear = d; } }
+          if(base) baseMin = Math.min(baseMin, Math.hypot(base.x - c.x, base.y - ballY(c)));
           for(const e of S.bust || []) if(e.free) fMin = Math.min(fMin, Math.hypot(e.free.x - c.x, e.free.y - ballY(c)));
         }
         if(!passMode && PLAYS[S.play].run && c !== QB) for(const d of DEF){   // B-085 freeDL: a free DL (no battle, not a body, not stunned) past his read, moving at FREE_DL_V or more, counted by whether he moves away from the carrier
@@ -457,7 +461,7 @@ export function runSim(n, step, g){
       if(S.read) reads.push({...S.read, y:endY - startY});
       spotYards.push((S.drive === drive0 ? S.los : endY) - startY);   // where endPlay spotted it (forward progress included); a drive change (score, turnover, safety) resets los, so those use the last ball y
       const b = byPlay[pname] || (byPlay[pname] = {ys:[], stuff:0}); b.ys.push(endY - startY); if(endY - startY <= STUFF_YD) b.stuff++;
-      if(PLAYS[S.play].run && S.bust) splitRec(pname, S.bust, endY - startY, lastNear, fMin);   // B-039
+      if(PLAYS[S.play].run && S.bust) splitRec(pname, S.bust, endY - startY, lastNear, fMin, base, baseMin);   // B-039
     }
     for(const d of DEF) if(d.fh && d.fh.t > 0){ const g = fhR[d.role === 'LB' ? 'LB' : 'DB']; g.n++; g.t += d.fh.t; g.sq += d.fh.sq; if(d.fh.end !== null) g.e.push(d.fh.end); }   // B-072-2 faceHold readout
     const played = wins.filter(w => w.play === undefined); played.forEach(w => { w.play = i; });
