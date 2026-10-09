@@ -83,6 +83,57 @@ test('contactSpot', () => {
   s = contactSpot(ps, ps[1]); near(s.x, 2 + SPREAD / 2);
 });
 
+const MIX_CASES = [
+  ['straight + left', ['straight', 'left']],
+  ['straight + right', ['straight', 'right']],
+  ['left + right', ['left', 'right']],
+  ['two straight + left', ['straight', 'straight', 'left']],
+  ['left + straight + right', ['left', 'straight', 'right']],
+];
+
+test('F-14 #12: mixed-angle double-team spots one body apart', () => {
+  for (const [name, angles] of MIX_CASES) {
+    const ps = [D('d', 0, 10)];
+    angles.forEach((angle, i) => ps.push(O(`b${i}`, i, 0, { block: { target: 'd', angle, engaged: true, seq: i + 1 } })));
+    const bs = ps.slice(1);
+    const spots = bs.map((b) => contactSpot(ps, b));
+    spots.forEach((s, i) => {
+      assert.ok(Math.hypot(s.x, s.y - 10) >= CONTACT_DIST - 1e-9, `${name}: ${i} too close to target`);
+      assert.ok(s.y < 10, `${name}: ${i} not behind target`);
+      for (let j = i + 1; j < spots.length; j++) {
+        const dist = Math.hypot(s.x - spots[j].x, s.y - spots[j].y);
+        assert.ok(dist >= 2 * BODY_RADIUS - 1e-9, `${name}: ${i},${j} only ${dist} apart`);
+      }
+    });
+    // a blocker stands opposite its push direction, so a left blocker's spot is on the +x side
+    const rank = { left: 0, straight: 1, right: 2 };
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = 0; j < bs.length; j++) {
+        if (rank[angles[i]] < rank[angles[j]]) assert.ok(spots[i].x > spots[j].x, `${name}: side ${i},${j}`);
+      }
+    }
+  }
+});
+
+test('F-14 #12: mixed-angle double team holds its spots', () => {
+  const ps = [
+    D('d', 0, 10, { speed: 0 }),
+    O('a', 0, 0, { block: { target: 'd', angle: 'straight', engaged: true, seq: 1 } }),
+    O('b', 0, 0, { block: { target: 'd', angle: 'left', engaged: true, seq: 2 } }),
+  ];
+  for (const b of [ps[1], ps[2]]) { const s = contactSpot(ps, b); b.x = s.x; b.y = s.y; }
+  const ball = { x: 0, y: -50 };
+  for (let f = 0; f < 60; f++) {
+    const sep = stepBlocking(ps, ball, 1 / 60, { rule: null, seq: 2 });
+    for (const b of [ps[1], ps[2]]) {
+      const s = contactSpot(ps, b);
+      assert.ok(Math.hypot(b.x - s.x, b.y - s.y) <= ENGAGE_TOL, `frame ${f}: ${b.id} off spot`);
+    }
+    const total = typeof sep === 'number' ? sep : (sep && typeof sep.separation === 'number' ? sep.separation : 0);
+    assert.ok(total < 1e-6, `frame ${f}: separation ${total}`);
+  }
+});
+
 test('stepBlocking closing, engaging, seq', () => {
   const ps = [O('a', 0, 0, { block: blk('d') }), O('b', 5, 0, { block: blk('d') }), D('d', 2.5, CONTACT_DIST + 0.1, { speed: 0 })];
   const ctx = { rule: null, seq: 0 };

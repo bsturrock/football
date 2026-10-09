@@ -68,20 +68,60 @@ export function engagedOn(players, defenderId) {
   return players.filter((p) => p.block && p.block.engaged && p.block.target === defenderId);
 }
 
-export function contactSpot(players, blocker) {
-  const T = byId(players, blocker.block.target);
-  const angle = blocker.block.angle;
-  const d = BLOCK_ANGLES[angle];
-  const co = players.filter(
-    (p) => isBlocker(p) && p.block && p.block.target === blocker.block.target && p.block.angle === angle,
-  );
-  const k = co.length;
-  const i = co.indexOf(blocker);
+// Spot of the i-th of k blockers in one angle group, with the push direction
+// rotated `extra` radians outward (0 = the plain BLOCK_ANGLES direction).
+function groupSpot(T, angle, i, k, extra) {
+  const base = BLOCK_ANGLES[angle];
+  const side = Math.sign(base.x);
+  const a = Math.atan2(Math.abs(base.x), base.y) + extra;
+  const d = { x: side * Math.sin(a), y: Math.cos(a) };
   const offset = (i - (k - 1) / 2) * SPREAD;
   return {
     x: T.x - d.x * CONTACT_DIST + d.y * offset,
     y: T.y - d.y * CONTACT_DIST - d.x * offset,
   };
+}
+
+const GROUP_ORDER = ['straight', 'left', 'right'];
+const ROTATE_STEP = Math.PI / 720; // 0.25 degree
+const ROTATE_MAX = Math.PI * 85 / 180;
+
+// One angle on the target: exactly the plain spots. Several angles: diagonal spots on the
+// CONTACT_DIST circle sit only ~0.77 CONTACT_DIST from their neighbours, so overlapping
+// bodies were shoved off them every frame. Place the straight group first, then rotate each
+// diagonal group outward from its nominal angle in fixed steps until every spot is at least
+// 2 * BODY_RADIUS from all spots already placed (the 60 degree chord for a lone pair, further
+// when the straight group is spread). Rotating keeps the radius, so no spot nears the target.
+export function contactSpot(players, blocker) {
+  const T = byId(players, blocker.block.target);
+  const onTarget = players.filter((p) => isBlocker(p) && p.block && p.block.target === blocker.block.target);
+  const angles = GROUP_ORDER.filter((g) => onTarget.some((p) => p.block.angle === g));
+  const own = blocker.block.angle;
+  const group = (g) => onTarget.filter((p) => p.block.angle === g);
+  if (angles.length <= 1) {
+    const co = group(own);
+    return groupSpot(T, own, co.indexOf(blocker), co.length, 0);
+  }
+  const min = 2 * BODY_RADIUS - 1e-9;
+  const placed = [];
+  let mine = null;
+  for (const g of angles) {
+    const co = group(g);
+    const k = co.length;
+    const spots = (extra) => co.map((_, i) => groupSpot(T, g, i, k, extra));
+    let extra = 0;
+    let s = spots(extra);
+    if (g !== 'straight') {
+      const ok = (ss) => ss.every((q) => placed.every((r) => Math.hypot(q.x - r.x, q.y - r.y) >= min));
+      while (!ok(s) && extra < ROTATE_MAX) {
+        extra += ROTATE_STEP;
+        s = spots(extra);
+      }
+    }
+    placed.push(...s);
+    if (g === own) mine = s[co.indexOf(blocker)];
+  }
+  return mine;
 }
 
 // Single place where future factors (skills, leverage, fatigue) multiply in.
