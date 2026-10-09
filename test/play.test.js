@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP, DL_SHIFT_STEP } from '../src/dots/play.js';
+import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { BODY_RADIUS, assignBlocks } from '../src/dots/blocking.js';
-import { buildLineup } from '../src/dots/roster.js';
+import { buildLineup, FRONTS, DL_ROLES, LB_ROLES } from '../src/dots/roster.js';
+import { numberPlay } from '../src/dots/numbering.js';
 import { hardCore } from '../src/dots/steering.js';
 
 const H = hardCore(BODY_RADIUS);
@@ -289,4 +290,120 @@ test('F-9 #5: block assignment after snap sees the shifted D-line', () => {
   left.snap();
   assert.deepEqual(targets(left), blockOracle(-4));
   assert.notDeepEqual(targets(left), targets(base));
+});
+
+const FRONT_KEYS = Object.keys(FRONTS);
+const defIds = (k) => new Set(FRONTS[k].defenders.map((d) => d.id));
+const posOf = (players) => Object.fromEntries(players.map((p) => [p.id, [p.x, p.y]]));
+
+test('F-18 #3: front defaults to base and is set by createPlay opts', () => {
+  const play = createPlay(25);
+  assert.equal(play.front, 'base');
+  assert.deepEqual(posOf(play.players), posOf(buildLineup(25)));
+
+  const bear = createPlay(25, 'insideZone', { front: 'bear' });
+  assert.equal(bear.front, 'bear');
+  const bearIds = new Set(bear.players.map((p) => p.id));
+  for (const id of defIds('bear')) assert.ok(bearIds.has(id), id);
+  assert.deepEqual(posOf(bear.players), posOf(buildLineup(25, 'insideZone', { front: 'bear' })));
+});
+
+test('F-18 #3: setFront swaps the defense, keeps offense, rejects unknown keys', () => {
+  const play = createPlay(25, 'insideZone');
+  const offenseBefore = posOf(play.players.filter((p) => p.team === 'offense'));
+  assert.equal(play.setFront('odd34'), 'odd34');
+  assert.equal(play.front, 'odd34');
+  const expected = buildLineup(25, 'insideZone', { front: 'odd34' });
+  assert.deepEqual(posOf(play.players), posOf(expected));
+  assert.deepEqual(posOf(play.players.filter((p) => p.team === 'offense')), offenseBefore);
+  for (const d of FRONTS.odd34.defenders) {
+    const p = play.player(d.id);
+    near(p.x, d.dx);
+    near(p.y, 25 + d.dy);
+  }
+
+  const before = posOf(play.players);
+  assert.equal(play.setFront('nope'), false);
+  assert.equal(play.front, 'odd34');
+  assert.deepEqual(posOf(play.players), before);
+});
+
+test('F-18 #3: setFront is refused once the ball is live; reset keeps the front', () => {
+  const play = createPlay(25, 'insideZone');
+  play.setFront('bear');
+  play.snap();
+  const snapshot = posOf(play.players);
+  assert.equal(play.setFront('odd34'), false);
+  assert.equal(play.front, 'bear');
+  assert.deepEqual(posOf(play.players), snapshot);
+
+  play.reset();
+  assert.equal(play.front, 'bear');
+  assert.deepEqual(posOf(play.players), posOf(buildLineup(25, 'insideZone', { front: 'bear' })));
+});
+
+test('F-18 #4: shiftDL and shiftLB move the front role players for every front', () => {
+  for (const k of FRONT_KEYS) {
+    const play = createPlay(25, 'insideZone');
+    assert.equal(play.setFront(k), k);
+    const before = posOf(play.players);
+    assert.equal(play.shiftDL(1), 1, k);
+    for (const p of play.players) {
+      const [x0, y0] = before[p.id];
+      if (DL_ROLES.includes(p.role)) {
+        near(p.x, x0 + DL_SHIFT_STEP);
+        near(p.y, y0);
+      } else {
+        assert.equal(p.x, x0, `${k} ${p.id}`);
+        assert.equal(p.y, y0, `${k} ${p.id}`);
+      }
+    }
+
+    const lbBefore = posOf(play.players);
+    assert.equal(play.shiftLB(1), 1, k);
+    for (const p of play.players) {
+      const [x0, y0] = lbBefore[p.id];
+      if (LB_ROLES.includes(p.role)) {
+        near(p.x, x0 + LB_SHIFT_STEP);
+        near(p.y, y0);
+      } else {
+        assert.equal(p.x, x0, `${k} ${p.id}`);
+        assert.equal(p.y, y0, `${k} ${p.id}`);
+      }
+    }
+  }
+});
+
+test('F-18 #4: dlShift survives setFront', () => {
+  const play = createPlay(25, 'insideZone');
+  play.shiftDL(1);
+  play.shiftDL(1);
+  assert.equal(play.setFront('bear'), 'bear');
+  assert.equal(play.dlShift, 2);
+  for (const d of FRONTS.bear.defenders.filter((q) => DL_ROLES.includes(q.role))) {
+    near(play.player(d.id).x, d.dx + 2 * DL_SHIFT_STEP);
+  }
+});
+
+test('F-18 #5: numbering, blocks and run follow the set front for every front', () => {
+  for (const k of FRONT_KEYS) {
+    const play = createPlay(25, 'insideZone', { front: k });
+    assert.equal(play.front, k);
+    assert.deepEqual(
+      play.numbers,
+      numberPlay(play.players, { los: 25, centerId: 'C', playside: 'left' }),
+      k,
+    );
+    const ids = defIds(k);
+    for (const id of Object.keys(play.numbers)) {
+      if (play.player(id)?.team === 'defense') assert.ok(ids.has(id), `${k} ${id}`);
+    }
+
+    play.snap();
+    for (const p of play.players) {
+      if (p.role === 'OL' && p.block) assert.ok(ids.has(p.block.target), `${k} ${p.id} -> ${p.block.target}`);
+    }
+    for (let i = 0; i < 180; i++) play.step(1 / 60);
+    assert.equal(play.run.carried, true, k);
+  }
 });

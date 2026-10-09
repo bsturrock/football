@@ -35,6 +35,67 @@ export const POSITIONS = Object.freeze([
   pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.6, 4.5, 7.5, 0.5),
 ]);
 
+// Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
+// fronts are written for a playside-left play (the only play today).
+const roleRating = (role) => {
+  const row = POSITIONS.find((p) => p.team === 'defense' && p.role === role);
+  return { speed: row.speed, strength: row.strength };
+};
+const NAMES = Object.freeze({
+  PE: 'Playside End', BE: 'Backside End', PT: 'Playside Tackle', BT: 'Backside Tackle',
+  PN: 'Playside Nose', N: 'Nose Tackle', P3: 'Playside 3-Technique', B3: 'Backside 3-Technique',
+  SAM: 'Sam Linebacker', MIK: 'Mike Linebacker', WIL: 'Will Linebacker',
+  L1: 'Linebacker 1', L2: 'Linebacker 2', L3: 'Linebacker 3',
+  PO: 'Playside Outside Linebacker', BO: 'Backside Outside Linebacker',
+  PI: 'Playside Inside Linebacker', BI: 'Backside Inside Linebacker',
+});
+// rows: [id, role, dx, dy]
+const defenders = (rows) => Object.freeze(rows.map(([id, role, dx, dy]) => {
+  const r = roleRating(role);
+  return pos(id, NAMES[id], 'defense', role, dx, dy, r.speed, r.strength);
+}));
+const swap = (rows, id, dx, dy) => rows.map((r) => (r[0] === id ? [r[0], r[1], dx, dy] : r));
+
+const OVER43 = [
+  ['PE', 'DE', -3.6, 0.7], ['PT', 'DT', -1.9, 0.7], ['BT', 'DT', 0.5, 0.7], ['BE', 'DE', 3.6, 0.7],
+  ['SAM', 'LB', -3.0, 4.5], ['MIK', 'LB', -0.5, 4.5], ['WIL', 'LB', 2.0, 4.5],
+];
+const UNDER43 = [
+  ['PE', 'DE', -3.6, 0.7], ['PN', 'DT', -0.5, 0.7], ['BT', 'DT', 1.9, 0.7], ['BE', 'DE', 3.6, 0.7],
+  ['L1', 'LB', -2.4, 4.5], ['L2', 'LB', 0.6, 4.5], ['L3', 'LB', 3.0, 4.5],
+];
+
+export const FRONTS = Object.freeze({
+  base: Object.freeze({
+    name: '4-3 Base',
+    defenders: Object.freeze(POSITIONS.filter((p) => p.team === 'defense')),
+  }),
+  over43: Object.freeze({ name: '4-3 Over', defenders: defenders(OVER43) }),
+  under43: Object.freeze({ name: '4-3 Under', defenders: defenders(UNDER43) }),
+  odd34: Object.freeze({
+    name: '3-4',
+    defenders: defenders([
+      ['PO', 'LB', -5.0, 1.0], ['PE', 'DE', -3.6, 0.7], ['N', 'DT', 0, 0.7], ['BE', 'DE', 3.6, 0.7],
+      ['BO', 'LB', 5.0, 1.0], ['PI', 'LB', -1.4, 4.5], ['BI', 'LB', 1.4, 4.5],
+    ]),
+  }),
+  bear: Object.freeze({
+    name: 'Bear',
+    defenders: defenders([
+      ['PE', 'DE', -4.4, 0.7], ['P3', 'DT', -1.9, 0.7], ['N', 'DT', 0, 0.7], ['B3', 'DT', 1.9, 0.7],
+      ['BE', 'DE', 4.4, 0.7], ['L1', 'LB', -1.4, 4.5], ['L2', 'LB', 2.0, 4.5],
+    ]),
+  }),
+  walkedUp: Object.freeze({
+    name: '4-3 Over, Sam Walked Up',
+    defenders: defenders(swap(OVER43, 'SAM', -4.6, 1.5)),
+  }),
+  backedOff: Object.freeze({
+    name: '4-3 Under, 3-Tech Backed Off',
+    defenders: defenders(swap(UNDER43, 'BT', 1.9, 2.5)),
+  }),
+});
+
 // Play definitions. Shapes:
 //   ball: { start, snapTo } where start is the position id holding the ball
 //         pre-snap and snapTo is the position id that receives the snap.
@@ -65,11 +126,14 @@ export function emptyAssignment() {
 export const DL_ROLES = Object.freeze(['DE', 'DT']);
 export const LB_ROLES = Object.freeze(['LB']);
 
-// dlShift is a lateral offset in yards added to x of every DL player.
-export function buildLineup(los, playKey = 'base', { dlShift = 0, lbShift = 0 } = {}) {
+// front picks a key of FRONTS for the defense. dlShift is a lateral offset in yards
+// added to x of every DL player; lbShift does the same for LBs.
+export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0, lbShift = 0 } = {}) {
   const play = PLAYS[playKey];
   if (!play) throw new Error(`buildLineup: unknown play "${playKey}"`);
-  return POSITIONS.map((p) => {
+  if (!Object.hasOwn(FRONTS, front)) throw new Error(`buildLineup: unknown front "${front}"`);
+  const rows = [...POSITIONS.filter((p) => p.team === 'offense'), ...FRONTS[front].defenders];
+  return rows.map((p) => {
     const a = play.assignments[p.id];
     return {
       id: p.id,

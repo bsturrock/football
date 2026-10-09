@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { POSITIONS, PLAYS, emptyAssignment, buildLineup } from '../src/dots/roster.js';
+import { POSITIONS, PLAYS, FRONTS, emptyAssignment, buildLineup } from '../src/dots/roster.js';
 import { BODY_RADIUS, CONTACT_DIST, SPREAD } from '../src/dots/blocking.js';
 import { DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 
@@ -224,4 +224,92 @@ test('F-14 #4: no pre-snap overlap at any shift', () => {
       }
     }
   }
+});
+
+const FRONT_KEYS = ['base', 'over43', 'under43', 'odd34', 'bear', 'walkedUp', 'backedOff'];
+const baseRating = (role) => {
+  const p = POSITIONS.find((r) => r.team === 'defense' && r.role === role);
+  return { speed: p.speed, strength: p.strength };
+};
+
+test('FRONTS keys and names as listed', () => {
+  assert.deepEqual(Object.keys(FRONTS), FRONT_KEYS);
+  const names = {
+    base: '4-3 Base', over43: '4-3 Over', under43: '4-3 Under', odd34: '3-4', bear: 'Bear',
+    walkedUp: '4-3 Over, Sam Walked Up', backedOff: '4-3 Under, 3-Tech Backed Off',
+  };
+  for (const [k, name] of Object.entries(names)) assert.equal(FRONTS[k].name, name, k);
+});
+
+test('FRONTS, every entry, defenders array and row are frozen', () => {
+  assert.ok(Object.isFrozen(FRONTS));
+  for (const k of FRONT_KEYS) {
+    assert.ok(Object.isFrozen(FRONTS[k]), k);
+    assert.ok(Object.isFrozen(FRONTS[k].defenders), `${k} defenders`);
+    for (const d of FRONTS[k].defenders) assert.ok(Object.isFrozen(d), `${k} ${d.id}`);
+  }
+});
+
+test('FRONTS.base defenders are the POSITIONS defense rows', () => {
+  const defs = POSITIONS.filter((p) => p.team === 'defense');
+  assert.equal(FRONTS.base.defenders.length, defs.length);
+  defs.forEach((p, i) => assert.ok(FRONTS.base.defenders[i] === p, p.id));
+});
+
+test('every front has unique defender ids, no clash with offense, team defense, dy > 0, base ratings', () => {
+  const offenseIds = new Set(POSITIONS.filter((p) => p.team === 'offense').map((p) => p.id));
+  for (const k of FRONT_KEYS) {
+    const defs = FRONTS[k].defenders;
+    const ids = defs.map((d) => d.id);
+    assert.equal(new Set(ids).size, ids.length, `${k} unique ids`);
+    for (const d of defs) {
+      assert.ok(!offenseIds.has(d.id), `${k} ${d.id} clashes with offense`);
+      assert.equal(d.team, 'defense', `${k} ${d.id}`);
+      assert.ok(d.dy > 0, `${k} ${d.id} dy`);
+      const r = baseRating(d.role);
+      assert.deepEqual({ speed: d.speed, strength: d.strength }, r, `${k} ${d.id}`);
+    }
+  }
+});
+
+test('OL out-strength every FRONTS defender at any angle', () => {
+  const ols = POSITIONS.filter((p) => p.role === 'OL');
+  for (const k of FRONT_KEYS) {
+    for (const ol of ols) {
+      for (const def of FRONTS[k].defenders) {
+        assert.ok(ol.strength * Math.SQRT1_2 > def.strength, `${k} ${ol.id} vs ${def.id}`);
+      }
+    }
+  }
+});
+
+test('buildLineup with odd34 front: 7 offense then odd34 defenders at x = dx, y = los + dy', () => {
+  const lineup = buildLineup(25, 'insideZone', { front: 'odd34' });
+  assert.equal(lineup.length, 7 + FRONTS.odd34.defenders.length);
+  assert.ok(lineup.slice(0, 7).every((pl) => pl.team === 'offense'));
+  FRONTS.odd34.defenders.forEach((d, i) => {
+    const pl = lineup[7 + i];
+    assert.equal(pl.id, d.id);
+    assert.equal(pl.x, d.dx);
+    assert.equal(pl.y, 25 + d.dy);
+  });
+});
+
+test('front plus dlShift moves only that front DE/DT; lbShift moves only LBs', () => {
+  const base = buildLineup(25, 'insideZone', { front: 'bear' });
+  const dl = buildLineup(25, 'insideZone', { front: 'bear', dlShift: 1.2 });
+  base.forEach((pl, i) => {
+    const moved = ['DE', 'DT'].includes(pl.role);
+    assert.equal(dl[i].x, pl.x + (moved ? 1.2 : 0), pl.id);
+  });
+  const lb = buildLineup(25, 'insideZone', { front: 'odd34' });
+  const lbs = buildLineup(25, 'insideZone', { front: 'odd34', lbShift: -2 });
+  lb.forEach((pl, i) => {
+    const moved = pl.role === 'LB';
+    assert.equal(lbs[i].x, pl.x + (moved ? -2 : 0), pl.id);
+  });
+});
+
+test('buildLineup throws on unknown front, message names it', () => {
+  assert.throws(() => buildLineup(25, 'insideZone', { front: 'nope' }), /nope/);
 });

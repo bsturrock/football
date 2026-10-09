@@ -2,7 +2,7 @@
 // Ball phases: presnap -> snapping -> held -> carried (carried only on plays with a run).
 // Time advances only through step(dt); there are no timers or clocks here.
 
-import { PLAYS, buildLineup } from './roster.js';
+import { FRONTS, PLAYS, buildLineup } from './roster.js';
 import { numberPlay } from './numbering.js';
 import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
@@ -29,7 +29,7 @@ export const LB_SHIFT_MAX = 6; // steps allowed each way
 
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base' } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const play = {
     los,
@@ -38,6 +38,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     ball: {},
     retargetRule: scheme ? scheme.rule : doubleTeamPeel,
     timeScale,
+    front,
     dlShift: 0,
     lbShift: 0,
     numbers: {},
@@ -66,6 +67,15 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     return play.lbShift;
   };
 
+  // Pre-snap defensive front, a key of FRONTS. Only changes while the ball is presnap.
+  play.setFront = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (!Object.hasOwn(FRONTS, key)) return false;
+    play.front = key;
+    play.reset();
+    return key;
+  };
+
   // Scales how fast play.step advances; the only place time scale applies.
   play.setTimeScale = (s) => {
     if (!Number.isFinite(s)) return play.timeScale;
@@ -76,6 +86,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
     play.players = buildLineup(los, playKey, {
+      front: play.front,
       dlShift: play.dlShift * DL_SHIFT_STEP,
       lbShift: play.lbShift * LB_SHIFT_STEP,
     });
