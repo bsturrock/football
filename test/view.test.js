@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { FRONTS } from '../src/dots/roster.js';
@@ -106,4 +106,10 @@ test('F-13 #7: runLabel', () => {
   assert.equal(runLabel({ carried: false, locked: false, gap: 'A' }), '');
   assert.equal(runLabel({ carried: true, locked: false, gap: 'A' }), 'Hole: A (reading)');
   assert.equal(runLabel({ carried: true, locked: true, gap: 'B' }), 'Hole: B (locked)');
+});
+
+test('F-20 #7: reactLabel', () => {
+  assert.equal(reactLabel({ id: 'C', team: 'offense', react: { state: 'anchored', lean: 0.5 } }), '');
+  assert.equal(reactLabel({ id: 'LDT', team: 'defense', react: null }), 'Reaction: none');
+  assert.equal(reactLabel({ team: 'defense', react: { state: 'anchored', lean: 0.5 } }), 'Reaction: anchored · lean 0.50');
 });

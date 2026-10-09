@@ -43,6 +43,14 @@ export function blockSummary(play, id) {
   return `Blocked by: ${blockers.length ? blockers.join(', ') : 'none'}`;
 }
 
+// Panel text for a defender's block reaction ('' for offense; play.players carries react).
+export function reactLabel(player) {
+  if (player.team === 'offense') return '';
+  const r = player.react;
+  if (!r) return 'Reaction: none';
+  return `Reaction: ${r.state} · lean ${r.lean.toFixed(2)}`;
+}
+
 // Hint text for the pre-snap D-line shift (steps: +1 = right, -1 = left).
 export function shiftLabel(steps, group = 'DL', keys = '←/→') {
   if (steps === 0) return `${group} shift: even (${keys})`;
@@ -285,6 +293,7 @@ export function initDotsView(container) {
         `<div>Goal: ${a.goal ?? 'none'}</div>` +
         `<div>Target: ${a.target ?? 'none'}</div>` +
         `<div>${blockSummary(play, sel.id)}</div>` +
+        (reactLabel(sel) ? `<div>${reactLabel(sel)}</div>` : '') +
         `<div>${has ? 'Has the ball' : 'Does not have the ball'}</div>`;
     } else {
       html += '<div>Click a dot to select</div>';
