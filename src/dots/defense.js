@@ -121,6 +121,7 @@ export function startDefense(players, front, { los, call = 'base', carrierId } =
     lineIds: front.line.map(({ id, n }) => ({ id, n })),
     line: {},
     agents: {},
+    committed: {},
   };
   for (const l of front.line) {
     const p = players.find((q) => q.id === l.id);
@@ -159,6 +160,9 @@ export function stepDefense(players, defense, { run, ballPos }, dt) {
     if (hit) { e.state = hit.to; e.st = 0; }
     const row = behavior.states[e.state];
     const g = GOALS[row.goal](d, e, env);
+    if (e.state !== behavior.start && !defense.committed[id]) {
+      defense.committed[id] = { x: g ? g.x : ballPos.x, t: defense.t };
+    }
     if (g) out[id] = { x: g.x, y: g.y, key: 'def:' + e.state, rate: row.speed * d.speed };
   }
   return out;

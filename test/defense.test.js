@@ -140,3 +140,52 @@ test('F-19 #3: unknown call, behaviour or bad names throw', () => {
   assert.throws(() => validateBehavior('b', { b: mk({ goal: 'ball', speed: 1, exits: [{ when: 'atFill', to: 'x' }] }).b }), /exit target/);
   assert.throws(() => validateBehavior('b', { b: mk({ goal: 'ball', speed: 1, exits: [] }, ['kk']).b }), /kk/);
 });
+
+test('F-19 #9: fresh startDefense has empty committed', () => {
+  const s = setup();
+  assert.deepEqual(s.defense.committed, {});
+});
+
+test('F-19 #9: committed records the lateral spot and time a LB leaves read', () => {
+  const s = setup();
+  s.run.carried = true;
+  step(s, 0.1);
+  assert.equal(s.defense.agents.MLB.state, 'read');
+  assert.ok(!('MLB' in s.defense.committed));
+  step(s, 0.5);
+  assert.equal(s.defense.agents.MLB.state, 'flow');
+  assert.equal(s.defense.agents.WLB.state, 'flow');
+  near(s.defense.committed.MLB.x, s.run.aim.x);
+  near(s.defense.committed.MLB.t, s.defense.t);
+  near(s.defense.committed.WLB.x, s.run.aim.x);
+  near(s.defense.committed.WLB.t, s.defense.t);
+});
+
+test('F-19 #9: committed entry never changes once set', () => {
+  const s = setup();
+  s.run.carried = true;
+  step(s, 0.1);
+  step(s, 0.5);
+  const first = { ...s.defense.committed.MLB };
+  s.run.aim.x = first.x + 5;
+  step(s);
+  s.run.locked = true;
+  step(s);
+  s.ball = { x: 0, y: LOS + 1 };
+  step(s);
+  near(s.defense.committed.MLB.x, first.x);
+  near(s.defense.committed.MLB.t, first.t);
+});
+
+test('F-19 #9: DL ids never appear in committed', () => {
+  const s = setup();
+  s.run.carried = true;
+  step(s, 0.1);
+  step(s, 0.5);
+  step(s, 1);
+  for (const id of Object.keys(s.defense.committed)) {
+    assert.ok(!/^(LDE|LDT|RDT|RDE|DL|NT)/.test(id), id);
+    assert.ok(id in s.defense.agents);
+  }
+  assert.ok(!('LDE' in s.defense.committed) && !('RDT' in s.defense.committed));
+});
