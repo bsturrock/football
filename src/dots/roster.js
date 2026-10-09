@@ -48,6 +48,7 @@ export const PLAYS = Object.freeze({
     ball: Object.freeze({ start: 'C', snapTo: 'QB' }),
     assignments: Object.freeze({}),
     playside: 'left',
+    scheme: 'zone', // names the blocking scheme play.js applies at the snap
   }),
 });
 
