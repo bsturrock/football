@@ -182,3 +182,99 @@ test('no tunnelling at 2x with a 0.05 step', () => {
   assert.ok(w.y < l.y, `${w.y} ${l.y}`);
   assert.ok(Math.hypot(w.x - l.x, w.y - l.y) >= 2 * BODY_RADIUS - 1e-6);
 });
+
+const DL_IDS = ['LDE', 'LDT', 'RDT', 'RDE'];
+
+test('F-9 #1: shiftDL(1) moves only the DL by one step; shiftDL(-1) restores', () => {
+  const play = createPlay(25);
+  assert.equal(play.dlShift, 0);
+  const base = buildLineup(25);
+  assert.equal(play.shiftDL(1), 1);
+  for (const b of base) {
+    const p = play.player(b.id);
+    if (DL_IDS.includes(b.id)) {
+      near(p.x, b.x + 0.6);
+      near(p.y, b.y);
+    } else {
+      assert.equal(p.x, b.x, b.id);
+      assert.equal(p.y, b.y, b.id);
+    }
+  }
+  assert.equal(play.shiftDL(-1), 0);
+  for (const b of base) {
+    const p = play.player(b.id);
+    near(p.x, b.x);
+    near(p.y, b.y);
+  }
+});
+
+test('F-9 #2: shift clamps at +-4 steps; invalid dir returns current shift unchanged', () => {
+  const play = createPlay(25);
+  const base = buildLineup(25);
+  for (let i = 0; i < 5; i++) play.shiftDL(1);
+  assert.equal(play.dlShift, 4);
+  for (const b of base.filter((q) => DL_IDS.includes(q.id))) {
+    near(play.player(b.id).x, b.x + 2.4);
+  }
+  const down = createPlay(25);
+  for (let i = 0; i < 5; i++) down.shiftDL(-1);
+  assert.equal(down.dlShift, -4);
+  for (const b of base.filter((q) => DL_IDS.includes(q.id))) {
+    near(down.player(b.id).x, b.x - 2.4);
+  }
+  for (const bad of [0, 2, 0.5, NaN]) {
+    const snapshot = play.players.map((p) => [p.id, p.x, p.y]);
+    assert.equal(play.shiftDL(bad), 4, String(bad));
+    assert.deepEqual(play.players.map((p) => [p.id, p.x, p.y]), snapshot);
+  }
+});
+
+test('F-9 #3: shiftDL is refused once the ball is live', () => {
+  const play = createPlay(25);
+  play.shiftDL(1);
+  play.snap();
+  const snapshot = play.players.map((p) => [p.id, p.x, p.y]);
+  assert.equal(play.shiftDL(1), false);
+  assert.equal(play.dlShift, 1);
+  assert.deepEqual(play.players.map((p) => [p.id, p.x, p.y]), snapshot);
+  play.step(SNAP_DURATION * 2);
+  assert.equal(play.ball.phase, 'held');
+  const held = play.players.map((p) => [p.id, p.x, p.y]);
+  assert.equal(play.shiftDL(-1), false);
+  assert.equal(play.dlShift, 1);
+  assert.deepEqual(play.players.map((p) => [p.id, p.x, p.y]), held);
+});
+
+test('F-9 #4: dlShift survives reset() and reset rebuilds at the shift', () => {
+  const play = createPlay(25);
+  play.shiftDL(1);
+  play.shiftDL(1);
+  play.snap();
+  play.step(1);
+  play.reset();
+  assert.equal(play.dlShift, 2);
+  assert.equal(play.ball.phase, 'presnap');
+  const base = buildLineup(25);
+  for (const b of base.filter((q) => DL_IDS.includes(q.id))) {
+    near(play.player(b.id).x, b.x + 1.2);
+  }
+});
+
+test('F-9 #5: block assignment after snap sees the shifted D-line', () => {
+  const targets = (play) =>
+    Object.fromEntries(['LT', 'LG', 'C', 'RG', 'RT'].map((id) => [id, play.player(id).block.target]));
+
+  const base = createPlay(25);
+  base.snap();
+  assert.deepEqual(targets(base), { LT: 'RDE', LG: 'RDT', C: 'LDT', RG: 'LDT', RT: 'LDE' });
+
+  const right = createPlay(25);
+  for (let i = 0; i < 4; i++) right.shiftDL(1);
+  right.snap();
+  assert.deepEqual(targets(right), { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' });
+
+  const left = createPlay(25);
+  for (let i = 0; i < 4; i++) left.shiftDL(-1);
+  left.snap();
+  assert.deepEqual(targets(left), { LT: 'RDT', LG: 'LDT', C: 'LDT', RG: 'LDE', RT: 'LDE' });
+});

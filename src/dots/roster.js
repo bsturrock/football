@@ -48,7 +48,11 @@ export function emptyAssignment() {
   return { goal: null, target: null };
 }
 
-export function buildLineup(los, playKey = 'base') {
+// Roles that make up the defensive line. buildLineup shifts only these.
+export const DL_ROLES = Object.freeze(['DE', 'DT']);
+
+// dlShift is a lateral offset in yards added to x of every DL player.
+export function buildLineup(los, playKey = 'base', { dlShift = 0 } = {}) {
   const play = PLAYS[playKey];
   if (!play) throw new Error(`buildLineup: unknown play "${playKey}"`);
   return POSITIONS.map((p) => {
@@ -58,7 +62,7 @@ export function buildLineup(los, playKey = 'base') {
       name: p.name,
       team: p.team,
       role: p.role,
-      x: p.dx,
+      x: DL_ROLES.includes(p.role) ? p.dx + dlShift : p.dx,
       y: los + p.dy,
       speed: p.speed,
       strength: p.strength,

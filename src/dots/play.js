@@ -3,6 +3,7 @@
 
 import { PLAYS, buildLineup } from './roster.js';
 import {
+  BODY_RADIUS,
   assignBlocks,
   clearBlock,
   doubleTeamPeel,
@@ -17,12 +18,31 @@ export const MAX_SUBSTEP = 1 / 60; // max sim seconds per stepBlocking call
 export const SIM_SPEED = 0.35; // dots page default time scale
 export const SIM_SPEED_MIN = 0.1;
 export const SIM_SPEED_MAX = 2;
+export const DL_SHIFT_STEP = BODY_RADIUS; // yards per pre-snap D-line shift step
+export const DL_SHIFT_MAX = 4; // steps allowed each way
 
 export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
-  const play = { los, playKey, players: [], ball: {}, retargetRule: doubleTeamPeel, timeScale };
+  const play = {
+    los,
+    playKey,
+    players: [],
+    ball: {},
+    retargetRule: doubleTeamPeel,
+    timeScale,
+    dlShift: 0,
+  };
   let ctx = { seq: 0 };
 
   play.player = (id) => play.players.find((p) => p.id === id);
+
+  // Pre-snap D-line shift in steps. Only changes while the ball is presnap.
+  play.shiftDL = (dir) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (dir !== 1 && dir !== -1) return play.dlShift;
+    play.dlShift = Math.min(DL_SHIFT_MAX, Math.max(-DL_SHIFT_MAX, play.dlShift + dir));
+    play.reset();
+    return play.dlShift;
+  };
 
   // Scales how fast play.step advances; the only place time scale applies.
   play.setTimeScale = (s) => {
@@ -33,7 +53,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
 
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
-    play.players = buildLineup(los, playKey);
+    play.players = buildLineup(los, playKey, { dlShift: play.dlShift * DL_SHIFT_STEP });
     for (const p of play.players) p.block = null;
     ctx = { seq: 0 };
     Object.assign(play.ball, {
