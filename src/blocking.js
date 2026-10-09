@@ -133,7 +133,10 @@ function battleStep(d, o, c, dt){
 // against defender power. A pulling guard or climbing tackle at speed into a linebacker or DB can put him on
 // his back; a lineman squared up at the line almost never does. Both become bodies for the collision: the
 // blocker stays on his feet driving through, the defender is knocked off his and needs a moment to get up.
-const PANCAKE_AT = 6.5;
+// B-092: a full-speed pull (7-7.5 yd/s, a guard into a set edge or an LB) scores about 6.5-11 here, so at 6.5 it flattened
+// him as often as not; a kick-out or wrap usually just moves the man and a pancake is the exception, for a blocker clearly
+// stronger or a defender already moving off balance (his own back-momentum is taken off the score). One bar for every blocker.
+const PANCAKE_AT = 8;
 export function pancakeHit(o, d){
   if(o.ph || isBody(d) || !S.runMode) return false;
   const l = dist(o, d) || 1, nx = (d.x - o.x)/l, ny = (d.y - o.y)/l;
@@ -142,6 +145,7 @@ export function pancakeHit(o, d){
   const close = into + Math.max(0, back);
   const score = (o.mass*Math.max(0, into) - d.mass*Math.max(0, back))/d.mass*(o.rStr/80)/(d.rPow/70)*rand(0.8, 1.2);
   if(score < PANCAKE_AT) return false;
+  const L = S.pancakeLog || (S.pancakeLog = {}), pk = o.pull ? o.pull.kind : 'other'; L[pk] = (L[pk] || 0) + 1;   // B-092: the sim's count by pull kind (kick, wrap, lead, trap; other = not a puller); sim.js reads it through S
   const k = close*o.mass/(o.mass + d.mass)*1.6;                     // what the hit hands the defender
   d.stun = 2.4; d.act = 'down'; d.actT = 2.4; d.fallDir = -1; unface(d); d.bt = o.bt = null;
   physOn(d, {bal:0, vx:d.vx + nx*k, vy:d.vy + ny*k, up:0.4, ttl:1.8});
