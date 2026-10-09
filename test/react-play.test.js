@@ -65,3 +65,25 @@ test('resolveBlock follows react.dir', () => {
   assert.ok(v.vx < 0);
   assert.ok(Math.abs(v.vy) < 1e-9);
 });
+
+test('double-team drift levels off', () => {
+  const at = {};
+  run({ x: -3, y: 21 }, 5.0, (g, t) => {
+    const k = Math.round(t * 60);
+    if (k === 120 || k === 180 || k === 300) at[k] = { x: g.D.x, y: g.D.y - 25.7 };
+  });
+  const x2 = at[120].x; const y2 = at[120].y;
+  const x3 = at[180].x; const y3 = at[180].y;
+  const x5 = at[300].x; const y5 = at[300].y;
+  assert.ok(Math.abs(x3) - Math.abs(x2) < 0.2, `x2 ${x2} x3 ${x3}`);
+  assert.ok(y3 - y2 < 0.2, `y2 ${y2} y3 ${y3}`);
+  assert.ok(Math.abs(x5) <= 2.5, `x5 ${x5}`);
+  assert.ok(Math.abs(x5) >= 1.0, `x5 ${x5}`);
+  assert.ok(y5 <= 2.0, `y5 ${y5}`);
+});
+
+test('straight double team stays centred and bounded in depth', () => {
+  const f = run({ x: 0, y: 21 }, 5.0);
+  assert.ok(f.D.y - 25.7 <= 2.0, `D.y ${f.D.y}`);
+  assert.ok(Math.abs(f.D.x) < 0.05, `D.x ${f.D.x}`);
+});

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   REACT_STATES, ANCHOR_RATE, RECOVER_RATE, ANCHOR_MIN, ANCHOR_LATERAL,
-  startReact, anchorSide, anchorDir, stepReact,
+  startReact, anchorSide, anchorDir, stepReact, anchorHold, HOLD_GIVE, HOLD_STIFF,
 } from '../src/dots/react.js';
 
 const DT = 1 / 60;
@@ -32,6 +32,7 @@ test('REACT_STATES lists the four states', () => {
 test('startReact fields', () => {
   assert.deepEqual(startReact(def(1, 2)), {
     state: 'neutral', sx: 1, sy: 2, px: 1, py: 2, lean: 0, side: 0, dir: null,
+    ex: 1, ey: 2, hold: { x: 0, y: 0 },
   });
 });
 
@@ -124,4 +125,55 @@ test('frozen inputs do not throw', () => {
   const push = Object.freeze({ x: 0, y: 1.4 });
   const b = Object.freeze({ x: 2, y: -5 });
   assert.doesNotThrow(() => stepReact(r, Object.freeze(def(0, 10.01)), push, b, DT));
+  const out = stepReact(r, Object.freeze(def(0, 11)), push, b, DT);
+  assert.equal(out.ex, 0);
+  assert.equal(out.ey, 10);
+  assert.ok(Object.isFrozen(r) && r.hold.x === 0 && r.hold.y === 0);
+});
+
+const HPUSH = { x: 0, y: 2 };
+
+test('anchorHold is zero inside the give', () => {
+  const h = anchorHold(0, 10, def(0, 10.4), HPUSH);
+  near(h.x, 0); near(h.y, 0);
+});
+
+test('anchorHold straight back past the give', () => {
+  const h = anchorHold(0, 10, def(0, 11), HPUSH);
+  near(h.x, 0); near(h.y, -HOLD_STIFF * 0.5);
+});
+
+test('anchorHold is capped at the push', () => {
+  const h = anchorHold(0, 10, def(0, 15), HPUSH);
+  near(h.x, 0); near(h.y, -2);
+});
+
+test('anchorHold diagonal points back to the engage spot', () => {
+  const h = anchorHold(0, 0, def(-1, 1), HPUSH);
+  const e = unit(1, -1);
+  const mag = Math.min(2, HOLD_STIFF * (Math.SQRT2 - HOLD_GIVE));
+  near(h.x, e.x * mag); near(h.y, e.y * mag);
+});
+
+test('anchorHold is zero when displaced against the push', () => {
+  const h = anchorHold(0, 10, def(0, 9), HPUSH);
+  near(h.x, 0); near(h.y, 0);
+});
+
+test('anchorHold is zero when push is zero', () => {
+  const h = anchorHold(0, 10, def(0, 12), { x: 0, y: 0 });
+  near(h.x, 0); near(h.y, 0);
+});
+
+test('stepReact keeps the engage spot and holds with anchorHold', () => {
+  const r0 = stepReact(null, def(0, 10), PUSH, ball, DT);
+  let r = r0;
+  for (let i = 1; i <= 30; i++) {
+    r = stepReact(r, def(0, 10 + i * 0.05), PUSH, ball, DT);
+  }
+  assert.equal(r.ex, 0);
+  assert.equal(r.ey, 10);
+  const want = anchorHold(0, 10, def(0, 10 + 30 * 0.05), PUSH);
+  near(r.hold.x, want.x); near(r.hold.y, want.y);
+  assert.ok(r.hold.y < 0);
 });

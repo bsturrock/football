@@ -15,9 +15,26 @@ export const RECOVER_RATE = 0.5; // /s, lean fall and stance catch-up per second
 export const ANCHOR_MIN = 0.25; // lean at which he counts as anchored
 export const ANCHOR_LATERAL = 0.7; // sideways part of the anchor per unit of backward lean
 export const SIDE_DEADZONE = 0.1; // yd
+export const HOLD_GIVE = 0.5; // yd he can be moved off the engage spot before the anchor stiffens
+export const HOLD_STIFF = 1.2; // force units per yd beyond the give
 
 export function startReact(d) {
-  return { state: 'neutral', sx: d.x, sy: d.y, px: d.x, py: d.y, lean: 0, side: 0, dir: null };
+  return {
+    state: 'neutral', sx: d.x, sy: d.y, px: d.x, py: d.y, lean: 0, side: 0, dir: null,
+    ex: d.x, ey: d.y, hold: { x: 0, y: 0 },
+  };
+}
+
+// Anchor hold: pulls back toward the engage spot once he is moved past HOLD_GIVE
+// in the push's direction. Capped at the push it absorbs.
+export function anchorHold(ex, ey, d, push) {
+  const dx = d.x - ex;
+  const dy = d.y - ey;
+  const m = Math.hypot(dx, dy);
+  const P = Math.hypot(push.x, push.y);
+  if (P < 1e-9 || m < 1e-9 || dx * push.x + dy * push.y <= 0) return { x: 0, y: 0 };
+  const h = Math.min(P, HOLD_STIFF * Math.max(0, m - HOLD_GIVE));
+  return { x: -h * dx / m, y: -h * dy / m };
 }
 
 export function anchorSide(prevSide, d, ball) {
@@ -38,6 +55,8 @@ export function anchorDir(side, pu) {
 
 export function stepReact(react, d, push, ball, dt) {
   const r = react ?? startReact(d);
+  const ex = r.ex;
+  const ey = r.ey;
   const P = Math.hypot(push.x, push.y);
   const pu = P < 1e-9 ? null : { x: push.x / P, y: push.y / P };
   const vx = dt > 0 ? (d.x - r.px) / dt : 0;
@@ -71,5 +90,6 @@ export function stepReact(react, d, push, ball, dt) {
     else if (lean >= ANCHOR_MIN) state = 'anchored';
     else if (along >= DRIVEN_SPEED) state = 'driven';
   }
-  return { state, sx, sy, px: d.x, py: d.y, lean, side, dir };
+  const hold = anchorHold(ex, ey, d, push);
+  return { state, sx, sy, px: d.x, py: d.y, lean, side, dir, ex, ey, hold };
 }
