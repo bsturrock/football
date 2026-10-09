@@ -15,3 +15,4 @@
 - 2026-10-09 F-15 Squeeze past: gap threading and soft body contact (R-22) 517d2c4
 - 2026-10-09 F-16 Blocking rules engine: front reading, rule-table assignment, inside zone as data (R-21) e7441d0
 - 2026-10-09 F-17 Blocking techniques: phased zone footwork (step, aim, drive, ride) (R-21) 02f5403
+- 2026-10-09 F-18 Defensive fronts as game data with a front picker (R-23) f1d02f8
