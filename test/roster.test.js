@@ -41,6 +41,23 @@ test('OL dx strictly increasing LT to RT', () => {
   for (let i = 1; i < ol.length; i++) assert.ok(ol[i] > ol[i - 1]);
 });
 
+test('OL forms a V pointing at the defense', () => {
+  const C = byId('C');
+  const LG = byId('LG');
+  const RG = byId('RG');
+  const LT = byId('LT');
+  const RT = byId('RT');
+  assert.equal(C.dx, 0);
+  assert.equal(C.dy, -0.7);
+  assert.equal(LG.dy, -1.2);
+  assert.equal(RG.dy, LG.dy);
+  assert.equal(LT.dy, -2.2);
+  assert.equal(RT.dy, LT.dy);
+  assert.ok(C.dy > LG.dy && LG.dy > LT.dy);
+  assert.equal(LG.dx, -RG.dx);
+  assert.equal(LT.dx, -RT.dx);
+});
+
 test('linebackers sit deeper than defensive linemen', () => {
   const lbDy = Math.min(...POSITIONS.filter((p) => p.role === 'LB').map((p) => p.dy));
   const dlDy = Math.max(...POSITIONS.filter((p) => ['DE', 'DT'].includes(p.role)).map((p) => p.dy));
@@ -54,6 +71,16 @@ test('QB and RB alignment in the backfield', () => {
   assert.equal(qb.dy, -4.5);
   assert.equal(rb.dy, qb.dy);
   assert.equal(rb.dx, 1.8);
+});
+
+test('QB/RB shotgun spacing measured from C', () => {
+  const C = byId('C');
+  const QB = byId('QB');
+  const RB = byId('RB');
+  assert.ok(Math.abs(QB.dy - C.dy + 3.8) < 1e-9);
+  assert.equal(QB.dx, C.dx);
+  assert.equal(RB.dy, QB.dy);
+  assert.ok(Math.abs(RB.dx - C.dx - 1.8) < 1e-9);
 });
 
 test('buildLineup(25) positions players from the line of scrimmage', () => {
