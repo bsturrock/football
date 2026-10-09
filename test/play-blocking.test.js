@@ -105,10 +105,9 @@ test('5. no retarget: engaged blockers hold contact spot', () => {
 test('6. double-teamed LDT is driven back more than single-blocked RDT', () => {
   const play = started();
   play.retargetRule = null;
-  run(play, 1.5);
   const l0 = play.player('LDT').y;
   const r0 = play.player('RDT').y;
-  run(play, 1.0);
+  run(play, 2.5);
   const lg = play.player('LDT').y - l0;
   const rg = play.player('RDT').y - r0;
   assert.ok(lg > 0 && rg > 0, `${lg} ${rg}`);

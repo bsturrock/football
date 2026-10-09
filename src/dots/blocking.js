@@ -177,6 +177,10 @@ export function resolveBlock(defender, blockers, goal) {
   const bp = blockPush(blockers);
   fx += bp.x;
   fy += bp.y;
+  if (defender.react?.hold) {
+    fx += defender.react.hold.x;
+    fy += defender.react.hold.y;
+  }
   let vx = fx * DRIVE_RATE;
   let vy = fy * DRIVE_RATE;
   const m = Math.hypot(vx, vy);
