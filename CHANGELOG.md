@@ -13,3 +13,4 @@
 - 2026-10-09 F-14 NFL-sized dots and line splits (R-14) d917746
 - 2026-10-09 F-13 Inside zone handoff and RB hole read (A, B, C) (R-13) 884913f
 - 2026-10-09 F-15 Squeeze past: gap threading and soft body contact (R-22) 517d2c4
+- 2026-10-09 F-16 Blocking rules engine: front reading, rule-table assignment, inside zone as data (R-21) e7441d0
