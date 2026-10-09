@@ -1,9 +1,19 @@
 // Dots view layer: top-down three.js rendering of the dots play state.
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
-import { createPlay, SIM_SPEED, DL_SHIFT_STEP } from './play.js';
+import { createPlay, SIM_SPEED, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
 import { BODY_RADIUS } from './blocking.js';
 import { HW } from '../util.js';
+
+// Number label square covers the dot.
+export const LABEL_SIZE = 2 * BODY_RADIUS;
+
+const SHIFT_STEP = Object.freeze({ DL: DL_SHIFT_STEP, LB: LB_SHIFT_STEP });
+
+// Yards with two decimals and trailing zeros dropped (0.35 -> '0.35', 0.7 -> '0.7', 2 -> '2').
+export function formatYards(y) {
+  return String(Number(y.toFixed(2)));
+}
 
 export function fieldToWorld(x, y) {
   return { x, z: 50 - y };
@@ -35,7 +45,8 @@ export function blockSummary(play, id) {
 // Hint text for the pre-snap D-line shift (steps: +1 = right, -1 = left).
 export function shiftLabel(steps, group = 'DL', keys = '←/→') {
   if (steps === 0) return `${group} shift: even (${keys})`;
-  const yd = (Math.abs(steps) * DL_SHIFT_STEP).toFixed(1);
+  const step = SHIFT_STEP[group] ?? DL_SHIFT_STEP;
+  const yd = formatYards(Math.abs(steps) * step);
   const side = steps > 0 ? 'R' : 'L';
   return `${group} shift: ${yd} yd ${side} (${keys})`;
 }
@@ -150,7 +161,7 @@ export function initDotsView(container) {
     const c = document.createElement('canvas');
     c.width = c.height = 64;
     const tex = new THREE.CanvasTexture(c);
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2),
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(LABEL_SIZE, LABEL_SIZE),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
     m.rotation.x = -Math.PI / 2;
     m.userData = { canvas: c, texture: tex };

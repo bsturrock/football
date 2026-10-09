@@ -1,16 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel, formatYards, LABEL_SIZE } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
+import { BODY_RADIUS } from '../src/dots/blocking.js';
 
 const players = () => createPlay(25).players;
 const get = (ps, id) => ps.find((p) => p.id === id);
 
 test('shiftLabel formats the pre-snap D-line shift', () => {
   assert.equal(shiftLabel(0), 'DL shift: even (←/→)');
-  assert.equal(shiftLabel(2), `DL shift: ${(2 * DL_SHIFT_STEP).toFixed(1)} yd R (←/→)`);
-  assert.equal(shiftLabel(-1), `DL shift: ${(1 * DL_SHIFT_STEP).toFixed(1)} yd L (←/→)`);
-  assert.equal(shiftLabel(4), `DL shift: ${(4 * DL_SHIFT_STEP).toFixed(1)} yd R (←/→)`);
+  assert.equal(shiftLabel(2), `DL shift: ${formatYards(2 * DL_SHIFT_STEP)} yd R (←/→)`);
+  assert.equal(shiftLabel(-1), `DL shift: ${formatYards(1 * DL_SHIFT_STEP)} yd L (←/→)`);
+  assert.equal(shiftLabel(4), `DL shift: ${formatYards(4 * DL_SHIFT_STEP)} yd R (←/→)`);
 });
 
 test('fieldToWorld maps game to world', () => {
@@ -74,6 +75,19 @@ test('numberLabel formats zone numbers', () => {
 
 test('shiftLabel supports the LB group', () => {
   assert.equal(shiftLabel(0, 'LB', '⇧←/→'), 'LB shift: even (⇧←/→)');
-  assert.equal(shiftLabel(-2, 'LB', '⇧←/→'), `LB shift: ${(2 * LB_SHIFT_STEP).toFixed(1)} yd L (⇧←/→)`);
-  assert.equal(shiftLabel(-6, 'LB', '⇧←/→'), `LB shift: ${(6 * LB_SHIFT_STEP).toFixed(1)} yd L (⇧←/→)`);
+  assert.equal(shiftLabel(-2, 'LB', '⇧←/→'), `LB shift: ${formatYards(2 * LB_SHIFT_STEP)} yd L (⇧←/→)`);
+  assert.equal(shiftLabel(-6, 'LB', '⇧←/→'), `LB shift: ${formatYards(6 * LB_SHIFT_STEP)} yd L (⇧←/→)`);
+});
+
+test('F-14 #9: formatYards keeps two decimals, drops trailing zeros', () => {
+  assert.equal(formatYards(0.35), '0.35');
+  assert.equal(formatYards(0.7), '0.7');
+  assert.equal(formatYards(3 * 0.35), '1.05');
+  assert.equal(formatYards(6 * 0.35), '2.1');
+  assert.equal(formatYards(1.2), '1.2');
+  assert.equal(formatYards(2), '2');
+});
+
+test('F-14 #10: number label sized from BODY_RADIUS', () => {
+  assert.equal(LABEL_SIZE, 2 * BODY_RADIUS);
 });
