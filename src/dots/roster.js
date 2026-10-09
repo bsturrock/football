@@ -42,6 +42,13 @@ export const PLAYS = Object.freeze({
     ball: Object.freeze({ start: 'C', snapTo: 'QB' }),
     assignments: Object.freeze({}),
   }),
+  // playside ('left' = -x, 'right' = +x) drives zone numbering. Later variants are new entries.
+  insideZone: Object.freeze({
+    name: 'Inside Zone',
+    ball: Object.freeze({ start: 'C', snapTo: 'QB' }),
+    assignments: Object.freeze({}),
+    playside: 'left',
+  }),
 });
 
 export function emptyAssignment() {
@@ -50,9 +57,10 @@ export function emptyAssignment() {
 
 // Roles that make up the defensive line. buildLineup shifts only these.
 export const DL_ROLES = Object.freeze(['DE', 'DT']);
+export const LB_ROLES = Object.freeze(['LB']);
 
 // dlShift is a lateral offset in yards added to x of every DL player.
-export function buildLineup(los, playKey = 'base', { dlShift = 0 } = {}) {
+export function buildLineup(los, playKey = 'base', { dlShift = 0, lbShift = 0 } = {}) {
   const play = PLAYS[playKey];
   if (!play) throw new Error(`buildLineup: unknown play "${playKey}"`);
   return POSITIONS.map((p) => {
@@ -62,7 +70,7 @@ export function buildLineup(los, playKey = 'base', { dlShift = 0 } = {}) {
       name: p.name,
       team: p.team,
       role: p.role,
-      x: DL_ROLES.includes(p.role) ? p.dx + dlShift : p.dx,
+      x: p.dx + (DL_ROLES.includes(p.role) ? dlShift : 0) + (LB_ROLES.includes(p.role) ? lbShift : 0),
       y: los + p.dy,
       speed: p.speed,
       strength: p.strength,

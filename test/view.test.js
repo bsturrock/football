@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, shiftLabel } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel } from '../src/dots/view.js';
 import { createPlay } from '../src/dots/play.js';
 
 const players = () => createPlay(25).players;
@@ -62,4 +62,18 @@ test('blockSummary after stepping shows engaged block and blockers', () => {
   for (let i = 0; i < 90; i++) play.step(1 / 60);
   assert.equal(blockSummary(play, 'C'), 'Block: LDT · straight · engaged');
   assert.equal(blockSummary(play, 'LDT'), 'Blocked by: C, RG');
+});
+
+test('numberLabel formats zone numbers', () => {
+  assert.equal(numberLabel(0), '0');
+  assert.equal(numberLabel(2), '2');
+  assert.equal(numberLabel(-1), '-1');
+  assert.equal(numberLabel(null), '');
+  assert.equal(numberLabel(undefined), '');
+});
+
+test('shiftLabel supports the LB group', () => {
+  assert.equal(shiftLabel(0, 'LB', '⇧←/→'), 'LB shift: even (⇧←/→)');
+  assert.equal(shiftLabel(-2, 'LB', '⇧←/→'), 'LB shift: 1.2 yd L (⇧←/→)');
+  assert.equal(shiftLabel(-6, 'LB', '⇧←/→'), 'LB shift: 3.6 yd L (⇧←/→)');
 });

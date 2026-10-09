@@ -33,15 +33,20 @@ export function blockSummary(play, id) {
 }
 
 // Hint text for the pre-snap D-line shift (steps: +1 = right, -1 = left).
-export function shiftLabel(steps) {
-  if (steps === 0) return 'DL shift: even (←/→)';
+export function shiftLabel(steps, group = 'DL', keys = '←/→') {
+  if (steps === 0) return `${group} shift: even (${keys})`;
   const yd = (Math.abs(steps) * DL_SHIFT_STEP).toFixed(1);
   const side = steps > 0 ? 'R' : 'L';
-  return `DL shift: ${yd} yd ${side} (←/→)`;
+  return `${group} shift: ${yd} yd ${side} (${keys})`;
+}
+
+// Text for a player's zone-number label ('' hides it).
+export function numberLabel(n) {
+  return n === null || n === undefined ? '' : String(n);
 }
 
 export function initDotsView(container) {
-  const play = createPlay(25, 'base', { timeScale: SIM_SPEED });
+  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED });
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
   const resetBtn = document.getElementById('reset-btn');
@@ -56,6 +61,11 @@ export function initDotsView(container) {
     if (shiftReadout) shiftReadout.textContent = shiftLabel(play.dlShift);
   };
   showShift();
+  const lbReadout = hint ? hint.appendChild(document.createElement('span')) : null;
+  const showLB = () => {
+    if (lbReadout) lbReadout.textContent = shiftLabel(play.lbShift, 'LB', '⇧←/→');
+  };
+  showLB();
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -114,6 +124,52 @@ export function initDotsView(container) {
     m.rotation.x = -Math.PI / 2;
     scene.add(m);
     dotMeshes.set(p.id, m);
+  }
+
+  // ---- Zone number labels ----
+  const labels = new Map();
+  function drawLabel(label, text) {
+    const c = label.userData.canvas;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, c.width, c.height);
+    if (text !== '') {
+      g.font = 'bold 44px sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.lineWidth = 8;
+      g.strokeStyle = '#000';
+      g.lineJoin = 'round';
+      g.strokeText(text, c.width / 2, c.height / 2);
+      g.fillStyle = '#fff';
+      g.fillText(text, c.width / 2, c.height / 2);
+    }
+    label.userData.texture.needsUpdate = true;
+    label.visible = text !== '';
+  }
+  for (const p of play.players) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const tex = new THREE.CanvasTexture(c);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2;
+    m.userData = { canvas: c, texture: tex };
+    m.visible = false;
+    scene.add(m);
+    labels.set(p.id, m);
+  }
+  let lastNumbers = null;
+  function syncLabels() {
+    if (play.numbers !== lastNumbers) {
+      lastNumbers = play.numbers;
+      for (const p of play.players) {
+        drawLabel(labels.get(p.id), numberLabel(play.numbers[p.id]));
+      }
+    }
+    for (const p of play.players) {
+      const w = fieldToWorld(p.x, p.y);
+      labels.get(p.id).position.set(w.x, 0.13, w.z);
+    }
   }
 
   // ---- Block lines (blocker -> current target), keyed by blocker id ----
@@ -193,6 +249,7 @@ export function initDotsView(container) {
       const has = play.ball.holder === sel.id;
       html += `<div><b>${sel.id}</b> · ${sel.name}</div>` +
         `<div>Team: ${sel.team}</div><div>Role: ${sel.role}</div>` +
+        `<div>Zone #: ${numberLabel(play.numbers[sel.id]) || 'none'}</div>` +
         `<div>Goal: ${a.goal ?? 'none'}</div>` +
         `<div>Target: ${a.target ?? 'none'}</div>` +
         `<div>${blockSummary(play, sel.id)}</div>` +
@@ -212,6 +269,7 @@ export function initDotsView(container) {
       m.position.set(w.x, 0.1, w.z);
     }
     syncBlockLines();
+    syncLabels();
     const bp = play.ballPosition();
     const off = play.ball.holder ? 0.35 : 0;
     const bw = fieldToWorld(bp.x, bp.y + off);
@@ -283,10 +341,17 @@ export function initDotsView(container) {
     camera.updateProjectionMatrix();
   }, { passive: false });
 
-  const doReset = () => { play.reset(); showShift(); };
+  const doReset = () => { play.reset(); showShift(); showLB(); };
   resetBtn?.addEventListener('click', doReset);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { selectedId = null; return; }
+    if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      e.preventDefault();
+      play.shiftLB(e.key === 'ArrowRight' ? 1 : -1);
+      showLB();
+      return;
+    }
     // Shift stays allowed so '+' (Shift+=) and '_' (Shift+-) work; ctrl/meta/alt keep browser zoom.
     if (!e.ctrlKey && !e.metaKey && !e.altKey) {
       const step = (d) => Math.round((play.timeScale + d) * 100) / 100;
