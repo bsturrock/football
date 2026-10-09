@@ -13,12 +13,22 @@ import {
 } from './blocking.js';
 
 export const SNAP_DURATION = 0.35; // seconds
+export const SIM_SPEED = 0.35; // dots page default time scale
+export const SIM_SPEED_MIN = 0.1;
+export const SIM_SPEED_MAX = 2;
 
-export function createPlay(los = 25, playKey = 'base') {
-  const play = { los, playKey, players: [], ball: {}, retargetRule: doubleTeamPeel };
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
+  const play = { los, playKey, players: [], ball: {}, retargetRule: doubleTeamPeel, timeScale };
   let ctx = { seq: 0 };
 
   play.player = (id) => play.players.find((p) => p.id === id);
+
+  // Scales how fast play.step advances; the only place time scale applies.
+  play.setTimeScale = (s) => {
+    if (!Number.isFinite(s)) return play.timeScale;
+    play.timeScale = Math.min(SIM_SPEED_MAX, Math.max(SIM_SPEED_MIN, s));
+    return play.timeScale;
+  };
 
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
@@ -65,9 +75,10 @@ export function createPlay(los = 25, playKey = 'base') {
     live() ? engagedOn(play.players, defenderId).map((p) => p.id) : [];
 
   play.step = (dt) => {
+    const sdt = dt * play.timeScale;
     const ball = play.ball;
     if (ball.phase === 'snapping') {
-      ball.t += dt / SNAP_DURATION;
+      ball.t += sdt / SNAP_DURATION;
       if (ball.t >= 1) {
         ball.t = 1;
         ball.holder = ball.to;
@@ -76,7 +87,7 @@ export function createPlay(los = 25, playKey = 'base') {
     }
     if (ball.phase === 'presnap') return;
     ctx.rule = play.retargetRule;
-    stepBlocking(play.players, play.ballPosition(), dt, ctx);
+    stepBlocking(play.players, play.ballPosition(), sdt, ctx);
   };
 
   play.ballPosition = () => {
