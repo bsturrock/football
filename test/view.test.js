@@ -1,10 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, shiftLabel } from '../src/dots/view.js';
 import { createPlay } from '../src/dots/play.js';
 
 const players = () => createPlay(25).players;
 const get = (ps, id) => ps.find((p) => p.id === id);
+
+test('shiftLabel formats the pre-snap D-line shift', () => {
+  assert.equal(shiftLabel(0), 'DL shift: even (←/→)');
+  assert.equal(shiftLabel(2), 'DL shift: 1.2 yd R (←/→)');
+  assert.equal(shiftLabel(-1), 'DL shift: 0.6 yd L (←/→)');
+  assert.equal(shiftLabel(4), 'DL shift: 2.4 yd R (←/→)');
+});
 
 test('fieldToWorld maps game to world', () => {
   assert.deepEqual(fieldToWorld(3, 25), { x: 3, z: 25 });

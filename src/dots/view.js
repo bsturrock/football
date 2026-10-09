@@ -1,7 +1,7 @@
 // Dots view layer: top-down three.js rendering of the dots play state.
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
-import { createPlay, SIM_SPEED } from './play.js';
+import { createPlay, SIM_SPEED, DL_SHIFT_STEP } from './play.js';
 import { BODY_RADIUS } from './blocking.js';
 import { HW } from '../util.js';
 
@@ -32,6 +32,14 @@ export function blockSummary(play, id) {
   return `Blocked by: ${blockers.length ? blockers.join(', ') : 'none'}`;
 }
 
+// Hint text for the pre-snap D-line shift (steps: +1 = right, -1 = left).
+export function shiftLabel(steps) {
+  if (steps === 0) return 'DL shift: even (←/→)';
+  const yd = (Math.abs(steps) * DL_SHIFT_STEP).toFixed(1);
+  const side = steps > 0 ? 'R' : 'L';
+  return `DL shift: ${yd} yd ${side} (←/→)`;
+}
+
 export function initDotsView(container) {
   const play = createPlay(25, 'base', { timeScale: SIM_SPEED });
   const tooltip = document.getElementById('tooltip');
@@ -43,6 +51,11 @@ export function initDotsView(container) {
     if (speedReadout) speedReadout.textContent = `Speed ${play.timeScale.toFixed(2)}x (-/+)`;
   };
   showSpeed();
+  const shiftReadout = hint ? hint.appendChild(document.createElement('span')) : null;
+  const showShift = () => {
+    if (shiftReadout) shiftReadout.textContent = shiftLabel(play.dlShift);
+  };
+  showShift();
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -270,7 +283,7 @@ export function initDotsView(container) {
     camera.updateProjectionMatrix();
   }, { passive: false });
 
-  const doReset = () => play.reset();
+  const doReset = () => { play.reset(); showShift(); };
   resetBtn?.addEventListener('click', doReset);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { selectedId = null; return; }
@@ -281,6 +294,12 @@ export function initDotsView(container) {
       if (e.key === '=' || e.key === '+') { play.setTimeScale(step(0.05)); showSpeed(); return; }
     }
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      play.shiftDL(e.key === 'ArrowRight' ? 1 : -1);
+      showShift();
+      return;
+    }
     if (e.key.toLowerCase() === 'r') doReset();
   });
 
