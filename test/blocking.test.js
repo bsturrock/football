@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { HW } from '../src/util.js';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
-  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, BODY_RADIUS, SPREAD, separateBodies, canEngage,
+  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
 } from '../src/dots/blocking.js';
+import { hardCore } from '../src/dots/steering.js';
 
 const DT = 1 / 60;
 const near = (a, b, tol = 1e-4) => assert.ok(Math.abs(a - b) < tol, `${a} !~ ${b}`);
@@ -266,6 +267,34 @@ test('separateBodies', () => {
   ps = [D('a', HW - 0.1, 10), D('b', HW, 10)];
   separateBodies(ps);
   assert.ok(ps[0].x <= HW && ps[1].x <= HW);
+});
+
+test('separateBodies: soft zone relaxes by SOFT_RATE * dt, hard core holds', () => {
+  const H = hardCore(BODY_RADIUS);
+  const R2 = 2 * BODY_RADIUS;
+  const k = Math.min(1, SOFT_RATE / 60);
+  assert.equal(SOFT_RATE, 8);
+  let d = (H + R2) / 2;
+  let ps = [D('a', 0, 10), D('b', d, 10)];
+  separateBodies(ps, 1 / 60);
+  near(ps[1].x - ps[0].x, d + (R2 - d) * k, 1e-9);
+  near(ps[0].x, -(R2 - d) * k / 2, 1e-9);
+  near(ps[1].x, d + (R2 - d) * k / 2, 1e-9);
+  // below the hard core: never closer than H afterwards
+  ps = [D('a', 0, 10), D('b', H - 0.1, 10)];
+  separateBodies(ps, 1 / 60);
+  assert.ok(ps[1].x - ps[0].x >= H - 1e-9);
+  // anchored pair holds; the free body takes the full soft amount
+  const dist = (H + R2) / 2;
+  ps = [
+    O('o', 0, 10 - R2, { block: blk('d', { engaged: true, seq: 1 }) }),
+    D('d', 0, 10),
+    D('f', 0, 10 + dist),
+  ];
+  separateBodies(ps, 1 / 60);
+  assert.equal(ps[0].y, 10 - R2);
+  assert.equal(ps[1].y, 10);
+  near(ps[2].y, 10 + dist + (R2 - dist) * k, 1e-9);
 });
 
 test('canEngage', () => {
