@@ -2,3 +2,4 @@
 - 2026-10-09 F-2 OL staggered V alignment (R-2) e872dff
 - 2026-10-09 F-3 Post-snap blocking: targets, angles, double teams (R-3) d2b948c
 - 2026-10-09 F-4 LG meets RDT at the line (R-4) 689033a
+- 2026-10-09 F-5 Global sim time-scale for the dots view (R-8) 719d8ad
