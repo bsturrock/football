@@ -53,6 +53,7 @@ export const PLAYS = Object.freeze({
     assignments: Object.freeze({}),
     playside: 'left',
     scheme: 'zone', // names the blocking scheme play.js applies at the snap
+    run: Object.freeze({ carrier: 'RB' }), // run: { carrier } = who takes the handoff; read order is fixed in carrier.js
   }),
 });
 

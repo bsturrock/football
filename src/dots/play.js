@@ -1,8 +1,10 @@
 // Dots play state: lineup positions and ball possession. Pure: no THREE, no DOM.
+// Ball phases: presnap -> snapping -> held -> carried (carried only on plays with a run).
 // Time advances only through step(dt); there are no timers or clocks here.
 
 import { PLAYS, buildLineup } from './roster.js';
 import { numberPlay } from './numbering.js';
+import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
 import {
   BODY_RADIUS,
@@ -40,6 +42,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     lbShift: 0,
     numbers: {},
     combos: [],
+    run: null,
   };
   let ctx = { seq: 0 };
 
@@ -84,6 +87,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     for (const p of play.players) p.block = null;
     ctx = { seq: 0 };
     play.combos = [];
+    play.run = null;
     play.separation = 0;
     Object.assign(play.ball, {
       holder: PLAYS[playKey].ball.start,
@@ -110,6 +114,10 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
       assignBlocks(play.players, plan.blocks);
     } else {
       assignBlocks(play.players);
+    }
+    const def = PLAYS[playKey];
+    if (def.run) {
+      play.run = startRun(play.players, def.run, { snapToId: def.ball.snapTo, playside: def.playside });
     }
     return true;
   };
@@ -142,6 +150,18 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
       }
     }
     if (ball.phase === 'presnap') return;
+    if (play.run) {
+      const handed = stepCarrier(
+        play.players,
+        play.run,
+        { los, numbers: play.numbers, ballHeld: ball.phase === 'held', holdId: PLAYS[playKey].ball.snapTo },
+        sdt,
+      );
+      if (handed) {
+        ball.holder = play.run.carrier;
+        ball.phase = 'carried';
+      }
+    }
     ctx.rule = play.retargetRule;
     play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
   };
