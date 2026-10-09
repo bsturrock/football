@@ -11,3 +11,4 @@
 - 2026-10-09 F-11 Inside zone numbering (OL and box defenders) with LB shift (R-12) 6af2a18
 - 2026-10-09 F-12 Inside zone blocking: number-based targets and combo switches (R-12) b48f52c
 - 2026-10-09 F-14 NFL-sized dots and line splits (R-14) d917746
+- 2026-10-09 F-13 Inside zone handoff and RB hole read (A, B, C) (R-13) 884913f
