@@ -165,9 +165,17 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (!b.block || b.block.engaged) continue;
     const spot = contactSpot(players, b);
     moveToward(b, spot.x, spot.y, b.speed * dt);
-    if (Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL) {
-      b.x = spot.x;
-      b.y = spot.y;
+    const atSpot = Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL;
+    const T = byId(players, b.block.target);
+    const d = BLOCK_ANGLES[b.block.angle];
+    const touching =
+      Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_TOL &&
+      (T.x - b.x) * d.x + (T.y - b.y) * d.y >= 0;
+    if (atSpot || touching) {
+      if (atSpot) {
+        b.x = spot.x;
+        b.y = spot.y;
+      }
       b.block.engaged = true;
       b.block.seq = ++ctx.seq;
     }

@@ -241,3 +241,36 @@ test('10. reset mid-play clears blocks, keeps rule, restarts seq', () => {
   play.reset();
   assert.equal(play.retargetRule, null);
 });
+
+for (const retarget of [undefined, null]) {
+  test(`R-4: LG meets RDT at the line`, () => {
+    const play = createPlay(25);
+    if (retarget !== undefined) play.retargetRule = retarget;
+    play.snap();
+    let t = 0;
+    let engagedAt = null;
+    let rdtYAtEngage = null;
+    let allOlAt = null;
+    let minDist = Infinity;
+    run(play, 5, {
+      post: () => {
+        t += DT;
+        const lg = play.player('LG');
+        const rdt = play.player('RDT');
+        if (engagedAt === null && lg.block?.engaged) {
+          engagedAt = t;
+          rdtYAtEngage = rdt.y;
+        }
+        if (allOlAt === null && OL.every((id) => play.player(id).block?.engaged)) allOlAt = t;
+        minDist = Math.min(minDist, Math.hypot(lg.x - rdt.x, lg.y - rdt.y));
+      },
+    });
+    assert.ok(engagedAt !== null && engagedAt <= 0.25 + EPS, `LG engaged at ${engagedAt}`);
+    assert.equal(lgTarget(play), 'RDT');
+    assert.ok(rdtYAtEngage >= 25, `RDT y at engage ${rdtYAtEngage}`);
+    assert.ok(allOlAt !== null && allOlAt <= 0.5 + EPS, `all OL engaged at ${allOlAt}`);
+    assert.ok(minDist >= CONTACT_DIST - 0.05, `LG-RDT min distance ${minDist}`);
+    assert.ok(play.player('RDT').y > 26, `RDT y at 5s ${play.player('RDT').y}`);
+  });
+}
+const lgTarget = (play) => play.player('LG').block.target;

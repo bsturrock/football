@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
-  doubleTeamPeel, CONTACT_DIST, Y_MAX,
+  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX,
 } from '../src/dots/blocking.js';
 
 const DT = 1 / 60;
@@ -161,4 +161,25 @@ test('stepBlocking with peel rule', () => {
   stepBlocking(ps, { x: 0, y: 0 }, DT, { rule: null, seq: 2 });
   assert.equal(ps[1].block.target, 'd');
   assert.equal(ps[1].block.engaged, true);
+});
+
+test('closing blocker engages on body contact without teleporting', () => {
+  const ps = [O('a', 0, 8.9, { block: blk('d') }), D('d', 0.6, 10, { speed: 0 })];
+  const ctx = { rule: null, seq: 0 };
+  const spot = contactSpot(ps, ps[0]);
+  assert.ok(Math.hypot(spot.x - ps[0].x, spot.y - ps[0].y) > ENGAGE_TOL);
+  stepBlocking(ps, { x: 0, y: -50 }, DT, ctx);
+  assert.equal(ps[0].block.engaged, true);
+  assert.equal(ps[0].block.seq, 1);
+  assert.equal(ctx.seq, 1);
+  assert.ok(Math.hypot(ps[0].x - 0, ps[0].y - 8.9) <= 2 * 6 * DT + 1e-9);
+});
+
+test('closing blocker behind the defender does not engage', () => {
+  const ps = [O('a', 0, 11, { block: blk('d') }), D('d', 0, 10, { speed: 0 })];
+  const ctx = { rule: null, seq: 0 };
+  stepBlocking(ps, { x: 0, y: -50 }, DT, ctx);
+  assert.equal(ps[0].block.engaged, false);
+  assert.equal(ps[0].block.seq, null);
+  assert.equal(ctx.seq, 0);
 });
