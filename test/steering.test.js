@@ -40,6 +40,8 @@ test('tunables', () => {
   assert.equal(S.STUCK_TIME, 0.3);
   assert.equal(S.STUCK_PROGRESS, 0.25);
   assert.equal(S.MAX_FLIPS, 1);
+  assert.equal(S.SQUEEZE, 0.25);
+  assert.ok(Math.abs(S.hardCore(0.35) - 2 * 0.35 * (1 - S.SQUEEZE)) < 1e-12);
 });
 
 test('free movement', () => {
@@ -131,4 +133,72 @@ test('flip limit (5d)', () => {
   assert.equal(r.flips[r.flips.length - 1], 1);
   const fi = r.flips.findIndex(f => f === 1);
   for (let i = fi; i < r.sides.length; i++) assert.equal(r.sides[i], r.sides[fi]);
+});
+
+// ---- F-15 lane threading ----
+function laneRun(bodies, x0, goal, steps) {
+  const r = 0.35, H = S.hardCore(r);
+  const p = { id: 'p', x: x0, y: -3 };
+  const log = [];
+  let crossX = null, minD = Infinity;
+  for (let i = 0; i < steps; i++) {
+    const D = Math.hypot(goal.x - p.x, goal.y - p.y);
+    const prevY = p.y;
+    steerStep(p, { x: goal.x, y: goal.y, key: 'k', ignore: null }, [p, ...bodies], Math.min(7 / 60, D), DT, r);
+    if (crossX === null && prevY < 0 && p.y >= 0) crossX = p.x;
+    for (const b of bodies) minD = Math.min(minD, Math.hypot(p.x - b.x, p.y - b.y));
+    log.push([p.x, p.y]);
+  }
+  return { p, crossX, minD, log, H, r };
+}
+const pair = (s) => [{ id: 'a', x: -s / 2, y: 0 }, { id: 'b', x: s / 2, y: 0 }];
+
+test('F-15 #1 threads a lane that fits', () => {
+  const r = 0.35;
+  for (const s of [4 * r + 0.1, 4 * r + 0.3, 4 * r + 0.6]) {
+    for (const x0 of [0, r, -r]) {
+      const o = laneRun(pair(s), x0, { x: 0, y: 5 }, 60);
+      assert.ok(o.p.y >= 1, `s=${s} x0=${x0} y=${o.p.y}`);
+      assert.ok(o.crossX !== null && Math.abs(o.crossX) < s / 2, `s=${s} x0=${x0} x=${o.crossX}`);
+    }
+  }
+});
+
+test('F-15 #2 squeeze lane keeps the hard core', () => {
+  const H = S.hardCore(0.35);
+  const o = laneRun(pair(H + 0.7), 0, { x: 0, y: 5 }, 60);
+  assert.ok(o.p.y >= 1);
+  assert.ok(Math.abs(o.crossX) < (H + 0.7) / 2);
+  assert.ok(o.minD >= H - 1e-9, `minD ${o.minD}`);
+});
+
+test('F-15 #3 closed lane goes around', () => {
+  const H = S.hardCore(0.35), s = 2 * H - 0.05;
+  const o = laneRun(pair(s), 0, { x: 0, y: 5 }, 180);
+  assert.ok(Math.abs(o.crossX) > s / 2, `x=${o.crossX}`);
+  assert.ok(reached(o.p, { x: 0, y: 5 }), `at ${o.p.x},${o.p.y}`);
+  assert.ok(o.minD >= H - 1e-9, `minD ${o.minD}`);
+});
+
+test('F-15 #4 glancing miss goes straight', () => {
+  const r = 0.35;
+  const bodies = [{ id: 'a', x: 2 * r + 0.05, y: 0 }];
+  const p = { id: 'p', x: 0, y: -3 };
+  for (let i = 0; i < 60; i++) {
+    const D = Math.hypot(5 - p.y, p.x);
+    steerStep(p, { x: 0, y: 5, key: 'k', ignore: null }, [p, ...bodies], Math.min(7 / 60, D), DT, r);
+    assert.ok(Math.abs(p.x) < 1e-9);
+    assert.ok(!p.steer || p.steer.side === 0);
+  }
+});
+
+test('F-15 #5 hard core holds against a body dead ahead', () => {
+  const r = 0.35, H = S.hardCore(r);
+  const bodies = [{ id: 'a', x: 0, y: 1 }];
+  const p = { id: 'p', x: 0, y: -3 };
+  for (let i = 0; i < 120; i++) {
+    const D = Math.hypot(5 - p.y, p.x);
+    steerStep(p, { x: 0, y: 5, key: 'k', ignore: null }, [p, ...bodies], Math.min(7 / 60, D), DT, r);
+    assert.ok(Math.hypot(p.x, p.y - 1) >= H - 1e-9);
+  }
 });
