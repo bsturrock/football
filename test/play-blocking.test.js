@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { POSITIONS } from '../src/dots/roster.js';
 import { BODY_RADIUS, CONTACT_DIST, ENGAGED_MAX_SPEED, contactSpot } from '../src/dots/blocking.js';
+import { hardCore } from '../src/dots/steering.js';
+import { GAP_DEPTH } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
+const H = hardCore(BODY_RADIUS);
 const EPS = 1e-9;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
 const FRESH = { angle: 'straight', engaged: false, seq: null };
@@ -297,7 +300,7 @@ for (const retarget of [undefined, null]) {
         for (let i = 0; i < ps.length; i++) {
           for (let j = i + 1; j < ps.length; j++) {
             const d = Math.hypot(ps[i].x - ps[j].x, ps[i].y - ps[j].y);
-            assert.ok(d >= 2 * BODY_RADIUS - 0.02, `${ps[i].id}-${ps[j].id} ${d} at step ${step}`);
+            assert.ok(d >= H - 0.02, `${ps[i].id}-${ps[j].id} ${d} at step ${step}`);
           }
         }
       },
@@ -398,4 +401,21 @@ test('F10-10. null rule: LBs reach the QB', () => {
     const p = play.player(id);
     assert.ok(Math.hypot(p.x - qb.x, p.y - qb.y) <= CONTACT_DIST + 0.05, `${id} dist ${Math.hypot(p.x - qb.x, p.y - qb.y)}`);
   }
+});
+
+test('F-15 #8: RB slips the lane', () => {
+  const play = createPlay(25, 'insideZone');
+  play.snap();
+  let crossed = false;
+  for (let t = 0; t < 1.5; t += DT) {
+    play.step(DT);
+    const rb = play.player('RB');
+    if (rb.y >= 25 + GAP_DEPTH) {
+      const W = play.run.windows[play.run.gap];
+      assert.ok(rb.x >= W.lo - BODY_RADIUS && rb.x <= W.hi + BODY_RADIUS, `rb.x ${rb.x} window [${W.lo}, ${W.hi}]`);
+      crossed = true;
+      break;
+    }
+  }
+  assert.ok(crossed, 'RB crossed within 1.5 s');
 });

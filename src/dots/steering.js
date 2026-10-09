@@ -23,7 +23,7 @@ export const STUCK_PROGRESS = 0.25;
 export const MAX_FLIPS = 1;
 // Fraction of the body diameter two bodies may overlap while squeezing past
 // each other. Stands in for a player turning his shoulders.
-export const SQUEEZE = 0; // 0 until soft separation lands (F-15 T-45 sets 0.25).
+export const SQUEEZE = 0.25;
 // Hard contact distance H: the one source of truth for how close two bodies
 // may get.
 export function hardCore(radius) { return 2 * radius * (1 - SQUEEZE); }
