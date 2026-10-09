@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { numberPlay } from '../src/dots/numbering.js';
+import { numberPlay, A_GAP_HALF } from '../src/dots/numbering.js';
+import { POSITIONS } from '../src/dots/roster.js';
 
 // numbering rules are tested on fixed coordinates; the real roster's numbers are covered by `test/inside-zone.test.js`.
 const FIXTURE = Object.freeze([
@@ -96,4 +97,22 @@ test('bad playside throws, no mutation', () => {
   const snap = JSON.stringify(ps);
   run(ps, c, 'left');
   assert.equal(JSON.stringify(ps), snap);
+});
+
+test('F-14 #11: no playside lineman: 0-gap fallback is half the roster C-guard split', () => {
+  const C = POSITIONS.find((p) => p.id === 'C');
+  const RG = POSITIONS.find((p) => p.id === 'RG');
+  assert.equal(A_GAP_HALF, Math.abs(RG.dx - C.dx) / 2);
+  const mk = (guardX, guardId, dir) => [
+    { id: 'C', team: 'offense', role: 'OL', x: 0, y: 24.6 },
+    { id: guardId, team: 'offense', role: 'OL', x: guardX, y: 24.3 },
+    { id: 'A', team: 'defense', role: 'DT', x: dir * A_GAP_HALF, y: 25.7 },
+    { id: 'B', team: 'defense', role: 'DT', x: dir * (A_GAP_HALF + 0.3), y: 25.7 },
+  ];
+  const left = numberPlay(mk(2.2, 'RG', -1), { los: 25, centerId: 'C', playside: 'left' });
+  assert.equal(left.A, 0);
+  assert.equal(left.B, 1);
+  const right = numberPlay(mk(-2.2, 'LG', 1), { los: 25, centerId: 'C', playside: 'right' });
+  assert.equal(right.A, 0);
+  assert.equal(right.B, 1);
 });
