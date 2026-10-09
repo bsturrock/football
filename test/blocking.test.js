@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { HW } from '../src/util.js';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
-  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
+  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
 
@@ -160,10 +160,21 @@ test('stepBlocking engaged defender, clamp, blocker follows', () => {
   near(ps[1].x, 0 + v.vx * DT, 1e-12);
   const spot = contactSpot(ps, ps[0]);
   assert.ok(Math.hypot(ps[0].x - spot.x, ps[0].y - spot.y) < 6 * DT + 1e-9);
-  for (let i = 0; i < 20000; i++) stepBlocking(ps, goal, DT, { rule: null, seq: 1 });
-  assert.equal(ps[1].y, Y_MAX);
-  const s = contactSpot(ps, ps[0]);
-  near(ps[0].x, s.x, 1e-9); near(ps[0].y, s.y, 1e-9);
+  const ps2 = [O('a', 0, Y_MAX - 0.3 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, Y_MAX - 0.3)];
+  for (let i = 0; i < 20000; i++) stepBlocking(ps2, goal, DT, { rule: null, seq: 1 });
+  assert.equal(ps2[1].y, Y_MAX);
+  const s = contactSpot(ps2, ps2[0]);
+  near(ps2[0].x, s.x, 1e-9); near(ps2[0].y, s.y, 1e-9);
+});
+
+test('resolveBlock adds react.hold', () => {
+  const goal = { x: 0, y: 0 };
+  const held = D('d', 0, 10, { react: { dir: { x: 0, y: -1 }, hold: { x: 0, y: -0.4 } } });
+  const v = resolveBlock(held, [mk('straight')], goal);
+  near(v.vy, (1 - 0.6 - 0.4) * DRIVE_RATE, 1e-9);
+  const free = D('d', 0, 10, { react: { dir: { x: 0, y: -1 } } });
+  const w = resolveBlock(free, [mk('straight')], goal);
+  near(w.vy, 0.4 * DRIVE_RATE, 1e-9);
 });
 function engagedOnList(ps) { return ps.filter((p) => p.block && p.block.engaged); }
 

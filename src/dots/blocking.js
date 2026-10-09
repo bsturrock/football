@@ -1,6 +1,7 @@
 // Pure blocking logic for the dots layer: no THREE, no DOM, no timers, no randomness.
 import { HW } from '../util.js';
 import { steerStep, hardCore } from './steering.js';
+import { stepReact } from './react.js';
 import { startFoot, retargetFoot, footGoal, footPush } from './technique.js';
 
 export const BLOCKER_ROLES = ['OL'];
@@ -145,19 +146,40 @@ export const driveForce = (p) => p.strength;
 // Single place where future factors (skills, leverage, fatigue) multiply in.
 export const blockForce = (p) => p.strength;
 
-// The one function that decides who wins an engaged block. Pure.
-export function resolveBlock(defender, blockers, goal) {
-  const gx = goal.x - defender.x;
-  const gy = goal.y - defender.y;
-  const len = Math.hypot(gx, gy);
-  const f = driveForce(defender);
-  let fx = len < 1e-9 ? 0 : (f * gx) / len;
-  let fy = len < 1e-9 ? 0 : (f * gy) / len;
+// Summed blocker push vector. Single source of the push sum.
+function blockPush(blockers) {
+  let x = 0;
+  let y = 0;
   for (const b of blockers) {
     const d = b.block.foot?.push ?? BLOCK_ANGLES[b.block.angle];
     const bf = blockForce(b);
-    fx += bf * d.x;
-    fy += bf * d.y;
+    x += bf * d.x;
+    y += bf * d.y;
+  }
+  return { x, y };
+}
+
+// The one function that decides who wins an engaged block. Pure.
+export function resolveBlock(defender, blockers, goal) {
+  const f = driveForce(defender);
+  let fx;
+  let fy;
+  if (defender.react?.dir) {
+    fx = f * defender.react.dir.x;
+    fy = f * defender.react.dir.y;
+  } else {
+    const gx = goal.x - defender.x;
+    const gy = goal.y - defender.y;
+    const len = Math.hypot(gx, gy);
+    fx = len < 1e-9 ? 0 : (f * gx) / len;
+    fy = len < 1e-9 ? 0 : (f * gy) / len;
+  }
+  const bp = blockPush(blockers);
+  fx += bp.x;
+  fy += bp.y;
+  if (defender.react?.hold) {
+    fx += defender.react.hold.x;
+    fy += defender.react.hold.y;
   }
   let vx = fx * DRIVE_RATE;
   let vy = fy * DRIVE_RATE;
@@ -392,15 +414,21 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     foot.push = push;
   }
 
+  for (const b of players) {
+    if (b.block?.foot && b.block.engaged) b.block.foot.tx = byId(players, b.block.target).x;
+  }
+
   for (const d of players) {
     if (!isDefense(d)) continue;
     const eng = engagedOn(players, d.id);
     if (eng.length) {
       d.steer = null;
+      d.react = stepReact(d.react ?? null, d, blockPush(eng), ballPos, dt);
       const v = resolveBlock(d, eng, ballPos);
       d.x = Math.min(HW, Math.max(-HW, d.x + v.vx * dt));
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
     } else {
+      d.react = null;
       const dist = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
       if (dist > CONTACT_DIST) {
         steerStep(
@@ -413,10 +441,6 @@ export function stepBlocking(players, ballPos, dt, ctx) {
         );
       }
     }
-  }
-
-  for (const b of players) {
-    if (b.block?.foot && b.block.engaged) b.block.foot.tx = byId(players, b.block.target).x;
   }
 
   for (const b of players) {
