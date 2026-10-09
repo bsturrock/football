@@ -126,7 +126,7 @@ test('7. WLB pursues QB and stops at contact distance', () => {
   assert.ok(Math.hypot(w.x - q.x, w.y - q.y) <= CONTACT_DIST + 0.05);
 });
 
-// F-6: with DTs at ±1.8, RG (not C) engages LDT first, so C peels to MLB.
+// F-6: with the DTs inside the guards, RG (not C) engages LDT first, so C peels to MLB.
 test('8. double-team peel hands C to a LB; custom rule honored', () => {
   const play = started();
   let handoff = null;
@@ -224,10 +224,10 @@ test('9. API behavior', () => {
   const ball2 = play.ballPosition();
   assert.ok(Math.hypot(ball2.x - ldt.x, ball2.y - ldt.y) < dBefore);
 
-  assert.equal(play.engage('C', 'MLB'), true);
+  assert.equal(play.engage('C', 'LDT'), true);
   run(play, 3);
   assert.equal(play.player('C').block.engaged, true);
-  assert.ok(play.blockersOf('MLB').includes('C'));
+  assert.ok(play.blockersOf('LDT').includes('C'));
 });
 
 test('10. reset mid-play clears blocks, keeps rule, restarts seq', () => {

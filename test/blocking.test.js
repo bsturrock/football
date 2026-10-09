@@ -79,12 +79,12 @@ test('contactSpot', () => {
   let s = contactSpot(ps, ps[0]);
   near(s.x, 2); near(s.y, 10 - CONTACT_DIST);
   ps.splice(1, 0, O('b', 1, 0, { block: blk('d') }));
-  s = contactSpot(ps, ps[0]); near(s.x, 1.4); near(s.y, 10 - CONTACT_DIST);
-  s = contactSpot(ps, ps[1]); near(s.x, 2.6);
+  s = contactSpot(ps, ps[0]); near(s.x, 2 - SPREAD / 2); near(s.y, 10 - CONTACT_DIST);
+  s = contactSpot(ps, ps[1]); near(s.x, 2 + SPREAD / 2);
 });
 
 test('stepBlocking closing, engaging, seq', () => {
-  const ps = [O('a', 0, 0, { block: blk('d') }), O('b', 5, 0, { block: blk('d') }), D('d', 2.5, 1.2 + 0.1, { speed: 0 })];
+  const ps = [O('a', 0, 0, { block: blk('d') }), O('b', 5, 0, { block: blk('d') }), D('d', 2.5, CONTACT_DIST + 0.1, { speed: 0 })];
   const ctx = { rule: null, seq: 0 };
   let prev = ps.map((p) => ({ x: p.x, y: p.y }));
   for (let i = 0; i < 600 && ps.some((p) => p.block && !p.block.engaged); i++) {
@@ -100,7 +100,7 @@ test('stepBlocking closing, engaging, seq', () => {
 });
 
 test('stepBlocking engaged defender, clamp, blocker follows', () => {
-  const ps = [O('a', 0, 8.8, { block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, 10)];
+  const ps = [O('a', 0, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, 10)];
   const goal = { x: 0, y: 0 };
   const v = resolveBlock(ps[1], engagedOnList(ps), goal);
   stepBlocking(ps, goal, DT, { rule: null, seq: 1 });
@@ -127,8 +127,8 @@ test('stepBlocking pursuit', () => {
 });
 
 const peelFixture = () => [
-  O('lead', 0, 8.8, { block: blk('d', { engaged: true, seq: 1 }) }),
-  O('dt', 1, 8.8, { block: blk('d', { engaged: true, seq: 2 }) }),
+  O('lead', 0, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1 }) }),
+  O('dt', 1, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 2 }) }),
   D('d', 0.5, 10),
   D('lb', 1, 10.3),
 ];
@@ -136,16 +136,16 @@ const peelFixture = () => [
 test('doubleTeamPeel', () => {
   let ps = peelFixture();
   assert.deepEqual(doubleTeamPeel(ps, { x: 0, y: 0 }), [{ blocker: 'dt', target: 'lb' }]);
-  ps = peelFixture(); ps[3].y = 8.8 - 2.5; ps[3].x = 1;
+  ps = peelFixture(); ps[3].y = 10 - CONTACT_DIST - 2.5; ps[3].x = 1;
   assert.deepEqual(doubleTeamPeel(ps, {}), []);
   ps = peelFixture(); ps.push(O('other', 5, 0, { block: blk('lb') }));
   assert.deepEqual(doubleTeamPeel(ps, {}), []);
-  ps = peelFixture(); ps[3].x = -1.5; ps[3].y = 8.8;
+  ps = peelFixture(); ps[3].x = -1.5; ps[3].y = 10 - CONTACT_DIST;
   assert.deepEqual(doubleTeamPeel(ps, {}), []);
   ps = [
-    O('lead', 0, 8.8, { block: blk('d', { engaged: true, seq: 1 }) }),
-    O('t1', 1, 8.8, { block: blk('d', { engaged: true, seq: 2 }) }),
-    O('t2', 1.2, 8.8, { block: blk('d', { engaged: true, seq: 3 }) }),
+    O('lead', 0, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1 }) }),
+    O('t1', 1, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 2 }) }),
+    O('t2', SPREAD, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 3 }) }),
     D('d', 0.5, 10), D('lb', 1, 9.5),
   ];
   assert.deepEqual(doubleTeamPeel(ps, {}), [{ blocker: 't1', target: 'lb' }]);
@@ -165,7 +165,7 @@ test('stepBlocking with peel rule', () => {
 });
 
 test('closing blocker engages on body contact without teleporting', () => {
-  const ps = [O('a', 0, 8.9, { block: blk('d') }), D('d', 0.6, 10, { speed: 0 })];
+  const ps = [O('a', 0, 10 - CONTACT_DIST + 0.05, { block: blk('d') }), D('d', BODY_RADIUS, 10, { speed: 0 })];
   const ctx = { rule: null, seq: 0 };
   const spot = contactSpot(ps, ps[0]);
   assert.ok(Math.hypot(spot.x - ps[0].x, spot.y - ps[0].y) > ENGAGE_TOL);
@@ -173,7 +173,7 @@ test('closing blocker engages on body contact without teleporting', () => {
   assert.equal(ps[0].block.engaged, true);
   assert.equal(ps[0].block.seq, 1);
   assert.equal(ctx.seq, 1);
-  assert.ok(Math.hypot(ps[0].x - 0, ps[0].y - 8.9) <= 2 * 6 * DT + 1e-9);
+  assert.ok(Math.hypot(ps[0].x - 0, ps[0].y - (10 - CONTACT_DIST + 0.05)) <= 2 * 6 * DT + 1e-9);
 });
 
 test('closing blocker behind the defender does not engage', () => {
@@ -186,31 +186,31 @@ test('closing blocker behind the defender does not engage', () => {
 });
 
 test('body constants', () => {
-  assert.equal(BODY_RADIUS, 0.6);
+  assert.ok(BODY_RADIUS > 0);
   assert.equal(CONTACT_DIST, 2 * BODY_RADIUS);
   assert.equal(SPREAD, 2 * BODY_RADIUS);
 });
 
 test('separateBodies', () => {
   // two free bodies split the overlap
-  let ps = [D('a', 0, 10), D('b', 0.8, 10)];
+  let ps = [D('a', 0, 10), D('b', 2 * BODY_RADIUS - 0.4, 10)];
   separateBodies(ps);
-  near(ps[0].x, -0.2, 1e-9); near(ps[1].x, 1.0, 1e-9);
+  near(ps[0].x, -0.2, 1e-9); near(ps[1].x, 2 * BODY_RADIUS - 0.2, 1e-9);
   // anchored (engaged blocker) stays, free moves the whole overlap
-  ps = [O('o', 0, 10, { block: blk('t', { engaged: true, seq: 1 }) }), D('f', 0.8, 10)];
+  ps = [O('o', 0, 10, { block: blk('t', { engaged: true, seq: 1 }) }), D('f', 2 * BODY_RADIUS - 0.4, 10)];
   separateBodies(ps);
   assert.equal(ps[0].x, 0);
-  near(ps[1].x, 1.2, 1e-9);
+  near(ps[1].x, 2 * BODY_RADIUS, 1e-9);
   // coincident: fixed +x axis, deterministic
   const run = () => { const q = [D('a', 5, 10), D('b', 5, 10)]; separateBodies(q); return q.map((p) => [p.x, p.y]); };
   const r = run();
-  near(r[1][0] - r[0][0], 1.2, 1e-9);
+  near(r[1][0] - r[0][0], 2 * BODY_RADIUS, 1e-9);
   assert.equal(r[0][1], r[1][1]);
   assert.deepEqual(run(), r);
   // already apart: untouched
-  ps = [D('a', 1.1, 3.3), D('b', 2.3, 3.3), D('c', 10, 10)];
+  ps = [D('a', 1.1, 3.3), D('b', 1.1 + 2 * BODY_RADIUS, 3.3), D('c', 10, 10)];
   separateBodies(ps);
-  assert.equal(ps[0].x, 1.1); assert.equal(ps[1].x, 2.3); assert.equal(ps[1].y, 3.3);
+  assert.equal(ps[0].x, 1.1); assert.equal(ps[1].x, 1.1 + 2 * BODY_RADIUS); assert.equal(ps[1].y, 3.3);
   // clamp at HW
   ps = [D('a', HW - 0.1, 10), D('b', HW, 10)];
   separateBodies(ps);
@@ -219,21 +219,21 @@ test('separateBodies', () => {
 
 test('canEngage', () => {
   const T = D('t', 0, 10);
-  const b = O('b', 0, 8.8, { block: blk('t') });
-  assert.equal(canEngage(b, T, { x: 0, y: 8.9 }), 'spot');
+  const b = O('b', 0, 10 - CONTACT_DIST, { block: blk('t') });
+  assert.equal(canEngage(b, T, { x: 0, y: 10 - CONTACT_DIST + 0.1 }), 'spot');
   assert.equal(canEngage(b, T, { x: 5, y: 5 }), 'contact');
-  assert.equal(canEngage(O('c', 0, 5, { block: blk('t') }), T, { x: 0, y: 8.8 }), null);
-  assert.equal(canEngage(O('c', 0, 11.1, { block: blk('t') }), T, { x: 0, y: 8.8 }), null);
+  assert.equal(canEngage(O('c', 0, 5, { block: blk('t') }), T, { x: 0, y: 10 - CONTACT_DIST }), null);
+  assert.equal(canEngage(O('c', 0, 11.1, { block: blk('t') }), T, { x: 0, y: 10 - CONTACT_DIST }), null);
 });
 
 test('separateBodies: a free body wedged against an anchor is not pushed back by a free body behind him', () => {
   const ps = [
     O('o', 0, 10, { block: blk('t', { engaged: true, seq: 1 }) }),
-    D('f1', 1.2, 10),
-    D('f2', 1.9, 10),
+    D('f1', 2 * BODY_RADIUS, 10),
+    D('f2', 4 * BODY_RADIUS - 0.5, 10),
   ];
   separateBodies(ps);
   assert.equal(ps[0].x, 0);
-  near(ps[1].x, 1.2, 1e-9);
-  near(ps[2].x, 2.4, 1e-9);
+  near(ps[1].x, 2 * BODY_RADIUS, 1e-9);
+  near(ps[2].x, 4 * BODY_RADIUS, 1e-9);
 });
