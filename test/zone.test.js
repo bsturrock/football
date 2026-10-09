@@ -211,3 +211,34 @@ test('F-12 #4k: purity', () => {
   assert.deepEqual(players, p0);
   assert.deepEqual(ctx, c0);
 });
+
+const commit = (id, x) => (s) => { s.ctx.committed = { [id]: { x, t: 0.35 } }; };
+test('F-19 #8: committed, MLB out of range, commit past pair picks LG', () =>
+  assert.deepEqual(at(-1.6, 29.5, commit('MLB', -1.5)), [{ blocker: 'LG', target: 'MLB' }]));
+test('F-19 #8: committed toward near side picks C', () =>
+  assert.deepEqual(at(-1.6, 29.5, commit('MLB', 0.4)), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8: committed lateral tie goes to owner', () =>
+  assert.deepEqual(at(-1.6, 29.5, commit('MLB', -1.1)), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8: commit beats range', () =>
+  assert.deepEqual(at(-1.3, 25.0, commit('MLB', 0.4)), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8: commit for another id does not trigger', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { s.ctx.committed = { WLB: { x: -1.5, t: 0 } }; }), []));
+test('F-19 #8: null committed uses range rule', () => {
+  assert.deepEqual(at(-1.6, 29.5, (s) => { s.ctx.committed = null; }), []);
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.committed = null; }), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('F-19 #8: already switched with commit -> none', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => {
+    s.g('C').block.target = 'MLB';
+    s.ctx.committed = { MLB: { x: 0.4, t: 0.35 } };
+  }), []));
+test('F-19 #8: purity with committed', () => {
+  const { g, players, ctx } = sw();
+  Object.assign(g('MLB'), { x: -1.6, y: 29.5 });
+  ctx.committed = { MLB: { x: -1.5, t: 0.35 } };
+  const p0 = structuredClone(players);
+  const c0 = structuredClone(ctx);
+  zoneSwitch(players, null, ctx);
+  assert.deepEqual(players, p0);
+  assert.deepEqual(ctx, c0);
+});

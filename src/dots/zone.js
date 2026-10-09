@@ -30,6 +30,14 @@ export function zoneSwitch(players, ballPos, ctx) {
     const w = byId.get(c.watch);
     if (!o || !p || !w) continue;
     if (o.block?.target === c.watch || p.block?.target === c.watch) continue;
+    const cm = ctx.committed?.[c.watch];
+    if (cm) {
+      const dxO = Math.abs(o.x - cm.x);
+      const dxP = Math.abs(p.x - cm.x);
+      const taker = dxP < dxO - 1e-9 ? p : o;
+      out.push({ blocker: taker.id, target: w.id });
+      continue;
+    }
     const dO = Math.hypot(w.x - o.x, w.y - o.y);
     const dP = Math.hypot(w.x - p.x, w.y - p.y);
     if (Math.min(dO, dP) > SWITCH_DIST) continue;
