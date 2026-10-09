@@ -1,2 +1,3 @@
 - 2026-10-08 F-1 Top-down dot field: OL vs 6-man box (R-1) f1b4e3a
 - 2026-10-09 F-2 OL staggered V alignment (R-2) e872dff
+- 2026-10-09 F-3 Post-snap blocking: targets, angles, double teams (R-3) d2b948c
