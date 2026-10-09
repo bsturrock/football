@@ -4,3 +4,4 @@
 - 2026-10-09 F-4 LG meets RDT at the line (R-4) 689033a
 - 2026-10-09 F-5 Global sim time-scale for the dots view (R-8) 719d8ad
 - 2026-10-09 F-6 Evenly space the D line (R-9) 8366bd4
+- 2026-10-09 F-7 Player body collision, no overlap (R-7) 6893c09
