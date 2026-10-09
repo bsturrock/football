@@ -3,6 +3,7 @@
 
 import { PLAYS, buildLineup } from './roster.js';
 import { numberPlay } from './numbering.js';
+import { zonePlan, zoneSwitch } from './zone.js';
 import {
   BODY_RADIUS,
   assignBlocks,
@@ -24,17 +25,21 @@ export const DL_SHIFT_MAX = 4; // steps allowed each way
 export const LB_SHIFT_STEP = BODY_RADIUS; // yards per pre-snap linebacker shift step
 export const LB_SHIFT_MAX = 6; // steps allowed each way
 
+const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
+
 export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
+  const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const play = {
     los,
     playKey,
     players: [],
     ball: {},
-    retargetRule: doubleTeamPeel,
+    retargetRule: scheme ? scheme.rule : doubleTeamPeel,
     timeScale,
     dlShift: 0,
     lbShift: 0,
     numbers: {},
+    combos: [],
   };
   let ctx = { seq: 0 };
 
@@ -78,6 +83,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
       : {};
     for (const p of play.players) p.block = null;
     ctx = { seq: 0 };
+    play.combos = [];
     play.separation = 0;
     Object.assign(play.ball, {
       holder: PLAYS[playKey].ball.start,
@@ -97,7 +103,14 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
       holder: null,
       t: 0,
     });
-    assignBlocks(play.players);
+    if (scheme) {
+      const plan = scheme.plan(play.players, play.numbers, los);
+      play.combos = plan.combos;
+      ctx.combos = plan.combos;
+      assignBlocks(play.players, plan.blocks);
+    } else {
+      assignBlocks(play.players);
+    }
     return true;
   };
 
