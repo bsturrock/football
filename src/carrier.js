@@ -86,7 +86,8 @@ function raceMargin(p, qx, qy){
 function readHole(p, dt){
   const hole = S.hole ?? 0, y = S.los + 1;
   let best = p.holeX ?? hole, bs = -1e9;
-  for(let x = hole - 5*GRID_K; x <= hole + 5*GRID_K; x += 0.5*GRID_K){
+  for(let n = 0; n < 21; n++){   // B-017: scanned from the designed hole outward (the hysteresis below favours the first lane scanned: the one nearest the hole), the weak-side lane first on a tie, so a flipped play is the mirror image
+    const k = n % 2 ? -(n + 1 >> 1) : n >> 1, x = hole + k*S.flip*0.5*GRID_K;
     if(Math.abs(x) > HW - 1.5) continue;
     const sc = raceMargin(p, x, y) + raceMargin(p, x, y + 3)*0.6 - Math.abs(x - hole)*0.05 - Math.abs(x - p.x)*0.03;
     if(sc > bs + (x === p.holeX ? 0 : 0.08)){ bs = sc; best = x; }    // a little hysteresis: don't dance
