@@ -2,6 +2,7 @@
 // Time advances only through step(dt); there are no timers or clocks here.
 
 import { PLAYS, buildLineup } from './roster.js';
+import { numberPlay } from './numbering.js';
 import {
   BODY_RADIUS,
   assignBlocks,
@@ -20,6 +21,8 @@ export const SIM_SPEED_MIN = 0.1;
 export const SIM_SPEED_MAX = 2;
 export const DL_SHIFT_STEP = BODY_RADIUS; // yards per pre-snap D-line shift step
 export const DL_SHIFT_MAX = 4; // steps allowed each way
+export const LB_SHIFT_STEP = BODY_RADIUS; // yards per pre-snap linebacker shift step
+export const LB_SHIFT_MAX = 6; // steps allowed each way
 
 export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
   const play = {
@@ -30,6 +33,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     retargetRule: doubleTeamPeel,
     timeScale,
     dlShift: 0,
+    lbShift: 0,
+    numbers: {},
   };
   let ctx = { seq: 0 };
 
@@ -44,6 +49,15 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     return play.dlShift;
   };
 
+  // Pre-snap linebacker shift in steps. Only changes while the ball is presnap.
+  play.shiftLB = (dir) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (dir !== 1 && dir !== -1) return play.lbShift;
+    play.lbShift = Math.min(LB_SHIFT_MAX, Math.max(-LB_SHIFT_MAX, play.lbShift + dir));
+    play.reset();
+    return play.lbShift;
+  };
+
   // Scales how fast play.step advances; the only place time scale applies.
   play.setTimeScale = (s) => {
     if (!Number.isFinite(s)) return play.timeScale;
@@ -53,7 +67,15 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
 
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
-    play.players = buildLineup(los, playKey, { dlShift: play.dlShift * DL_SHIFT_STEP });
+    play.players = buildLineup(los, playKey, {
+      dlShift: play.dlShift * DL_SHIFT_STEP,
+      lbShift: play.lbShift * LB_SHIFT_STEP,
+    });
+    // Pre-snap read: computed only here, so shifts keep it in sync with the lineup.
+    const def = PLAYS[playKey];
+    play.numbers = def.playside
+      ? numberPlay(play.players, { los, centerId: def.ball.start, playside: def.playside })
+      : {};
     for (const p of play.players) p.block = null;
     ctx = { seq: 0 };
     play.separation = 0;
