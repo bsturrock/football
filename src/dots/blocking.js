@@ -1,5 +1,6 @@
 // Pure blocking logic for the dots layer: no THREE, no DOM, no timers, no randomness.
 import { HW } from '../util.js';
+import { steerStep } from './steering.js';
 
 export const BLOCKER_ROLES = ['OL'];
 export const BODY_RADIUS = 0.6;
@@ -233,6 +234,13 @@ export function separateBodies(players) {
     }
   }
   const n = players.length;
+  const x0 = players.map((p) => p.x);
+  const y0 = players.map((p) => p.y);
+  const moveTotal = () => {
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += Math.hypot(players[i].x - x0[i], players[i].y - y0[i]);
+    return sum;
+  };
   const rank = rankBodies(players, anchored);
   for (let it = 0; it < SEPARATION_ITERS; it++) {
     let moved = false;
@@ -242,8 +250,9 @@ export function separateBodies(players) {
       }
     }
     for (const p of players) clampBody(p);
-    if (!moved) return;
+    if (!moved) return moveTotal();
   }
+  return moveTotal();
 }
 
 export function stepBlocking(players, ballPos, dt, ctx) {
@@ -253,10 +262,25 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
   }
 
+  let holderId = null;
+  for (const p of players) {
+    if (Math.hypot(p.x - ballPos.x, p.y - ballPos.y) < 1e-9) {
+      holderId = p.id;
+      break;
+    }
+  }
+
   for (const b of players) {
     if (!b.block || b.block.engaged) continue;
     const spot = contactSpot(players, b);
-    moveToward(b, spot.x, spot.y, b.speed * dt);
+    steerStep(
+      b,
+      { x: spot.x, y: spot.y, key: 'block:' + b.block.target, ignore: b.block.target },
+      players,
+      b.speed * dt,
+      dt,
+      BODY_RADIUS,
+    );
     const T = byId(players, b.block.target);
     const hit = canEngage(b, T, spot);
     if (hit) {
@@ -265,6 +289,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
         b.y = spot.y;
       }
       b.block.engaged = true;
+      b.steer = null;
       b.block.seq = ++ctx.seq;
     }
   }
@@ -273,20 +298,31 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (!isDefense(d)) continue;
     const eng = engagedOn(players, d.id);
     if (eng.length) {
+      d.steer = null;
       const v = resolveBlock(d, eng, ballPos);
       d.x = Math.min(HW, Math.max(-HW, d.x + v.vx * dt));
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
     } else {
       const dist = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
-      if (dist > CONTACT_DIST) moveToward(d, ballPos.x, ballPos.y, Math.min(d.speed * dt, dist - CONTACT_DIST));
+      if (dist > CONTACT_DIST) {
+        steerStep(
+          d,
+          { x: ballPos.x, y: ballPos.y, key: 'ball', ignore: holderId },
+          players,
+          Math.min(d.speed * dt, dist - CONTACT_DIST),
+          dt,
+          BODY_RADIUS,
+        );
+      }
     }
   }
 
   for (const b of players) {
     if (!b.block || !b.block.engaged) continue;
+    b.steer = null;
     const spot = contactSpot(players, b);
     moveToward(b, spot.x, spot.y, b.speed * dt);
   }
 
-  separateBodies(players);
+  return separateBodies(players);
 }
