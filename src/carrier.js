@@ -221,7 +221,7 @@ function inContact(p){
 //   state     event                                                                       next
 //   waiting   the puller's time to his man is under the back's time to the line + WAIT_LEAD  released (wr 'released')
 //   waiting   rd.wt reached WAIT_MAX                                                         expired (wr 'expired')
-//   waiting   the puller engaged, is down or free, his man is down (lost), or the back is past los + WAIT_END_Y   ended (wr 'ended')
+//   waiting   the puller engaged, is down or free, his man is down (lost), a cut started (rd.cut: the press never overwrites a cut's velocity), or the back is past los + WAIT_END_Y   ended (wr 'ended')
 //   no puller, or a zone play                                                                 never waits (wr 'none')
 //   released, expired, ended                                                                  stay (latched)
 const WAIT_F = 0.45, WAIT_V = 4, WAIT_LEAD = 0.25, WAIT_MAX = 1, WAIT_END_Y = 1.5;
@@ -229,7 +229,7 @@ function waitsForPuller(p){
   const rd = p.rd; if(rd.wr) return false;
   const q = rd.pull;
   if(PLAYS[S.play].scheme === 'zone' || !q || !q.pull){ rd.wr = 'none'; return false; }
-  if(q.pull.state !== 'pulling' || q.pull.lost > 0 || q.falling || q.bt || p.y > S.los + WAIT_END_Y){ rd.wr = 'ended'; return false; }
+  if(q.pull.state !== 'pulling' || q.pull.lost > 0 || q.falling || q.bt || rd.cut || p.y > S.los + WAIT_END_Y){ rd.wr = 'ended'; return false; }
   if((rd.wt || 0) >= WAIT_MAX){ rd.wr = 'expired'; return false; }
   const tgt = q.pull.tgt, tq = Math.hypot(tgt.x - q.x, tgt.y - q.y)/Math.max(Math.hypot(q.vx, q.vy), WAIT_V);
   if(tq <= Math.max(0, S.los - p.y)/(p.spd*SPRINT) + WAIT_LEAD){ rd.wr = 'released'; return false; }
