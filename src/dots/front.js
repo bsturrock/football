@@ -48,7 +48,16 @@ export function readFront(players, numbers, los) {
         const k = line.filter((l) => (isPlay ? l.u > 0 && l.u < u : l.u < 0 && l.u > u)).length;
         gap = { side: isPlay ? 'play' : 'back', name: GAP_NAMES[k] };
       }
-      return { id: p.id, x: p.x, y: p.y, u, n: numbers[p.id], level, cover, gap };
+      // Gap he is aligned in: head-up on a lineman is that lineman's playside gap.
+      let fit;
+      if (u >= -HEAD_UP) {
+        const k = line.filter((l) => l.u > 0 && l.u <= u + HEAD_UP).length;
+        fit = { side: 'play', name: GAP_NAMES[Math.min(k, GAP_NAMES.length - 1)] };
+      } else {
+        const k = line.filter((l) => l.u < 0 && l.u > u + HEAD_UP).length;
+        fit = { side: 'back', name: GAP_NAMES[Math.min(k, GAP_NAMES.length - 1)] };
+      }
+      return { id: p.id, x: p.x, y: p.y, u, n: numbers[p.id], level, cover, gap, fit };
     })
     .sort(byUThenId);
 

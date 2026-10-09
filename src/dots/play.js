@@ -6,6 +6,8 @@ import { FRONTS, PLAYS, buildLineup } from './roster.js';
 import { numberPlay } from './numbering.js';
 import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
+import { readFront } from './front.js';
+import { startDefense, stepDefense } from './defense.js';
 import {
   BODY_RADIUS,
   assignBlocks,
@@ -44,6 +46,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     numbers: {},
     combos: [],
     run: null,
+    defense: null,
   };
   let ctx = { seq: 0 };
 
@@ -99,6 +102,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     ctx = { seq: 0 };
     play.combos = [];
     play.run = null;
+    play.defense = null;
     play.separation = 0;
     Object.assign(play.ball, {
       holder: PLAYS[playKey].ball.start,
@@ -130,6 +134,10 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     const def = PLAYS[playKey];
     if (def.run) {
       play.run = startRun(play.players, def.run, { snapToId: def.ball.snapTo, playside: def.playside, numbers: play.numbers });
+      play.defense = startDefense(play.players, readFront(play.players, play.numbers, los), {
+        los,
+        carrierId: play.run.carrier,
+      });
     }
     return true;
   };
@@ -174,6 +182,10 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
         ball.phase = 'carried';
       }
     }
+    ctx.defGoals = play.defense
+      ? stepDefense(play.players, play.defense, { run: play.run, ballPos: play.ballPosition() }, sdt)
+      : null;
+    ctx.committed = play.defense ? play.defense.committed : null;
     ctx.rule = play.retargetRule;
     play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
   };

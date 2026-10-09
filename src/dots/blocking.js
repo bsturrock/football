@@ -429,6 +429,21 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
     } else {
       d.react = null;
+      const g = ctx?.defGoals?.[d.id];
+      if (g) {
+        const gd = Math.hypot(g.x - d.x, g.y - d.y);
+        if (gd > 1e-9) {
+          steerStep(
+            d,
+            { x: g.x, y: g.y, key: g.key, ignore: holderId },
+            players,
+            Math.min(g.rate * dt, gd),
+            dt,
+            BODY_RADIUS,
+          );
+        }
+        continue;
+      }
       const dist = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
       if (dist > CONTACT_DIST) {
         steerStep(

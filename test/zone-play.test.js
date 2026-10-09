@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { buildLineup } from '../src/dots/roster.js';
+import { buildLineup, FRONTS } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
+import { gapSpan, GOALS } from '../src/dots/defense.js';
 import { zoneSwitch, SWITCH_DIST } from '../src/dots/zone.js';
 
 const DT = 1 / 60;
@@ -48,7 +49,7 @@ test('F-12 #6: insideZone snap assigns zone targets and combos; base unchanged',
 });
 
 test('F-12 #7: shifted MLB: both combos switch to their watch; range gives MLB to RG', () => {
-  // Measured (sim time, cap 2.0 s): WLB taken at 0.367 s (LG), MLB taken at 0.400 s (RG).
+  // Measured (sim time, cap 2.0 s): WLB taken at 0.500 s (LG), MLB taken at 0.350 s (RG) (commit-driven release, F-19).
   const play = createPlay(25, 'insideZone');
   for (let i = 0; i < 6; i++) play.shiftLB(-1);
   play.snap();
@@ -67,8 +68,8 @@ test('F-12 #7: shifted MLB: both combos switch to their watch; range gives MLB t
       }
     }
   }
-  assert.ok(first.MLB !== null && Math.abs(first.MLB - 0.400) <= 0.1, `MLB switch at ${first.MLB}`);
-  assert.ok(first.WLB !== null && Math.abs(first.WLB - 0.367) <= 0.1, `WLB switch at ${first.WLB}`);
+  assert.ok(first.MLB !== null && Math.abs(first.MLB - 0.350) <= 0.1, `MLB switch at ${first.MLB}`);
+  assert.ok(first.WLB !== null && Math.abs(first.WLB - 0.500) <= 0.1, `WLB switch at ${first.WLB}`);
   assert.equal(play.player('RG').block.target, 'MLB');
   assert.equal(play.player('RT').block.target, 'LDT');
   assert.deepEqual(new Set([play.player('LG').block.target, play.player('LT').block.target]), new Set(['WLB', 'RDE']));
@@ -93,8 +94,8 @@ test('F-12 #7: shifted MLB: both combos switch to their watch; range gives MLB t
 });
 
 test('F-12 #8: base insideZone combos switch; no OL targets LDE', () => {
-  // Measured: final targets reached at 0.417 s (sim time, cap raised to 2.0 s); checked at +0.1 s.
-  const MEASURED8 = 0.417;
+  // Measured: final targets reached at 0.500 s (sim time, cap raised to 2.0 s); checked at +0.1 s.
+  const MEASURED8 = 0.500;
   const play = createPlay(25, 'insideZone');
   play.snap();
   const seen = new Set();
@@ -250,4 +251,95 @@ test('F-17 #9: watch ids', () => {
   assert.equal(play.player('RG').block.foot.watch, 'MLB');
   assert.equal(play.player('RT').block.foot.watch, 'MLB');
   assert.equal(play.player('C').block.foot.watch, null);
+});
+
+const ORDER = ['read', 'flow', 'fill', 'pursue'];
+const lbs = (play) => play.players.filter((p) => p.role === 'LB');
+
+test('F-19 #6: defense is null until an insideZone snap; LBs have agents, linemen do not', () => {
+  for (const k of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front: k });
+    assert.equal(play.defense, null, k);
+    play.snap();
+    assert.ok(play.defense, k);
+    for (const lb of lbs(play)) assert.ok(play.defense.agents[lb.id], `${k} ${lb.id}`);
+    for (const p of play.players) if (p.role === 'DE' || p.role === 'DT') assert.ok(!play.defense.agents[p.id], `${k} ${p.id}`);
+    play.reset();
+    assert.equal(play.defense, null, k);
+  }
+  const base = createPlay(25);
+  assert.equal(base.defense, null);
+  base.snap();
+  assert.equal(base.defense, null);
+});
+
+test('F-19 #4: LBs hold depth while reading, mirror the RB, and stay upfield of the snap line until pursue', () => {
+  for (const k of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front: k });
+    play.snap();
+    const rb = play.player(play.run.carrier);
+    const rbx0 = rb.x;
+    for (let i = 0; i < 180; i++) {
+      play.step(DT);
+      for (const lb of lbs(play)) {
+        const e = play.defense.agents[lb.id];
+        if (play.defense.t < e.read && e.state === 'read') {
+          assert.ok(lb.y >= e.y0 - BODY_RADIUS - 1e-9, `${k} ${lb.id} depth`);
+          const dx = rb.x - rbx0;
+          if (Math.abs(dx) > BODY_RADIUS && !lb.block?.engaged) {
+            const lx = lb.x - e.x0;
+            assert.ok(lx === 0 || Math.sign(lx) === Math.sign(dx), `${k} ${lb.id} mirror`);
+          }
+        }
+        if (e.state !== 'pursue') assert.ok(lb.y > 25, `${k} ${lb.id} y ${lb.y}`);
+      }
+    }
+  }
+});
+
+test('F-19 #5: LB states run read, flow, fill, pursue in order; fill goal lies in his gap', () => {
+  for (const k of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front: k });
+    play.snap();
+    const seq = Object.fromEntries(lbs(play).map((lb) => [lb.id, []]));
+    for (let i = 0; i < 180; i++) {
+      play.step(DT);
+      for (const lb of lbs(play)) {
+        const e = play.defense.agents[lb.id];
+        const q = seq[lb.id];
+        if (q[q.length - 1] !== e.state) q.push(e.state);
+        if (e.state === 'fill') {
+          const g = GOALS.fill(lb, e, { players: play.players, defense: play.defense, los: 25, run: play.run, ballPos: play.ballPosition() });
+          const span = gapSpan(play.players, play.defense, e.fit);
+          assert.ok(g.x >= span.lo + BODY_RADIUS - 1e-9 && g.x <= span.hi - BODY_RADIUS + 1e-9
+            || Math.abs(g.x - (span.lo + span.hi) / 2) < 1e-9, `${k} ${lb.id} fill x`);
+        }
+      }
+    }
+    for (const [id, q] of Object.entries(seq)) {
+      assert.equal(q[0], 'read', `${k} ${id}`);
+      assert.equal(q[q.length - 1], 'pursue', `${k} ${id} ${q}`);
+      const idx = q.map((s) => ORDER.indexOf(s));
+      for (let i = 1; i < idx.length; i++) assert.ok(idx[i] > idx[i - 1], `${k} ${id} ${q}`);
+    }
+    assert.ok(play.run.carried, `${k} handoff`);
+  }
+});
+
+test('F-19 #8: the climber comes off when the watched LB has committed', () => {
+  for (const k of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front: k });
+    play.snap();
+    const done = new Set();
+    for (let i = 0; i < 120; i++) {
+      play.step(DT);
+      for (const c of play.combos) {
+        const members = [c.owner, c.partner];
+        if (done.has(c.watch) || !members.some((id) => play.player(id).block.target === c.watch)) continue;
+        done.add(c.watch);
+        assert.ok(play.defense.committed[c.watch], `${k} ${c.watch} committed`);
+        if (c.owner === 'RT') assert.equal(play.player('RG').block.target, c.watch, `${k} taker`);
+      }
+    }
+  }
 });

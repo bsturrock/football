@@ -6,8 +6,11 @@
 // dy = yards from the line of scrimmage (negative = offense backfield,
 // positive = defense side).
 
-const pos = (id, name, team, role, dx, dy, speed, strength) =>
-  Object.freeze({ id, name, team, role, dx, dy, speed, strength });
+// def is an optional per-defender behaviour object. def.read = seconds after the snap
+// before this defender can recognise run (per-player tunable, 0.3-0.6); a missing
+// def.read falls back to READ_TIME in defense.js.
+const pos = (id, name, team, role, dx, dy, speed, strength, def) =>
+  Object.freeze({ id, name, team, role, dx, dy, speed, strength, def: def ? Object.freeze({ ...def }) : null });
 
 // Ratings per position. speed is yd/s of short-area play speed (about 80% of the
 // 40-yard-dash average; no acceleration model). strength is unitless force used by
@@ -31,15 +34,15 @@ export const POSITIONS = Object.freeze([
   pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.2, 0.7, 6.5, 0.6),
   pos('RDE', 'Right Defensive End', 'defense', 'DE', -3.6, 0.7, 7.0, 0.5),
   // LBs at 4.5 yd, an NFL off-ball depth.
-  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.6, 4.5, 7.5, 0.5),
-  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.6, 4.5, 7.5, 0.5),
+  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.6, 4.5, 7.5, 0.5, { read: 0.35 }),
+  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.6, 4.5, 7.5, 0.5, { read: 0.5 }),
 ]);
 
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
 // fronts are written for a playside-left play (the only play today).
 const roleRating = (role) => {
   const row = POSITIONS.find((p) => p.team === 'defense' && p.role === role);
-  return { speed: row.speed, strength: row.strength };
+  return { speed: row.speed, strength: row.strength, def: row.def };
 };
 const NAMES = Object.freeze({
   PE: 'Playside End', BE: 'Backside End', PT: 'Playside Tackle', BT: 'Backside Tackle',
@@ -52,7 +55,7 @@ const NAMES = Object.freeze({
 // rows: [id, role, dx, dy]
 const defenders = (rows) => Object.freeze(rows.map(([id, role, dx, dy]) => {
   const r = roleRating(role);
-  return pos(id, NAMES[id], 'defense', role, dx, dy, r.speed, r.strength);
+  return pos(id, NAMES[id], 'defense', role, dx, dy, r.speed, r.strength, r.def);
 }));
 const swap = (rows, id, dx, dy) => rows.map((r) => (r[0] === id ? [r[0], r[1], dx, dy] : r));
 
@@ -144,6 +147,7 @@ export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0
       y: los + p.dy,
       speed: p.speed,
       strength: p.strength,
+      def: p.def,
       assignment: a ? { ...a } : emptyAssignment(),
     };
   });
