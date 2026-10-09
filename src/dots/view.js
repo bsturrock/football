@@ -18,6 +18,19 @@ export function pickDot(players, gx, gy, radius) {
   return best;
 }
 
+// Panel text for a player's block: the blocker's block, or the blockers on a defender.
+export function blockSummary(play, id) {
+  const p = play.player(id);
+  if (!p) return '';
+  if (p.team === 'offense') {
+    if (!p.block) return 'Block: none';
+    const state = p.block.engaged ? 'engaged' : 'closing';
+    return `Block: ${p.block.target} · ${p.block.angle} · ${state}`;
+  }
+  const blockers = play.blockersOf(id);
+  return `Blocked by: ${blockers.length ? blockers.join(', ') : 'none'}`;
+}
+
 export function initDotsView(container) {
   const play = createPlay(25, 'base');
   const tooltip = document.getElementById('tooltip');
@@ -83,6 +96,46 @@ export function initDotsView(container) {
     dotMeshes.set(p.id, m);
   }
 
+  // ---- Block lines (blocker -> current target), keyed by blocker id ----
+  const CLOSING_COLOR = 0x9e9e9e, ENGAGED_COLOR = 0xfff176;
+  const blockLines = new Map();
+  function blockLineFor(id) {
+    let line = blockLines.get(id);
+    if (!line) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+      line = new THREE.Line(g, new THREE.LineBasicMaterial({
+        color: CLOSING_COLOR, transparent: true, opacity: 0.5 }));
+      line.visible = false;
+      scene.add(line);
+      blockLines.set(id, line);
+    }
+    return line;
+  }
+  function syncBlockLines() {
+    for (const p of play.players) {
+      if (p.team !== 'offense') continue;
+      if (!p.block) {
+        const existing = blockLines.get(p.id);
+        if (existing) existing.visible = false;
+        continue;
+      }
+      const target = play.player(p.block.target);
+      const line = blockLineFor(p.id);
+      if (!target) { line.visible = false; continue; }
+      const a = fieldToWorld(p.x, p.y);
+      const b = fieldToWorld(target.x, target.y);
+      const pos = line.geometry.attributes.position;
+      pos.setXYZ(0, a.x, 0.12, a.z);
+      pos.setXYZ(1, b.x, 0.12, b.z);
+      pos.needsUpdate = true;
+      const engaged = !!p.block.engaged;
+      line.material.color.setHex(engaged ? ENGAGED_COLOR : CLOSING_COLOR);
+      line.material.opacity = engaged ? 1 : 0.5;
+      line.visible = true;
+    }
+  }
+
   // ---- Ball marker ----
   const ball = new THREE.Group();
   const outline = new THREE.Mesh(new THREE.CircleGeometry(0.38, 20),
@@ -122,6 +175,7 @@ export function initDotsView(container) {
         `<div>Team: ${sel.team}</div><div>Role: ${sel.role}</div>` +
         `<div>Goal: ${a.goal ?? 'none'}</div>` +
         `<div>Target: ${a.target ?? 'none'}</div>` +
+        `<div>${blockSummary(play, sel.id)}</div>` +
         `<div>${has ? 'Has the ball' : 'Does not have the ball'}</div>`;
     } else {
       html += '<div>Click a dot to select</div>';
@@ -137,6 +191,7 @@ export function initDotsView(container) {
       const w = fieldToWorld(p.x, p.y);
       m.position.set(w.x, 0.1, w.z);
     }
+    syncBlockLines();
     const bp = play.ballPosition();
     const off = play.ball.holder ? 0.35 : 0;
     const bw = fieldToWorld(bp.x, bp.y + off);
