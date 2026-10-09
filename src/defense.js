@@ -182,6 +182,10 @@ function runFit(d, c){
     if(j.role === 'deep') return [flow*0.4, L + 12];
     return coverTarget(d);
   }
+  if(d.role === 'S' && (j.role === 'alley' || j.role === 'deep') && PLAYS[S.play].run){   // B-094: two-high safeties fill by the run side, not by a fixed role: once the ball commits (past ALLEY_X of the middle, or through the line) the safety on its side is the alley man, the other the deep man; latched for the play
+    if(d.altN !== snapN && (Math.abs(bx) > ALLEY_X || by > L + 1)){ const rs = Math.sign(bx) || 1; d.altN = snapN; d.alt = d.x*rs >= 0 ? {role:'alley', gx:bx, side:rs} : {role:'deep', side:0}; }
+    if(d.altN === snapN) j = d.alt;
+  }
   if(j.role === 'two'){ const left = bx < d.x; const gx = left ? j.gl : j.gr; j = {role:'gap', gx, side:Math.sign(gx) || (left ? -1 : 1)}; }   // read done: shed to the ball-side gap; his side is that gap's, so a run away still reads backside
   const s = j.side;
   if(S.clock >= d.aimT){ d.aimK = 1 + lack(d, 'pursuit')*AIM_AMP*rand(-1, 1); d.aimT = S.clock + AIM_T; }
