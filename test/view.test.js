@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary } from '../src/dots/view.js';
 import { createPlay } from '../src/dots/play.js';
 
 const players = () => createPlay(25).players;
@@ -34,4 +34,25 @@ test('pickDot radius boundary', () => {
   const c = get(ps, 'C');
   assert.equal(pickDot(ps, c.x + 0.5, c.y, 0.5)?.id, 'C');
   assert.equal(pickDot(ps, c.x + 0.5, c.y, 0.49), null);
+});
+
+test('blockSummary presnap: offense has no block, defender has no blockers', () => {
+  const play = createPlay(25);
+  assert.equal(blockSummary(play, 'C'), 'Block: none');
+  assert.equal(blockSummary(play, 'LDT'), 'Blocked by: none');
+});
+
+test('blockSummary after snap shows closing block', () => {
+  const play = createPlay(25);
+  play.snap();
+  assert.equal(blockSummary(play, 'C'), 'Block: LDT · straight · closing');
+});
+
+test('blockSummary after stepping shows engaged block and blockers', () => {
+  const play = createPlay(25);
+  play.retargetRule = null;
+  play.snap();
+  for (let i = 0; i < 90; i++) play.step(1 / 60);
+  assert.equal(blockSummary(play, 'C'), 'Block: LDT · straight · engaged');
+  assert.equal(blockSummary(play, 'LDT'), 'Blocked by: C, RG');
 });

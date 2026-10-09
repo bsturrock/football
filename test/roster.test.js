@@ -9,7 +9,7 @@ test('13 positions with unique ids and all fields present', () => {
   assert.equal(POSITIONS.length, 13);
   assert.equal(new Set(POSITIONS.map((p) => p.id)).size, 13);
   for (const p of POSITIONS) {
-    for (const k of ['id', 'name', 'team', 'role', 'dx', 'dy']) {
+    for (const k of ['id', 'name', 'team', 'role', 'dx', 'dy', 'speed', 'strength']) {
       assert.ok(k in p, `${p.id} missing ${k}`);
     }
     assert.ok(p.team === 'offense' || p.team === 'defense');
@@ -107,6 +107,43 @@ test('buildLineup gives every player a distinct empty assignment', () => {
   a[0].assignment.goal = 'x';
   assert.equal(a[1].assignment.goal, null);
   assert.equal(b[0].assignment.goal, null);
+});
+
+test('every position has speed and strength', () => {
+  const rating = {
+    OL: { speed: 6.0, strength: 1.0 },
+    QB: { speed: 7.0, strength: 0.3 },
+    RB: { speed: 8.0, strength: 0.5 },
+    DT: { speed: 6.5, strength: 0.6 },
+    DE: { speed: 7.0, strength: 0.5 },
+    LB: { speed: 7.5, strength: 0.5 },
+  };
+  for (const p of POSITIONS) {
+    assert.equal(typeof p.speed, 'number', p.id);
+    assert.equal(typeof p.strength, 'number', p.id);
+    assert.ok(p.speed > 0, p.id);
+    assert.ok(p.strength >= 0, p.id);
+    assert.deepEqual({ speed: p.speed, strength: p.strength }, rating[p.role], p.id);
+  }
+});
+
+test('OL out-strength every defender at any angle', () => {
+  const ols = POSITIONS.filter((p) => p.role === 'OL');
+  const defs = POSITIONS.filter((p) => p.team === 'defense');
+  for (const ol of ols) {
+    for (const def of defs) {
+      assert.ok(ol.strength * Math.SQRT1_2 > def.strength, `${ol.id} vs ${def.id}`);
+    }
+  }
+});
+
+test('buildLineup copies ratings', () => {
+  const lineup = buildLineup(25);
+  for (const pl of lineup) {
+    const p = byId(pl.id);
+    assert.equal(pl.speed, p.speed, pl.id);
+    assert.equal(pl.strength, p.strength, pl.id);
+  }
 });
 
 test('buildLineup throws on unknown play key', () => {
