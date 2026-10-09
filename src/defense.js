@@ -99,6 +99,7 @@ function pop(o, d, bt){
 //   force   own the edge on one side: nothing gets outside him; squeeze the runner back in. Ball goes away: backside chase
 //   alley   safety between the force and the box: hold, then fill inside-out once the ball commits to his side
 //   deep    last line: stay deeper than the ball, mirror it, come downhill only when it's close
+//   B-094: two-high safeties (alley / deep) swap by the run side: once the ball commits (past ALLEY_X of the middle, or through the line) the safety on its side is the alley man and the other the deep man (d.alt, latched per play, d.altN); a deep man stops holding 8 yd off a designed run once it is RUN_SUPPORT_Y past the line
 //   support corner: cover his man; becomes the force if the force man is blocked, down or outflanked
 // Ratings decide how well: awareness = read time, read-step quality and angle discipline; speed = pursuit;
 // power / speed vs the blocker = shedding (line battle); tackling = the tackle.
