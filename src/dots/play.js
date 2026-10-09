@@ -117,7 +117,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     }
     const def = PLAYS[playKey];
     if (def.run) {
-      play.run = startRun(play.players, def.run, { snapToId: def.ball.snapTo, playside: def.playside });
+      play.run = startRun(play.players, def.run, { snapToId: def.ball.snapTo, playside: def.playside, numbers: play.numbers });
     }
     return true;
   };
@@ -154,7 +154,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
       const handed = stepCarrier(
         play.players,
         play.run,
-        { los, numbers: play.numbers, ballHeld: ball.phase === 'held', holdId: PLAYS[playKey].ball.snapTo },
+        { los, ballHeld: ball.phase === 'held', holdId: PLAYS[playKey].ball.snapTo },
         sdt,
       );
       if (handed) {

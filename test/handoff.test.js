@@ -43,41 +43,37 @@ test('F-13 #4: QB hands the ball to the RB at the mesh point', () => {
   assert.equal(play.run, null);
 });
 
+const defIdx = (id) =>
+  createPlay(25, 'insideZone').players.filter((p) => p.team === 'defense').findIndex((p) => p.id === id);
+
 function forced(pins) {
   const play = createPlay(25, 'insideZone');
   play.snap();
+  const W = play.run.windows;
   const defs = play.players.filter((p) => p.team === 'defense');
   const place = () => {
-    const W = play.run ? gapWindows(play.players, play.numbers, play.run.side) : {};
     defs.forEach((d, i) => {
-      const g = pins[i];
-      if (g) {
-        d.x = gapCenter(W[g]);
+      if (pins[i]) {
+        d.x = gapCenter(W[pins[i]]);
         d.y = 25 + 2 * BODY_RADIUS;
       } else {
         d.x = 15 + i;
         d.y = 45;
       }
     });
-    return W;
   };
   let t = 0;
-  let lockedA = null;
   while (!play.run.locked) {
     assert.ok(t < 1.5, 'lock within cap');
-    const W = place();
+    place();
     play.step(DT);
     t += DT;
-    if (play.run.locked) lockedA = W.A;
   }
-  return { play, place, t, lockedA };
+  return { play, place, t, W };
 }
 
-test('F-13 #5: forced reads A, B, C and last read taken when closed', () => {
-  const rdt = (def) => def;
-  void rdt;
-  const idx = (id) => createPlay(25, 'insideZone').players.filter((p) => p.team === 'defense').findIndex((p) => p.id === id);
-  const iT = idx('RDT'), iE = idx('RDE'), iL = idx('LDT');
+test('F-13 #5: forced reads A, B, C and A default when nothing opens', () => {
+  const iT = defIdx('RDT'), iE = defIdx('RDE'), iL = defIdx('LDT');
   assert.ok(iT >= 0 && iE >= 0 && iL >= 0);
 
   const a = forced({});
@@ -89,18 +85,21 @@ test('F-13 #5: forced reads A, B, C and last read taken when closed', () => {
     a.play.step(DT);
     t += DT;
   }
-  assert.ok(Math.abs(a.play.player('RB').x - a.play.run.x) <= (a.lockedA.hi - a.lockedA.lo) / 2 + BODY_RADIUS);
+  assert.ok(Math.abs(a.play.player('RB').x - a.play.run.x) <= (a.W.A.hi - a.W.A.lo) / 2 + BODY_RADIUS);
 
   assert.equal(forced({ [iT]: 'A' }).play.run.gap, 'B');
   assert.equal(forced({ [iT]: 'A', [iE]: 'B' }).play.run.gap, 'C');
-  assert.equal(forced({ [iT]: 'A', [iE]: 'B', [iL]: 'C' }).play.run.gap, 'C');
+  const d = forced({ [iT]: 'A', [iE]: 'B', [iL]: 'C' });
+  assert.equal(d.play.run.gap, 'A');
+  near(d.play.run.x, gapCenter(d.W.A));
 });
 
 const alignments = [
   [],
-  ...[-1, 1].map((d) => Array(6).fill(['LB', d])),
-  [['DL', 1], ['DL', 1]],
-  [['DL', -1], ['DL', -1]],
+  Array(6).fill(['LB', -1]),
+  Array(6).fill(['LB', 1]),
+  Array(2).fill(['DL', 1]),
+  Array(2).fill(['DL', -1]),
   Array(4).fill(['DL', 1]),
   Array(4).fill(['DL', -1]),
 ];
@@ -111,23 +110,23 @@ test('F-13 #6: read invariants hold across alignments', () => {
     for (const [k, d] of al) (k === 'LB' ? play.shiftLB(d) : play.shiftDL(d));
     play.snap();
     const run = play.run;
+    assert.deepEqual(run.windows, gapWindows(play.players, play.numbers, run.side));
     let lockedGap = null;
     let lockedX = null;
     for (let i = 0; i < 90; i++) {
-      let W = null;
-      let prev = null;
-      if (run.carried && !run.locked) {
-        W = gapWindows(play.players, play.numbers, run.side);
-        prev = run.read;
-      }
+      const track = run.carried && !run.locked;
+      const prev = run.read;
       play.step(DT);
-      if (W) {
-        assert.ok(run.read >= prev);
-        assert.equal(run.gap, READS[run.read]);
-        if (!run.locked || true) {
-          near(run.aim.x, gapCenter(W[run.gap]));
-          assert.ok(run.aim.x >= W.C.lo - 1e-9);
-        }
+      if (track) {
+        const label = JSON.stringify(al.length) + ' step ' + i;
+        assert.ok(run.read >= prev, label);
+        assert.ok(
+          run.gap === READS[run.read] || (run.read === READS.length - 1 && run.gap === 'A'),
+          label,
+        );
+        const ax = run.locked ? run.x : run.aim.x;
+        near(ax, gapCenter(run.windows[run.gap]), label);
+        assert.ok(ax >= run.windows.C.lo - 1e-9, label);
       }
       if (run.locked) {
         if (lockedGap === null) { lockedGap = run.gap; lockedX = run.x; }
