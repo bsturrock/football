@@ -3,12 +3,11 @@ import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { buildLineup } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
-import { zoneSwitch, SWITCH_DIST } from '../src/dots/zone.js';
+import { zoneSwitch } from '../src/dots/zone.js';
 
 const DT = 1 / 60;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
 const targets = (play) => Object.fromEntries(OL.map((id) => [id, play.player(id).block?.target]));
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 test('F-12 #5: assignBlocks plan overrides one blocker, rest nearest; no plan unchanged', () => {
   const a = buildLineup(25, 'base');
@@ -50,7 +49,7 @@ test('F-12 #6: insideZone snap assigns zone targets and combos; base unchanged',
   assert.deepEqual(targets(base), Object.fromEntries(OL.map((id) => [id, fresh.find((p) => p.id === id).block.target])));
 });
 
-test('F-12 #7: shifted MLB switches C/LG via commit, not range', () => {
+test('F-12 #7: shifted MLB: C takes MLB, LG keeps RDT; playside commit gives MLB to LG', () => {
   const play = createPlay(25, 'insideZone');
   for (let i = 0; i < 6; i++) play.shiftLB(-1);
   play.snap();
