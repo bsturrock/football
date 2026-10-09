@@ -3,7 +3,7 @@ import { HW } from '../util.js';
 import { steerStep } from './steering.js';
 
 export const BLOCKER_ROLES = ['OL'];
-export const BODY_RADIUS = 0.6;
+export const BODY_RADIUS = 0.35; // 0.7 yd = 25 in diameter, about an NFL lineman's shoulder width
 export const CONTACT_DIST = 2 * BODY_RADIUS;
 export const ENGAGE_TOL = 0.25;
 export const SPREAD = 2 * BODY_RADIUS;

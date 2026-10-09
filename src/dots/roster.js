@@ -14,21 +14,25 @@ const pos = (id, name, team, role, dx, dy, speed, strength) =>
 // blocking: OL must stay above every defender's strength / 0.7071 so the OL win at
 // any block angle.
 export const POSITIONS = Object.freeze([
-  // OL: C at the line, guards 0.5 yd behind C, tackles a touch behind the guards (0.3 yd).
-  pos('LT', 'Left Tackle', 'offense', 'OL', -4.4, -1.5, 6.0, 1.0),
-  pos('LG', 'Left Guard', 'offense', 'OL', -2.2, -1.2, 6.0, 1.0),
-  pos('C', 'Center', 'offense', 'OL', 0, -0.7, 6.0, 1.0),
-  pos('RG', 'Right Guard', 'offense', 'OL', 2.2, -1.2, 6.0, 1.0),
-  pos('RT', 'Right Tackle', 'offense', 'OL', 4.4, -1.5, 6.0, 1.0),
+  // OL: linemen 1.5 yd center to center (0.8 yd = 2.4 ft body-to-body, NFL 2-3 ft).
+  // C just behind the ball, guards about 1 ft deeper, tackles 0.15 yd deeper than guards.
+  pos('LT', 'Left Tackle', 'offense', 'OL', -3.0, -0.9, 6.0, 1.0),
+  pos('LG', 'Left Guard', 'offense', 'OL', -1.5, -0.75, 6.0, 1.0),
+  pos('C', 'Center', 'offense', 'OL', 0, -0.4, 6.0, 1.0),
+  pos('RG', 'Right Guard', 'offense', 'OL', 1.5, -0.75, 6.0, 1.0),
+  pos('RT', 'Right Tackle', 'offense', 'OL', 3.0, -0.9, 6.0, 1.0),
   pos('QB', 'Quarterback', 'offense', 'QB', 0, -4.5, 7.0, 0.3),
   pos('RB', 'Running Back', 'offense', 'RB', 1.8, -4.5, 8.0, 0.5),
   // Defense faces -y, so its left is +x.
-  pos('LDE', 'Left Defensive End', 'defense', 'DE', 5.4, 1.1, 7.0, 0.5),
-  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 1.8, 1.1, 6.5, 0.6),
-  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.8, 1.1, 6.5, 0.6),
-  pos('RDE', 'Right Defensive End', 'defense', 'DE', -5.4, 1.1, 7.0, 0.5),
-  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 2.0, 4.5, 7.5, 0.5),
-  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -2.0, 4.5, 7.5, 0.5),
+  // DL just across a ball-length neutral zone (0.7 yd): DTs in an inside shade of the
+  // guards, DEs in an outside shade of the tackles.
+  pos('LDE', 'Left Defensive End', 'defense', 'DE', 3.6, 0.7, 7.0, 0.5),
+  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 1.2, 0.7, 6.5, 0.6),
+  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.2, 0.7, 6.5, 0.6),
+  pos('RDE', 'Right Defensive End', 'defense', 'DE', -3.6, 0.7, 7.0, 0.5),
+  // LBs at 4.5 yd, an NFL off-ball depth.
+  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.6, 4.5, 7.5, 0.5),
+  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.6, 4.5, 7.5, 0.5),
 ]);
 
 // Play definitions. Shapes:

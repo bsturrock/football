@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { POSITIONS, PLAYS, emptyAssignment, buildLineup } from '../src/dots/roster.js';
+import { BODY_RADIUS, CONTACT_DIST, SPREAD } from '../src/dots/blocking.js';
+import { DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 
 const byId = (id) => POSITIONS.find((p) => p.id === id);
 const idsFor = (team) => POSITIONS.filter((p) => p.team === team).map((p) => p.id).sort();
@@ -48,10 +50,10 @@ test('OL forms a V pointing at the defense', () => {
   const LT = byId('LT');
   const RT = byId('RT');
   assert.equal(C.dx, 0);
-  assert.equal(C.dy, -0.7);
-  assert.equal(LG.dy, -1.2);
+  assert.equal(C.dy, -0.4);
+  assert.equal(LG.dy, -0.75);
   assert.equal(RG.dy, LG.dy);
-  assert.equal(LT.dy, -1.5);
+  assert.equal(LT.dy, -0.9);
   assert.equal(RT.dy, LT.dy);
   assert.equal(LG.dy, RG.dy);
   assert.ok(C.dy > LG.dy);
@@ -79,7 +81,7 @@ test('QB/RB shotgun spacing measured from C', () => {
   const C = byId('C');
   const QB = byId('QB');
   const RB = byId('RB');
-  assert.ok(Math.abs(QB.dy - C.dy + 3.8) < 1e-9);
+  assert.ok(Math.abs(QB.dy - C.dy + 4.1) < 1e-9);
   assert.equal(QB.dx, C.dx);
   assert.equal(RB.dy, QB.dy);
   assert.ok(Math.abs(RB.dx - C.dx - 1.8) < 1e-9);
@@ -167,13 +169,59 @@ test('DL evenly spaced and centered on the ball', () => {
   const LDT = byId('LDT');
   const RDT = byId('RDT');
   const RDE = byId('RDE');
-  assert.equal(LDE.dx, 5.4);
-  assert.equal(LDT.dx, 1.8);
-  assert.equal(RDT.dx, -1.8);
-  assert.equal(RDE.dx, -5.4);
-  assert.ok(Math.abs(LDE.dx - LDT.dx - 3.6) < 1e-9);
-  assert.ok(Math.abs(LDT.dx - RDT.dx - 3.6) < 1e-9);
-  assert.ok(Math.abs(RDT.dx - RDE.dx - 3.6) < 1e-9);
+  assert.equal(LDE.dx, 3.6);
+  assert.equal(LDT.dx, 1.2);
+  assert.equal(RDT.dx, -1.2);
+  assert.equal(RDE.dx, -3.6);
+  assert.ok(Math.abs(LDE.dx - LDT.dx - 2.4) < 1e-9);
+  assert.ok(Math.abs(LDT.dx - RDT.dx - 2.4) < 1e-9);
+  assert.ok(Math.abs(RDT.dx - RDE.dx - 2.4) < 1e-9);
   assert.equal(LDE.dx, -RDE.dx);
   assert.equal(LDT.dx, -RDT.dx);
+});
+
+test('F-14 #1: NFL body radius', () => {
+  assert.equal(BODY_RADIUS, 0.35);
+  assert.equal(CONTACT_DIST, 2 * BODY_RADIUS);
+  assert.equal(SPREAD, 2 * BODY_RADIUS);
+  assert.equal(DL_SHIFT_STEP, BODY_RADIUS);
+  assert.equal(LB_SHIFT_STEP, BODY_RADIUS);
+});
+
+test('F-14 #2: NFL OL splits', () => {
+  const want = {
+    LT: [-3.0, -0.9], LG: [-1.5, -0.75], C: [0, -0.4], RG: [1.5, -0.75], RT: [3.0, -0.9],
+  };
+  for (const [id, [dx, dy]] of Object.entries(want)) {
+    assert.equal(byId(id).dx, dx, `${id} dx`);
+    assert.equal(byId(id).dy, dy, `${id} dy`);
+  }
+  const chain = ['LT', 'LG', 'C', 'RG', 'RT'].map((id) => byId(id).dx);
+  for (let i = 1; i < chain.length; i++) {
+    assert.ok(Math.abs(chain[i] - chain[i - 1] - 1.5) < 1e-9, `gap ${i}`);
+  }
+  const split = 1.5 - 2 * BODY_RADIUS;
+  assert.ok(split >= 2 / 3 && split <= 1, `body-to-body split ${split}`);
+});
+
+test('F-14 #3: front and LBs', () => {
+  for (const id of ['LDE', 'LDT', 'RDT', 'RDE']) assert.equal(byId(id).dy, 0.7, id);
+  assert.deepEqual([byId('MLB').dx, byId('MLB').dy], [1.6, 4.5]);
+  assert.deepEqual([byId('WLB').dx, byId('WLB').dy], [-1.6, 4.5]);
+  assert.deepEqual([byId('QB').dx, byId('QB').dy], [0, -4.5]);
+  assert.deepEqual([byId('RB').dx, byId('RB').dy], [1.8, -4.5]);
+});
+
+test('F-14 #4: no pre-snap overlap at any shift', () => {
+  for (let k = -4; k <= 4; k++) {
+    for (let j = -6; j <= 6; j++) {
+      const lineup = buildLineup(25, 'insideZone', { dlShift: k * DL_SHIFT_STEP, lbShift: j * LB_SHIFT_STEP });
+      for (let a = 0; a < lineup.length; a++) {
+        for (let b = a + 1; b < lineup.length; b++) {
+          const d = Math.hypot(lineup[a].x - lineup[b].x, lineup[a].y - lineup[b].y);
+          assert.ok(d >= 2 * BODY_RADIUS - 1e-9, `k=${k} j=${j} ${lineup[a].id}-${lineup[b].id} d=${d}`);
+        }
+      }
+    }
+  }
 });
