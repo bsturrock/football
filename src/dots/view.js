@@ -1,7 +1,7 @@
 // Dots view layer: top-down three.js rendering of the dots play state.
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
-import { createPlay } from './play.js';
+import { createPlay, SIM_SPEED } from './play.js';
 import { HW } from '../util.js';
 
 export function fieldToWorld(x, y) {
@@ -32,10 +32,16 @@ export function blockSummary(play, id) {
 }
 
 export function initDotsView(container) {
-  const play = createPlay(25, 'base');
+  const play = createPlay(25, 'base', { timeScale: SIM_SPEED });
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
   const resetBtn = document.getElementById('reset-btn');
+  const hint = document.getElementById('hint');
+  const speedReadout = hint ? hint.appendChild(document.createElement('span')) : null;
+  const showSpeed = () => {
+    if (speedReadout) speedReadout.textContent = `Speed ${play.timeScale.toFixed(2)}x (-/+)`;
+  };
+  showSpeed();
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -267,6 +273,12 @@ export function initDotsView(container) {
   resetBtn?.addEventListener('click', doReset);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { selectedId = null; return; }
+    // Shift stays allowed so '+' (Shift+=) and '_' (Shift+-) work; ctrl/meta/alt keep browser zoom.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+      const step = (d) => Math.round((play.timeScale + d) * 100) / 100;
+      if (e.key === '-' || e.key === '_') { play.setTimeScale(step(-0.05)); showSpeed(); return; }
+      if (e.key === '=' || e.key === '+') { play.setTimeScale(step(0.05)); showSpeed(); return; }
+    }
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     if (e.key.toLowerCase() === 'r') doReset();
   });

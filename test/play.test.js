@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlay, SNAP_DURATION } from '../src/dots/play.js';
+import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { buildLineup } from '../src/dots/roster.js';
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} !~ ${b}`);
@@ -76,4 +76,48 @@ test('reset() from presnap is harmless', () => {
   assert.equal(play.ball.holder, 'C');
   assert.equal(play.ball.phase, 'presnap');
   assert.equal(play.ball.t, 0);
+});
+
+test('time scale: defaults to real time; SIM_SPEED is the dots page default', () => {
+  assert.equal(createPlay(25).timeScale, 1);
+  assert.equal(SIM_SPEED, 0.35);
+});
+
+test('time scale: snap progress advances by dt * timeScale', () => {
+  const play = createPlay(25, 'base', { timeScale: 0.5 });
+  play.snap();
+  play.step(SNAP_DURATION);
+  assert.equal(play.ball.phase, 'snapping');
+  near(play.ball.t, 0.5);
+  play.step(SNAP_DURATION);
+  assert.equal(play.ball.phase, 'held');
+});
+
+test('time scale: half speed with double dt matches full speed', () => {
+  const a = createPlay(25);
+  const b = createPlay(25, 'base', { timeScale: 0.5 });
+  a.snap();
+  b.snap();
+  for (let i = 0; i < 30; i++) {
+    a.step(1 / 60);
+    b.step(2 / 60);
+    for (const pa of a.players) {
+      const pb = b.player(pa.id);
+      near(pa.x, pb.x);
+      near(pa.y, pb.y);
+    }
+  }
+});
+
+test('time scale: setTimeScale clamps, ignores non-finite, survives reset', () => {
+  const play = createPlay(25);
+  assert.equal(play.setTimeScale(5), SIM_SPEED_MAX);
+  assert.equal(play.timeScale, SIM_SPEED_MAX);
+  assert.equal(play.setTimeScale(0), SIM_SPEED_MIN);
+  assert.equal(play.timeScale, SIM_SPEED_MIN);
+  play.setTimeScale(0.4);
+  assert.equal(play.setTimeScale(NaN), 0.4);
+  assert.equal(play.timeScale, 0.4);
+  play.reset();
+  assert.equal(play.timeScale, 0.4);
 });
