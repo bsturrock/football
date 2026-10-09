@@ -1,43 +1,24 @@
-// Zone blocking scheme: turns F-11 zone numbers into block targets and double-team combos.
-// Pure: no mutation, ids only.
-export const LINE_DEPTH = 2.0;
+// Inside zone: a rule table run by the assignment engine, plus the runtime switch rule.
+import { readFront } from './front.js';
+import { runScheme } from './assign.js';
+
+export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
 
+const row = (r) => Object.freeze(r);
+export const INSIDE_ZONE = Object.freeze({
+  rules: Object.freeze([
+    row({ when: 'covered', at: 'backEnd', tech: 'cutoff' }), // backside tackle covered: cut him off
+    row({ when: 'covered', tech: 'zone' }), // covered: block the man over you
+    row({ when: 'double', tech: 'combo' }), // uncovered: double the playside neighbour's man, watch the LB
+    row({ when: 'climb', tech: 'climb' }), // two uncovered: climb to the linebacker
+    row({ when: 'cutoff', tech: 'cutoff' }), // otherwise cut off the backside
+  ]),
+});
+
 export function zonePlan(players, numbers, los) {
-  const num = (p) => (numbers && numbers[p.id] != null ? numbers[p.id] : null);
-  const lineGuys = players.filter((p) => p.team === 'offense' && num(p) !== null);
-  const D = new Map();
-  for (const p of players) {
-    if (p.team === 'defense' && num(p) !== null) D.set(num(p), p);
-  }
-  const onLine = (d) => d && d.y - los <= LINE_DEPTH;
-  const blocks = {};
-  const combos = [];
-  for (const b of lineGuys) {
-    const n = num(b);
-    const dn = D.get(n);
-    if (onLine(dn)) {
-      blocks[b.id] = dn.id;
-      continue;
-    }
-    let m = null;
-    let partner = null;
-    for (const [k, d] of D) {
-      if (k > n && onLine(d) && (m === null || k < m)) {
-        const p = lineGuys.find((q) => num(q) === k);
-        if (p) { m = k; partner = p; }
-      }
-    }
-    if (m !== null) {
-      const dm = D.get(m);
-      blocks[b.id] = dm.id;
-      if (dn) combos.push({ owner: b.id, partner: partner.id, target: dm.id, watch: dn.id });
-    } else if (dn) {
-      blocks[b.id] = dn.id;
-    }
-  }
-  combos.sort((a, b) => numbers[a.owner] - numbers[b.owner]);
-  return { blocks, combos };
+  const { side, blocks, techs, combos, free } = runScheme(readFront(players, numbers, los), INSIDE_ZONE);
+  return { side, blocks, techs, combos, free };
 }
 
 export function zoneSwitch(players, ballPos, ctx) {
