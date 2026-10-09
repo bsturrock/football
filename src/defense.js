@@ -46,6 +46,7 @@ const FLOW_OUT = 1.5;   // B-089: the force DL widens (FIRE_DEPTH) while the bal
 let snapQB = 0, snapRB = 0, snapN = 0, snapPending = false;   // B-089: each ball carrier's x at the snap (QB and RB), taken at the first runFit after assignFits (which runs once per play and sets snapPending); snapN counts plays for d.wideN
 const FILL_CLOSE = 3, FILL_BAND = 0.5, FLAT_Y = 0.5;   // FILL_BAND: dead band on FILL_CLOSE (in at 3 yd, out past 3.5, d.fillL). DL only: LBs also carry role 'gap' and keep the old rules; FLAT_Y: a flat chaser's target is at least this far past the line
 const backsideOf = (j, bx) => bx*j.side < -BACK_HOME_X;   // the ball went away from this gap's side
+const RUN_SUPPORT_Y = 1;   // B-094: a designed run this far (yd) past the line turns a deep man into run support whatever his distance
 const AIM_AMP = 0.8, AIM_T = 0.4, HOLD_P = 0.6, HOLD_T = 0.5, BITE_P = 0.35, BITE_T = 0.3;
 
 // pursuit: run to the point where I can actually meet the runner, using his smoothed velocity
@@ -214,7 +215,7 @@ function runFit(d, c){
       if(bx*s > ALLEY_X || by > L + 1) return inside();               // ball committed to my side: fill the alley
       return [bx*0.5 + j.gx*0.5, L + 6];
     case 'deep':
-      if(dist(d, c) > 8) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it
+      if(dist(d, c) > 8 && !(PLAYS[S.play].run && by > L + RUN_SUPPORT_Y)) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it, until a designed run is through the line (B-094: then every deep man is run support and fills at the runner, not 8 yd off him)
       return inside();
     case 'support': {
       const f = DEF.find(o => o.job && o.job.role === 'force' && o.job.side === s);
