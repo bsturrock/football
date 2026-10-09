@@ -7,3 +7,4 @@
 - 2026-10-09 F-7 Player body collision, no overlap (R-7) 6893c09
 - 2026-10-09 F-8 play-blocking test cleanups (R-5) 50edfcd
 - 2026-10-09 F-9 Pre-snap D-line shift keys (R-11) 46d4fa0
+- 2026-10-09 F-10 Player steering with committed route choices (R-10) 16bdc3e
