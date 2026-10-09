@@ -56,6 +56,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     play.players = buildLineup(los, playKey, { dlShift: play.dlShift * DL_SHIFT_STEP });
     for (const p of play.players) p.block = null;
     ctx = { seq: 0 };
+    play.separation = 0;
     Object.assign(play.ball, {
       holder: PLAYS[playKey].ball.start,
       phase: 'presnap',
@@ -107,7 +108,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     }
     if (ball.phase === 'presnap') return;
     ctx.rule = play.retargetRule;
-    stepBlocking(play.players, play.ballPosition(), sdt, ctx);
+    play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
   };
 
   play.step = (dt) => {

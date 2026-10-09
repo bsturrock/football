@@ -304,3 +304,98 @@ for (const retarget of [undefined, null]) {
     });
   });
 }
+
+// ---- F-10 steering ----
+const RUNS = [];
+for (const rule of ['default', null]) for (const timeScale of [1, 0.35]) RUNS.push({ rule, timeScale });
+const runName = (r) => `rule=${r.rule === null ? 'null' : 'default'} timeScale=${r.timeScale}`;
+const mkRun = (r) => {
+  const play = createPlay(25, 'base', { timeScale: r.timeScale });
+  if (r.rule === null) play.retargetRule = null;
+  play.snap();
+  return play;
+};
+
+test('F10-7. no flip-flopping of route sides', () => {
+  for (const r of RUNS) {
+    const play = mkRun(r);
+    const steps = Math.round(5 / (r.timeScale / 60));
+    const st = new Map(play.players.map((p) => [p.id, { last: 0, times: [], side: 0, key: null, flips: 0 }]));
+    let t = 0;
+    for (let i = 0; i < steps; i++) {
+      play.step(DT);
+      t += r.timeScale / 60;
+      for (const p of play.players) {
+        const s = st.get(p.id);
+        const sd = p.steer ? p.steer.side : 0;
+        const key = p.steer ? p.steer.key : null;
+        const flips = p.steer ? p.steer.flips : 0;
+        if (sd !== 0 && s.last && sd !== s.last) s.times.push(t);
+        if (sd !== 0 && s.side === -sd && s.key === key) {
+          assert.ok(flips > s.flips, `${p.id} side flipped without flips++ at t=${t.toFixed(3)} (${runName(r)})`);
+        }
+        if (sd !== 0) s.last = sd;
+        s.side = sd;
+        s.key = key;
+        s.flips = flips;
+      }
+    }
+    for (const [id, s] of st) {
+      assert.ok(s.times.length <= 2, `${id} changed side ${s.times.length}x at ${s.times} (${runName(r)})`);
+      for (let k = 1; k < s.times.length; k++) {
+        assert.ok(s.times[k] - s.times[k - 1] >= 0.5, `${id} changes too close at t=${s.times[k].toFixed(3)} (${runName(r)})`);
+      }
+    }
+  }
+});
+
+test('F10-8. collision is rarely needed', () => {
+  for (const r of RUNS) {
+    const play = mkRun(r);
+    assert.equal(play.separation, 0);
+    const steps = Math.round(5 / (r.timeScale / 60));
+    for (let i = 0; i < steps; i++) play.step(DT);
+    assert.ok(play.separation <= 12, `separation ${play.separation} (${runName(r)})`);
+    play.reset();
+    assert.equal(play.separation, 0);
+  }
+  assert.equal(createPlay(25).separation, 0);
+});
+
+test('F10-6. engaged players do not path', () => {
+  const play = started();
+  run(play, 3, {
+    post: () => {
+      for (const p of play.players) {
+        const engagedBlocker = p.block && p.block.engaged;
+        if (engagedBlocker || play.blockersOf(p.id).length > 0) {
+          assert.ok(!p.steer, `${p.id} has steer while engaged`);
+        }
+      }
+    },
+  });
+});
+
+test('F10-9. deterministic', () => {
+  const a = started();
+  const b = started();
+  for (let i = 0; i < 300; i++) {
+    a.step(DT);
+    b.step(DT);
+  }
+  a.players.forEach((p, i) => {
+    assert.equal(p.x, b.players[i].x);
+    assert.equal(p.y, b.players[i].y);
+  });
+});
+
+test('F10-10. null rule: LBs reach the QB', () => {
+  const play = started();
+  play.retargetRule = null;
+  run(play, 5);
+  const qb = play.player('QB');
+  for (const id of ['WLB', 'MLB']) {
+    const p = play.player(id);
+    assert.ok(Math.hypot(p.x - qb.x, p.y - qb.y) <= CONTACT_DIST + 0.05, `${id} dist ${Math.hypot(p.x - qb.x, p.y - qb.y)}`);
+  }
+});
