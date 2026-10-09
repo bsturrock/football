@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel, formatYards, LABEL_SIZE } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel, runLabel, formatYards, LABEL_SIZE } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 
@@ -90,4 +90,12 @@ test('F-14 #9: formatYards keeps two decimals, drops trailing zeros', () => {
 
 test('F-14 #10: number label sized from BODY_RADIUS', () => {
   assert.equal(LABEL_SIZE, 2 * BODY_RADIUS);
+});
+
+test('F-13 #7: runLabel', () => {
+  assert.equal(runLabel(null), '');
+  assert.equal(runLabel(undefined), '');
+  assert.equal(runLabel({ carried: false, locked: false, gap: 'A' }), '');
+  assert.equal(runLabel({ carried: true, locked: false, gap: 'A' }), 'Hole: A (reading)');
+  assert.equal(runLabel({ carried: true, locked: true, gap: 'B' }), 'Hole: B (locked)');
 });

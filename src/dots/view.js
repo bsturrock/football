@@ -56,6 +56,12 @@ export function numberLabel(n) {
   return n === null || n === undefined ? '' : String(n);
 }
 
+// Text for the RB's hole read ('' hides it; play.run may be null or undefined before the snap).
+export function runLabel(run) {
+  if (!run || !run.carried) return '';
+  return `Hole: ${run.gap} (${run.locked ? 'locked' : 'reading'})`;
+}
+
 export function initDotsView(container) {
   const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED });
   const tooltip = document.getElementById('tooltip');
@@ -269,6 +275,7 @@ export function initDotsView(container) {
       html += '<div>Click a dot to select</div>';
     }
     html += `<div style="margin-top:6px">${ballStatus()}</div>`;
+    const rl = runLabel(play.run); if (rl) html += `<div>${rl}</div>`;
     if (html !== lastPanel) { panel.innerHTML = html; lastPanel = html; }
   }
 
