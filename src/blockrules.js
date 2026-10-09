@@ -241,7 +241,7 @@ export function resolveBlocks(play, flip, again = false){
       const others = free(b).filter(d => d !== own);   // his own man stays free
       let d2 = nx && allowed(nx) && WRONG_RULES.includes(nx[0]) ? pick(nx, b.p, others, ctx) : null;
       if(!d2) d2 = pick(['line'], {x:b.p.x, y:b.p.y, lane:(b.p.lane ?? b.p.x) - ps*OL_GAP}, others, ctx);
-      if(d2){ take(b, d2, ['wrong']); b.p.ruled = true; b.p.bustWrong = true; left.add(own); b.entry.kind = 'wrong'; continue; }
+      if(d2){ take(b, d2, ['wrong']); b.p.ruled = true; b.p.bustWrong = true; left.add(own); b.entry.kind = 'wrong'; b.entry.free = own; continue; }
       b.entry.kind = 'none';
       }
     }
