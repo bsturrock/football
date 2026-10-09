@@ -116,7 +116,7 @@ function battleStep(d, o, c, dt){
     }
     // stuffed. A bull rush into a much stronger blocker can end up on its back.
     if(!speed && d.role === 'DL' && o.rStr - d.rPow + rand(0, 40) > 58){   // only a much stronger blocker, only in the trenches
-      d.stun = 1.6; d.act = 'down'; d.actT = 1.6; d.fallDir = -1; unface(d); d.bt = o.bt = null;
+      d.stun = 1.6; d.act = 'down'; d.actT = 1.6; d.fallDir = -1; unface(d); d.bt = o.bt = null;  d.downBy = o;
       physOn(d, {vx:(d.x - o.x)*2.5, vy:(d.y - o.y)*2.5, up:0.3, bal:0, ttl:1.4});
       callout(d, 'Pancaked!', 'good');
       return;
@@ -147,7 +147,7 @@ export function pancakeHit(o, d){
   if(score < PANCAKE_AT) return false;
   const L = S.pancakeLog || (S.pancakeLog = {}), pk = o.pull ? o.pull.kind : 'other'; L[pk] = (L[pk] || 0) + 1;   // B-092: the sim's count by pull kind (kick, wrap, lead, trap; other = not a puller); sim.js reads it through S
   const k = close*o.mass/(o.mass + d.mass)*1.6;                     // what the hit hands the defender
-  d.stun = 2.4; d.act = 'down'; d.actT = 2.4; d.fallDir = -1; unface(d); d.bt = o.bt = null;
+  d.stun = 2.4; d.act = 'down'; d.actT = 2.4; d.fallDir = -1; unface(d); d.bt = o.bt = null;  d.downBy = o;   // B-088: who knocked him down (the sim reads it while stun > 0)
   physOn(d, {bal:0, vx:d.vx + nx*k, vy:d.vy + ny*k, up:0.4, ttl:1.8});
   physOn(o, {bal:1, ttl:0.4});                                      // he runs through it
   callout(o, 'Pancake!', 'good');
