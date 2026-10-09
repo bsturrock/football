@@ -185,6 +185,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     ctx.defGoals = play.defense
       ? stepDefense(play.players, play.defense, { run: play.run, ballPos: play.ballPosition() }, sdt)
       : null;
+    ctx.committed = play.defense ? play.defense.committed : null;
     ctx.rule = play.retargetRule;
     play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
   };
