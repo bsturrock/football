@@ -9,12 +9,12 @@
 const pos = (id, name, team, role, dx, dy) => Object.freeze({ id, name, team, role, dx, dy });
 
 export const POSITIONS = Object.freeze([
-  // OL forms a shallow V: C at the line, guards 0.5 yd behind C, tackles 1.0 yd behind the guards.
-  pos('LT', 'Left Tackle', 'offense', 'OL', -4.4, -2.2),
+  // OL: C at the line, guards 0.5 yd behind C, tackles a touch behind the guards (0.3 yd).
+  pos('LT', 'Left Tackle', 'offense', 'OL', -4.4, -1.5),
   pos('LG', 'Left Guard', 'offense', 'OL', -2.2, -1.2),
   pos('C', 'Center', 'offense', 'OL', 0, -0.7),
   pos('RG', 'Right Guard', 'offense', 'OL', 2.2, -1.2),
-  pos('RT', 'Right Tackle', 'offense', 'OL', 4.4, -2.2),
+  pos('RT', 'Right Tackle', 'offense', 'OL', 4.4, -1.5),
   pos('QB', 'Quarterback', 'offense', 'QB', 0, -4.5),
   pos('RB', 'Running Back', 'offense', 'RB', 1.8, -4.5),
   // Defense faces -y, so its left is +x.

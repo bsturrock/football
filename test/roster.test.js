@@ -51,9 +51,11 @@ test('OL forms a V pointing at the defense', () => {
   assert.equal(C.dy, -0.7);
   assert.equal(LG.dy, -1.2);
   assert.equal(RG.dy, LG.dy);
-  assert.equal(LT.dy, -2.2);
+  assert.equal(LT.dy, -1.5);
   assert.equal(RT.dy, LT.dy);
-  assert.ok(C.dy > LG.dy && LG.dy > LT.dy);
+  assert.equal(LG.dy, RG.dy);
+  assert.ok(C.dy > LG.dy);
+  assert.ok(LG.dy > LT.dy);
   assert.equal(LG.dx, -RG.dx);
   assert.equal(LT.dx, -RT.dx);
 });
