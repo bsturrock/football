@@ -2,17 +2,29 @@
 // Time advances only through step(dt); there are no timers or clocks here.
 
 import { PLAYS, buildLineup } from './roster.js';
+import {
+  assignBlocks,
+  clearBlock,
+  doubleTeamPeel,
+  engagedOn,
+  isBlocker,
+  setBlock,
+  stepBlocking,
+} from './blocking.js';
 
 export const SNAP_DURATION = 0.35; // seconds
 
 export function createPlay(los = 25, playKey = 'base') {
-  const play = { los, playKey, players: [], ball: {} };
+  const play = { los, playKey, players: [], ball: {}, retargetRule: doubleTeamPeel };
+  let ctx = { seq: 0 };
 
   play.player = (id) => play.players.find((p) => p.id === id);
 
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
     play.players = buildLineup(los, playKey);
+    for (const p of play.players) p.block = null;
+    ctx = { seq: 0 };
     Object.assign(play.ball, {
       holder: PLAYS[playKey].ball.start,
       phase: 'presnap',
@@ -31,18 +43,40 @@ export function createPlay(los = 25, playKey = 'base') {
       holder: null,
       t: 0,
     });
+    assignBlocks(play.players);
     return true;
   };
 
+  const live = () => play.ball.phase !== 'presnap';
+
+  play.engage = (blockerId, targetId, angle = 'straight') =>
+    live() && setBlock(play.players, blockerId, targetId, angle);
+
+  play.join = (blockerId, teammateId, angle) => {
+    if (!live()) return false;
+    const mate = play.player(teammateId);
+    if (!mate || !isBlocker(mate) || !mate.block) return false;
+    return play.engage(blockerId, mate.block.target, angle ?? mate.block.angle);
+  };
+
+  play.disengage = (blockerId) => live() && clearBlock(play.players, blockerId);
+
+  play.blockersOf = (defenderId) =>
+    live() ? engagedOn(play.players, defenderId).map((p) => p.id) : [];
+
   play.step = (dt) => {
     const ball = play.ball;
-    if (ball.phase !== 'snapping') return;
-    ball.t += dt / SNAP_DURATION;
-    if (ball.t >= 1) {
-      ball.t = 1;
-      ball.holder = ball.to;
-      ball.phase = 'held';
+    if (ball.phase === 'snapping') {
+      ball.t += dt / SNAP_DURATION;
+      if (ball.t >= 1) {
+        ball.t = 1;
+        ball.holder = ball.to;
+        ball.phase = 'held';
+      }
     }
+    if (ball.phase === 'presnap') return;
+    ctx.rule = play.retargetRule;
+    stepBlocking(play.players, play.ballPosition(), dt, ctx);
   };
 
   play.ballPosition = () => {
