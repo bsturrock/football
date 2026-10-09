@@ -5,3 +5,4 @@
 - 2026-10-09 F-5 Global sim time-scale for the dots view (R-8) 719d8ad
 - 2026-10-09 F-6 Evenly space the D line (R-9) 8366bd4
 - 2026-10-09 F-7 Player body collision, no overlap (R-7) 6893c09
+- 2026-10-09 F-8 play-blocking test cleanups (R-5) 50edfcd
