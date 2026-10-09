@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { buildLineup } from '../src/dots/roster.js';
+import { buildLineup, POSITIONS } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { zoneSwitch } from '../src/dots/zone.js';
 
@@ -36,8 +36,8 @@ test('F-12 #6: insideZone snap assigns zone targets and combos; base unchanged',
     { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB', watchX: mlbX, side: -1 },
     { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB', watchX: wlbX, side: -1 },
   ]);
-  assert.equal(mlbX, 2.0);
-  assert.equal(wlbX, -2.0);
+  assert.equal(mlbX, POSITIONS.find((p) => p.id === 'MLB').dx);
+  assert.equal(wlbX, POSITIONS.find((p) => p.id === 'WLB').dx);
   play.reset();
   assert.deepEqual(play.combos, []);
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { zonePlan, zoneSwitch } from '../src/dots/zone.js';
 import { numberPlay } from '../src/dots/numbering.js';
 import { buildLineup, PLAYS } from '../src/dots/roster.js';
+import { DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 
 const plan = (opts) => {
   const players = buildLineup(25, 'insideZone', opts);
@@ -22,16 +23,16 @@ test('F-12 #1: base zonePlan', () => {
   ]);
 });
 
-test('F-12 #2: lbShift -3.6 zonePlan', () => {
-  const r = plan({ lbShift: -3.6 });
+test('F-12 #2: full LB shift (-6 steps) zonePlan', () => {
+  const r = plan({ lbShift: -6 * LB_SHIFT_STEP });
   assert.deepEqual(r.blocks, { C: 'RDT', LG: 'RDT', LT: 'RDE', RG: 'LDT', RT: 'LDE' });
   assert.deepEqual(r.combos, [
     { owner: 'C', partner: 'LG', target: 'RDT', watch: 'MLB', watchX: X(r, 'MLB'), side: -1 },
   ]);
 });
 
-test('F-12 #3: dlShift 2.4 zonePlan', () => {
-  const r = plan({ dlShift: 2.4 });
+test('F-12 #3: full DL shift (+4 steps) zonePlan', () => {
+  const r = plan({ dlShift: 4 * DL_SHIFT_STEP });
   assert.deepEqual(r.blocks, { C: 'RDE', LG: 'RDE', RG: 'RDT', RT: 'RDT' });
   assert.deepEqual(r.combos, [
     { owner: 'RT', partner: 'RG', target: 'RDT', watch: 'MLB', watchX: X(r, 'MLB'), side: -1 },
@@ -50,7 +51,7 @@ test('F-12 #3: rule (c) climb with no combo', () => {
 });
 
 const sw = () => {
-  const players = buildLineup(25, 'insideZone', { lbShift: -3.6 });
+  const players = buildLineup(25, 'insideZone', { lbShift: -6 * LB_SHIFT_STEP });
   const g = (id) => players.find((p) => p.id === id);
   const blk = { target: 'RDT', angle: 'straight', engaged: true, seq: 1 };
   g('C').block = { ...blk };

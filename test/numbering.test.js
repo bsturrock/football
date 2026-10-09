@@ -1,10 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLineup } from '../src/dots/roster.js';
 import { numberPlay } from '../src/dots/numbering.js';
 
+// numbering rules are tested on fixed coordinates; the real roster's numbers are covered by `test/inside-zone.test.js`.
+const FIXTURE = Object.freeze([
+  ['LT', 'offense', 'OL', -4.4, -1.5],
+  ['LG', 'offense', 'OL', -2.2, -1.2],
+  ['C', 'offense', 'OL', 0, -0.7],
+  ['RG', 'offense', 'OL', 2.2, -1.2],
+  ['RT', 'offense', 'OL', 4.4, -1.5],
+  ['QB', 'offense', 'QB', 0, -4.5],
+  ['RB', 'offense', 'RB', 1.8, -4.5],
+  ['LDE', 'defense', 'DE', 5.4, 1.1],
+  ['LDT', 'defense', 'DT', 1.8, 1.1],
+  ['RDT', 'defense', 'DT', -1.8, 1.1],
+  ['RDE', 'defense', 'DE', -5.4, 1.1],
+  ['MLB', 'defense', 'LB', 2.0, 4.5],
+  ['WLB', 'defense', 'LB', -2.0, 4.5],
+]);
+
 const setup = () => {
-  const ps = buildLineup(25, 'base');
+  const ps = FIXTURE.map(([id, team, role, dx, dy]) => ({ id, team, role, x: dx, y: 25 + dy }));
   const c = ps.find((p) => p.role === 'OL' && p.x === 0);
   return { ps, c, by: (x, team = 'defense') => ps.find((p) => p.team === team && Math.abs(p.x - x) < 1e-6) };
 };
