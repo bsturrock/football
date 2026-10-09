@@ -25,10 +25,14 @@ export const isBlocker = (p) => BLOCKER_ROLES.includes(p.role);
 const byId = (players, id) => players.find((p) => p.id === id);
 const isDefense = (p) => p && p.team === 'defense';
 
-export function assignBlocks(players) {
+export function assignBlocks(players, plan) {
   for (const p of players) p.block = null;
   for (const b of players) {
     if (!isBlocker(b)) continue;
+    if (plan && Object.hasOwn(plan, b.id) && isDefense(byId(players, plan[b.id]))) {
+      b.block = { target: plan[b.id], angle: 'straight', engaged: false, seq: null };
+      continue;
+    }
     let best = null;
     let bestD = Infinity;
     for (const d of players) {
@@ -109,7 +113,7 @@ export function resolveBlock(defender, blockers, goal) {
   return { vx, vy };
 }
 
-// Rule signature shared by scheme rules: (players, ballPos) => [{ blocker, target, angle? }]
+// Rule signature shared by scheme rules: (players, ballPos, ctx) => [{ blocker, target, angle? }]
 export function doubleTeamPeel(players, ballPos) { // eslint-disable-line no-unused-vars
   const targeted = new Set();
   for (const p of players) if (p.block) targeted.add(p.block.target);
@@ -257,7 +261,7 @@ export function separateBodies(players) {
 
 export function stepBlocking(players, ballPos, dt, ctx) {
   if (ctx && ctx.rule) {
-    for (const e of ctx.rule(players, ballPos)) {
+    for (const e of ctx.rule(players, ballPos, ctx)) {
       setBlock(players, e.blocker, e.target, e.angle ?? 'straight');
     }
   }
