@@ -1,6 +1,7 @@
 // Pure blocking logic for the dots layer: no THREE, no DOM, no timers, no randomness.
 import { HW } from '../util.js';
 import { steerStep, hardCore } from './steering.js';
+import { startFoot, retargetFoot, footGoal, footPush } from './technique.js';
 
 export const BLOCKER_ROLES = ['OL'];
 export const BODY_RADIUS = 0.35; // 0.7 yd = 25 in diameter, about an NFL lineman's shoulder width
@@ -28,12 +29,17 @@ export const isBlocker = (p) => BLOCKER_ROLES.includes(p.role);
 const byId = (players, id) => players.find((p) => p.id === id);
 const isDefense = (p) => p && p.team === 'defense';
 
-export function assignBlocks(players, plan) {
+export function assignBlocks(players, plan, techs) {
   for (const p of players) p.block = null;
   for (const b of players) {
     if (!isBlocker(b)) continue;
     if (plan && Object.hasOwn(plan, b.id) && isDefense(byId(players, plan[b.id]))) {
       b.block = { target: plan[b.id], angle: 'straight', engaged: false, seq: null };
+      const t = techs?.[b.id];
+      if (t) {
+        const foot = startFoot(t.tech, t.shade, t.watch, b, byId(players, plan[b.id]));
+        if (foot) b.block.foot = foot;
+      }
       continue;
     }
     let best = null;
@@ -56,7 +62,14 @@ export function setBlock(players, blockerId, targetId, angle = 'straight') {
   if (!isDefense(byId(players, targetId))) return false;
   if (!Object.hasOwn(BLOCK_ANGLES, angle)) return false;
   if (b.block && b.block.target === targetId) b.block.angle = angle;
-  else b.block = { target: targetId, angle, engaged: false, seq: null };
+  else {
+    const old = b.block;
+    b.block = { target: targetId, angle, engaged: false, seq: null };
+    if (old?.foot) {
+      const f = retargetFoot(old.foot, b, byId(players, targetId));
+      if (f) b.block.foot = f;
+    }
+  }
   return true;
 }
 
@@ -141,7 +154,7 @@ export function resolveBlock(defender, blockers, goal) {
   let fx = len < 1e-9 ? 0 : (f * gx) / len;
   let fy = len < 1e-9 ? 0 : (f * gy) / len;
   for (const b of blockers) {
-    const d = BLOCK_ANGLES[b.block.angle];
+    const d = b.block.foot?.push ?? BLOCK_ANGLES[b.block.angle];
     const bf = blockForce(b);
     fx += bf * d.x;
     fy += bf * d.y;
@@ -334,14 +347,28 @@ export function stepBlocking(players, ballPos, dt, ctx) {
   for (const b of players) {
     if (!b.block || b.block.engaged) continue;
     const spot = contactSpot(players, b);
-    steerStep(
-      b,
-      { x: spot.x, y: spot.y, key: 'block:' + b.block.target, ignore: b.block.target },
-      players,
-      b.speed * dt,
-      dt,
-      BODY_RADIUS,
-    );
+    const foot = b.block.foot;
+    if (foot && (ctx?.side === 1 || ctx?.side === -1)) {
+      const { phase, goal } = footGoal(foot, b, spot, ctx.side, BODY_RADIUS);
+      foot.phase = phase;
+      steerStep(
+        b,
+        { ...goal, key: phase + ':' + b.block.target, ignore: b.block.target },
+        players,
+        b.speed * dt,
+        dt,
+        BODY_RADIUS,
+      );
+    } else {
+      steerStep(
+        b,
+        { x: spot.x, y: spot.y, key: 'block:' + b.block.target, ignore: b.block.target },
+        players,
+        b.speed * dt,
+        dt,
+        BODY_RADIUS,
+      );
+    }
     const T = byId(players, b.block.target);
     const hit = canEngage(b, T, spot);
     if (hit) {
@@ -350,9 +377,19 @@ export function stepBlocking(players, ballPos, dt, ctx) {
         b.y = spot.y;
       }
       b.block.engaged = true;
+      if (foot) foot.tx = T.x;
       b.steer = null;
       b.block.seq = ++ctx.seq;
     }
+  }
+
+  for (const b of players) {
+    const foot = b.block?.foot;
+    if (!foot || !b.block.engaged) continue;
+    const watch = foot.watch ? byId(players, foot.watch) ?? null : null;
+    const { ride, push } = footPush(foot, byId(players, b.block.target), watch, dt);
+    foot.ride = ride;
+    foot.push = push;
   }
 
   for (const d of players) {
@@ -376,6 +413,10 @@ export function stepBlocking(players, ballPos, dt, ctx) {
         );
       }
     }
+  }
+
+  for (const b of players) {
+    if (b.block?.foot && b.block.engaged) b.block.foot.tx = byId(players, b.block.target).x;
   }
 
   for (const b of players) {

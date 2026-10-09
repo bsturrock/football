@@ -111,7 +111,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
       const plan = scheme.plan(play.players, play.numbers, los);
       play.combos = plan.combos;
       ctx.combos = plan.combos;
-      assignBlocks(play.players, plan.blocks);
+      ctx.side = plan.side;
+      assignBlocks(play.players, plan.blocks, plan.techs);
     } else {
       assignBlocks(play.players);
     }
