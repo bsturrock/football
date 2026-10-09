@@ -313,3 +313,58 @@ test('front plus dlShift moves only that front DE/DT; lbShift moves only LBs', (
 test('buildLineup throws on unknown front, message names it', () => {
   assert.throws(() => buildLineup(25, 'insideZone', { front: 'nope' }), /nope/);
 });
+
+test('F-19 #2: pos rows frozen with def frozen or null', () => {
+  for (const p of POSITIONS) {
+    assert.ok(Object.isFrozen(p), p.id);
+    assert.ok(p.def === null || Object.isFrozen(p.def), `${p.id} def not frozen`);
+  }
+  for (const f of Object.values(FRONTS)) {
+    for (const d of f.defenders) {
+      assert.ok(Object.isFrozen(d), d.id);
+      assert.ok(d.def === null || Object.isFrozen(d.def), `${d.id} def not frozen`);
+    }
+  }
+});
+
+test('F-19 #2: MLB def.read is 0.35 and WLB def.read is 0.5', () => {
+  assert.equal(byId('MLB').def.read, 0.35);
+  assert.equal(byId('WLB').def.read, 0.5);
+});
+
+test('F-19 #2: every LB-role defender in every FRONTS entry has the base MLB def, except base WLB', () => {
+  const mlbDef = byId('MLB').def;
+  const wlb = byId('WLB');
+  for (const [key, f] of Object.entries(FRONTS)) {
+    for (const d of f.defenders) {
+      if (d.role !== 'LB') continue;
+      if (key === 'base' && d.id === 'WLB') {
+        assert.deepEqual(d.def, wlb.def, 'base WLB');
+        continue;
+      }
+      assert.deepEqual(d.def, mlbDef, `${key} ${d.id}`);
+    }
+  }
+});
+
+test('F-19 #2: every non-null def.read is in [0.3, 0.6]', () => {
+  for (const f of Object.values(FRONTS)) {
+    for (const d of f.defenders) {
+      if (d.def && d.def.read !== undefined) {
+        assert.ok(d.def.read >= 0.3 && d.def.read <= 0.6, `${d.id} read ${d.def.read}`);
+      }
+    }
+  }
+});
+
+test('F-19 #2: buildLineup players carry their row def; non-LB players have def null', () => {
+  const lineup = buildLineup(25, 'insideZone', { front: 'bear' });
+  const defs = FRONTS.bear.defenders;
+  defs.forEach((d, i) => {
+    const pl = lineup[7 + i];
+    assert.equal(pl.id, d.id);
+    assert.deepEqual(pl.def, d.def, d.id);
+    if (d.role !== 'LB') assert.equal(pl.def, null, d.id);
+  });
+  assert.ok(lineup.slice(0, 7).every((pl) => pl.def === null));
+});
