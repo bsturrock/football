@@ -1,8 +1,7 @@
 // Zone blocking scheme: turns F-11 zone numbers into block targets and double-team combos.
 // Pure: no mutation, ids only.
 export const LINE_DEPTH = 2.0;
-export const SWITCH_DIST = 4.0;
-export const COMMIT_DIST = 0.5;
+export const SWITCH_DIST = 2.0;
 
 export function zonePlan(players, numbers, los) {
   const num = (p) => (numbers && numbers[p.id] != null ? numbers[p.id] : null);
@@ -32,10 +31,7 @@ export function zonePlan(players, numbers, los) {
     if (m !== null) {
       const dm = D.get(m);
       blocks[b.id] = dm.id;
-      if (dn) combos.push({
-        owner: b.id, partner: partner.id, target: dm.id, watch: dn.id, watchX: dn.x,
-        side: Math.sign(partner.x - b.x) || 1,
-      });
+      if (dn) combos.push({ owner: b.id, partner: partner.id, target: dm.id, watch: dn.id });
     } else if (dn) {
       blocks[b.id] = dn.id;
     }
@@ -53,11 +49,6 @@ export function zoneSwitch(players, ballPos, ctx) {
     const w = byId.get(c.watch);
     if (!o || !p || !w) continue;
     if (o.block?.target === c.watch || p.block?.target === c.watch) continue;
-    if (Number.isFinite(c.watchX) && Math.abs(w.x - c.watchX) >= COMMIT_DIST) {
-      const lat = (w.x - c.watchX) * (c.side || 1);
-      out.push({ blocker: (lat > 0 ? p : o).id, target: w.id });
-      continue;
-    }
     const dO = Math.hypot(w.x - o.x, w.y - o.y);
     const dP = Math.hypot(w.x - p.x, w.y - p.y);
     if (Math.min(dO, dP) > SWITCH_DIST) continue;
