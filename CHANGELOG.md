@@ -12,3 +12,4 @@
 - 2026-10-09 F-12 Inside zone blocking: number-based targets and combo switches (R-12) b48f52c
 - 2026-10-09 F-14 NFL-sized dots and line splits (R-14) d917746
 - 2026-10-09 F-13 Inside zone handoff and RB hole read (A, B, C) (R-13) 884913f
+- 2026-10-09 F-15 Squeeze past: gap threading and soft body contact (R-22) 517d2c4
