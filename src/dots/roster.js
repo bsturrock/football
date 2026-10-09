@@ -6,24 +6,29 @@
 // dy = yards from the line of scrimmage (negative = offense backfield,
 // positive = defense side).
 
-const pos = (id, name, team, role, dx, dy) => Object.freeze({ id, name, team, role, dx, dy });
+const pos = (id, name, team, role, dx, dy, speed, strength) =>
+  Object.freeze({ id, name, team, role, dx, dy, speed, strength });
 
+// Ratings per position. speed is yd/s of short-area play speed (about 80% of the
+// 40-yard-dash average; no acceleration model). strength is unitless force used by
+// blocking: OL must stay above every defender's strength / 0.7071 so the OL win at
+// any block angle.
 export const POSITIONS = Object.freeze([
   // OL: C at the line, guards 0.5 yd behind C, tackles a touch behind the guards (0.3 yd).
-  pos('LT', 'Left Tackle', 'offense', 'OL', -4.4, -1.5),
-  pos('LG', 'Left Guard', 'offense', 'OL', -2.2, -1.2),
-  pos('C', 'Center', 'offense', 'OL', 0, -0.7),
-  pos('RG', 'Right Guard', 'offense', 'OL', 2.2, -1.2),
-  pos('RT', 'Right Tackle', 'offense', 'OL', 4.4, -1.5),
-  pos('QB', 'Quarterback', 'offense', 'QB', 0, -4.5),
-  pos('RB', 'Running Back', 'offense', 'RB', 1.8, -4.5),
+  pos('LT', 'Left Tackle', 'offense', 'OL', -4.4, -1.5, 6.0, 1.0),
+  pos('LG', 'Left Guard', 'offense', 'OL', -2.2, -1.2, 6.0, 1.0),
+  pos('C', 'Center', 'offense', 'OL', 0, -0.7, 6.0, 1.0),
+  pos('RG', 'Right Guard', 'offense', 'OL', 2.2, -1.2, 6.0, 1.0),
+  pos('RT', 'Right Tackle', 'offense', 'OL', 4.4, -1.5, 6.0, 1.0),
+  pos('QB', 'Quarterback', 'offense', 'QB', 0, -4.5, 7.0, 0.3),
+  pos('RB', 'Running Back', 'offense', 'RB', 1.8, -4.5, 8.0, 0.5),
   // Defense faces -y, so its left is +x.
-  pos('LDE', 'Left Defensive End', 'defense', 'DE', 6.0, 1.1),
-  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 1.2, 1.1),
-  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.2, 1.1),
-  pos('RDE', 'Right Defensive End', 'defense', 'DE', -6.0, 1.1),
-  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 2.0, 4.5),
-  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -2.0, 4.5),
+  pos('LDE', 'Left Defensive End', 'defense', 'DE', 6.0, 1.1, 7.0, 0.5),
+  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 1.2, 1.1, 6.5, 0.6),
+  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.2, 1.1, 6.5, 0.6),
+  pos('RDE', 'Right Defensive End', 'defense', 'DE', -6.0, 1.1, 7.0, 0.5),
+  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 2.0, 4.5, 7.5, 0.5),
+  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -2.0, 4.5, 7.5, 0.5),
 ]);
 
 // Play definitions. Shapes:
@@ -55,6 +60,8 @@ export function buildLineup(los, playKey = 'base') {
       role: p.role,
       x: p.dx,
       y: los + p.dy,
+      speed: p.speed,
+      strength: p.strength,
       assignment: a ? { ...a } : emptyAssignment(),
     };
   });
