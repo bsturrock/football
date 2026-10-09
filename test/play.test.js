@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP } from '../src/dots/play.js';
-import { BODY_RADIUS } from '../src/dots/blocking.js';
+import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP, DL_SHIFT_STEP } from '../src/dots/play.js';
+import { BODY_RADIUS, assignBlocks } from '../src/dots/blocking.js';
 import { buildLineup } from '../src/dots/roster.js';
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} !~ ${b}`);
@@ -193,7 +193,7 @@ test('F-9 #1: shiftDL(1) moves only the DL by one step; shiftDL(-1) restores', (
   for (const b of base) {
     const p = play.player(b.id);
     if (DL_IDS.includes(b.id)) {
-      near(p.x, b.x + 0.6);
+      near(p.x, b.x + DL_SHIFT_STEP);
       near(p.y, b.y);
     } else {
       assert.equal(p.x, b.x, b.id);
@@ -214,13 +214,13 @@ test('F-9 #2: shift clamps at +-4 steps; invalid dir returns current shift uncha
   for (let i = 0; i < 5; i++) play.shiftDL(1);
   assert.equal(play.dlShift, 4);
   for (const b of base.filter((q) => DL_IDS.includes(q.id))) {
-    near(play.player(b.id).x, b.x + 2.4);
+    near(play.player(b.id).x, b.x + 4 * DL_SHIFT_STEP);
   }
   const down = createPlay(25);
   for (let i = 0; i < 5; i++) down.shiftDL(-1);
   assert.equal(down.dlShift, -4);
   for (const b of base.filter((q) => DL_IDS.includes(q.id))) {
-    near(down.player(b.id).x, b.x - 2.4);
+    near(down.player(b.id).x, b.x - 4 * DL_SHIFT_STEP);
   }
   for (const bad of [0, 2, 0.5, NaN]) {
     const snapshot = play.players.map((p) => [p.id, p.x, p.y]);
@@ -256,13 +256,20 @@ test('F-9 #4: dlShift survives reset() and reset rebuilds at the shift', () => {
   assert.equal(play.ball.phase, 'presnap');
   const base = buildLineup(25);
   for (const b of base.filter((q) => DL_IDS.includes(q.id))) {
-    near(play.player(b.id).x, b.x + 1.2);
+    near(play.player(b.id).x, b.x + 2 * DL_SHIFT_STEP);
   }
 });
 
 test('F-9 #5: block assignment after snap sees the shifted D-line', () => {
   const targets = (play) =>
     Object.fromEntries(['LT', 'LG', 'C', 'RG', 'RT'].map((id) => [id, play.player(id).block.target]));
+
+  // nearest-defender oracle: assign blocks on a lineup shifted by k steps, no snap involved
+  const blockOracle = (k) => {
+    const ps = buildLineup(25, 'base', { dlShift: k * DL_SHIFT_STEP });
+    assignBlocks(ps);
+    return Object.fromEntries(['LT', 'LG', 'C', 'RG', 'RT'].map((id) => [id, ps.find((p) => p.id === id).block.target]));
+  };
 
   const base = createPlay(25);
   base.snap();
@@ -271,10 +278,12 @@ test('F-9 #5: block assignment after snap sees the shifted D-line', () => {
   const right = createPlay(25);
   for (let i = 0; i < 4; i++) right.shiftDL(1);
   right.snap();
-  assert.deepEqual(targets(right), { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' });
+  assert.deepEqual(targets(right), blockOracle(4));
+  assert.notDeepEqual(targets(right), targets(base));
 
   const left = createPlay(25);
   for (let i = 0; i < 4; i++) left.shiftDL(-1);
   left.snap();
-  assert.deepEqual(targets(left), { LT: 'RDT', LG: 'LDT', C: 'LDT', RG: 'LDE', RT: 'LDE' });
+  assert.deepEqual(targets(left), blockOracle(-4));
+  assert.notDeepEqual(targets(left), targets(base));
 });

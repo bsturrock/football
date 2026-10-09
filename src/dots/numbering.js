@@ -1,8 +1,12 @@
 // Inside-zone numbering: a pure pre-snap scheme read.
+import { POSITIONS } from './roster.js';
+
 export const LINE_ROLES = Object.freeze(['OL']);
 export const BOX_MARGIN = 4;
 export const BOX_DEPTH = 8;
 export const PLAYSIDE_SIGN = Object.freeze({ left: -1, right: 1 });
+const dxOf = (id) => POSITIONS.find((p) => p.id === id).dx;
+export const A_GAP_HALF = Math.abs(dxOf('RG') - dxOf('C')) / 2; // half the roster C-guard split: 0-gap aim when no playside lineman
 
 const EPS = 1e-9;
 
@@ -37,7 +41,7 @@ export function numberPlay(players, { los, centerId, playside } = {}) {
     && Math.abs(p.x - cx) <= maxLine + BOX_MARGIN && p.y - los <= BOX_DEPTH);
   if (!box.length) return out;
 
-  const gapX = play.length ? (cx + play[0].x) / 2 : cx + s * 1.1;
+  const gapX = play.length ? (cx + play[0].x) / 2 : cx + s * A_GAP_HALF;
   const zero = box.slice().sort((a, b) => {
     const d = Math.abs(a.x - gapX) - Math.abs(b.x - gapX);
     if (Math.abs(d) > EPS) return d;
