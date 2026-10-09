@@ -124,11 +124,12 @@ test('7. WLB pursues QB and stops at contact distance', () => {
   assert.ok(Math.hypot(w.x - q.x, w.y - q.y) <= CONTACT_DIST + 0.05);
 });
 
-test('8. double-team peel hands RG to MLB; custom rule honored', () => {
+// F-6: with DTs at ±1.8, RG (not C) engages LDT first, so C peels to MLB.
+test('8. double-team peel hands C to MLB; custom rule honored', () => {
   const play = started();
   let handoff = null;
   const t = { v: 0 };
-  let cTarget = null;
+  let stayTarget = null;
   run(play, 3, {
     post: () => {
       t.v += DT;
@@ -137,31 +138,31 @@ test('8. double-team peel hands RG to MLB; custom rule honored', () => {
       if (c.block.engaged && rg.block.engaged === false && !play.player('RG').block.seq) {
         // nothing
       }
-      if (handoff === null && rg.block.target === 'MLB') {
+      if (handoff === null && c.block.target === 'MLB') {
         handoff = t.v;
-        cTarget = c.block.target;
+        stayTarget = rg.block.target;
       }
       if (handoff !== null) {
-        assert.deepEqual(play.blockersOf('LDT'), ['C']);
-        assert.equal(c.block.target, 'LDT');
+        assert.deepEqual(play.blockersOf('LDT'), ['RG']);
+        assert.equal(rg.block.target, 'LDT');
       }
     },
   });
-  assert.ok(handoff !== null && handoff <= 3.0, 'RG never retargeted');
-  assert.equal(cTarget, 'LDT');
-  assert.deepEqual(play.blockersOf('MLB'), ['RG']);
+  assert.ok(handoff !== null && handoff <= 3.0, 'C never retargeted');
+  assert.equal(stayTarget, 'LDT');
+  assert.deepEqual(play.blockersOf('MLB'), ['C']);
 
-  // C engages before RG
+  // RG engages before C
   const p2 = started();
   let cSeq = null;
   let rgSeq = null;
   run(p2, 3, {
     post: () => {
-      cSeq ??= p2.player('C').block.seq;
-      if (rgSeq === null && p2.player('RG').block.target === 'LDT') rgSeq = p2.player('RG').block.seq;
+      rgSeq ??= p2.player('RG').block.seq;
+      if (cSeq === null && p2.player('C').block.target === 'LDT') cSeq = p2.player('C').block.seq;
     },
   });
-  assert.ok(cSeq !== null && rgSeq !== null && cSeq < rgSeq, `${cSeq} ${rgSeq}`);
+  assert.ok(cSeq !== null && rgSeq !== null && rgSeq < cSeq, `${rgSeq} ${cSeq}`);
 
   const p3 = started();
   p3.retargetRule = null;

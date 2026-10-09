@@ -161,3 +161,19 @@ test('POSITIONS and PLAYS are frozen', () => {
   for (const p of POSITIONS) assert.ok(Object.isFrozen(p), p.id);
   assert.ok(Object.isFrozen(PLAYS));
 });
+
+test('DL evenly spaced and centered on the ball', () => {
+  const LDE = byId('LDE');
+  const LDT = byId('LDT');
+  const RDT = byId('RDT');
+  const RDE = byId('RDE');
+  assert.equal(LDE.dx, 5.4);
+  assert.equal(LDT.dx, 1.8);
+  assert.equal(RDT.dx, -1.8);
+  assert.equal(RDE.dx, -5.4);
+  assert.ok(Math.abs(LDE.dx - LDT.dx - 3.6) < 1e-9);
+  assert.ok(Math.abs(LDT.dx - RDT.dx - 3.6) < 1e-9);
+  assert.ok(Math.abs(RDT.dx - RDE.dx - 3.6) < 1e-9);
+  assert.equal(LDE.dx, -RDE.dx);
+  assert.equal(LDT.dx, -RDT.dx);
+});

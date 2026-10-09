@@ -23,10 +23,10 @@ export const POSITIONS = Object.freeze([
   pos('QB', 'Quarterback', 'offense', 'QB', 0, -4.5, 7.0, 0.3),
   pos('RB', 'Running Back', 'offense', 'RB', 1.8, -4.5, 8.0, 0.5),
   // Defense faces -y, so its left is +x.
-  pos('LDE', 'Left Defensive End', 'defense', 'DE', 6.0, 1.1, 7.0, 0.5),
-  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 1.2, 1.1, 6.5, 0.6),
-  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.2, 1.1, 6.5, 0.6),
-  pos('RDE', 'Right Defensive End', 'defense', 'DE', -6.0, 1.1, 7.0, 0.5),
+  pos('LDE', 'Left Defensive End', 'defense', 'DE', 5.4, 1.1, 7.0, 0.5),
+  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 1.8, 1.1, 6.5, 0.6),
+  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.8, 1.1, 6.5, 0.6),
+  pos('RDE', 'Right Defensive End', 'defense', 'DE', -5.4, 1.1, 7.0, 0.5),
   pos('MLB', 'Middle Linebacker', 'defense', 'LB', 2.0, 4.5, 7.5, 0.5),
   pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -2.0, 4.5, 7.5, 0.5),
 ]);
