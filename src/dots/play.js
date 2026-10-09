@@ -13,6 +13,7 @@ import {
 } from './blocking.js';
 
 export const SNAP_DURATION = 0.35; // seconds
+export const MAX_SUBSTEP = 1 / 60; // max sim seconds per stepBlocking call
 export const SIM_SPEED = 0.35; // dots page default time scale
 export const SIM_SPEED_MIN = 0.1;
 export const SIM_SPEED_MAX = 2;
@@ -74,12 +75,11 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
   play.blockersOf = (defenderId) =>
     live() ? engagedOn(play.players, defenderId).map((p) => p.id) : [];
 
-  play.step = (dt) => {
-    const sdt = dt * play.timeScale;
+  const advance = (sdt) => {
     const ball = play.ball;
     if (ball.phase === 'snapping') {
       ball.t += sdt / SNAP_DURATION;
-      if (ball.t >= 1) {
+      if (ball.t >= 1 - 1e-9) {
         ball.t = 1;
         ball.holder = ball.to;
         ball.phase = 'held';
@@ -88,6 +88,12 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1 } = {}) {
     if (ball.phase === 'presnap') return;
     ctx.rule = play.retargetRule;
     stepBlocking(play.players, play.ballPosition(), sdt, ctx);
+  };
+
+  play.step = (dt) => {
+    const total = dt * play.timeScale;
+    const n = Math.max(1, Math.ceil(total / MAX_SUBSTEP - 1e-9));
+    for (let i = 0; i < n; i++) advance(total / n);
   };
 
   play.ballPosition = () => {
