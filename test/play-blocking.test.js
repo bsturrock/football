@@ -99,7 +99,7 @@ test('5. no retarget: engaged blockers hold contact spot', () => {
   });
 });
 
-test('6. double-teamed LDT is driven back less than single-blocked RDT', () => {
+test('6. double-teamed LDT is driven back more than single-blocked RDT', () => {
   const play = started();
   play.retargetRule = null;
   run(play, 1.5);
@@ -138,9 +138,6 @@ test('8. double-team peel hands C to a LB; custom rule honored', () => {
       t.v += DT;
       const c = play.player('C');
       const rg = play.player('RG');
-      if (c.block.engaged && rg.block.engaged === false && !play.player('RG').block.seq) {
-        // nothing
-      }
       if (handoff === null && (c.block.target === 'MLB' || c.block.target === 'WLB')) {
         handoff = t.v;
         lb = c.block.target;
