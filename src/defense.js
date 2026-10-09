@@ -99,7 +99,7 @@ function pop(o, d, bt){
 //   force   own the edge on one side: nothing gets outside him; squeeze the runner back in. Ball goes away: backside chase
 //   alley   safety between the force and the box: hold, then fill inside-out once the ball commits to his side
 //   deep    last line: stay deeper than the ball, mirror it, come downhill only when it's close
-//   B-094: two-high safeties (alley / deep) swap by the run side: once the ball commits (past ALLEY_X of the middle, or through the line) the safety on its side is the alley man and the other the deep man (d.alt, latched per play, d.altN); a deep man stops holding 8 yd off a designed run once it is RUN_SUPPORT_Y past the line
+//   B-094: two-high safeties (alley / deep, no safety rolled into the box: S.boxS null) swap by the run side: once the ball commits (past ALLEY_X of the middle, or through the line) the safety on its side is the alley man and the other the deep man (d.alt, latched per play, d.altN); a deep man stops holding 8 yd off a designed run once it is RUN_SUPPORT_Y past the line
 //   support corner: cover his man; becomes the force if the force man is blocked, down or outflanked
 // Ratings decide how well: awareness = read time, read-step quality and angle discipline; speed = pursuit;
 // power / speed vs the blocker = shedding (line battle); tackling = the tackle.
@@ -183,8 +183,8 @@ function runFit(d, c){
     if(j.role === 'deep') return [flow*0.4, L + 12];
     return coverTarget(d);
   }
-  if(d.role === 'S' && (j.role === 'alley' || j.role === 'deep') && PLAYS[S.play].run){   // B-094: two-high safeties fill by the run side, not by a fixed role: once the ball commits (past ALLEY_X of the middle, or through the line) the safety on its side is the alley man, the other the deep man; latched for the play
-    if(d.altN !== snapN && (Math.abs(bx) > ALLEY_X || by > L + 1)){ const rs = Math.sign(bx) || 1; d.altN = snapN; d.alt = d.x*rs >= 0 ? {role:'alley', gx:bx, side:rs} : {role:'deep', side:0}; }
+  if(d.role === 'S' && (j.role === 'alley' || j.role === 'deep') && PLAYS[S.play].run && !S.boxS){   // B-094: two-high safeties (no safety rolled into the box: a one-high shell keeps its post man deep and its rolled man down) fill by the run side, not by a fixed role: once the ball commits (past ALLEY_X of the middle, or through the line) the safety on its side is the alley man, the other the deep man; latched for the play
+    if(d.altN !== snapN && (Math.abs(bx) > ALLEY_X || by > L + RUN_SUPPORT_Y)){ const rs = Math.sign(bx) || 1; d.altN = snapN; d.alt = d.x*rs >= 0 ? {role:'alley', gx:bx, side:rs} : {role:'deep', side:0}; }
     if(d.altN === snapN) j = d.alt;
   }
   if(j.role === 'two'){ const left = bx < d.x; const gx = left ? j.gl : j.gr; j = {role:'gap', gx, side:Math.sign(gx) || (left ? -1 : 1)}; }   // read done: shed to the ball-side gap; his side is that gap's, so a run away still reads backside
