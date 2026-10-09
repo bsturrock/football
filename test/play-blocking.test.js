@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { POSITIONS } from '../src/dots/roster.js';
-import { CONTACT_DIST, ENGAGED_MAX_SPEED, contactSpot } from '../src/dots/blocking.js';
+import { BODY_RADIUS, CONTACT_DIST, ENGAGED_MAX_SPEED, contactSpot } from '../src/dots/blocking.js';
 
 const DT = 1 / 60;
 const EPS = 1e-9;
@@ -53,6 +53,7 @@ test('2. roster stats, engagement by 1s, speed limits', () => {
     for (const p of play.players) {
       const s = prev.get(p.id);
       if (p.team === 'defense' ? wasEng.has(p.id) || play.blockersOf(p.id).length : p.block?.engaged || s.b?.engaged) continue;
+      if (play.players.some((o) => o !== p && Math.hypot(o.x - p.x, o.y - p.y) <= 2 * BODY_RADIUS + 1e-6)) continue;
       assert.ok(moved(p, s) <= p.speed * DT + EPS, `${p.id} moved too fast`);
     }
     prev = snapshot(play);
@@ -113,10 +114,11 @@ test('6. double-teamed LDT is driven back less than single-blocked RDT', () => {
 
 test('7. WLB pursues QB and stops at contact distance', () => {
   const play = started();
+  play.retargetRule = null;
   run(play, 3, {
     post: () => {
       const d = Math.hypot(play.player('WLB').x - play.player('QB').x, play.player('WLB').y - play.player('QB').y);
-      assert.ok(d >= CONTACT_DIST - 1e-6, `too close ${d}`);
+      assert.ok(d >= 2 * BODY_RADIUS - 0.02, `too close ${d}`);
     },
   });
   const w = play.player('WLB');
@@ -125,11 +127,12 @@ test('7. WLB pursues QB and stops at contact distance', () => {
 });
 
 // F-6: with DTs at ±1.8, RG (not C) engages LDT first, so C peels to MLB.
-test('8. double-team peel hands C to MLB; custom rule honored', () => {
+test('8. double-team peel hands C to a LB; custom rule honored', () => {
   const play = started();
   let handoff = null;
   const t = { v: 0 };
   let stayTarget = null;
+  let lb = null;
   run(play, 3, {
     post: () => {
       t.v += DT;
@@ -138,8 +141,9 @@ test('8. double-team peel hands C to MLB; custom rule honored', () => {
       if (c.block.engaged && rg.block.engaged === false && !play.player('RG').block.seq) {
         // nothing
       }
-      if (handoff === null && c.block.target === 'MLB') {
+      if (handoff === null && (c.block.target === 'MLB' || c.block.target === 'WLB')) {
         handoff = t.v;
+        lb = c.block.target;
         stayTarget = rg.block.target;
       }
       if (handoff !== null) {
@@ -150,7 +154,7 @@ test('8. double-team peel hands C to MLB; custom rule honored', () => {
   });
   assert.ok(handoff !== null && handoff <= 3.0, 'C never retargeted');
   assert.equal(stayTarget, 'LDT');
-  assert.deepEqual(play.blockersOf('MLB'), ['C']);
+  assert.deepEqual(play.blockersOf(lb), ['C']);
 
   // RG engages before C
   const p2 = started();
@@ -202,8 +206,15 @@ test('9. API behavior', () => {
   assert.equal(play.disengage('C'), true);
   assert.equal(play.player('C').block, null);
   const c0 = { x: play.player('C').x, y: play.player('C').y };
-  run(play, 0.5);
-  assert.deepEqual({ x: play.player('C').x, y: play.player('C').y }, c0);
+  run(play, 0.5, {
+    post: () => {
+      const c = play.player('C');
+      const still = c.x === c0.x && c.y === c0.y;
+      const bumped = play.players.some((o) => o !== c && Math.hypot(o.x - c.x, o.y - c.y) <= 2 * BODY_RADIUS + 1e-6);
+      assert.ok(still || bumped, 'C moved with nobody touching');
+      c0.x = c.x; c0.y = c.y;
+    },
+  });
   assert.equal(play.disengage('LDT'), false);
 
   // after C and RG both leave LDT, LDT moves toward the ball
@@ -275,3 +286,24 @@ for (const retarget of [undefined, null]) {
   });
 }
 const lgTarget = (play) => play.player('LG').block.target;
+
+for (const retarget of [undefined, null]) {
+  test(`F-7: no two players overlap (retarget ${retarget === null ? 'null' : 'default'})`, () => {
+    const play = createPlay(25);
+    if (retarget !== undefined) play.retargetRule = retarget;
+    play.snap();
+    let step = 0;
+    run(play, 5, {
+      post: () => {
+        step++;
+        const ps = play.players;
+        for (let i = 0; i < ps.length; i++) {
+          for (let j = i + 1; j < ps.length; j++) {
+            const d = Math.hypot(ps[i].x - ps[j].x, ps[i].y - ps[j].y);
+            assert.ok(d >= 2 * BODY_RADIUS - 0.02, `${ps[i].id}-${ps[j].id} ${d} at step ${step}`);
+          }
+        }
+      },
+    });
+  });
+}

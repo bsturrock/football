@@ -2,6 +2,7 @@
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
 import { createPlay, SIM_SPEED } from './play.js';
+import { BODY_RADIUS } from './blocking.js';
 import { HW } from '../util.js';
 
 export function fieldToWorld(x, y) {
@@ -93,7 +94,7 @@ export function initDotsView(container) {
 
   // ---- Dots ----
   const dotMeshes = new Map();
-  const geo = new THREE.CircleGeometry(0.6, 24);
+  const geo = new THREE.CircleGeometry(BODY_RADIUS, 24);
   for (const p of play.players) {
     const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
       color: p.team === 'offense' ? 0x2f6bff : 0xe23b3b }));

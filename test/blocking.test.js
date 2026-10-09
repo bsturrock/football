@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { HW } from '../src/util.js';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
-  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX,
+  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, BODY_RADIUS, SPREAD, separateBodies, canEngage,
 } from '../src/dots/blocking.js';
 
 const DT = 1 / 60;
@@ -78,8 +79,8 @@ test('contactSpot', () => {
   let s = contactSpot(ps, ps[0]);
   near(s.x, 2); near(s.y, 10 - CONTACT_DIST);
   ps.splice(1, 0, O('b', 1, 0, { block: blk('d') }));
-  s = contactSpot(ps, ps[0]); near(s.x, 1.5); near(s.y, 10 - CONTACT_DIST);
-  s = contactSpot(ps, ps[1]); near(s.x, 2.5);
+  s = contactSpot(ps, ps[0]); near(s.x, 1.4); near(s.y, 10 - CONTACT_DIST);
+  s = contactSpot(ps, ps[1]); near(s.x, 2.6);
 });
 
 test('stepBlocking closing, engaging, seq', () => {
@@ -182,4 +183,57 @@ test('closing blocker behind the defender does not engage', () => {
   assert.equal(ps[0].block.engaged, false);
   assert.equal(ps[0].block.seq, null);
   assert.equal(ctx.seq, 0);
+});
+
+test('body constants', () => {
+  assert.equal(BODY_RADIUS, 0.6);
+  assert.equal(CONTACT_DIST, 2 * BODY_RADIUS);
+  assert.equal(SPREAD, 2 * BODY_RADIUS);
+});
+
+test('separateBodies', () => {
+  // two free bodies split the overlap
+  let ps = [D('a', 0, 10), D('b', 0.8, 10)];
+  separateBodies(ps);
+  near(ps[0].x, -0.2, 1e-9); near(ps[1].x, 1.0, 1e-9);
+  // anchored (engaged blocker) stays, free moves the whole overlap
+  ps = [O('o', 0, 10, { block: blk('t', { engaged: true, seq: 1 }) }), D('f', 0.8, 10)];
+  separateBodies(ps);
+  assert.equal(ps[0].x, 0);
+  near(ps[1].x, 1.2, 1e-9);
+  // coincident: fixed +x axis, deterministic
+  const run = () => { const q = [D('a', 5, 10), D('b', 5, 10)]; separateBodies(q); return q.map((p) => [p.x, p.y]); };
+  const r = run();
+  near(r[1][0] - r[0][0], 1.2, 1e-9);
+  assert.equal(r[0][1], r[1][1]);
+  assert.deepEqual(run(), r);
+  // already apart: untouched
+  ps = [D('a', 1.1, 3.3), D('b', 2.3, 3.3), D('c', 10, 10)];
+  separateBodies(ps);
+  assert.equal(ps[0].x, 1.1); assert.equal(ps[1].x, 2.3); assert.equal(ps[1].y, 3.3);
+  // clamp at HW
+  ps = [D('a', HW - 0.1, 10), D('b', HW, 10)];
+  separateBodies(ps);
+  assert.ok(ps[0].x <= HW && ps[1].x <= HW);
+});
+
+test('canEngage', () => {
+  const T = D('t', 0, 10);
+  const b = O('b', 0, 8.8, { block: blk('t') });
+  assert.equal(canEngage(b, T, { x: 0, y: 8.9 }), 'spot');
+  assert.equal(canEngage(b, T, { x: 5, y: 5 }), 'contact');
+  assert.equal(canEngage(O('c', 0, 5, { block: blk('t') }), T, { x: 0, y: 8.8 }), null);
+  assert.equal(canEngage(O('c', 0, 11.1, { block: blk('t') }), T, { x: 0, y: 8.8 }), null);
+});
+
+test('separateBodies: a free body wedged against an anchor is not pushed back by a free body behind him', () => {
+  const ps = [
+    O('o', 0, 10, { block: blk('t', { engaged: true, seq: 1 }) }),
+    D('f1', 1.2, 10),
+    D('f2', 1.9, 10),
+  ];
+  separateBodies(ps);
+  assert.equal(ps[0].x, 0);
+  near(ps[1].x, 1.2, 1e-9);
+  near(ps[2].x, 2.4, 1e-9);
 });

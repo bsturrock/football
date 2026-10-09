@@ -2,14 +2,16 @@
 import { HW } from '../util.js';
 
 export const BLOCKER_ROLES = ['OL'];
-export const CONTACT_DIST = 1.2;
+export const BODY_RADIUS = 0.6;
+export const CONTACT_DIST = 2 * BODY_RADIUS;
 export const ENGAGE_TOL = 0.25;
-export const SPREAD = 1.0;
+export const SPREAD = 2 * BODY_RADIUS;
 export const DRIVE_RATE = 1.5;
 export const ENGAGED_MAX_SPEED = 2.5;
 export const PEEL_DIST = 2.0;
 export const Y_MIN = -10;
 export const Y_MAX = 110;
+export const SEPARATION_ITERS = 30;
 
 export const BLOCK_ANGLES = Object.freeze({
   straight: Object.freeze({ x: 0, y: 1 }),
@@ -154,6 +156,96 @@ function moveToward(p, tx, ty, maxStep) {
   p.y += (dy / d) * s;
 }
 
+// Single engage predicate: 'spot' (snap onto spot), 'contact' (touching the target in front), or null.
+export function canEngage(b, T, spot) {
+  if (Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL) return 'spot';
+  const d = BLOCK_ANGLES[b.block.angle];
+  const touching =
+    Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_TOL &&
+    (T.x - b.x) * d.x + (T.y - b.y) * d.y >= 0;
+  return touching ? 'contact' : null;
+}
+
+const clampBody = (p) => {
+  p.x = Math.min(HW, Math.max(-HW, p.x));
+  p.y = Math.min(Y_MAX, Math.max(Y_MIN, p.y));
+};
+
+// Push one overlapping pair apart along the center line. The body with the lower rank
+// (closer to an anchor) holds; the higher-ranked one takes the whole overlap. Equal ranks
+// split it. Returns true if it moved them.
+function pushApart(a, b, rank) {
+  const min = 2 * BODY_RADIUS;
+  let dx = b.x - a.x;
+  let dy = b.y - a.y;
+  let d = Math.hypot(dx, dy);
+  if (d >= min - 1e-9) return false;
+  if (d < 1e-9) {
+    dx = 1;
+    dy = 0;
+    d = 0;
+  } else {
+    dx /= d;
+    dy /= d;
+  }
+  const o = min - d;
+  const ra = rank.get(a.id);
+  const rb = rank.get(b.id);
+  const wa = ra === rb ? 0.5 : ra < rb ? 0 : 1;
+  const wb = 1 - wa;
+  a.x -= dx * o * wa;
+  a.y -= dy * o * wa;
+  b.x += dx * o * wb;
+  b.y += dy * o * wb;
+  return true;
+}
+
+// Rank 0 = anchored (engaged blockers and their targets). A free body touching a body of
+// rank r has rank r + 1; bodies not connected to an anchor stay at Infinity.
+function rankBodies(players, anchored) {
+  const rank = new Map(players.map((p) => [p.id, anchored.has(p.id) ? 0 : Infinity]));
+  const touch = 2 * BODY_RADIUS + 1e-6;
+  let frontier = players.filter((p) => anchored.has(p.id));
+  for (let r = 1; frontier.length; r++) {
+    const next = [];
+    for (const q of players) {
+      if (rank.get(q.id) !== Infinity) continue;
+      if (frontier.some((f) => Math.hypot(f.x - q.x, f.y - q.y) <= touch)) {
+        rank.set(q.id, r);
+        next.push(q);
+      }
+    }
+    frontier = next;
+  }
+  return rank;
+}
+
+// Keeps every pair at least one body width apart. Anchored bodies (engaged blockers and
+// their targets) hold their ground; a free body yields to anything nearer an anchor than
+// itself, so a body wedged against an anchor is not pushed back in by a free body behind
+// him. Sweeps are bounded and deterministic.
+export function separateBodies(players) {
+  const anchored = new Set();
+  for (const p of players) {
+    if (p.block && p.block.engaged) {
+      anchored.add(p.id);
+      anchored.add(p.block.target);
+    }
+  }
+  const n = players.length;
+  const rank = rankBodies(players, anchored);
+  for (let it = 0; it < SEPARATION_ITERS; it++) {
+    let moved = false;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (pushApart(players[i], players[j], rank)) moved = true;
+      }
+    }
+    for (const p of players) clampBody(p);
+    if (!moved) return;
+  }
+}
+
 export function stepBlocking(players, ballPos, dt, ctx) {
   if (ctx && ctx.rule) {
     for (const e of ctx.rule(players, ballPos)) {
@@ -165,14 +257,10 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (!b.block || b.block.engaged) continue;
     const spot = contactSpot(players, b);
     moveToward(b, spot.x, spot.y, b.speed * dt);
-    const atSpot = Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL;
     const T = byId(players, b.block.target);
-    const d = BLOCK_ANGLES[b.block.angle];
-    const touching =
-      Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_TOL &&
-      (T.x - b.x) * d.x + (T.y - b.y) * d.y >= 0;
-    if (atSpot || touching) {
-      if (atSpot) {
+    const hit = canEngage(b, T, spot);
+    if (hit) {
+      if (hit === 'spot') {
         b.x = spot.x;
         b.y = spot.y;
       }
@@ -199,4 +287,6 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const spot = contactSpot(players, b);
     moveToward(b, spot.x, spot.y, b.speed * dt);
   }
+
+  separateBodies(players);
 }

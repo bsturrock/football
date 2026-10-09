@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
+import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP } from '../src/dots/play.js';
+import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { buildLineup } from '../src/dots/roster.js';
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} !~ ${b}`);
@@ -120,4 +121,64 @@ test('time scale: setTimeScale clamps, ignores non-finite, survives reset', () =
   assert.equal(play.timeScale, 0.4);
   play.reset();
   assert.equal(play.timeScale, 0.4);
+});
+
+test('MAX_SUBSTEP is 1/60', () => {
+  assert.equal(MAX_SUBSTEP, 1 / 60);
+});
+
+test('2x time scale with 0.05 steps matches six 1/60 steps', () => {
+  const A = createPlay(25);
+  const B = createPlay(25, 'base', { timeScale: 2 });
+  A.snap();
+  B.snap();
+  for (let i = 0; i < 50; i++) {
+    for (let k = 0; k < 6; k++) A.step(1 / 60);
+    B.step(0.05);
+    A.players.forEach((a, j) => {
+      near(a.x, B.players[j].x);
+      near(a.y, B.players[j].y);
+    });
+  }
+});
+
+for (const [label, rule] of [['default rule', undefined], ['null rule', null]]) {
+  test(`no body overlap at 2x (${label})`, () => {
+    const B = createPlay(25, 'base', { timeScale: 2 });
+    if (rule === null) B.retargetRule = null;
+    B.snap();
+    for (let i = 0; i < 50; i++) {
+      B.step(0.05);
+      const ps = B.players;
+      for (let a = 0; a < ps.length; a++) {
+        for (let b = a + 1; b < ps.length; b++) {
+          const d = Math.hypot(ps[a].x - ps[b].x, ps[a].y - ps[b].y);
+          assert.ok(d >= 2 * BODY_RADIUS - 0.02, `${ps[a].id}/${ps[b].id} ${d}`);
+        }
+      }
+    }
+  });
+}
+
+test('no tunnelling at 2x with a 0.05 step', () => {
+  const p = createPlay(25);
+  p.snap();
+  p.step(SNAP_DURATION + 0.01);
+  p.players = p.players.filter((q) => ['QB', 'WLB', 'LG', 'RDE'].includes(q.id));
+  const get = (id) => p.players.find((q) => q.id === id);
+  const set = (id, x, y) => {
+    get(id).x = x;
+    get(id).y = y;
+  };
+  set('QB', 0, 40);
+  set('WLB', 0, 30);
+  set('RDE', 0, 5);
+  set('LG', 0, 31.3);
+  assert.equal(p.engage('LG', 'RDE'), true);
+  p.setTimeScale(2);
+  p.step(0.05);
+  const w = get('WLB');
+  const l = get('LG');
+  assert.ok(w.y < l.y, `${w.y} ${l.y}`);
+  assert.ok(Math.hypot(w.x - l.x, w.y - l.y) >= 2 * BODY_RADIUS - 1e-6);
 });
