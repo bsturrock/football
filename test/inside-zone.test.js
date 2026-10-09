@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlay } from '../src/dots/play.js';
+import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { PLAYS, buildLineup } from '../src/dots/roster.js';
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} !~ ${b}`);
@@ -22,14 +22,14 @@ test('F-11 #4: PLAYS.insideZone shape; buildLineup lbShift moves only the LBs', 
   }
 });
 
-test('F-11 #5: shiftLB moves only LBs by 0.6, clamps, ignores bad dirs, refused live', () => {
+test('F-11 #5: shiftLB moves only LBs by one LB_SHIFT_STEP, clamps, ignores bad dirs, refused live', () => {
   const play = createPlay(25);
   assert.equal(play.lbShift, 0);
   const base = buildLineup(25);
   assert.equal(play.shiftLB(1), 1);
   for (const b of base) {
     const p = play.player(b.id);
-    near(p.x, b.x + (LB_IDS.includes(b.id) ? 0.6 : 0));
+    near(p.x, b.x + (LB_IDS.includes(b.id) ? LB_SHIFT_STEP : 0));
     assert.equal(p.y, b.y);
   }
   for (let i = 0; i < 7; i++) play.shiftLB(1);
@@ -49,7 +49,7 @@ test('F-11 #5: shiftLB moves only LBs by 0.6, clamps, ignores bad dirs, refused 
   assert.deepEqual(snap(play), s);
   play.reset();
   assert.equal(play.lbShift, 6);
-  near(play.player('MLB').x, base.find((b) => b.id === 'MLB').x + 3.6);
+  near(play.player('MLB').x, base.find((b) => b.id === 'MLB').x + 6 * LB_SHIFT_STEP);
 });
 
 test('F-11 #5: shiftDL and shiftLB are independent', () => {
@@ -59,8 +59,8 @@ test('F-11 #5: shiftDL and shiftLB are independent', () => {
   play.shiftLB(-1);
   assert.equal(play.dlShift, 1);
   assert.equal(play.lbShift, -1);
-  near(play.player('LDT').x, base.find((b) => b.id === 'LDT').x + 0.6);
-  near(play.player('MLB').x, base.find((b) => b.id === 'MLB').x - 0.6);
+  near(play.player('LDT').x, base.find((b) => b.id === 'LDT').x + DL_SHIFT_STEP);
+  near(play.player('MLB').x, base.find((b) => b.id === 'MLB').x - LB_SHIFT_STEP);
   near(play.player('C').x, 0);
 });
 

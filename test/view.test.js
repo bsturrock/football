@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel } from '../src/dots/view.js';
-import { createPlay } from '../src/dots/play.js';
+import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 
 const players = () => createPlay(25).players;
 const get = (ps, id) => ps.find((p) => p.id === id);
 
 test('shiftLabel formats the pre-snap D-line shift', () => {
   assert.equal(shiftLabel(0), 'DL shift: even (←/→)');
-  assert.equal(shiftLabel(2), 'DL shift: 1.2 yd R (←/→)');
-  assert.equal(shiftLabel(-1), 'DL shift: 0.6 yd L (←/→)');
-  assert.equal(shiftLabel(4), 'DL shift: 2.4 yd R (←/→)');
+  assert.equal(shiftLabel(2), `DL shift: ${(2 * DL_SHIFT_STEP).toFixed(1)} yd R (←/→)`);
+  assert.equal(shiftLabel(-1), `DL shift: ${(1 * DL_SHIFT_STEP).toFixed(1)} yd L (←/→)`);
+  assert.equal(shiftLabel(4), `DL shift: ${(4 * DL_SHIFT_STEP).toFixed(1)} yd R (←/→)`);
 });
 
 test('fieldToWorld maps game to world', () => {
@@ -74,6 +74,6 @@ test('numberLabel formats zone numbers', () => {
 
 test('shiftLabel supports the LB group', () => {
   assert.equal(shiftLabel(0, 'LB', '⇧←/→'), 'LB shift: even (⇧←/→)');
-  assert.equal(shiftLabel(-2, 'LB', '⇧←/→'), 'LB shift: 1.2 yd L (⇧←/→)');
-  assert.equal(shiftLabel(-6, 'LB', '⇧←/→'), 'LB shift: 3.6 yd L (⇧←/→)');
+  assert.equal(shiftLabel(-2, 'LB', '⇧←/→'), `LB shift: ${(2 * LB_SHIFT_STEP).toFixed(1)} yd L (⇧←/→)`);
+  assert.equal(shiftLabel(-6, 'LB', '⇧←/→'), `LB shift: ${(6 * LB_SHIFT_STEP).toFixed(1)} yd L (⇧←/→)`);
 });
