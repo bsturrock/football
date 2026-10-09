@@ -136,7 +136,7 @@ function battleStep(d, o, c, dt){
 // B-092: a full-speed pull (7-7.5 yd/s, a guard into a set edge or an LB) scores about 6.5-11 here, so at 6.5 it flattened
 // him as often as not; a kick-out or wrap usually just moves the man and a pancake is the exception, for a blocker clearly
 // stronger or a defender already moving off balance (his own back-momentum is taken off the score). One bar for every blocker.
-const PANCAKE_AT = 10;
+const PANCAKE_AT = 8;
 export function pancakeHit(o, d){
   if(o.ph || isBody(d) || !S.runMode) return false;
   const l = dist(o, d) || 1, nx = (d.x - o.x)/l, ny = (d.y - o.y)/l;
