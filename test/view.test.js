@@ -1,8 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel, runLabel, formatYards, LABEL_SIZE } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
+import { FRONTS } from '../src/dots/roster.js';
+
+test('frontOptions has one entry per FRONTS key, in order, with matching names', () => {
+  const opts = frontOptions();
+  assert.deepEqual(opts.map((o) => o.key), Object.keys(FRONTS));
+  assert.deepEqual(opts.map((o) => o.name), Object.values(FRONTS).map((f) => f.name));
+  assert.deepEqual(opts[0], { key: 'base', name: '4-3 Base' });
+});
 
 const players = () => createPlay(25).players;
 const get = (ps, id) => ps.find((p) => p.id === id);

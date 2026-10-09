@@ -2,6 +2,7 @@
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
 import { createPlay, SIM_SPEED, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
+import { FRONTS } from './roster.js';
 import { BODY_RADIUS } from './blocking.js';
 import { HW } from '../util.js';
 
@@ -51,6 +52,11 @@ export function shiftLabel(steps, group = 'DL', keys = '←/→') {
   return `${group} shift: ${yd} yd ${side} (${keys})`;
 }
 
+// Picker options for the defensive front: one per FRONTS entry, in FRONTS order.
+export function frontOptions() {
+  return Object.entries(FRONTS).map(([key, f]) => ({ key, name: f.name }));
+}
+
 // Text for a player's zone-number label ('' hides it).
 export function numberLabel(n) {
   return n === null || n === undefined ? '' : String(n);
@@ -67,6 +73,7 @@ export function initDotsView(container) {
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
   const resetBtn = document.getElementById('reset-btn');
+  const frontSelect = document.getElementById('front-select');
   const hint = document.getElementById('hint');
   const speedReadout = hint ? hint.appendChild(document.createElement('span')) : null;
   const showSpeed = () => {
@@ -135,12 +142,16 @@ export function initDotsView(container) {
   // ---- Dots ----
   const dotMeshes = new Map();
   const geo = new THREE.CircleGeometry(BODY_RADIUS, 24);
-  for (const p of play.players) {
-    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-      color: p.team === 'offense' ? 0x2f6bff : 0xe23b3b }));
-    m.rotation.x = -Math.PI / 2;
-    scene.add(m);
-    dotMeshes.set(p.id, m);
+  function dotFor(p) {
+    let m = dotMeshes.get(p.id);
+    if (!m) {
+      m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: p.team === 'offense' ? 0x2f6bff : 0xe23b3b }));
+      m.rotation.x = -Math.PI / 2;
+      scene.add(m);
+      dotMeshes.set(p.id, m);
+    }
+    return m;
   }
 
   // ---- Zone number labels ----
@@ -163,29 +174,33 @@ export function initDotsView(container) {
     label.userData.texture.needsUpdate = true;
     label.visible = text !== '';
   }
-  for (const p of play.players) {
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const tex = new THREE.CanvasTexture(c);
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(LABEL_SIZE, LABEL_SIZE),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
-    m.rotation.x = -Math.PI / 2;
-    m.userData = { canvas: c, texture: tex };
-    m.visible = false;
-    scene.add(m);
-    labels.set(p.id, m);
+  function labelFor(id) {
+    let m = labels.get(id);
+    if (!m) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const tex = new THREE.CanvasTexture(c);
+      m = new THREE.Mesh(new THREE.PlaneGeometry(LABEL_SIZE, LABEL_SIZE),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+      m.rotation.x = -Math.PI / 2;
+      m.userData = { canvas: c, texture: tex };
+      m.visible = false;
+      scene.add(m);
+      labels.set(id, m);
+    }
+    return m;
   }
   let lastNumbers = null;
   function syncLabels() {
     if (play.numbers !== lastNumbers) {
       lastNumbers = play.numbers;
       for (const p of play.players) {
-        drawLabel(labels.get(p.id), numberLabel(play.numbers[p.id]));
+        drawLabel(labelFor(p.id), numberLabel(play.numbers[p.id]));
       }
     }
     for (const p of play.players) {
       const w = fieldToWorld(p.x, p.y);
-      labels.get(p.id).position.set(w.x, 0.13, w.z);
+      labelFor(p.id).position.set(w.x, 0.13, w.z);
     }
   }
 
@@ -280,12 +295,17 @@ export function initDotsView(container) {
   }
 
   function sync() {
+    // Meshes follow the current ids (a front change swaps defenders); ids no longer in play are hidden.
+    const current = new Set(play.players.map((p) => p.id));
     for (const p of play.players) {
-      const m = dotMeshes.get(p.id);
-      if (!m) continue;
+      const m = dotFor(p);
+      m.visible = true;
       const w = fieldToWorld(p.x, p.y);
       m.position.set(w.x, 0.1, w.z);
     }
+    for (const [id, m] of dotMeshes) if (!current.has(id)) m.visible = false;
+    for (const [id, m] of labels) if (!current.has(id)) m.visible = false;
+    for (const [id, line] of blockLines) if (!current.has(id)) line.visible = false;
     syncBlockLines();
     syncLabels();
     const bp = play.ballPosition();
@@ -361,6 +381,23 @@ export function initDotsView(container) {
 
   const doReset = () => { play.reset(); showShift(); showLB(); };
   resetBtn?.addEventListener('click', doReset);
+  if (frontSelect) {
+    for (const { key, name } of frontOptions()) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = name;
+      frontSelect.appendChild(opt);
+    }
+    frontSelect.value = play.front;
+    frontSelect.addEventListener('change', () => {
+      play.reset();
+      play.setFront(frontSelect.value);
+      if (selectedId && !play.player(selectedId)) selectedId = null;
+      showShift();
+      showLB();
+      frontSelect.blur(); // so ArrowLeft/ArrowRight go back to the DL shift
+    });
+  }
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { selectedId = null; return; }
     if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
