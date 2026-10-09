@@ -40,7 +40,7 @@ test('tunables', () => {
   assert.equal(S.STUCK_TIME, 0.3);
   assert.equal(S.STUCK_PROGRESS, 0.25);
   assert.equal(S.MAX_FLIPS, 1);
-  assert.equal(S.SQUEEZE, 0.25);
+  assert.ok(S.SQUEEZE >= 0 && S.SQUEEZE < 0.5);
   assert.ok(Math.abs(S.hardCore(0.35) - 2 * 0.35 * (1 - S.SQUEEZE)) < 1e-12);
 });
 
@@ -200,5 +200,18 @@ test('F-15 #5 hard core holds against a body dead ahead', () => {
     const D = Math.hypot(5 - p.y, p.x);
     steerStep(p, { x: 0, y: 5, key: 'k', ignore: null }, [p, ...bodies], Math.min(7 / 60, D), DT, r);
     assert.ok(Math.hypot(p.x, p.y - 1) >= H - 1e-9);
+  }
+});
+
+test('F-15 #10: full width toward goal.ignore', () => {
+  const r = 0.35;
+  for (const ignore of ['q', null]) {
+    const min = ignore ? 2 * r : S.hardCore(r);
+    const q = { id: 'q', x: 0, y: 1 };
+    const p = { id: 'p', x: 0, y: -1 };
+    for (let i = 0; i < 120; i++) {
+      steerStep(p, { x: 0, y: 5, key: 'k', ignore }, [p, q], 7 / 60, DT, r);
+      assert.ok(Math.hypot(p.x - q.x, p.y - q.y) >= min - 1e-9, `ignore=${ignore} step ${i}`);
+    }
   }
 });

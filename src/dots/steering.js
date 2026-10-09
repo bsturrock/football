@@ -9,8 +9,12 @@
 //    his centre line, so he never flip-flops.
 //  - Release: A) the obstacle leaves the wider corridor (2 * radius + RELEASE_MARGIN);
 //    B) the goal key changes; C) he makes < STUCK_PROGRESS of maxStep along
-//    the goal direction for STUCK_TIME seconds: flip once (up to MAX_FLIPS),
+//    the goal direction for STUCK_TIME seconds, judged as the lesser of the last
+//    step's advance and half the last two steps' advance: drop any lane (and set
+//    laneOff, which bars lanes until release A), flip once (up to MAX_FLIPS),
 //    then hold and lean on collision.
+//  - Lane: if the obstacle and its neighbour on the pass side are spaced >= 2 * H
+//    apart, aim at their midpoint and hold that lane while both are ahead.
 export const AVOID_CLEARANCE = 0.3;
 export const LOOKAHEAD = 4.0;
 export const RELEASE_MARGIN = 0.3;
@@ -19,7 +23,7 @@ export const STUCK_PROGRESS = 0.25;
 export const MAX_FLIPS = 1;
 // Fraction of the body diameter two bodies may overlap while squeezing past
 // each other. Stands in for a player turning his shoulders.
-export const SQUEEZE = 0.25;
+export const SQUEEZE = 0; // 0 until soft separation lands (F-15 T-45 sets 0.25).
 // Hard contact distance H: the one source of truth for how close two bodies
 // may get.
 export function hardCore(radius) { return 2 * radius * (1 - SQUEEZE); }
@@ -38,6 +42,9 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   const ux = gx / D, uy = gy / D;
   const R = 2 * radius + AVOID_CLEARANCE;
   const H = hardCore(radius);
+  // A mover meets the body he is going to (block target, ball holder, QB at
+  // the mesh) at shoulder width and squeezes only past bodies in his way.
+  const contact = (o) => (goal.ignore != null && o.id === goal.ignore ? 2 * radius : H);
 
   const firstObstacle = (width) => {
     let best = null, bestT = Infinity, bestLat = 0;
@@ -70,7 +77,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   };
 
   // A recorded lane stays valid while both bodies are still ahead.
-  let laneMid = null;
+  let laneMid = null, threading = false;
   if (p.steer && p.steer.lane) {
     const a = byId(p.steer.lane[0]), b = byId(p.steer.lane[1]);
     if (a && b && ahead(a) && ahead(b)) laneMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -101,11 +108,11 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       if (n && nd >= 2 * H) {
         s.lane = [hit.o.id, n.id];
         const lx = (hit.o.x + n.x) / 2 - p.x, ly = (hit.o.y + n.y) / 2 - p.y, ll = Math.hypot(lx, ly);
-        if (ll > 1e-12) { laneMid = true; dx = lx / ll; dy = ly / ll; }
+        if (ll > 1e-12) { threading = true; dx = lx / ll; dy = ly / ll; }
       }
     }
   }
-  if (!laneMid && hit) {
+  if (!laneMid && !threading && hit) {
     const s = p.steer;
     const rx = hit.o.x - p.x, ry = hit.o.y - p.y;
     const d = Math.hypot(rx, ry);
@@ -122,7 +129,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       if (o === p) continue;
       const rx = o.x - p.x, ry = o.y - p.y;
       const d = Math.hypot(rx, ry);
-      if (d > 0 && d <= H + 1e-6) {
+      if (d > 0 && d <= contact(o) + 1e-6) {
         const nx = rx / d, ny = ry / d;
         const dot = vx * nx + vy * ny;
         if (dot > 0) { vx -= dot * nx; vy -= dot * ny; }
@@ -133,12 +140,12 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   if (vl >= 1e-12) {
     const mx = vx / vl, my = vy / vl;
     let step = vl;
-    const dd = H * H;
     for (const o of players) {
       if (o === p) continue;
       const rx = o.x - p.x, ry = o.y - p.y;
       const b = rx * mx + ry * my;
       if (b <= 0) continue;
+      const dd = contact(o) * contact(o);
       const c = rx * rx + ry * ry - dd;
       if (c <= 1e-6) continue;
       const disc = b * b - c;
