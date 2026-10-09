@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP, DL_SHIFT_STEP } from '../src/dots/play.js';
 import { BODY_RADIUS, assignBlocks } from '../src/dots/blocking.js';
 import { buildLineup } from '../src/dots/roster.js';
+import { hardCore } from '../src/dots/steering.js';
+
+const H = hardCore(BODY_RADIUS);
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} !~ ${b}`);
 
@@ -153,7 +156,7 @@ for (const [label, rule] of [['default rule', undefined], ['null rule', null]]) 
       for (let a = 0; a < ps.length; a++) {
         for (let b = a + 1; b < ps.length; b++) {
           const d = Math.hypot(ps[a].x - ps[b].x, ps[a].y - ps[b].y);
-          assert.ok(d >= 2 * BODY_RADIUS - 0.02, `${ps[a].id}/${ps[b].id} ${d}`);
+          assert.ok(d >= H - 0.02, `${ps[a].id}/${ps[b].id} ${d}`);
         }
       }
     }
@@ -180,7 +183,7 @@ test('no tunnelling at 2x with a 0.05 step', () => {
   const w = get('WLB');
   const l = get('LG');
   assert.ok(w.y < l.y, `${w.y} ${l.y}`);
-  assert.ok(Math.hypot(w.x - l.x, w.y - l.y) >= 2 * BODY_RADIUS - 1e-6);
+  assert.ok(Math.hypot(w.x - l.x, w.y - l.y) >= H - 1e-6);
 });
 
 const DL_IDS = ['LDE', 'LDT', 'RDT', 'RDE'];

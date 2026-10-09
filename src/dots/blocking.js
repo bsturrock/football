@@ -1,9 +1,12 @@
 // Pure blocking logic for the dots layer: no THREE, no DOM, no timers, no randomness.
 import { HW } from '../util.js';
-import { steerStep } from './steering.js';
+import { steerStep, hardCore } from './steering.js';
 
 export const BLOCKER_ROLES = ['OL'];
 export const BODY_RADIUS = 0.35; // 0.7 yd = 25 in diameter, about an NFL lineman's shoulder width
+const H = hardCore(BODY_RADIUS); // hard contact distance; the soft zone is [H, 2 * BODY_RADIUS)
+// Fraction of soft-zone penetration relaxed per second of sim time.
+export const SOFT_RATE = 8;
 export const CONTACT_DIST = 2 * BODY_RADIUS;
 export const ENGAGE_TOL = 0.25;
 export const SPREAD = 2 * BODY_RADIUS;
@@ -218,9 +221,9 @@ const clampBody = (p) => {
 
 // Push one overlapping pair apart along the center line. The body with the lower rank
 // (closer to an anchor) holds; the higher-ranked one takes the whole overlap. Equal ranks
-// split it. Returns true if it moved them.
-function pushApart(a, b, rank) {
-  const min = 2 * BODY_RADIUS;
+// split it. Moves the pair by (minDist - d) * frac. Returns true if it moved them.
+function pushApart(a, b, rank, minDist, frac) {
+  const min = minDist;
   let dx = b.x - a.x;
   let dy = b.y - a.y;
   let d = Math.hypot(dx, dy);
@@ -233,7 +236,7 @@ function pushApart(a, b, rank) {
     dx /= d;
     dy /= d;
   }
-  const o = min - d;
+  const o = (min - d) * frac;
   const ra = rank.get(a.id);
   const rb = rank.get(b.id);
   const wa = ra === rb ? 0.5 : ra < rb ? 0 : 1;
@@ -265,11 +268,14 @@ function rankBodies(players, anchored) {
   return rank;
 }
 
-// Keeps every pair at least one body width apart. Anchored bodies (engaged blockers and
-// their targets) hold their ground; a free body yields to anything nearer an anchor than
-// itself, so a body wedged against an anchor is not pushed back in by a free body behind
-// him. Sweeps are bounded and deterministic.
-export function separateBodies(players) {
+// Bodies may overlap in a soft zone [H, 2 * BODY_RADIUS) down to the hard core H. With a
+// finite dt each call relaxes that overlap by a fraction SOFT_RATE * dt, so squeezing players
+// ease apart instead of snapping to a full body width; the iterated sweeps then enforce only
+// H. Without dt (omitted) contact is rigid at 2 * BODY_RADIUS. Anchored bodies (engaged
+// blockers and their targets) hold their ground; a free body yields to anything nearer an
+// anchor than itself, so a body wedged against an anchor is not pushed back in by a free
+// body behind him. Sweeps are bounded and deterministic.
+export function separateBodies(players, dt = Infinity) {
   const anchored = new Set();
   for (const p of players) {
     if (p.block && p.block.engaged) {
@@ -286,11 +292,22 @@ export function separateBodies(players) {
     return sum;
   };
   const rank = rankBodies(players, anchored);
+  const soft = Number.isFinite(dt);
+  const hard = soft ? H : 2 * BODY_RADIUS;
+  if (soft) {
+    const k = Math.min(1, SOFT_RATE * dt);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const d = Math.hypot(players[j].x - players[i].x, players[j].y - players[i].y);
+        if (d >= H && d < 2 * BODY_RADIUS) pushApart(players[i], players[j], rank, 2 * BODY_RADIUS, k);
+      }
+    }
+  }
   for (let it = 0; it < SEPARATION_ITERS; it++) {
     let moved = false;
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
-        if (pushApart(players[i], players[j], rank)) moved = true;
+        if (pushApart(players[i], players[j], rank, hard, 1)) moved = true;
       }
     }
     for (const p of players) clampBody(p);
@@ -368,5 +385,5 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     moveToward(b, spot.x, spot.y, b.speed * dt);
   }
 
-  return separateBodies(players);
+  return separateBodies(players, dt);
 }
