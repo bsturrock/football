@@ -7,6 +7,9 @@
 //   - later ratings come from a per-row `defender.def?.react` object read here
 //   - a gap fit goes in anchorSide (replaces goal.x)
 //   - strength factors stay in blocking.js driveForce/blockForce
+//
+// stepReact opts: `opts.leverage === false` turns the leverage rule off (used by the
+// `fightBlocks` play switch; a later task passes it from blocking.js).
 export const REACT_STATES = Object.freeze(['neutral', 'driven', 'anchored', 'winning']);
 export const DRIVEN_SPEED = 0.3; // yd/s along the push to count as driven
 export const WIN_SPEED = 0.3; // yd/s against the push to count as winning
@@ -56,7 +59,7 @@ export function anchorDir(side, pu) {
   return m < 1e-9 ? { x: 0, y: 0 } : { x: x / m, y: y / m };
 }
 
-export function stepReact(react, d, push, goal, dt) {
+export function stepReact(react, d, push, goal, dt, opts = {}) {
   const r = react ?? startReact(d);
   const ex = r.ex;
   const ey = r.ey;
@@ -89,8 +92,9 @@ export function stepReact(react, d, push, goal, dt) {
   const dir = m < 1e-9 ? null : { x: x / m, y: y / m };
   // Leverage is the single place a defender earns a shed: his goal is close and
   // off his blocker's line (including goals behind the push). Ratings (hand use,
-  // strength) multiply in here later.
-  const leverage = !!pu && bm <= SHED_REACH && g.x * -pu.x + g.y * -pu.y <= LEVER_COS;
+  // strength) multiply in here later. A doubled defender (push.n > 1) gets no
+  // leverage: he wins only by out-pushing both (the along rule) or once a partner leaves.
+  const leverage = opts.leverage !== false && (push.n ?? 1) === 1 && !!pu && bm <= SHED_REACH && g.x * -pu.x + g.y * -pu.y <= LEVER_COS;
   let state = 'neutral';
   if (pu) {
     if (along <= -WIN_SPEED || leverage) state = 'winning';

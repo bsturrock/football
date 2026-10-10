@@ -11,8 +11,6 @@ import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
-// F-33: a combo's DL that wins leverage is shed (or the carrier is past); the combo ends there, no climb follows.
-const comboEnded = (play, dl) => play.players.some((o) => o.team === 'offense' && o.block?.target === dl && (o.block.released === 'shed' || o.block.released === 'past'));
 const targets = (play) => Object.fromEntries(OL.map((id) => [id, play.player(id).block?.target]));
 
 test('F-12 #5: assignBlocks plan overrides one blocker, rest nearest; no plan unchanged', () => {
@@ -119,17 +117,15 @@ test('F-12 #8: base insideZone combos switch; backside end LDE is never blocked'
   play.snap();
   const seen = new Set(OL.map((id) => play.player(id).block.target));
   const switched = () => play.combos.every((c) => [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
-  const done = () => play.combos.every((c) => comboEnded(play, c.target) || [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
   let t = 0;
-  while (t < 4.0 && play.ball.phase !== 'dead' && !done()) {
+  while (t < 4.0 && play.ball.phase !== 'dead' && !switched()) {
     play.step(DT);
     t += DT;
     for (const id of OL) seen.add(play.player(id).block.target);
   }
-  // A combo whose DL was shed or passed (F-33) is not counted: its blockers do not climb.
-  if (!comboEnded(play, 'LDT')) assert.deepEqual(new Set([play.player('RG').block.target, play.player('RT').block.target]), new Set(['MLB', 'LDT']));
+  assert.deepEqual(new Set([play.player('RG').block.target, play.player('RT').block.target]), new Set(['MLB', 'LDT']));
   // Which of LG/LT takes the WLB follows zoneSwitch's laterally-closer rule and moved with F-15 soft contact.
-  if (!comboEnded(play, 'RDE')) assert.deepEqual(new Set([play.player('LG').block.target, play.player('LT').block.target]), new Set(['WLB', 'RDE']));
+  assert.deepEqual(new Set([play.player('LG').block.target, play.player('LT').block.target]), new Set(['WLB', 'RDE']));
   assert.ok(!seen.has('LDE'));
 });
 
@@ -256,10 +252,8 @@ test('F-17 #7: RG climbs to MLB in aim phase', () => {
   const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
   let hit = false;
-  let ended = false;
-  for (let t = 0; t < 2 && !hit && !ended; t += DT) {
+  for (let t = 0; t < 2 && !hit; t += DT) {
     play.step(DT);
-    ended = comboEnded(play, 'LDT'); // F-33: LDT shed or passed, so RG does not climb
     const RG = play.player('RG');
     if (RG.block.target === 'MLB') {
       hit = true;
@@ -268,7 +262,7 @@ test('F-17 #7: RG climbs to MLB in aim phase', () => {
       assert.equal(RG.block.foot.watch, null);
     }
   }
-  assert.ok(hit || ended);
+  assert.ok(hit);
 });
 
 test('F-17 #8: unplanned plays have no foot', () => {
@@ -443,11 +437,9 @@ test('T-92 #6: base: RG climbs to MLB and LG/LT to WLB only after the partner he
   play.snap();
   let rg = false;
   let wlb = false;
-  let rgEnded = false; // F-33: LDT shed or passed before RG climbed; that combo is not counted
   for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
     play.step(DT);
-    if (!rg && comboEnded(play, 'LDT')) rgEnded = true;
-    if (!rg && !rgEnded && play.player('RG').block?.target === 'MLB') {
+    if (!rg && play.player('RG').block?.target === 'MLB') {
       rg = true;
       assert.ok(HOLD_OK(play.player('RT'), 'LDT'));
     }
@@ -459,7 +451,7 @@ test('T-92 #6: base: RG climbs to MLB and LG/LT to WLB only after the partner he
       }
     }
   }
-  assert.ok((rg || rgEnded) && wlb);
+  assert.ok(rg && wlb);
 });
 
 test('F-33 #8: every front, an OL block released as shed frees the DL, who then leaves the spot', () => {
@@ -491,7 +483,7 @@ test('F-33 #8: every front, an OL block released as shed frees the DL, who then 
         }
         if (!e.done && i >= e.i + Math.round(0.5 / DT) && play.ball.phase !== 'dead') {
           e.done = true;
-          e.far = e.max >= 2 * BODY_RADIUS;
+          e.far = e.max >= 4 * BODY_RADIUS;
         }
       }
     }

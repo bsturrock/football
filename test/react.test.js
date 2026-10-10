@@ -197,3 +197,15 @@ test('F-33 #7: leverage is goal within SHED_REACH and off the blocker line', () 
   r = stepReact(r, def(0, 10 - 2 * WIN_SPEED * DT), PUSH, ball, DT);
   assert.equal(r.state, 'winning');
 });
+
+test('F-33 #7: doubled defender gets no leverage; opts.leverage false disables it', () => {
+  const d = def(0, 10);
+  const goal = { x: 1, y: 10 };
+  assert.notEqual(stepReact(null, d, { ...PUSH, n: 2 }, goal, DT).state, 'winning', 'n 2');
+  assert.equal(stepReact(null, d, { ...PUSH, n: 1 }, goal, DT).state, 'winning', 'n 1');
+  assert.notEqual(stepReact(null, d, { ...PUSH, n: 1 }, goal, DT, { leverage: false }).state, 'winning', 'switch off');
+  const p2 = { ...PUSH, n: 2 };
+  let r = stepReact(null, def(0, 10), p2, ball, DT);
+  r = stepReact(r, def(0, 10 - 2 * WIN_SPEED * DT), p2, ball, DT);
+  assert.equal(r.state, 'winning', 'along rule not gated');
+});
