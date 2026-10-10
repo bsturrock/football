@@ -54,6 +54,7 @@ import { BODY_H, BODY_W, HOLD_R, HW, PILE_R, bearing, faceLean, faceYaw, setRate
 //   stuntRun {n, stuff, ydMean, minMed, minMean} (B-014): run plays with a crossing stunt at the snap: count, stuffs (yards <= STUFF_YD), mean yards, and each crossing man's closest approach to the ball carrier after the handoff (QB frames excluded; median, mean; yd)
 //   blkEv {stuntPlays: plays with a crossing stunt (slants count) at the snap, passed, missed, wrong}: blockers' stunt re-read events from S.blkEv
 //   tackle {n, byOutcome {big, thru, bounce, evade, grab: n}, thruAt [S.clock, s, of the first 5 run-throughs] (B-063), byBand {"<0","0-2","2-4","4-5","5-6","6-8","8+": {n, big, thru, bounce, evade, grab}}} (B-063, tackle-momentum): attemptTackle outcomes (S.tkLog, tackling.js), banded by the runner's edge (resist - hit)/tackler mass, yd/s
+//       blocked {tries, hits, byPhase {set|move|recover: {tries, hits}}} (B-095): arm grabs by blocked defenders on the runner (tackling.js logBlk, S.tkLog blkTry/blkHit), apart from n/byOutcome/byBand
 //       byTech {wrap|shoulder|diveBehind|diveStretch: {n, big, thru, bounce, evade, grab}} (B-069, tackle-technique): contacts by how the tackler made the hit (S.tkLog tech, tackling.js pickTech); evade counts as diveStretch (his lunge), thru/bounce carry no technique and are left out
 //   bust {plays, rolled, byFamily {zone, gap: {rolled, busts, pct, byKind {wrong, none, late, noclimb: n}}}, byBand {"0-19".."80-99": {rolled, busts, pct}}} (B-032-4): from S.bust (blockrules.js), read at the end of each play that snapped;
 //     rolled = blockers who took a draw (a null kind is rolled, not a bust); byKind counts every non-null kind, 'none' included; busts and pct count only wrong, late and noclimb ('none' is a bust that changed nothing, so it is not counted);
@@ -491,8 +492,10 @@ export function runSim(n, step, g){
   const pushes = wins.filter(w => w.off && w.gain >= PUSH_GAIN);
   const byPlayOut = {}; for(const k of Object.keys(byPlay).sort()){ const b = byPlay[k]; byPlayOut[k] = {n:b.ys.length, ypc:mean(b.ys), stuffPct:+(100*b.stuff/b.ys.length).toFixed(1)}; }
   // B-063 (tackle-momentum): contact outcomes by the runner's edge band, (resist - hit)/tackler mass in yd/s, from S.tkLog (tackling.js attemptTackle)
-  const TK_BANDS = [-Infinity, 0, 2, 4, 5, 6, 8], tkOut = {n:(S.tkLog || []).length, byOutcome:{}, byBand:{}, thruAt:(S.tkLog || []).filter(e => e.o === 'thru').slice(0, 5).map(e => e.t)};
+  const TK_BANDS = [-Infinity, 0, 2, 4, 5, 6, 8], tkOut = {n:(S.tkLog || []).filter(e => e.o !== 'blkTry' && e.o !== 'blkHit').length, byOutcome:{}, byBand:{}, thruAt:(S.tkLog || []).filter(e => e.o === 'thru').slice(0, 5).map(e => e.t)};
+  tkOut.blocked = {tries:0, hits:0, byPhase:{}};   // B-095: blocked-man arm grabs (tackling.js logBlk); kept out of n, byOutcome and the bands
   for(const e of S.tkLog || []){
+    if(e.o === 'blkTry' || e.o === 'blkHit'){ const k = e.o === 'blkHit'; tkOut.blocked.tries++; if(k) tkOut.blocked.hits++; const r = tkOut.blocked.byPhase[e.bp] || (tkOut.blocked.byPhase[e.bp] = {tries:0, hits:0}); r.tries++; if(k) r.hits++; continue; }
     tkOut.byOutcome[e.o] = (tkOut.byOutcome[e.o] || 0) + 1;
     let b = TK_BANDS.length - 1; while(e.edge < TK_BANDS[b]) b--;
     const nm = b === 0 ? '<0' : b === TK_BANDS.length - 1 ? TK_BANDS[b] + '+' : TK_BANDS[b] + '-' + TK_BANDS[b + 1], r = tkOut.byBand[nm] || (tkOut.byBand[nm] = {n:0, big:0, thru:0, bounce:0, evade:0, grab:0});
