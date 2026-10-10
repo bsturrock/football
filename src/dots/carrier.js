@@ -3,7 +3,8 @@
 // check (the QB must hold the snap SECURE_TIME before handing off), and carrier steering. Pure: no THREE, DOM, timers.
 import { steerStep } from './steering.js';
 import { BODY_RADIUS } from './blocking.js';
-import { PLAYSIDE_SIGN, A_GAP_HALF } from './numbering.js';
+import { PLAYSIDE_SIGN } from './numbering.js';
+import { liveGaps } from './front.js';
 
 export const READS = Object.freeze(['A', 'B', 'C']);
 export const MESH_AHEAD = 2 * BODY_RADIUS; // RB touching the QB's front
@@ -20,19 +21,14 @@ export const SECURE_TIME = 0.15;
 // Windows for the playside gaps, from offensive-line x. `numbers` are
 // playside-positive whatever the direction; `side` is -1 or +1.
 export function gapWindows(players, numbers, side) {
-  const line = (n) => players.find((p) => p.team === 'offense' && numbers[p.id] === n);
+  const line = players
+    .filter((p) => p.team === 'offense' && numbers[p.id] != null)
+    .map((p) => ({ id: p.id, n: numbers[p.id] }));
+  const spans = liveGaps(players, line, side, 1, READS.length);
   const out = {};
-  let prevWidth = 2 * A_GAP_HALF;
-  for (let k = 1; k <= READS.length; k++) {
-    const inner = line(k - 1);
-    if (!inner) break;
-    const outer = line(k);
-    const outerX = outer ? outer.x : inner.x + side * prevWidth;
-    const lo = Math.min(inner.x, outerX);
-    const hi = Math.max(inner.x, outerX);
-    out[READS[k - 1]] = { lo, hi };
-    prevWidth = hi - lo;
-    if (!outer) break;
+  for (let k = 0; k < spans.length; k++) {
+    out[READS[k]] = { lo: spans[k].lo, hi: spans[k].hi };
+    if (!spans[k].outer) break;
   }
   return out;
 }
