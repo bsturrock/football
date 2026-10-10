@@ -5,7 +5,7 @@ import { FRONTS } from '../src/dots/roster.js';
 import { engagedOn, BODY_RADIUS } from '../src/dots/blocking.js';
 import { hardCore, PACES } from '../src/dots/steering.js';
 import {
-  LANES, GAP_BACK, LANE_AHEAD, PRESSURE_DIST, CLEAR_HOLD, BEND_MAX, laneWindows,
+  LANES, GAP_BACK, LANE_AHEAD, PRESSURE_DIST, CLEAR_HOLD, BEND_MAX, laneWindows, SHUFFLE_WIDTH, SHUFFLE_STEP,
 } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
@@ -54,11 +54,18 @@ test('F-35 #9: with the playside A, B, C filled he cuts back to the backside', (
   const play = createPlay(LOS, 'insideZone', { tackles: false });
   play.snap();
   const run = play.run;
+  const prevMid = [];
   for (let i = 0; i < CAP && !run.locked && play.ball.phase !== 'dead'; i++) {
     park(play);
     const wins = laneWindows(play.players, run.line, run.side).filter((w) => w.side === 'play').slice(0, 3);
     const ds = defenders(play);
-    wins.forEach((w, k) => { ds[k].x = (w.lo + w.hi) / 2; ds[k].y = LOS + BODY_RADIUS; });
+    // The windows slide with the line during the step: aim each filler at where its window will be.
+    wins.forEach((w, k) => {
+      const mid = (w.lo + w.hi) / 2;
+      ds[k].x = mid + (prevMid[k] === undefined ? 0 : mid - prevMid[k]);
+      ds[k].y = LOS + BODY_RADIUS;
+      prevMid[k] = mid;
+    });
     play.step(DT);
   }
   assert.ok(run.locked, 'committed within 4 s');
@@ -248,4 +255,61 @@ test('F-35 #13: base front backside edge never keeps him pressing under pressure
       console.log(`REPORT backside: breakaway, yards ${(rb.y - LOS).toFixed(2)}, commitBy ${info.commitBy}, commit rb (${cs.rb.x.toFixed(2)}, ${cs.rb.y.toFixed(2)})`);
     }
   }
+});
+
+// F-46: the RB's patience is a shuffle around his track point with some forward creep.
+function pressRun(front, accel = true) {
+  const play = createPlay(LOS, 'insideZone', { accel, tackles: false, front });
+  play.snap();
+  const run = play.run;
+  const rb = play.player('RB');
+  const ticks = [];
+  let start = null;
+  let end = null;
+  for (let n = 0; n < 2 * 60 && play.ball.phase !== 'dead'; n++) {
+    const px = rb.x;
+    const py = rb.y;
+    play.step(DT);
+    if (run.carried && start === null) start = { x: px, y: py };
+    if (start && !run.locked) ticks.push({ dx: rb.x - px, dy: rb.y - py, x: rb.x, y: rb.y, px: run.press.x });
+    if (run.locked) { end = { x: rb.x, y: rb.y }; break; }
+  }
+  return { play, ticks, start, end };
+}
+
+for (const front of Object.keys(FRONTS)) {
+  test(`F-46 #2: patience is a shuffle (${front})`, (t) => {
+    const { ticks } = pressRun(front);
+    if (ticks.length * DT < 2 * SHUFFLE_STEP) return t.diagnostic(`${front}: press too short`);
+    const dxs = ticks.map((k) => k.dx).filter((d) => Math.abs(d) >= 1e-4);
+    let flips = 0;
+    for (let i = 1; i < dxs.length; i++) if (Math.sign(dxs[i]) !== Math.sign(dxs[i - 1])) flips++;
+    assert.ok(flips >= 1, `${front}: dx never changes sign`);
+  });
+
+  test(`F-46 #3: shuffle stays on his track and creeps forward (${front})`, (t) => {
+    const { ticks, start, end } = pressRun(front);
+    // The press is shorter than the walk from the mesh to the guard, so he is still arriving (and the guard slides
+    // away): he may be off the track by his first-tick offset plus one shuffle width, never more.
+    const bound = Math.max(SHUFFLE_WIDTH + BODY_RADIUS, ticks.length ? Math.abs(ticks[0].x - ticks[0].px) + SHUFFLE_WIDTH : 0);
+    for (const k of ticks) {
+      assert.ok(Math.abs(k.x - k.px) <= bound + 1e-9, `${front}: ${k.x} off track ${k.px}`);
+    }
+    if (!start || !end) return t.diagnostic(`${front}: no press`);
+    assert.ok(end.y > start.y, `${front}: no forward creep ${start.y} -> ${end.y}`);
+  });
+
+  test(`F-46 #4: tentative, not a glide (${front})`, (t) => {
+    const { ticks, start, end } = pressRun(front);
+    if (!start || !end || ticks.length * DT < 2 * SHUFFLE_STEP) return t.diagnostic(`${front}: press too short`);
+    const path = ticks.reduce((a, k) => a + Math.hypot(k.dx, k.dy), 0);
+    const straight = Math.hypot(end.x - start.x, end.y - start.y);
+    assert.ok(path >= 1.2 * straight, `${front}: path ${path} vs straight ${straight}`);
+  });
+}
+
+test('F-46 #4: with accel off every press step stays within the press cap', () => {
+  const { play, ticks } = pressRun('base', false);
+  const cap = PACES.press.frac * play.player('RB').speed * DT + 1e-9;
+  for (const k of ticks) assert.ok(Math.hypot(k.dx, k.dy) <= cap, `step ${Math.hypot(k.dx, k.dy)} > ${cap}`);
 });

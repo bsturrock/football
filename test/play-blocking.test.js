@@ -8,10 +8,11 @@ import {
   contactSpot, canEngage, canRelease, assignBlocks, setBlock,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
-import { GAP_DEPTH, CLEAR_HOLD } from '../src/dots/carrier.js';
+import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { A_GAP_HALF } from '../src/dots/numbering.js';
 
 const DT = 1 / 60;
+const PLANT_MAX = 4 * DT; // s: longest near-stop behind the line (a foot plant); patience is quick feet, never still (R-59)
 const H = hardCore(BODY_RADIUS);
 const EPS = 1e-9;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
@@ -425,17 +426,17 @@ function judgeSlip(t, opts, { noTe }) {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, ...opts });
   play.snap();
   const rbSpeed = play.player('RB').speed;
-  const stallMax = play.run.patience + CLEAR_HOLD;
   const dts = play.players.filter((p) => p.team === 'defense' && p.role === 'DT');
   const mlb = play.player('MLB');
   const mlbY0 = mlb.y;
   const mlbFree = noTe && !play.players.some((o) => o.block?.target === 'MLB');
   const engagedEver = new Set();
   const worst = { a: Infinity, b: 0 };
-  let stall = 0, prev = null, crossed = false, cross = null, atLos = null, atHandoff = null;
+  let stall = 0, prev = null, crossed = false, cross = null, atLos = null, atHandoff = null, pastLos = false;
   for (let time = 0; time < 2.5; time += DT) {
     play.step(DT);
     const rb = play.player('RB');
+    if (rb.y >= 25) pastLos = true;
     for (const dt of dts) {
       const blockers = play.players.filter((o) => o.block?.target === dt.id);
       if (blockers.some((o) => o.block.engaged)) engagedEver.add(dt.id);
@@ -446,11 +447,11 @@ function judgeSlip(t, opts, { noTe }) {
     }
     if (play.run.carried) {
       if (!atHandoff) atHandoff = { rbY: rb.y, d: Math.hypot(mlb.x - play.ballPosition().x, mlb.y - play.ballPosition().y) };
-      if (prev) {
+      if (prev && !pastLos) {
         const speed = Math.hypot(rb.x - prev.x, rb.y - prev.y) / DT;
         stall = speed < rbSpeed / 4 ? stall + DT : 0;
         worst.b = Math.max(worst.b, stall);
-        assert.ok(stall <= stallMax + DT, `RB stalled ${stall.toFixed(2)} s behind the line (max ${stallMax.toFixed(2)})`);
+        assert.ok(stall <= PLANT_MAX + 1e-9, `RB nearly stopped ${stall.toFixed(3)} s behind the line at ${time.toFixed(2)} s (max ${PLANT_MAX.toFixed(3)})`);
       }
       prev = { x: rb.x, y: rb.y };
       if (!atLos && rb.y >= 25 - BODY_RADIUS) {
@@ -464,7 +465,7 @@ function judgeSlip(t, opts, { noTe }) {
       break;
     }
   }
-  t.diagnostic(`rule a min unengaged DT y ${worst.a} (floor ${25 - CONTACT_DIST}); rule b longest stall ${worst.b.toFixed(3)} s (max ${stallMax.toFixed(2)}); crossed ${crossed}`);
+  t.diagnostic(`rule a min unengaged DT y ${worst.a} (floor ${25 - CONTACT_DIST}); rule b longest stall ${worst.b.toFixed(3)} s (max ${PLANT_MAX.toFixed(3)}); crossed ${crossed}`);
   if (noTe) {
     if (!mlbFree || !atLos || !atHandoff) {
       t.diagnostic(`rule d skipped: MLB free ${mlbFree}, RB reached los area ${!!atLos}`);
