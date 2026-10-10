@@ -13,13 +13,8 @@ const ORBIT_TIME = 0.5; // s of consecutive ticks
 // gap edge set by an engaged DL's x, and that edge wobbles 1-2 cm, so measured reversals there are noise.
 const MOVE_MIN = BODY_RADIUS / 8;
 const MAX_FLIPS = 3;
-// Known fallout of F-41 (line holds): LB traffic steering, not blocking.
-const KNOWN = {
-  walkedUp: 'SAM, free in pursue, is stuck behind the C/MIK block as C drives MIK upfield and separateBodies shoves him back: flipped heading 4 times (cap 3, was 3); tackle at 1.88 s instead of 1.63 s',
-};
-
 for (const front of Object.keys(FRONTS)) {
-  test(`F-34 #8: ${front} insideZone ends in a tackle, LBs do not orbit, pin or jitter`, { todo: KNOWN[front] }, () => {
+  test(`F-34 #8: ${front} insideZone ends in a tackle, LBs do not orbit, pin or jitter`, () => {
     const play = createPlay(25, 'insideZone', { front });
     assert.ok(play.snap());
     const lbs = Object.keys(play.defense.agents).filter((id) => play.defense.agents[id].behavior === 'zone');

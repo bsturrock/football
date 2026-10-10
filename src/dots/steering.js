@@ -15,7 +15,9 @@
 //    then hold and lean on collision.
 //  - Accel: see ACCEL_TAU below; players with a numeric p.v ramp up from rest.
 //  - Lane: if the obstacle and its neighbour on the pass side are spaced >= 2 * H
-//    apart, aim at their midpoint and hold that lane while both are ahead.
+//    apart, aim at their midpoint and hold that lane while both are ahead,
+//    except a blocker and his block target (they close by design), which are
+//    re-judged by the opening test every tick.
 export const AVOID_CLEARANCE = 0.3;
 export const LOOKAHEAD = 4.0;
 export const RELEASE_MARGIN = 0.3;
@@ -109,7 +111,8 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   let laneMid = null, threading = false;
   if (p.steer && p.steer.lane) {
     const a = byId(p.steer.lane[0]), b = byId(p.steer.lane[1]);
-    if (a && b && ahead(a) && ahead(b)) laneMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const blockPair = a && b && (a.block?.target === b.id || b.block?.target === a.id);
+    if (a && b && !blockPair && ahead(a) && ahead(b)) laneMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     else p.steer.lane = null;
   }
 
