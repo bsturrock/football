@@ -256,10 +256,11 @@ function moveToward(p, tx, ty, maxStep) {
 const ballPast = (T, ballPos) => ballPos.y >= T.y + RELEASE_PAST;
 
 // Single release predicate for an engaged block. First match wins: 'shed' (the target has won
-// for SHED_TIME), 'past' (the ball is well upfield of the target), 'lost' (contact broken), or null.
+// for SHED_TIME, only when fight is true), 'past' (the ball is well upfield of the target), 'lost'
+// (contact broken), or null. fight = false (play option fightBlocks off) means no shed.
 // Later shed decisions (R-42 DL AI) go here.
-export function canRelease(b, T, ballPos) {
-  if ((b.block.winT ?? 0) >= SHED_TIME) return 'shed';
+export function canRelease(b, T, ballPos, fight = true) {
+  if (fight && (b.block.winT ?? 0) >= SHED_TIME) return 'shed';
   if (ballPast(T, ballPos)) return 'past';
   if (Math.hypot(T.x - b.x, T.y - b.y) > CONTACT_DIST + ENGAGE_TOL) return 'lost';
   return null;
@@ -399,6 +400,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
   }
 
+  const fight = ctx?.fightBlocks !== false;
   let holderId = null;
   for (const p of players) {
     if (Math.hypot(p.x - ballPos.x, p.y - ballPos.y) < 1e-9) {
@@ -470,7 +472,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const eng = engagedOn(players, d.id);
     if (eng.length) {
       d.steer = null;
-      d.react = stepReact(d.react ?? null, d, blockPush(eng), ctx?.defGoals?.[d.id] ?? ballPos, dt);
+      d.react = stepReact(d.react ?? null, d, blockPush(eng), ctx?.defGoals?.[d.id] ?? ballPos, dt, { leverage: fight });
       const v = resolveBlock(d, eng, ballPos);
       d.x = Math.min(HW, Math.max(-HW, d.x + v.vx * dt));
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
@@ -514,7 +516,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
 
   for (const b of players) {
     if (!b.block || !b.block.engaged || justEngaged.has(b.id)) continue;
-    const reason = canRelease(b, byId(players, b.block.target), ballPos);
+    const reason = canRelease(b, byId(players, b.block.target), ballPos, fight);
     if (!reason) continue;
     b.block.engaged = false;
     b.block.seq = null;

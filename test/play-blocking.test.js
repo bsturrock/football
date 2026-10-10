@@ -612,3 +612,32 @@ test('F-32 smooth engage: a blocker leaving an engaged block never jumps more th
     assert.ok(switchedAny, `${variant}: no combo switched`);
   }
 });
+
+// ---- T-116: fightBlocks (acc. 11) ----
+test('T-116 canRelease fight off: no shed, the rest of the order holds', () => {
+  const { T, b } = mkPair({ winT: SHED_TIME });
+  assert.equal(canRelease(b, T, BALL), 'shed');
+  assert.equal(canRelease(b, T, BALL, false), null);
+  assert.equal(canRelease(b, T, { x: 0, y: T.y + RELEASE_PAST }, false), 'past');
+  b.y = T.y - (CONTACT_DIST + ENGAGE_TOL) - 0.01;
+  assert.equal(canRelease(b, T, BALL, false), 'lost');
+});
+
+test('T-116 fightBlocks off: no defender sheds a block on any front', () => {
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front, fightBlocks: false });
+    play.snap();
+    for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+      play.step(DT);
+      for (const p of play.players) {
+        assert.notEqual(p.block?.released, 'shed', `${front} ${p.id} shed at tick ${i}`);
+      }
+    }
+    play.reset();
+    assert.equal(play.fightBlocks, false, front);
+  }
+});
+
+test('T-116 fightBlocks defaults on', () => {
+  assert.equal(createPlay(25, 'insideZone').fightBlocks, true);
+});
