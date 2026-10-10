@@ -57,6 +57,7 @@ export const AVOID_SWITCH = 1.5; // yd: score a rival heading must beat the held
 export const AVOID_HOLD = 0.3; // s: a new heading is held at least this long
 export const AVOID_LINGER = 0.5; // s: a cut line is kept this long after the last man leaves his sight
 export const AVOID_AIM_DIST = 4; // yd: how far along the heading the aim sits
+export const AVOID_CLOSE = AVOID_CONTACT + 2 * BODY_RADIUS; // yd: inside this a free defender is on him, so he squeezes and takes the hit instead of cutting
 const AVOID_RAY_STEP = 0.25; // yd
 
 // Patience tunables (F-35): the RB presses toward the track point behind the line while he re-reads lanes, then commits.
@@ -294,6 +295,14 @@ function openFieldAim(players, run, rb, dt) {
   run.avoidClock += dt;
   // A cut is committed: if the man drops out of sight, finish the line for AVOID_LINGER before running vertical again.
   if (threats.length) run.avoidSeen = run.avoidClock;
+  // Inside arm's reach he cannot cut cleanly: no new heading, keep the current aim (held cut line, else vertical).
+  const heldAim = () => {
+    if (run.avoid === null || run.avoid === 0 || !run.avoidLine) return vertical;
+    const { x: lx, y: ly, th } = run.avoidLine;
+    const ay = rb.y + AVOID_AIM_DIST * Math.cos(th);
+    return { x: lx + (ay - ly) * Math.tan(th), y: ay };
+  };
+  if (threats.some((d) => Math.hypot(d.x - rb.x, d.y - rb.y) < AVOID_CLOSE)) return heldAim();
   const holding = run.avoid !== null && run.avoid !== 0 && run.avoidClock - run.avoidSeen < AVOID_LINGER - 1e-9;
   if (!threats.length && !holding) {
     run.avoid = null;
@@ -330,11 +339,8 @@ function openFieldAim(players, run, rb, dt) {
     run.avoidAt = run.avoidClock;
     run.avoidLine = { x: rb.x, y: rb.y, th: absOf(off) }; // the line he cuts onto: a plant, then this line
   }
-  if (off === 0) return vertical;
   // Aim at the point AVOID_AIM_DIST ahead of him on the cut line, so incidental sideways jostle does not move the aim.
-  const { x: lx, y: ly, th } = run.avoidLine;
-  const ay = rb.y + AVOID_AIM_DIST * Math.cos(th);
-  return { x: lx + (ay - ly) * Math.tan(th), y: ay };
+  return heldAim();
 }
 
 export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {

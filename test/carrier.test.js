@@ -5,7 +5,7 @@ import {
   LANES, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, LOCK_DEPTH, GOAL_LINE_Y,
   GAP_DEPTH, LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
   PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, CLEAR_ROOM, CLEAR_HOLD, BEND_MAX,
-  AVOID_SIGHT_MIN, AVOID_SIGHT_MAX, AVOID_FAN, AVOID_CONTACT, AVOID_SIDELINE, AVOID_HOLD, AVOID_SWITCH, AVOID_AIM_DIST, visionOf,
+  AVOID_SIGHT_MIN, AVOID_SIGHT_MAX, AVOID_FAN, AVOID_CONTACT, AVOID_CLOSE, AVOID_SIDELINE, AVOID_HOLD, AVOID_SWITCH, AVOID_AIM_DIST, visionOf,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS, engagedOn } from '../src/dots/blocking.js';
 import { hardCore, PACES } from '../src/dots/steering.js';
@@ -730,6 +730,15 @@ const past = (vision) => {
   e.ds = e.pl.filter((p) => p.team === 'defense');
   return e;
 };
+// True when a seen free defender (in sight, not behind him) is within AVOID_CLOSE of the RB.
+const seenClose = (play, rb) => {
+  const sight = AVOID_SIGHT_MIN + visionOf(rb) * (AVOID_SIGHT_MAX - AVOID_SIGHT_MIN);
+  return play.players.some((d) => {
+    if (d.team !== 'defense' || d.y < rb.y - 2 * BODY_RADIUS || engagedOn(play.players, d.id).length) return false;
+    const dist = Math.hypot(d.x - rb.x, d.y - rb.y);
+    return dist <= sight && dist < AVOID_CLOSE;
+  });
+};
 const place = (d, x, y) => { d.x = x; d.y = y; d.speed = d.speed || 7; };
 
 test('F-48 #5: a free defender ahead and to one side bends the aim to the other side', () => {
@@ -758,7 +767,7 @@ test('F-48 #5: over a run of ticks the aim is never toward a free defender ahead
     const ab = bearing(at, run.aim);
     const db = bearing(at, d);
     const dist = Math.hypot(d.x - at.x, d.y - at.y);
-    if (dist > AVOID_CONTACT) assert.ok(Math.abs(ab - db) > 0.05, `tick ${i}: aim bearing ${ab} at defender bearing ${db}`);
+    if (dist > AVOID_CLOSE) assert.ok(Math.abs(ab - db) > 0.05, `tick ${i}: aim bearing ${ab} at defender bearing ${db}`);
     checked++;
   }
   assert.ok(checked > 10);
@@ -849,10 +858,11 @@ test('F-48 #5/#9 play level: past the los every front gains ground and never aim
       if (!play.run.pastLos) continue;
       assert.ok(play.run.aim.y > rb.y, `${front} tick ${i}`);
       const ab = bearing(rb, play.run.aim);
+      if (seenClose(play, rb)) continue;
       for (const d of play.players) {
         if (d.team !== 'defense' || d.y <= rb.y || engagedOn(play.players, d.id).length) continue;
         const dist = Math.hypot(d.x - rb.x, d.y - rb.y);
-        if (dist > AVOID_SIGHT_MIN || dist <= AVOID_CONTACT) continue;
+        if (dist > AVOID_SIGHT_MIN || dist <= AVOID_CLOSE) continue;
         assert.ok(Math.abs(ab - bearing(rb, d)) > 0.02, `${front} tick ${i}: aim at ${d.id}`);
       }
     }
@@ -869,9 +879,13 @@ test('F-48 #11c: past the los the aim x reverses at most once in 0.5 s and a hea
       play.snap();
       const run = play.run;
       let px = null, lastSign = 0, lastRev = -Infinity, lastChange = -Infinity, prevAvoid = null, revs = 0;
+      const rbp = play.player(run.carrier);
       for (let i = 0; i < 300 && !play.result; i++) {
+        const before = run.avoid;
+        const closeBefore = run.pastLos && seenClose(play, rbp);
         play.step(DT);
         if (!run.pastLos) { px = null; continue; }
+        if (closeBefore) assert.equal(run.avoid, before, `${tag}: tick ${i} heading changed with a man inside AVOID_CLOSE`);
         if (px !== null) {
           const dx = run.aim.x - px;
           if (Math.abs(dx) > 0.01) {
@@ -897,4 +911,37 @@ test('F-48 #11c: past the los the aim x reverses at most once in 0.5 s and a hea
     }
   }
   console.log('F-48 #11c reversals: ' + report.join(' '));
+});
+
+test('F-48 #12 (a): a free defender inside AVOID_CLOSE and no held heading gives the vertical aim', () => {
+  for (const sgn of [1, -1]) {
+    const { pl, run, rb, ds } = past(1);
+    place(ds[0], rb.x + sgn * 0.4, rb.y + AVOID_CLOSE - 0.3);
+    go(pl, run);
+    assert.deepEqual(run.aim, { x: run.x + run.cut, y: GOAL_LINE_Y });
+    assert.equal(run.avoid, null);
+  }
+});
+
+test('F-48 #12 (b): a held cut is not changed or restarted while a man is inside AVOID_CLOSE', () => {
+  const { pl, run, rb, ds } = past(1);
+  place(ds[0], rb.x + 0.4, rb.y + 3);
+  ds[0].speed = 0.01;
+  go(pl, run);
+  assert.notEqual(run.avoid, null);
+  const held = run.avoid;
+  const line = { ...run.avoidLine };
+  for (let i = 0; i < Math.ceil((AVOID_HOLD + 0.2) * 60); i++) go(pl, run);
+  assert.equal(run.avoid, held);
+  // Move the man inside AVOID_CLOSE on the held line and park there.
+  const d = ds[0];
+  d.speed = 0.01;
+  for (let i = 0; i < 40; i++) {
+    d.x = rb.x + Math.sin(line.th) * 0.9;
+    d.y = rb.y + Math.cos(line.th) * 0.9;
+    go(pl, run);
+    assert.equal(run.avoid, held, `tick ${i}`);
+    assert.ok(run.aim.y > rb.y);
+    assert.ok(Math.abs(bearing(line, run.aim) - line.th) < 1e-6 || Math.abs(run.aim.x - (line.x + (run.aim.y - line.y) * Math.tan(line.th))) < 1e-6);
+  }
 });
