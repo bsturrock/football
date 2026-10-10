@@ -540,11 +540,7 @@ const combosClimb = (fronts) => {
 };
 
 test('F-41 #4: combos climb before the watch reaches the line', () => {
-  combosClimb(Object.keys(FRONTS).filter((f) => f !== 'base' && f !== 'bear'));
-});
-
-test('F-41 #4 (base and bear fronts): combos climb before the watch reaches the line', { todo: 'RG engages the MLB at 1.73 s with MLB y 25.61, backside combo climber (zone.js zoneSwitch, COMBO_HOLD) leaves after a Mike filling a B-gap run has reached the line. bear: owner RG reaches the sliding nose at 0.78 s, so climber C leaves at ~1.08 s and passes only when the RB stays in the A gap (R-62)' }, () => {
-  combosClimb(['base', 'bear']);
+  combosClimb(Object.keys(FRONTS));
 });
 
 // ---- F-32: smooth engage, engage clock, release ----
