@@ -41,3 +41,4 @@
 - 2026-10-10 F-42 Free movers drop a lane that a blocker is closing on his target (R-50) 3767bb9
 - 2026-10-10 F-43 DL pursue with the shared lead goal and lead their moving gap (R-48) 84b03d1
 - 2026-10-10 F-44 RB reads a free MLB's fill on the no-TE look; restore F-15 #8 (R-57) f37edc0
+- 2026-10-10 F-45 Inside zone: playside inside-shade covers, interior doubles, downhill footwork (R-60) b2d8545
