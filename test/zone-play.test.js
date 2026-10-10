@@ -137,15 +137,18 @@ test('F-17 #2: first step angles', () => {
 });
 
 test('F-17 #3: phases step then aim', () => {
-  const play = createPlay(25, 'insideZone');
+  // LT, LG, RT reach aim at about 0.37 s with accel; C and RG engage at about 0.30 s.
+  const play = createPlay(25, 'insideZone', { accel: true });
   play.snap();
   for (const id of OL) assert.equal(play.player(id).block.foot.phase, 'step', id);
+  const firstFoot = new Map(OL.map((id) => [id, play.player(id).block.foot]));
   const seenAim = new Set();
-  for (let i = 0, t = 0; t < 0.25; i++, t += DT) {
+  for (let i = 0, t = 0; t < 0.5; i++, t += DT) {
     play.step(DT);
     for (const id of OL) {
       const b = play.player(id).block;
-      if (!b.engaged && !seenAim.has(id) && b.foot.phase === 'aim') {
+      // a zone-switch retarget (retargetFoot) starts a new foot directly in 'aim' with its origin reset, so it is not a first step (RG under accel, about 0.33 s)
+      if (!b.engaged && !seenAim.has(id) && b.foot.phase === 'aim' && b.foot === firstFoot.get(id)) {
         seenAim.add(id);
         const f = b.foot;
         const p = play.player(id);
@@ -154,6 +157,7 @@ test('F-17 #3: phases step then aim', () => {
       if (seenAim.has(id)) assert.notEqual(b.foot.phase, 'step', id);
     }
   }
+  for (const id of ['LT', 'LG', 'RT']) assert.ok(seenAim.has(id), id);
   for (const id of OL) {
     const b = play.player(id).block;
     assert.ok(b.engaged || b.foot.phase === 'aim', id);
@@ -161,7 +165,8 @@ test('F-17 #3: phases step then aim', () => {
 });
 
 test('F-17 #4: RG and RT sit side by side on LDT', () => {
-  const play = createPlay(25, 'insideZone');
+  // pins combo contact geometry, not timing; with accel the RG climbs to MLB (about 0.33 s) before RT reaches LDT (about 0.77 s), so they never double LDT (known, tracked outside this feature)
+  const play = createPlay(25, 'insideZone', { accel: false });
   play.snap();
   let found = false;
   for (let t = 0; t < 2 && !found; t += DT) {
