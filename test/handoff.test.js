@@ -8,11 +8,12 @@ const DT = 1 / 60;
 const near = (a, b, m = '') => assert.ok(Math.abs(a - b) < 1e-9, `${m} ${a} !~ ${b}`);
 
 test('F-13 #4: QB hands the ball to the RB at the mesh point', () => {
-  const play = createPlay(25, 'insideZone');
+  const play = createPlay(25, 'insideZone', { accel: true });
   play.snap();
   let carriedAt = false;
   let t = 0;
-  while (t < 0.5 - 1e-9) {
+  // handoff measured about 0.6 s with accel
+  while (t < 1.0 - 1e-9) {
     play.step(DT);
     t += DT;
     const rb = play.player('RB');

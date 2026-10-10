@@ -7,6 +7,7 @@ import { numberPlay } from './numbering.js';
 import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
 import { readFront } from './front.js';
+import { ACCEL_TAU } from './steering.js';
 import { startDefense, stepDefense } from './defense.js';
 import {
   BODY_RADIUS,
@@ -32,7 +33,7 @@ export const LB_SHIFT_MAX = 6; // steps allowed each way
 // A scheme's plan returns {side, blocks, techs, combos, free, front}.
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = false } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = true } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const play = {
     los,
@@ -195,7 +196,10 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
     if (starts) {
       play.players.forEach((p, i) => {
-        p.v = Math.min(p.speed, Math.hypot(p.x - starts[i][0], p.y - starts[i][1]) / sdt);
+        // Inertia: speed may fall no faster than the ramp rises (ACCEL_TAU), so a
+        // substep clipped by contact does not ratchet the next cap down to a crawl.
+        const moved = Math.hypot(p.x - starts[i][0], p.y - starts[i][1]) / sdt;
+        p.v = Math.min(p.speed, Math.max(moved, p.v * Math.exp(-sdt / ACCEL_TAU)));
       });
     }
   };

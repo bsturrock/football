@@ -255,7 +255,7 @@ test('10. reset mid-play clears blocks, keeps rule, restarts seq', () => {
 
 for (const retarget of [undefined, null]) {
   test(`R-4: LG meets RDT at the line`, () => {
-    const play = createPlay(25);
+    const play = createPlay(25, 'base', { accel: true });
     if (retarget !== undefined) play.retargetRule = retarget;
     play.snap();
     let t = 0;
@@ -276,7 +276,8 @@ for (const retarget of [undefined, null]) {
         minDist = Math.min(minDist, Math.hypot(lg.x - rdt.x, lg.y - rdt.y));
       },
     });
-    assert.ok(engagedAt !== null && engagedAt <= 0.25 + EPS, `LG engaged at ${engagedAt}`);
+    // accel: LG engages at 0.283 s measured; 0.283 * 1.25 = 0.354, rounded up to 0.05 s
+    assert.ok(engagedAt !== null && engagedAt <= 0.4 + EPS, `LG engaged at ${engagedAt}`);
     assert.equal(lgTarget(play), 'RDT');
     assert.ok(rdtYAtEngage >= 25, `RDT y at engage ${rdtYAtEngage}`);
     assert.ok(allOlAt !== null && allOlAt <= 0.5 + EPS, `all OL engaged at ${allOlAt}`);
@@ -392,7 +393,8 @@ test('F10-9. deterministic', () => {
 });
 
 test('F10-10. null rule: LBs reach the QB', () => {
-  const play = started();
+  const play = createPlay(25, 'base', { accel: true });
+  play.snap();
   play.retargetRule = null;
   run(play, 5);
   const qb = play.player('QB');
@@ -403,10 +405,11 @@ test('F10-10. null rule: LBs reach the QB', () => {
 });
 
 test('F-15 #8: RB slips the lane', () => {
-  const play = createPlay(25, 'insideZone');
+  const play = createPlay(25, 'insideZone', { accel: true });
   play.snap();
   let crossed = false;
-  for (let t = 0; t < 1.5; t += DT) {
+  // accel: RB crosses GAP_DEPTH at 1.70 s measured; 1.70 * 1.25 = 2.125, rounded up to 0.05 s
+  for (let t = 0; t < 2.15; t += DT) {
     play.step(DT);
     const rb = play.player('RB');
     if (rb.y >= 25 + GAP_DEPTH) {
@@ -416,5 +419,5 @@ test('F-15 #8: RB slips the lane', () => {
       break;
     }
   }
-  assert.ok(crossed, 'RB crossed within 1.5 s');
+  assert.ok(crossed, 'RB crossed within 2.15 s');
 });
