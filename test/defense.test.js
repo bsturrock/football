@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS,
+  gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
   LB_READ_TIME, SHUFFLE, KEY_MOVE, FLOW_MAX, FILL_DEPTH, PENETRATE_DEPTH, PURSUE_REACH,
 } from '../src/dots/defense.js';
 import { readFront } from '../src/dots/front.js';
@@ -204,10 +204,7 @@ test('F-19 #9: committed holds only agents that left their start state', () => {
   for (const id of Object.keys(s.defense.committed)) {
     assert.ok(id in s.defense.agents, id);
     const e = s.defense.agents[id];
-    assert.notEqual(e.state, e.state === 'attack' || e.state === 'read' ? e.state : '', id);
-  }
-  for (const [id, e] of Object.entries(s.defense.agents)) {
-    if (e.state === (e.behavior === 'attack' ? 'attack' : 'read')) assert.ok(!(id in s.defense.committed), id);
+    assert.notEqual(e.state, BEHAVIORS[e.behavior].start, id);
   }
   assert.ok('MLB' in s.defense.committed);
 });
