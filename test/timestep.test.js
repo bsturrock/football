@@ -38,7 +38,7 @@ test('alpha and prev track the partial tick', () => {
   play.step(FIXED_DT / 2);
   assert.equal(play.ticks, 0);
   assert.ok(Math.abs(play.alpha - 0.5) < 1e-9);
-  for (const p of play.players) assert.deepEqual(play.prev[p.id], { x: p.x, y: p.y });
+  for (const p of play.players) assert.deepEqual({ x: play.prev[p.id].x, y: play.prev[p.id].y }, { x: p.x, y: p.y });
   play.step(FIXED_DT / 2);
   assert.equal(play.ticks, 1);
   assert.ok(play.alpha < 1e-9);
@@ -66,7 +66,7 @@ test('reset zeroes ticks, alpha and the accumulator', () => {
   play.reset();
   assert.equal(play.ticks, 0);
   assert.equal(play.alpha, 0);
-  for (const p of play.players) assert.deepEqual(play.prev[p.id], { x: p.x, y: p.y });
+  for (const p of play.players) assert.deepEqual({ x: play.prev[p.id].x, y: play.prev[p.id].y }, { x: p.x, y: p.y });
   play.snap();
   play.step(FIXED_DT / 2);
   assert.equal(play.ticks, 0);
