@@ -1,5 +1,5 @@
 // Dots play state: lineup positions and ball possession. Pure: no THREE, no DOM.
-// Ball phases: presnap -> snapping -> held -> carried (carried only on plays with a run).
+// Ball phases: presnap -> snapping -> held -> carried -> dead (carried and dead only on plays with a run).
 // Time advances only through step(dt); there are no timers or clocks here.
 
 import { FRONTS, PLAYS, buildLineup } from './roster.js';
@@ -8,6 +8,7 @@ import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
 import { readFront } from './front.js';
 import { ACCEL_TAU } from './steering.js';
+import { playEnd } from './tackle.js';
 import { startDefense, stepDefense } from './defense.js';
 import {
   BODY_RADIUS,
@@ -53,6 +54,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     run: null,
     defense: null,
     ticks: 0,
+    result: null,
     alpha: 0,
     prev: {},
   };
@@ -125,6 +127,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       to: null,
     });
     play.ticks = 0;
+    play.result = null;
     play.alpha = 0;
     acc = 0;
     snapshotPrev();
@@ -182,6 +185,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
 
   const advance = (sdt) => {
     const ball = play.ball;
+    if (ball.phase === 'dead') return;
     if (ball.phase === 'snapping') {
       ball.t += sdt / SNAP_DURATION;
       if (ball.t >= 1 - 1e-9) {
@@ -217,6 +221,20 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
         const moved = Math.hypot(p.x - starts[i][0], p.y - starts[i][1]) / sdt;
         p.v = Math.min(p.speed, Math.max(moved, p.v * Math.exp(-sdt / ACCEL_TAU)));
       });
+    }
+    if (ball.phase === 'carried') {
+      const end = playEnd(play.players, play.run.carrier);
+      if (end) {
+        const c = play.player(play.run.carrier);
+        ball.phase = 'dead';
+        play.result = {
+          reason: end.reason,
+          by: end.by,
+          spot: { x: c.x, y: c.y },
+          yards: c.y - los,
+          time: (play.ticks + 1) * FIXED_DT,
+        };
+      }
     }
   };
 
