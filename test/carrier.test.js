@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   gapWindows, gapCenter, gapOpen, readHole, pickGap, startRun, stepCarrier,
-  READS, MESH_AHEAD, HANDOFF_DIST, GAP_BACK, GAP_DEPTH, LOCK_DEPTH, RUN_DEPTH, READ_TIME,
+  READS, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, GAP_DEPTH, LOCK_DEPTH, RUN_DEPTH, READ_TIME,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { numberPlay } from '../src/dots/numbering.js';
@@ -99,6 +99,13 @@ test('F-13 stepCarrier: mesh is in front of the QB', () => {
   near(run.mesh.y, qb.y + MESH_AHEAD);
 });
 
+test('F-21 startRun: approach is the tangent point in front of the QB, inside HANDOFF_DIST of the mesh', () => {
+  const { run, qb } = setup();
+  near(Math.hypot(run.approach.x - qb.x, run.approach.y - qb.y), MESH_AHEAD);
+  assert.ok(run.approach.y > qb.y);
+  assert.ok(Math.hypot(run.approach.x - run.mesh.x, run.approach.y - run.mesh.y) <= HANDOFF_DIST);
+});
+
 test('F-13 stepCarrier: no handoff without the ball; then handoff reads A', () => {
   const { pl, numbers, run, rb } = setup();
   const dt = 1 / 60;
@@ -107,7 +114,17 @@ test('F-13 stepCarrier: no handoff without the ball; then handoff reads A', () =
   }
   assert.equal(run.carried, false);
   assert.ok(Math.hypot(rb.x - run.mesh.x, rb.y - run.mesh.y) <= HANDOFF_DIST);
-  assert.equal(stepCarrier(pl, run, { los: LOS, numbers, ballHeld: true, holdId: 'QB' }, dt), true);
+  const n = Math.ceil(SECURE_TIME / dt - 1e-9);
+  for (let i = 1; i <= n; i++) {
+    const r = stepCarrier(pl, run, { los: LOS, numbers, ballHeld: true, holdId: 'QB' }, dt);
+    if (i < n) {
+      assert.ok(run.heldTime < SECURE_TIME - 1e-9);
+      assert.equal(r, false);
+    } else {
+      assert.ok(run.heldTime >= SECURE_TIME - 1e-9);
+      assert.equal(r, true);
+    }
+  }
   assert.equal(run.carried, true);
   assert.equal(run.gap, 'A');
   const A = gapWindows(pl, numbers, -1).A;

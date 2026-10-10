@@ -66,8 +66,21 @@ export function pickGap(players, windows, los, idx) {
 
 export function startRun(players, runDef, { snapToId, playside, numbers }) {
   const q = players.find((p) => p.id === snapToId);
+  const rb = players.find((p) => p.id === runDef.carrier);
+  // Aim at the tangent point beside the QB's front shoulder, not through him (steering stalls on his contact circle).
+  let approach = { x: q.x, y: q.y + MESH_AHEAD };
+  const rx = rb.x - q.x;
+  const ry = rb.y - q.y;
+  const d = Math.hypot(rx, ry);
+  if (d > MESH_AHEAD) {
+    const th = Math.atan2(ry, rx);
+    const a = Math.acos(MESH_AHEAD / d);
+    const c = [th + a, th - a].map((t) => ({ x: q.x + MESH_AHEAD * Math.cos(t), y: q.y + MESH_AHEAD * Math.sin(t) }));
+    approach = c[0].y >= c[1].y ? c[0] : c[1];
+  }
   return {
     carrier: runDef.carrier,
+    approach,
     side: PLAYSIDE_SIGN[playside],
     mesh: { x: q.x, y: q.y + MESH_AHEAD },
     windows: gapWindows(players, numbers, PLAYSIDE_SIGN[playside]),
@@ -78,7 +91,7 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     heldTime: 0,
     readTime: 0,
     x: null,
-    aim: { x: q.x, y: q.y + MESH_AHEAD },
+    aim: { ...approach },
   };
 }
 
@@ -107,8 +120,8 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
   }
   let goal;
   if (!run.carried) {
-    run.aim = { ...run.mesh };
-    goal = { x: run.mesh.x, y: run.mesh.y, key: 'mesh', ignore: holdId };
+    run.aim = { ...run.approach };
+    goal = { x: run.approach.x, y: run.approach.y, key: 'mesh', ignore: holdId };
   } else if (!run.locked) {
     goal = { ...run.aim, key: 'hole:' + run.gap, ignore: null };
   } else {
