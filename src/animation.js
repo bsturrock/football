@@ -2,7 +2,7 @@ import { stepHz } from './blocking.js';
 import { setHint } from './hud.js';
 import { ballPos, canThrow, charge, throwArc, throwTarget } from './input.js';
 import { ARC_N, aimRing, arcGeo, arcLine, ballMesh, ctrlRing, blockGroup, landRing, routeGroup } from './markers.js';
-import { physBall, physOn, physRender, physJoint, physSocket } from './physics.js';
+import { ballArm, physBall, physOn, physRender, physJoint, physSocket } from './physics.js';
 import { PLAYS } from './playbook.js';
 import { OL_BACK, OL_SETBACK } from './formations.js';
 import { ALL, BODY_H, C, G, JOINTS, OL, QB, RB, bodyV } from './players.js';
@@ -52,7 +52,7 @@ function targetPose(p, sp){
   if(p === QB && S.charging){ T.twist = -0.7; T.shR = 2.6; T.elR = -1.4; T.shL = -1.3; T.elL = -0.3; }
   else if(p === QB && p.act === 'throw'){ T.twist = 0.5; T.lean = 0.45; T.shR = -1.7; T.elR = -0.2; T.shL = 0.3; }
   else if(holding && p === QB && !S.runMode) arms(-0.9, -0.9, -1.1);
-  else if(holding){ T.shR = -0.4 - 0.45*s*r; T.elR = -1.85 + 0.2*s*r; if(p.churn) T.lean = 0.55; }   // ball tucked high and tight, the arm still pumps; drive the legs when someone is hanging on
+  else if(holding){ if(ballArm(p) === 'R'){ T.shR = -0.4 - 0.45*s*r; T.elR = -1.85 + 0.2*s*r; } else { T.shL = -0.4 + 0.45*s*r; T.elL = -1.85 - 0.2*s*r; } if(p.churn) T.lean = 0.55; }   // B-093: the ball arm is p.ballArm (physics.js), outside   // ball tucked high and tight, the arm still pumps; drive the legs when someone is hanging on
   else if(ball.state === 'air' && ball.t > 0.5 && Math.hypot(ball.tx - p.x, ball.ty - p.y) < 3.5 && (p === ball.target || p.team === 'D')) arms(-2.7, -2.7, -0.2);
   else if(engaged(p)) engagedPose(T, p, s, cs);
   else if(p.fire > 0 && (p.role === 'OL' || p.role === 'DL' || p.pos === 'TE')){ arms(-1.3, -1.3, -0.5); T.lean = 0.95; T.drop = 0.3; }   // out of the stance: low and violent
@@ -211,7 +211,8 @@ function cutPose(T, p){
   const w = p.cuW || 0, pw = p.plW || 0; if(w < 0.01) return;
   const mix = (a, v, k) => (a ?? 0) + (v - (a ?? 0))*k;
   T.lean = mix(T.lean, 0.2 + CUT_LEAN, w); T.drop = mix(T.drop, CUT_DROP, w);
-  T.shL = mix(T.shL, CUT_ARM_L, w); T.shR = mix(T.shR, CUT_ARM_R, w); T.elL = mix(T.elL, -1.0, w); T.elR = mix(T.elR, -1.85, w);   // ball arm stays tucked
+  const bl = ball.state === 'held' && ball.holder === p && ballArm(p) === 'L';   // B-093: the ball arm tucks, the other arm swings
+  T.shL = mix(T.shL, bl ? CUT_ARM_R : CUT_ARM_L, w); T.shR = mix(T.shR, bl ? CUT_ARM_L : CUT_ARM_R, w); T.elL = mix(T.elL, bl ? -1.85 : -1.0, w); T.elR = mix(T.elR, bl ? -1.0 : -1.85, w);   // ball arm stays tucked
   if(pw < 0.01) return;
   const pl = p.cuDir > 0 ? 'L' : 'R', L = CUT_LEG*BODY_H, fwd = clamp((CUT_PLANT_AHEAD*BODY_H - (p.y - p.plY))/L, -0.9, 0.9), side = clamp(((p.x - p.plX)*p.cuDir)/L, 0, 0.6);   // forward travel since the plant (upfield is +y)
   T['hip' + pl] = mix(T['hip' + pl], -Math.asin(fwd), pw); T['knee' + pl] = mix(T['knee' + pl], CUT_PLANT_KNEE, pw);
@@ -424,7 +425,7 @@ export function syncScene(dt){
     if(c === QB && S.charging) ballMesh.position.copy(handPos(c, -0.5, 2.3, -0.35));
     else if(c === QB && !S.runMode) ballMesh.position.copy(handPos(c, 0, 1.5, 0.45));
     else if(c.ph) ballMesh.position.copy(physBall(c));
-    else ballMesh.position.copy(c.j.elR.localToWorld(tmpV.set(...bodyV([0, -0.28, 0.13]))));   // in the ball hand, moving with the arm
+    else ballMesh.position.copy(c.j['el' + ballArm(c)].localToWorld(tmpV.set(...bodyV([0, -0.28, 0.13]))));   // in the ball hand, moving with the arm
   }
   else if(ball.state === 'air'){
     const a = ballPos(Math.min(ball.t, 1)), b = ballPos(Math.min(ball.t + 0.02, 1.02));

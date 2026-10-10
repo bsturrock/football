@@ -155,7 +155,8 @@ function physReach(d){
 }
 function lockGrip(d, c, kind){
   const D = d.ph, C = c.ph;
-  const hands = kind === 'wrap' ? ['faL', 'faR'] : ['faL'];
+  const nearer = h => D.bodies[PI_[h]].position.distanceTo(C.bodies[0].position);
+  const hands = kind === 'wrap' ? ['faL', 'faR'] : [nearer('faL') <= nearer('faR') ? 'faL' : 'faR'];   // B-093: one arm = the hand nearer the runner (not always the left)
   for(const h of hands){
     const hb = D.bodies[PI_[h]], hw = hb.pointToWorldFrame(new CANNON.Vec3(0, HAND_Y, 0));
     let best = null, bd = 1e9;
@@ -205,7 +206,7 @@ function physMuscles(p, ph){
     // current and wanted orientation of the part relative to its parent
     pb.quaternion.conjugate(qc); qc.mult(cb.quaternion, qd);                       // qd = rel now
     rigQ(p, PARTS[PI_[d.p]].j, tq); rigQ(p, d.j, tq2); tq.invert().multiply(tq2);    // rel wanted (rig)
-    if(brace && BRACE_X[d.n] && !(ball.state === 'held' && ball.holder === p && d.n[2] === 'R')){ const sd = d.n.endsWith("L") ? 1 : -1, x = d.n[0] === "u" ? (fz > 0.1 ? BRACE.shBack : -BRACE.sh) : -BRACE.el; tq.setFromEuler(bEul.set(x, 0, d.n[0] === "u" ? sd*BRACE.out : 0)); }   // B-045
+    if(brace && BRACE_X[d.n] && !(ball.state === 'held' && ball.holder === p && d.n[2] === ballArm(p))){ const sd = d.n.endsWith("L") ? 1 : -1, x = d.n[0] === "u" ? (fz > 0.1 ? BRACE.shBack : -BRACE.sh) : -BRACE.el; tq.setFromEuler(bEul.set(x, 0, d.n[0] === "u" ? sd*BRACE.out : 0)); }   // B-045
     qe.set(tq.x, tq.y, tq.z, tq.w); qd.conjugate(qc); qe.mult(qc, qe);             // error = want * now^-1 (parent frame)
     rotVec(qe, rv);
     // joint limits: how far outside the human range (rotation vector vs the rig's rest pose), parent frame
@@ -306,6 +307,7 @@ function capTrim(){
 let phAcc = 0, phClock = 0;
 export function physStep(dt){
   if(!PW) return;
+  armUpdate();
   bubbleUpdate(dt); capTrim();
   for(const p of [...PHYS]){
     const ph = p.ph; ph.t += dt;
@@ -408,7 +410,18 @@ export const physPropped = p => !!p.ph && (p.ph.propFor || 0) >= PROP_T;
 export const physDownC = p => (physDown(p) || physPropped(p)) && physTouched(p);
 // pile.js drives a body through his legs for DRIVE_T s (vx, vy game yd/s; a = leg acceleration): a push is a wanted velocity, never a position
 export const physDrive = (p, vx, vy, a) => { if(p.ph) p.ph.drv = {vx, vy, a, until: phClock + DRIVE_T}; };
-export const physBall = p => { const v = p.ph.bodies[PI_.faR].pointToWorldFrame(new CANNON.Vec3(...bodyV([0, -0.08, 0.13]))); return tv.set(v.x, v.y, v.z); };
+// B-093: the ball rides the outside arm, the one toward the nearer sideline (facing upfield, +x is his right): 'R' for x > 0, 'L' for x < 0; inside ARM_DEAD yd of the middle he keeps the arm he has,
+// and at the handoff (no arm yet) takes the play side's, so a flipped play is the mirror image. Set once a step (physStep) for the ball holder; every other man's arm is cleared.
+const ARM_DEAD = 1;
+export const ballArm = p => p.ballArm || 'R';
+function armUpdate(){
+  const h = ball.state === 'held' ? ball.holder : null;
+  for(const p of ALL) if(p !== h) p.ballArm = undefined;
+  if(!h) return;
+  if(Math.abs(h.x) >= ARM_DEAD) h.ballArm = h.x > 0 ? 'R' : 'L';
+  else if(!h.ballArm) h.ballArm = (Math.sign(S.hole ?? 0) || -S.flip) > 0 ? 'R' : 'L';
+}
+export const physBall = p => { const v = p.ph.bodies[PI_['fa' + ballArm(p)]].pointToWorldFrame(new CANNON.Vec3(...bodyV([0, -0.08, 0.13]))); return tv.set(v.x, v.y, v.z); };
 function physMeshes(p){
   if(p.phM){ p.phM.forEach(m => m.visible = true); return p.phM; }
   const t = TEAM[p.team], skin = p.skin;
