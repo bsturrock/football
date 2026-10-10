@@ -8,7 +8,7 @@ import {
   contactSpot, canEngage, canRelease, assignBlocks, setBlock,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
-import { GAP_DEPTH } from '../src/dots/carrier.js';
+import { GAP_DEPTH, CLEAR_HOLD } from '../src/dots/carrier.js';
 import { A_GAP_HALF } from '../src/dots/numbering.js';
 
 const DT = 1 / 60;
@@ -419,45 +419,74 @@ test('F10-10. null rule: LBs reach the QB', () => {
   }
 });
 
-test('F-15 #8: RB slips the lane', { todo: 'with the line holding (F-41) the 5-on-7 no-TE box leaves the MLB free by count; he fills the A gap at the los and the RB slides around him: crossed 1.95 s, slip 2.37 yd (not a blocking defect)' }, () => {
-  // tackles off because the crossing is a running rule; a tackle before the crossing must not hide it.
-  // Pinned to the no-TE look; measured with the F-40 read (threat-aware lanes, clear hold, one bend)
-  // before F-41: no-TE 1.92 s, slip 0.30 yd. The cap is 1.25x that (2.4 s). Now the todo: the TE look is the
-  // one that passes (see F-40 #7 below); the no-TE look crossed 1.95 s, slip 2.37 yd because the free MLB
-  // fills the A gap.
-  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe' });
+// Human's test rule: "does this reflect real football", not "the running play was successful". Tackles off so a
+// tackle does not end the run being judged. Every bound derives from the engine constants.
+function judgeSlip(t, opts, { noTe }) {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, ...opts });
   play.snap();
-  let crossed = false;
-  for (let t = 0; t < 2.4; t += DT) {
+  const rbSpeed = play.player('RB').speed;
+  const stallMax = play.run.patience + CLEAR_HOLD;
+  const dts = play.players.filter((p) => p.team === 'defense' && p.role === 'DT');
+  const mlb = play.player('MLB');
+  const mlbY0 = mlb.y;
+  const mlbFree = noTe && !play.players.some((o) => o.block?.target === 'MLB');
+  const engagedEver = new Set();
+  const worst = { a: Infinity, b: 0 };
+  let stall = 0, prev = null, crossed = false, cross = null, atLos = null, atHandoff = null;
+  for (let time = 0; time < 2.5; time += DT) {
     play.step(DT);
     const rb = play.player('RB');
+    for (const dt of dts) {
+      const blockers = play.players.filter((o) => o.block?.target === dt.id);
+      if (blockers.some((o) => o.block.engaged)) engagedEver.add(dt.id);
+      if (blockers.length && !engagedEver.has(dt.id)) {
+        worst.a = Math.min(worst.a, dt.y);
+        assert.ok(dt.y >= 25 - CONTACT_DIST, `${dt.id} got off past the OL unengaged (y ${dt.y}) at ${time.toFixed(2)} s`);
+      }
+    }
+    if (play.run.carried) {
+      if (!atHandoff) atHandoff = { rbY: rb.y, d: Math.hypot(mlb.x - play.ballPosition().x, mlb.y - play.ballPosition().y) };
+      if (prev) {
+        const speed = Math.hypot(rb.x - prev.x, rb.y - prev.y) / DT;
+        stall = speed < rbSpeed / 4 ? stall + DT : 0;
+        worst.b = Math.max(worst.b, stall);
+        assert.ok(stall <= stallMax + DT, `RB stalled ${stall.toFixed(2)} s behind the line (max ${stallMax.toFixed(2)})`);
+      }
+      prev = { x: rb.x, y: rb.y };
+      if (!atLos && rb.y >= 25 - BODY_RADIUS) {
+        const b = play.ballPosition();
+        atLos = { mlbY: mlb.y, d: Math.hypot(mlb.x - b.x, mlb.y - b.y) };
+      }
+    }
     if (rb.y >= 25 + GAP_DEPTH) {
-      assert.ok(play.run.locked, `RB crossed unlocked (gap ${play.run.gap})`);
-      assert.ok(Math.abs(rb.x - play.run.x) <= A_GAP_HALF + BODY_RADIUS, `rb.x ${rb.x} run.x ${play.run.x}`);
+      cross = { locked: play.run.locked, gap: play.run.gap, slip: Math.abs(rb.x - play.run.x) };
       crossed = true;
       break;
     }
   }
-  assert.ok(crossed, 'RB crossed within 2.4 s');
+  t.diagnostic(`rule a min unengaged DT y ${worst.a} (floor ${25 - CONTACT_DIST}); rule b longest stall ${worst.b.toFixed(3)} s (max ${stallMax.toFixed(2)}); crossed ${crossed}`);
+  if (noTe) {
+    if (!mlbFree || !atLos || !atHandoff) {
+      t.diagnostic(`rule d skipped: MLB free ${mlbFree}, RB reached los area ${!!atLos}`);
+    } else {
+      t.diagnostic(`rule d MLB y ${mlbY0} -> ${atLos.mlbY}; ball dist ${atHandoff.d} -> ${atLos.d}`);
+      assert.ok(atLos.mlbY <= mlbY0, `free MLB dropped (y ${atLos.mlbY} from ${mlbY0})`);
+      assert.ok(atLos.d < atHandoff.d, `free MLB not closing on the ball (${atHandoff.d} -> ${atLos.d})`);
+    }
+  }
+  if (cross) {
+    t.diagnostic(`rule c locked ${cross.locked}, slip ${cross.slip}`);
+    assert.ok(cross.locked, `RB crossed unlocked (gap ${cross.gap})`);
+    assert.ok(cross.slip <= A_GAP_HALF + BODY_RADIUS, `RB crossed ${cross.slip} yd off his lane (max ${A_GAP_HALF + BODY_RADIUS})`);
+  }
+}
+
+test('F-15 #8: no-TE look: DTs do not beat the OL, the back does not stall, a free MLB fills downhill', { todo: 'rule c: the RB crosses locked but 2.50 yd off run.x (max A_GAP_HALF + BODY_RADIUS = 0.88); rules a, b, d pass' }, (t) => {
+  judgeSlip(t, { personnel: 'noTe' }, { noTe: true });
 });
 
-test('F-40 #7: RB slips the A-gap lane on the TE look', () => {
-  // tackles off because the crossing is a running rule. Attached TE (default personnel). Measured with F-41
-  // (leverage on the body line, follow before the lost check): commit 'clear', crosses at 1.58 s, slip 0.05 yd.
-  const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
-  play.snap();
-  let crossed = false;
-  for (let t = 0; t < 2.5; t += DT) {
-    play.step(DT);
-    const rb = play.player('RB');
-    if (rb.y >= 25 + GAP_DEPTH) {
-      assert.ok(play.run.locked, `RB crossed unlocked (gap ${play.run.gap})`);
-      assert.ok(Math.abs(rb.x - play.run.x) <= A_GAP_HALF + BODY_RADIUS, `rb.x ${rb.x} run.x ${play.run.x}`);
-      crossed = true;
-      break;
-    }
-  }
-  assert.ok(crossed, 'RB crossed within 2.5 s');
+test('F-40 #7: TE look: DTs do not beat the OL, the back does not stall, a crossing is committed in his lane', (t) => {
+  judgeSlip(t, {}, { noTe: false });
 });
 
 test('F-41 #1: leverage reads the blocker body line, not the ride-rotated push', () => {

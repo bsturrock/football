@@ -139,14 +139,14 @@ export const TRIGGERS = Object.freeze({
 });
 
 export const BEHAVIORS = Object.freeze({
-  pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'ball', speed: 1, exits: [] } } },
+  pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'pursue', speed: 1, exits: [] } } },
   attack: {
     start: 'attack',
     keys: ['olMove', 'mesh'],
     states: {
       attack: { goal: 'penetrate', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }, { when: 'recognized', to: 'fit' }] },
       fit: { goal: 'gapFit', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
-      pursue: { goal: 'ball', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
   contain: {

@@ -383,7 +383,12 @@ test('F-33 #4/#8: a shed blocker sends his DL to pursue from attack or fit', () 
   shed(a, aId);
   step(a);
   assert.equal(a.defense.agents[aId].state, 'pursue');
-  assert.equal(step(a)[aId], undefined);
+  const pa = step(a)[aId];
+  assert.ok(pa);
+  assert.equal(pa.key, 'def:pursue');
+  const ea = intercept(by(a.players, aId), a.ball, a.defense.ballV, by(a.players, aId).speed);
+  near(pa.x, ea.x);
+  near(pa.y, ea.y);
 
   const f = setup();
   const fId = dlOf(f);
@@ -391,7 +396,12 @@ test('F-33 #4/#8: a shed blocker sends his DL to pursue from attack or fit', () 
   shed(f, fId);
   step(f);
   assert.equal(f.defense.agents[fId].state, 'pursue');
-  assert.equal(step(f)[fId], undefined);
+  const pf = step(f)[fId];
+  assert.ok(pf);
+  assert.equal(pf.key, 'def:pursue');
+  const ef = intercept(by(f.players, fId), f.ball, f.defense.ballV, by(f.players, fId).speed);
+  near(pf.x, ef.x);
+  near(pf.y, ef.y);
 
   for (const released of ['lost', 'past']) {
     const u = setup();
@@ -574,4 +584,26 @@ test('F-38: edge pursues from read and squeeze on the listed triggers, else stay
   s.ball = { x: cx(s) + s.front.side * (PURSUE_REACH + 3), y: LOS - 3 };
   step(s, 0.01);
   assert.equal(edgeOf(s).state, 'squeeze', 'carried far');
+});
+
+test('F-43 #2: the get-off aim is the live gap middle, also while the gap moves', () => {
+  const s = setup();
+  const dlId = Object.keys(s.defense.agents).find((id) => s.defense.agents[id].behavior === 'attack');
+  const e = s.defense.agents[dlId];
+  const d = by(s.players, dlId);
+  const env = () => ({ players: s.players, defense: s.defense, run: s.run, ballPos: s.ball, los: LOS });
+  const mid = () => { const sp = gapSpan(s.players, s.defense, e.fit); return (sp.lo + sp.hi) / 2; };
+  s.defense.t = 1;
+  let g = GOALS.penetrate(d, e, env());
+  near(g.x, mid());
+  near(g.y, LOS - PENETRATE_DEPTH);
+  s.defense.t = 1.05;
+  g = GOALS.penetrate(d, e, env());
+  near(g.x, mid());
+  near(g.y, LOS - PENETRATE_DEPTH);
+  for (const { id } of s.defense.lineIds) by(s.players, id).x += 0.2;
+  s.defense.t = 1.1;
+  g = GOALS.penetrate(d, e, env());
+  near(g.x, mid());
+  near(g.y, LOS - PENETRATE_DEPTH);
 });
