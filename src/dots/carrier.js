@@ -42,6 +42,7 @@ export const PRESS_DEPTH = 3 * BODY_RADIUS; // press point depth behind the los;
 export const CLEAR_ROOM = 4 * BODY_RADIUS; // a picked open lane with this much room to every free defender is clear
 export const CLEAR_HOLD = 0.25; // s a lane must stay clear before it ends the patience (stays below the play's patience)
 export const PRESSURE_DIST = 8 * BODY_RADIUS; // an unblocked defender this close ends the patience
+export const BEND_MAX = 1; // times a committed RB may re-pick his lane while still behind the los (at most 2)
 export const CUT_ALLOW = BODY_RADIUS / 2; // after the commit, how far the aim x may move from run.x
 // The RB's pace per phase, as data.
 export const PHASE_PACE = Object.freeze({ press: PACES.press, commit: PACES.burst });
@@ -168,6 +169,7 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     pressTime: 0,
     clearTime: 0,
     clearLane: null,
+    bends: 0,
     cut: 0,
     press: null,
     commitBy: null,
@@ -238,6 +240,18 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
       const w = laneWindows(players, run.line, run.side).find((e) => e.side === run.lane.side && e.name === run.lane.name);
       const free = w && freeLane(players, w, rb.id, los);
       if (free && free.open) run.cut = clamp(free.x - run.x, -CUT_ALLOW, CUT_ALLOW);
+      else if (rb.y < los && (run.bends ?? 0) < BEND_MAX) {
+        // Committed lane closed before the line: bend once into the best open lane.
+        run.lanes = scoreLanes(players, run, rb, los);
+        const pick = run.lanes.length ? chooseLane(run.lanes, null) : null;
+        if (pick && pick.open && (pick.side !== run.lane.side || pick.name !== run.lane.name)) {
+          run.lane = { side: pick.side, name: pick.name };
+          run.gap = pick.name;
+          run.x = pick.x;
+          run.cut = 0;
+          run.bends = (run.bends ?? 0) + 1;
+        }
+      }
     }
     run.aim = { x: run.x + run.cut, y: GOAL_LINE_Y };
     goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null };
