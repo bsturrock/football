@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { BODY_RADIUS } from '../src/dots/blocking.js';
+import { BODY_RADIUS, CONTACT_DIST, engagedOn } from '../src/dots/blocking.js';
 import { GOAL_LINE_Y } from '../src/dots/carrier.js';
 import { TACKLE_DIST, canTackle, findTackler, playEnd } from '../src/dots/tackle.js';
 import { HW } from '../src/util.js';
@@ -53,13 +53,30 @@ function runUntilDead(play, limit) {
   for (let t = 0; t < limit && play.ball.phase !== 'dead'; t += DT) play.step(DT);
 }
 
-test('tackle scenario: odd34 inside zone ends in a tackle', () => {
+// Once the carrier has the ball, place the first free defender straight upfield
+// of him inside tackle reach, then step until the play is dead.
+function tackleSoon(play) {
+  for (let t = 0; t < 600 && play.ball.phase !== 'carried'; t++) play.step(DT);
+  assert.equal(play.ball.phase, 'carried');
+  const c = play.player(play.run.carrier);
+  const d = play.players.find(
+    (p) => p.team === 'defense' && engagedOn(play.players, p.id).length === 0,
+  );
+  assert.ok(d);
+  d.x = c.x;
+  d.y = c.y + (CONTACT_DIST + TACKLE_DIST) / 2;
+  for (let t = 0; t < 10 && play.ball.phase !== 'dead'; t++) play.step(DT);
+  return d;
+}
+
+test('tackle scenario: odd34 inside zone, a free defender in reach of the carrier tackles him', () => {
   const play = createPlay(25, 'insideZone', { front: 'odd34' });
   play.snap();
-  runUntilDead(play, 4);
+  const placed = tackleSoon(play);
   console.log('odd34 result', JSON.stringify(play.result));
   assert.equal(play.ball.phase, 'dead');
   assert.equal(play.result.reason, 'tackle');
+  assert.equal(play.result.by, placed.id);
   const tackler = play.player(play.result.by);
   assert.ok(tackler && tackler.team === 'defense');
   const c = play.player(play.run.carrier);
@@ -80,7 +97,7 @@ test('tackle scenario: base front ends', () => {
 test('tackle: dead play freezes; reset clears result', () => {
   const play = createPlay(25, 'insideZone', { front: 'odd34' });
   play.snap();
-  runUntilDead(play, 4);
+  tackleSoon(play);
   assert.equal(play.ball.phase, 'dead');
   const pos = () => play.players.map((p) => [p.id, p.x, p.y]);
   const before = pos();

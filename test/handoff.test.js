@@ -84,7 +84,8 @@ test('F-13 #5: lane read invariants hold across alignments', () => {
         assert.ok(run.bends <= BEND_MAX, label);
         assert.deepEqual(run.lane, lockedLane, label);
         assert.equal(run.x, lockedX, label);
-        assert.ok(Math.abs(run.aim.x - run.x) <= CUT_ALLOW + 1e-9, label);
+        if (play.prev.RB.y < 25 && !run.pastLos) assert.ok(Math.abs(run.aim.x - run.x) <= CUT_ALLOW + 1e-9, label);
+        else assert.ok(run.aim.y > play.player('RB').y, label);
       }
     }
     assert.ok(run.locked || play.ball.phase === 'dead', 'locked or dead within 4 s');

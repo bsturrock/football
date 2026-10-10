@@ -9,6 +9,9 @@
 //  - Stuck release judged progress against the ramp-capped maxStep, so a mover
 //    crawling at his own tiny cap never counted as stuck.
 //
+// F-25 #3 (T-163) judges measured net displacement on every front; the 2.4 s crossing cap was dropped because it
+// measured which way a pile breaks (outcome), not crawling.
+//
 // Fix. (1) steerStep judges stuck progress against the caller's uncapped maxStep.
 // (2) play.step gives p.v inertia: measured speed may fall no faster than
 // exp(-dt / ACCEL_TAU) per substep (the ramp's own time constant), so a clipped
@@ -18,7 +21,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
-import { CONTACT_DIST } from '../src/dots/blocking.js';
+import { CONTACT_DIST, engagedOn } from '../src/dots/blocking.js';
+import { FRONTS } from '../src/dots/roster.js';
 
 const DT = 1 / 60;
 
@@ -34,24 +38,40 @@ function stallTime(samples) {
 }
 
 test('F-25 #3: RB does not crawl in the hole with accel on', () => {
-  // tackles off because the hole speed is a running rule; a tackle before the crossing must not hide it.
-  // Pinned to the no-TE look; measured with the F-40 read: 1.92 s, the cap is 1.25x that (2.4 s).
-  // The TE look crosses at 3.68 s because of blocking (the TE timing target lives in the F-40 #7 todo test
-  // in test/play-blocking.test.js).
-  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe' });
-  play.snap();
-  const rb = play.player(play.run.carrier);
-  const slow = [];
-  let crossed = null;
-  for (let i = 1; i <= 600 && crossed === null; i++) {
-    play.step(DT);
-    // After the commit only: the press (F-35) is a deliberate slow read, not a stall.
-    if (play.ball.phase === 'carried' && play.run.locked) slow.push(rb.v < 1);
-    if (rb.y >= 25 + GAP_DEPTH) crossed = i * DT;
+  // Tackles off so a tackle before the hole cannot hide a crawl. Every front, both personnel.
+  // Net speed is displacement over 6 substeps (0.1 s), so back-and-forth jitter reads as slow.
+  // Window: committed and carried, ending at the hole (y >= los + GAP_DEPTH) or when a free defender is
+  // within contact (an unblocked defender is a tackle in the real game, not a crawl).
+  for (const front of Object.keys(FRONTS)) {
+    for (const personnel of ['noTe', 'te']) {
+      const tag = `front ${front}, personnel ${personnel}`;
+      const play = createPlay(25, 'insideZone', { accel: true, tackles: false, personnel, front });
+      play.snap();
+      const rb = play.player(play.run.carrier);
+      const hist = [];
+      const slow = [];
+      let peak = 0;
+      let ended = false;
+      for (let i = 1; i <= 600 && !ended; i++) {
+        play.step(DT);
+        hist.push({ x: rb.x, y: rb.y });
+        if (play.ball.phase === 'carried' && play.run.locked && hist.length > 6) {
+          const o = hist[hist.length - 7];
+          const v = Math.hypot(rb.x - o.x, rb.y - o.y) / (6 * DT);
+          slow.push(v < 1);
+          if (v > peak) peak = v;
+        }
+        const met = play.players.some((d) => d.team === 'defense'
+          && engagedOn(play.players, d.id).length === 0
+          && Math.hypot(d.x - rb.x, d.y - rb.y) <= CONTACT_DIST + 0.05);
+        if (rb.y >= 25 + GAP_DEPTH || met) ended = true;
+      }
+      assert.ok(ended, `${tag}: window did not end within 600 ticks`);
+      const stall = stallTime(slow);
+      assert.ok(stall <= 0.2, `${tag}: RB net speed < 1 yd/s for ${stall.toFixed(2)}s (want <= 0.2)`);
+      assert.ok(peak >= 0.85 * rb.speed, `${tag}: peak net speed ${peak.toFixed(2)} < ${(0.85 * rb.speed).toFixed(2)}`);
+    }
   }
-  const stall = stallTime(slow);
-  assert.ok(stall <= 0.5, `RB crawled (v < 1) for ${stall.toFixed(2)}s`);
-  assert.ok(crossed !== null && crossed <= 2.4, `RB reached y >= ${25 + GAP_DEPTH} at ${crossed}s (want <= 2.4)`);
 });
 
 test('F-25 #4: MLB and WLB reach the QB without wedging with accel on', () => {
