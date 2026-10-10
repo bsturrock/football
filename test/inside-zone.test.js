@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { PLAYS, buildLineup } from '../src/dots/roster.js';
+import { BASE_LB_IDS, IZ_NUMBERS } from './fixtures/base-front.js';
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} !~ ${b}`);
-const LB_IDS = ['MLB', 'WLB'];
+const LB_IDS = BASE_LB_IDS;
 const snap = (play) => play.players.map((p) => [p.id, p.x, p.y]);
 
 test('F-11 #4: PLAYS.insideZone shape; buildLineup lbShift moves only the LBs', () => {
@@ -65,21 +66,17 @@ test('F-11 #5: shiftDL and shiftLB are independent', () => {
 });
 
 test('F-11 #6: insideZone numbers; base numbers empty', () => {
-  assert.deepEqual(createPlay(25, 'insideZone').numbers, {
-    LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null,
-    LDE: -3, LDT: -1, RDT: 0, RDE: 2, MLB: -2, WLB: 1,
-  });
+  assert.deepEqual(createPlay(25, 'insideZone').numbers, IZ_NUMBERS.base);
   assert.deepEqual(createPlay(25).numbers, {});
 });
 
 test('F-11 #7: numbers follow LB and DL shifts; frozen after snap', () => {
-  const ol = { LT: 2, LG: 1, C: 0, RG: -1, RT: -2 };
   const a = createPlay(25, 'insideZone');
   for (let i = 0; i < 6; i++) a.shiftLB(-1);
-  assert.deepEqual(a.numbers, { ...ol, QB: null, RB: null, MLB: 0, RDT: 1, RDE: 2, WLB: 3, LDT: -1, LDE: -2 });
+  assert.deepEqual(a.numbers, IZ_NUMBERS.lbMinus6);
   const b = createPlay(25, 'insideZone');
   for (let i = 0; i < 4; i++) b.shiftDL(1);
-  assert.deepEqual(b.numbers, { ...ol, QB: null, RB: null, WLB: 0, RDE: 1, RDT: -1, MLB: -2, LDT: -3, LDE: -4 });
+  assert.deepEqual(b.numbers, IZ_NUMBERS.dlPlus4);
   const pre = structuredClone(b.numbers);
   b.snap();
   for (let i = 0; i < 4; i++) b.step(0.5);

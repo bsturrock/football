@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFront } from '../src/dots/front.js';
 import { runScheme } from '../src/dots/assign.js';
 import { frontPlayers, frontNumbers, LOS } from './fixtures/fronts.js';
+import { IZ_FREE } from './fixtures/base-front.js';
 
 const read = (name) => {
   const players = frontPlayers(name);
@@ -28,7 +29,7 @@ test('base with IZ', () => {
     RG: { tech: 'combo', shade: 'playside', watch: 'MLB' },
     RT: { tech: 'combo', shade: 'none', watch: 'MLB' },
   });
-  assert.deepEqual(r.free, ['LDE']);
+  assert.deepEqual(r.free, IZ_FREE.base);
 });
 
 test('overflow, walkedUp', () => {
@@ -61,7 +62,7 @@ test('climb at the playside end, dlPlus4', () => {
   assert.deepEqual(r.techs.RT, { tech: 'cutoff', shade: 'playside', watch: null });
   assert.equal(r.blocks.RG, 'RDT');
   assert.deepEqual(r.combos, [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }]);
-  assert.deepEqual(r.free, ['LDE']);
+  assert.deepEqual(r.free, IZ_FREE.dlPlus4);
 });
 
 test('at filtering and first-match order', () => {

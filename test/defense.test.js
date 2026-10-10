@@ -8,6 +8,7 @@ import { readFront } from '../src/dots/front.js';
 import { numberPlay } from '../src/dots/numbering.js';
 import { buildLineup } from '../src/dots/roster.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
+import { BASE_LB_IDS } from './fixtures/base-front.js';
 
 const LOS = 25;
 const by = (pl, id) => pl.find((p) => p.id === id);
@@ -24,9 +25,11 @@ const step = (s, dt = 0.05) => stepDefense(s.players, s.defense, { run: s.run, b
 
 test('F-19 #3: base call gives LBs agents in read, DL none', () => {
   const s = setup();
-  assert.deepEqual(Object.keys(s.defense.agents).sort(), ['MLB', 'WLB']);
-  assert.equal(s.defense.agents.MLB.state, 'read');
-  assert.equal(s.defense.agents.MLB.read, by(s.players, 'MLB').def.read);
+  assert.deepEqual(Object.keys(s.defense.agents).sort(), BASE_LB_IDS);
+  for (const id of BASE_LB_IDS) {
+    assert.equal(s.defense.agents[id].state, 'read', id);
+    assert.equal(s.defense.agents[id].read, by(s.players, id).def.read, id);
+  }
   const p2 = buildLineup(LOS, 'insideZone').map((p) => ({ ...p, def: null }));
   const n2 = numberPlay(p2, { los: LOS, centerId: 'C', playside: 'left' });
   const d2 = startDefense(p2, readFront(p2, n2, LOS), { los: LOS, carrierId: 'RB' });
