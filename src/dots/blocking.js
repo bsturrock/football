@@ -5,7 +5,9 @@ import { stepReact } from './react.js';
 import { startFoot, retargetFoot, footGoal, footPush } from './technique.js';
 
 export const BLOCKER_ROLES = ['OL'];
-export const BODY_RADIUS = 0.35; // 0.7 yd = 25 in diameter, about an NFL lineman's shoulder width
+// 0.56 yd = 20 in wide, the top of the 16-20 in shoulder range; area about 2.2 sq ft, between
+// the 1.5 sq ft crush minimum and the 2.5-3 sq ft comfortable footprint.
+export const BODY_RADIUS = 0.28;
 const H = hardCore(BODY_RADIUS); // hard contact distance; the soft zone is [H, 2 * BODY_RADIUS)
 // Fraction of soft-zone penetration relaxed per second of sim time.
 export const SOFT_RATE = 8;
