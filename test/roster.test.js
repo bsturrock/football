@@ -383,18 +383,33 @@ test('F-19 #2: base LB def.read per row', () => {
   assert.deepEqual(Object.keys(LB_READ).sort(), BASE_LB_IDS);
 });
 
-test('F-19 #2: every LB-role defender in every FRONTS entry has the base MLB def, except the other base LBs', () => {
-  const mlbDef = byId('MLB').def;
+test('F-34 #1: every defender in every FRONTS entry takes speed, strength and def from the nearest base row of his role', () => {
+  // Same rule as roleRating: smallest hypot distance, earlier POSITIONS row on a tie.
+  const nearestBase = (role, dx, dy) => {
+    let best = null;
+    let bestD = Infinity;
+    for (const p of POSITIONS) {
+      if (p.team !== 'defense' || p.role !== role) continue;
+      const dist = Math.hypot(p.dx - dx, p.dy - dy);
+      if (dist < bestD) { bestD = dist; best = p; }
+    }
+    return best;
+  };
   for (const [key, f] of Object.entries(FRONTS)) {
     for (const d of f.defenders) {
-      if (d.role !== 'LB') continue;
-      if (key === 'base' && d.id !== 'MLB') {
-        assert.deepEqual(d.def, byId(d.id).def, `base ${d.id}`);
-        continue;
-      }
-      assert.deepEqual(d.def, mlbDef, `${key} ${d.id}`);
+      const row = nearestBase(d.role, d.dx, d.dy);
+      assert.deepEqual(d.def, row.def, `${key} ${d.id} def`);
+      assert.equal(d.speed, row.speed, `${key} ${d.id} speed`);
+      assert.equal(d.strength, row.strength, `${key} ${d.id} strength`);
     }
   }
+});
+
+test('F-34 #1: odd34 LB reads follow the nearest base LB (PO, PI, BI, BO)', () => {
+  const reads = Object.fromEntries(
+    FRONTS.odd34.defenders.filter((d) => d.role === 'LB').map((d) => [d.id, d.def.read]),
+  );
+  assert.deepEqual(reads, { PO: 0.5, PI: 0.5, BI: 0.35, BO: 0.5 });
 });
 
 test('F-19 #2: every non-null def.read is in [0.3, 0.6]', () => {
