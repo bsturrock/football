@@ -7,10 +7,11 @@ import { GAP_NAMES, liveGaps } from './front.js';
 import { DL_ROLES, LB_ROLES } from './roster.js';
 
 export const LB_READ_TIME = 0.45; // s, fallback when a player has no def.read
-export const SHUFFLE = 0.3; // fraction of speed while reading
 export const KEY_MOVE = BODY_RADIUS; // yd a line player must move to count as an OL-movement key
 export const FLOW_MAX = 0.5; // s in flow before he must fill
-export const FILL_DEPTH = 3 * BODY_RADIUS; // yd past the los where he fills
+export const ZONE_DEPTH = 10; // yd past the los: the zone drop landmark depth (tunable)
+export const DROP_SPEED = 0.6; // fraction of speed while dropping, a backpedal (tunable)
+export const FILL_DEPTH = 3.5; // yd past the los where he fills: football depth (3-5 yd), not body geometry (tunable)
 export const PENETRATE_DEPTH = 4 * BODY_RADIUS; // yd behind the los the DL aims for
 export const PURSUE_REACH = 8 * BODY_RADIUS; // yd: a DL this close to the carried ball pursues
 
@@ -25,6 +26,15 @@ export function gapSpan(players, defense, fit) {
 
 const aimX = (env) => (env.run ? env.run.aim.x : env.ballPos.x);
 
+// The run aim x clamped into the fit gap's live span (shrunk by a body each side); null with no span.
+function laneX(env, fit) {
+  const span = gapSpan(env.players, env.defense, fit);
+  if (!span) return null;
+  const lo = span.lo + BODY_RADIUS;
+  const hi = span.hi - BODY_RADIUS;
+  return lo <= hi ? clamp(aimX(env), lo, hi) : (span.lo + span.hi) / 2;
+}
+
 export const KEYS = Object.freeze({
   olMove: (env) => env.defense.lineIds.some(({ id }) => {
     const p = env.players.find((q) => q.id === id);
@@ -32,33 +42,32 @@ export const KEYS = Object.freeze({
     return !!p && !!s && Math.hypot(p.x - s.x, p.y - s.y) >= KEY_MOVE;
   }),
   mesh: (env) => !!env.run?.carried,
+  // A line player moving forward or sideways from his snap spot, or engaged: the OL is run blocking.
+  runBlock: (env) => env.defense.lineIds.some(({ id }) => {
+    const p = env.players.find((q) => q.id === id);
+    const s = env.defense.line[id];
+    if (!p) return false;
+    if (p.block?.engaged) return true;
+    return !!s && p.y - s.y >= 0 && Math.hypot(p.x - s.x, p.y - s.y) >= KEY_MOVE;
+  }),
+  backfield: (env) => {
+    const rb = env.players.find((p) => p.id === env.defense.carrierId);
+    const r0 = env.defense.rb0;
+    return !!rb && !!r0 && Math.hypot(rb.x - r0.x, rb.y - r0.y) >= KEY_MOVE;
+  },
 });
 
 export const GOALS = Object.freeze({
-  mirror: (d, e, env) => {
-    const rb = env.players.find((p) => p.id === env.defense.carrierId);
-    return { x: e.x0 + (rb.x - env.defense.rb0.x), y: e.y0 };
-  },
-  flow: (d, e, env) => ({ x: aimX(env), y: e.y0 }),
-  fill: (d, e, env) => {
-    const span = gapSpan(env.players, env.defense, e.fit);
-    if (!span) return { x: aimX(env), y: env.los + FILL_DEPTH };
-    const lo = span.lo + BODY_RADIUS;
-    const hi = span.hi - BODY_RADIUS;
-    const x = lo <= hi ? clamp(aimX(env), lo, hi) : (span.lo + span.hi) / 2;
-    return { x, y: env.los + FILL_DEPTH };
-  },
+  drop: (d, e, env) => ({ x: e.x0, y: env.los + (e.assign?.depth ?? ZONE_DEPTH) }),
+  // Lateral at his start depth, never shallower than the fill depth (a drop is not undone toward the line).
+  flow: (d, e, env) => ({ x: laneX(env, e.fit) ?? aimX(env), y: Math.max(e.y0, env.los + FILL_DEPTH) }),
+  fill: (d, e, env) => ({ x: laneX(env, e.fit) ?? aimX(env), y: env.los + FILL_DEPTH }),
   penetrate: (d, e, env) => {
     const span = gapSpan(env.players, env.defense, e.fit);
     return { x: span ? (span.lo + span.hi) / 2 : e.x0, y: env.los - PENETRATE_DEPTH };
   },
   gapFit: (d, e, env) => {
-    const span = gapSpan(env.players, env.defense, e.fit);
-    const y = env.los - PENETRATE_DEPTH;
-    if (!span) return { x: e.x0, y };
-    const lo = span.lo + BODY_RADIUS;
-    const hi = span.hi - BODY_RADIUS;
-    return { x: lo <= hi ? clamp(aimX(env), lo, hi) : (span.lo + span.hi) / 2, y };
+    return { x: laneX(env, e.fit) ?? e.x0, y: env.los - PENETRATE_DEPTH };
   },
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
 });
@@ -87,13 +96,13 @@ export const BEHAVIORS = Object.freeze({
       pursue: { goal: 'ball', speed: 1, exits: [] },
     },
   },
-  readFlowFill: {
-    start: 'read',
-    keys: ['olMove', 'mesh'],
+  zone: {
+    start: 'drop',
+    keys: ['runBlock', 'mesh', 'backfield'],
     states: {
-      read: { goal: 'mirror', speed: SHUFFLE, exits: [{ when: 'recognized', to: 'flow' }] },
-      flow: { goal: 'flow', speed: 1, exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'committed', to: 'fill' }] },
-      fill: { goal: 'fill', speed: 1, exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'atFill', to: 'pursue' }] },
+      drop: { goal: 'drop', speed: DROP_SPEED, exits: [{ when: 'recognized', to: 'flow' }] },
+      flow: { goal: 'flow', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committed', to: 'fill' }] },
+      fill: { goal: 'fill', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'atFill', to: 'pursue' }] },
       pursue: { goal: 'ball', speed: 1, exits: [] },
     },
   },
@@ -107,7 +116,7 @@ export const CALLS = Object.freeze({
     name: 'Base',
     rows: Object.freeze([
       Object.freeze({ who: 'dl', type: 'attack', gap: 'fit' }),
-      Object.freeze({ who: 'lb', type: 'readFlowFill' }),
+      Object.freeze({ who: 'lb', type: 'zone', depth: ZONE_DEPTH }),
     ]),
   }),
 });
@@ -121,7 +130,7 @@ export const WHO = Object.freeze({
 // assignment type -> behaviour name
 export const ASSIGNMENTS = Object.freeze({
   attack: Object.freeze({ behavior: 'attack' }),
-  readFlowFill: Object.freeze({ behavior: 'readFlowFill' }),
+  zone: Object.freeze({ behavior: 'zone' }),
 });
 
 export function validateBehavior(name, behaviors = BEHAVIORS) {
@@ -186,8 +195,9 @@ export function startDefense(players, front, { los, call = 'base', carrierId } =
   for (const f of front.defenders) {
     const d = players.find((p) => p.id === f.id);
     if (!d) continue;
-    const assign = d.def?.assign ?? pickAssign(table.rows, d, f);
+    let assign = d.def?.assign ?? pickAssign(table.rows, d, f);
     if (assign && !Object.hasOwn(ASSIGNMENTS, assign.type)) throw new Error(`defense: unknown type "${assign.type}"`);
+    if (assign?.type === 'zone' && assign.depth === undefined) assign = { ...assign, depth: ZONE_DEPTH };
     const name = d.def?.behavior ?? (assign ? ASSIGNMENTS[assign.type].behavior : null);
     if (!name) continue;
     if (!checked.has(name)) { validateBehavior(name); checked.add(name); }

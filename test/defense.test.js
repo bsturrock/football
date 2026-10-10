@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
-  LB_READ_TIME, SHUFFLE, KEY_MOVE, FLOW_MAX, FILL_DEPTH, PENETRATE_DEPTH, PURSUE_REACH,
+  LB_READ_TIME, KEY_MOVE, FLOW_MAX, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH,
 } from '../src/dots/defense.js';
 import { readFront } from '../src/dots/front.js';
 import { numberPlay } from '../src/dots/numbering.js';
@@ -24,7 +24,7 @@ const setup = (opts = {}) => {
 };
 const step = (s, dt = 0.05) => stepDefense(s.players, s.defense, { run: s.run, ballPos: s.ball }, dt);
 
-test('F-33: base call gives every DL an attack agent, LBs readFlowFill in read', () => {
+test('F-33/F-34: base call gives every DL an attack agent, LBs a zone agent in drop', () => {
   for (const name of FRONT_NAMES) {
     const pl = frontPlayers(name).map((p) => ({ ...p }));
     const fr = readFront(pl, frontNumbers(pl), LOS);
@@ -36,13 +36,16 @@ test('F-33: base call gives every DL an attack agent, LBs readFlowFill in read',
         assert.equal(df.agents[p.id].assign.gap, 'fit');
         assert.deepEqual(df.agents[p.id].fit, fr.defenders.find((f) => f.id === p.id).fit);
       } else if (p.role === 'LB') {
-        assert.equal(df.agents[p.id].behavior, 'readFlowFill', `${name} ${p.id}`);
+        assert.equal(df.agents[p.id].behavior, 'zone', `${name} ${p.id}`);
+        assert.equal(df.agents[p.id].assign.type, 'zone');
+        assert.equal(df.agents[p.id].assign.depth, ZONE_DEPTH);
+        assert.equal(df.agents[p.id].state, 'drop');
       }
     }
   }
   const s = setup();
   for (const id of BASE_LB_IDS) {
-    assert.equal(s.defense.agents[id].state, 'read', id);
+    assert.equal(s.defense.agents[id].state, 'drop', id);
     assert.equal(s.defense.agents[id].read, by(s.players, id).def.read, id);
   }
   const p2 = buildLineup(LOS, 'insideZone').map((p) => ({ ...p, def: null }));
@@ -52,43 +55,67 @@ test('F-33: base call gives every DL an attack agent, LBs readFlowFill in read',
   assert.ok(Object.isFrozen(CALLS.base));
 });
 
-test('F-19 #3: read mirrors RB, shuffles, waits for a key', () => {
+test('F-34 #2: zone drop goal is x0 at los + depth, at DROP_SPEED; def.assign depth replaces the default', () => {
   const s = setup();
   const mlb = by(s.players, 'MLB');
-  by(s.players, 'RB').x += 0.7;
-  let out = step(s);
-  near(out.MLB.x, mlb.x + 0.7);
-  near(out.MLB.y, mlb.y);
-  near(out.MLB.rate, SHUFFLE * mlb.speed);
-  assert.equal(out.MLB.key, 'def:read');
-  step(s, 1);
-  assert.equal(s.defense.agents.MLB.state, 'read');
-  by(s.players, 'LG').x += KEY_MOVE;
-  step(s);
-  assert.equal(s.defense.agents.MLB.state, 'flow');
+  const out = step(s);
+  near(out.MLB.x, mlb.x);
+  near(out.MLB.y, LOS + ZONE_DEPTH);
+  near(out.MLB.rate, DROP_SPEED * mlb.speed);
+  assert.equal(out.MLB.key, 'def:drop');
+  const t = setup();
+  by(t.players, 'MLB').def = { ...by(t.players, 'MLB').def, assign: { type: 'zone', depth: 6 } };
+  const d6 = startDefense(t.players, t.front, { los: LOS, carrierId: 'RB' });
+  assert.equal(d6.agents.MLB.assign.depth, 6);
+  near(stepDefense(t.players, d6, { run: t.run, ballPos: t.ball }, 0.01).MLB.y, LOS + 6);
+  const u = setup();
+  by(u.players, 'MLB').def = { ...by(u.players, 'MLB').def, assign: { type: 'zone' } };
+  const d0 = startDefense(u.players, u.front, { los: LOS, carrierId: 'RB' });
+  assert.equal(d0.agents.MLB.assign.depth, ZONE_DEPTH);
 });
 
-test('F-19 #3: read holds before def.read even with keys; carried triggers flow after', () => {
+test('F-34 #3: runBlock, mesh and backfield each move drop to flow after read and not before', () => {
+  const keys = {
+    runBlock: (s) => { by(s.players, 'LG').y += KEY_MOVE; },
+    mesh: (s) => { s.run.carried = true; },
+    backfield: (s) => { by(s.players, 'RB').x += KEY_MOVE; },
+  };
+  for (const [k, fire] of Object.entries(keys)) {
+    const s = setup();
+    fire(s);
+    step(s, 0.1);
+    assert.equal(s.defense.agents.MLB.state, 'drop', `${k} before read`);
+    step(s, 0.5);
+    assert.equal(s.defense.agents.MLB.state, 'flow', `${k} after read`);
+  }
   const s = setup();
-  s.run.carried = true;
-  step(s, 0.1);
-  assert.equal(s.defense.agents.MLB.state, 'read');
-  step(s, 0.5);
-  assert.equal(s.defense.agents.MLB.state, 'flow');
-  assert.equal(s.defense.agents.WLB.state, 'flow');
+  step(s, 1);
+  assert.equal(s.defense.agents.MLB.state, 'drop', 'no key');
+  const back = setup();
+  by(back.players, 'LG').y -= 2 * KEY_MOVE;
+  step(back, 1);
+  assert.equal(back.defense.agents.MLB.state, 'drop', 'backward OL');
+  const eng = setup();
+  by(eng.players, 'LG').block = { target: 'LDT', engaged: true, released: null, seq: null, angle: 'straight' };
+  step(eng, 1);
+  assert.equal(eng.defense.agents.MLB.state, 'flow', 'engaged OL');
 });
 
-test('F-19 #3: flow goal, carrierPast beats committed, locked and FLOW_MAX fill', () => {
+test('F-34: flow and fill share the lane x; fill at FILL_DEPTH; carrierPast, locked and FLOW_MAX', () => {
+  assert.ok(FILL_DEPTH >= 3 && FILL_DEPTH <= 5);
   const s = setup();
   s.run.carried = true;
   step(s, 1);
-  const mlb = by(s.players, 'MLB');
-  const out = step(s, 0.01);
-  near(out.MLB.x, s.run.aim.x);
-  near(out.MLB.y, mlb.y);
+  const flow = step(s, 0.01);
+  assert.equal(s.defense.agents.MLB.state, 'flow');
   s.run.locked = true;
   step(s, 0.01);
   assert.equal(s.defense.agents.MLB.state, 'fill');
+  const fill = step(s, 0.01);
+  near(flow.MLB.x, fill.MLB.x);
+  near(fill.MLB.y, LOS + FILL_DEPTH);
+  const span = gapSpan(s.players, s.defense, s.defense.agents.MLB.fit);
+  assert.ok(fill.MLB.x >= span.lo + BODY_RADIUS - 1e-9 && fill.MLB.x <= span.hi - BODY_RADIUS + 1e-9);
 
   const t = setup();
   t.run.carried = true;
@@ -105,16 +132,13 @@ test('F-19 #3: flow goal, carrierPast beats committed, locked and FLOW_MAX fill'
   assert.equal(u.defense.agents.MLB.state, 'pursue');
 });
 
-test('F-19 #3: fill goal inside gap span, atFill and carrierPast go to pursue', () => {
+test('F-34: atFill goes to pursue; carrierPast from fill', () => {
   const s = setup();
   s.run.carried = true;
   s.run.locked = true;
   step(s, 1);
   const out = step(s, 0.01);
   assert.equal(s.defense.agents.MLB.state, 'fill');
-  const span = gapSpan(s.players, s.defense, s.defense.agents.MLB.fit);
-  assert.ok(out.MLB.x >= span.lo + BODY_RADIUS - 1e-9 && out.MLB.x <= span.hi - BODY_RADIUS + 1e-9);
-  near(out.MLB.y, LOS + FILL_DEPTH);
   const mlb = by(s.players, 'MLB');
   mlb.x = out.MLB.x;
   mlb.y = out.MLB.y;
@@ -130,6 +154,23 @@ test('F-19 #3: fill goal inside gap span, atFill and carrierPast go to pursue', 
   t.ball = { x: 0, y: LOS + 1 };
   step(t, 0.01);
   assert.equal(t.defense.agents.WLB.state, 'pursue');
+});
+
+test('F-34: a shed blocker sends an LB in flow or fill to pursue, not in drop', () => {
+  const shed = (s) => { by(s.players, 'LG').block = { target: 'MLB', engaged: false, released: 'shed', seq: null, angle: 'straight' }; };
+  const d = setup();
+  shed(d);
+  step(d);
+  assert.equal(d.defense.agents.MLB.state, 'drop');
+  assert.ok(!(('MLB') in d.defense.committed));
+  for (const st of ['flow', 'fill']) {
+    const s = setup();
+    s.defense.agents.MLB.state = st;
+    shed(s);
+    step(s);
+    assert.equal(s.defense.agents.MLB.state, 'pursue', st);
+    assert.equal(step(s).MLB, undefined);
+  }
 });
 
 test('F-19 #3: gapSpan on the base lineup', () => {
@@ -163,19 +204,21 @@ test('F-19 #9: fresh startDefense has empty committed', () => {
   assert.deepEqual(s.defense.committed, {});
 });
 
-test('F-19 #9: committed records the lateral spot and time a LB leaves read', () => {
+test('F-19 #9: committed records the lane x and time a LB leaves drop', () => {
   const s = setup();
   s.run.carried = true;
   step(s, 0.1);
-  assert.equal(s.defense.agents.MLB.state, 'read');
+  assert.equal(s.defense.agents.MLB.state, 'drop');
   assert.ok(!('MLB' in s.defense.committed));
   step(s, 0.5);
   assert.equal(s.defense.agents.MLB.state, 'flow');
   assert.equal(s.defense.agents.WLB.state, 'flow');
-  near(s.defense.committed.MLB.x, s.run.aim.x);
+  const env = { players: s.players, defense: s.defense, run: s.run, ballPos: s.ball, los: LOS };
+  near(s.defense.committed.MLB.x, GOALS.flow(null, s.defense.agents.MLB, env).x);
   near(s.defense.committed.MLB.t, s.defense.t);
-  near(s.defense.committed.WLB.x, s.run.aim.x);
+  near(s.defense.committed.WLB.x, GOALS.flow(null, s.defense.agents.WLB, env).x);
   near(s.defense.committed.WLB.t, s.defense.t);
+  assert.ok(Math.abs(s.defense.committed.MLB.x - s.defense.committed.WLB.x) > 0);
 });
 
 test('F-19 #9: committed entry never changes once set', () => {
@@ -185,6 +228,8 @@ test('F-19 #9: committed entry never changes once set', () => {
   step(s, 0.5);
   const first = { ...s.defense.committed.MLB };
   s.run.aim.x = first.x + 5;
+  step(s);
+  s.run.aim.x = first.x - 5;
   step(s);
   s.run.locked = true;
   step(s);
@@ -214,13 +259,13 @@ test('F-33: row order decides, first match wins; no row -> no agent', () => {
   const f = s.front.defenders.find((x) => x.id === 'LDE');
   const lde = by(s.players, 'LDE');
   const mlb = by(s.players, 'MLB');
-  const rows = [{ who: 'lb', type: 'attack' }, { who: 'lb', type: 'readFlowFill' }, { who: 'dl', type: 'readFlowFill' }];
+  const rows = [{ who: 'lb', type: 'attack' }, { who: 'lb', type: 'zone' }, { who: 'dl', type: 'zone' }];
   assert.deepEqual(pickAssign(rows, mlb, f), { type: 'attack' });
-  assert.deepEqual(pickAssign(rows, lde, f), { type: 'readFlowFill' });
+  assert.deepEqual(pickAssign(rows, lde, f), { type: 'zone' });
   assert.equal(pickAssign([{ who: 'dl', type: 'attack' }], mlb, f), null);
   assert.ok(WHO.dl(lde, f) && !WHO.lb(lde, f));
   const base = startDefense(s.players, s.front, { los: LOS, carrierId: 'RB' });
-  assert.equal(base.agents.MLB.behavior, 'readFlowFill');
+  assert.equal(base.agents.MLB.behavior, 'zone');
   assert.equal(base.agents.LDE.behavior, 'attack');
   assert.ok(!('QB' in base.agents) && !('RB' in base.agents));
 });
@@ -235,9 +280,9 @@ test('F-33: def.assign overrides the row; explicit gap moves the penetrate goal'
   const out = stepDefense(s.players, d, { run: s.run, ballPos: s.ball }, 0.01);
   near(out.LDE.x, (span.lo + span.hi) / 2);
   near(out.LDE.y, LOS - PENETRATE_DEPTH);
-  by(s.players, 'LDT').def = { assign: { type: 'readFlowFill' } };
+  by(s.players, 'LDT').def = { assign: { type: 'zone' } };
   const d2 = startDefense(s.players, s.front, { los: LOS, carrierId: 'RB' });
-  assert.equal(d2.agents.LDT.behavior, 'readFlowFill');
+  assert.equal(d2.agents.LDT.behavior, 'zone');
 });
 
 test('F-33: validateCall and startDefense throw on unknown who/type', () => {
@@ -249,7 +294,7 @@ test('F-33: validateCall and startDefense throw on unknown who/type', () => {
   const s = setup();
   by(s.players, 'LDE').def = { assign: { type: 'tt' } };
   assert.throws(() => startDefense(s.players, s.front, { los: LOS, carrierId: 'RB' }), /tt/);
-  assert.deepEqual(Object.keys(ASSIGNMENTS).sort(), ['attack', 'readFlowFill']);
+  assert.deepEqual(Object.keys(ASSIGNMENTS).sort(), ['attack', 'zone']);
 });
 
 test('F-33: penetrate and gapFit goals', () => {

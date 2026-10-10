@@ -5,7 +5,7 @@ import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
-import { gapSpan, GOALS } from '../src/dots/defense.js';
+import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
 import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
@@ -279,7 +279,7 @@ test('F-17 #9: watch ids', () => {
   assert.equal(play.player('C').block.foot.watch, null);
 });
 
-const ORDER = ['read', 'flow', 'fill', 'pursue'];
+const ORDER = ['drop', 'flow', 'fill', 'pursue'];
 const lbs = (play) => play.players.filter((p) => p.role === 'LB');
 
 test('F-19 #6: defense is null until an insideZone snap; LBs and linemen have agents', () => {
@@ -325,31 +325,27 @@ test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off 
   }
 });
 
-test('F-19 #4: LBs hold depth while reading, mirror the RB, and stay upfield of the snap line until pursue', () => {
+test('F-19 #4: a dropping LB never moves toward the LOS, and stays upfield of the snap line until pursue', () => {
   for (const k of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front: k });
     play.snap();
-    const rb = play.player(play.run.carrier);
-    const rbx0 = rb.x;
+    const prevY = {};
     for (let i = 0; i < 180; i++) {
       play.step(DT);
       for (const lb of lbs(play)) {
         const e = play.defense.agents[lb.id];
-        if (play.defense.t < e.read && e.state === 'read') {
-          assert.ok(lb.y >= e.y0 - BODY_RADIUS - 1e-9, `${k} ${lb.id} depth`);
-          const dx = rb.x - rbx0;
-          if (Math.abs(dx) > BODY_RADIUS && !lb.block?.engaged) {
-            const lx = lb.x - e.x0;
-            assert.ok(lx === 0 || Math.sign(lx) === Math.sign(dx), `${k} ${lb.id} mirror`);
-          }
+        if (e.state === 'drop' && play.blockersOf(lb.id).length === 0 && lb.id in prevY) {
+          assert.ok(lb.y >= prevY[lb.id] - 1e-9, `${k} ${lb.id} drop y ${lb.y} < ${prevY[lb.id]}`);
         }
+        prevY[lb.id] = e.state === 'drop' && play.blockersOf(lb.id).length === 0 ? lb.y : undefined;
+        if (prevY[lb.id] === undefined) delete prevY[lb.id];
         if (e.state !== 'pursue') assert.ok(lb.y > 25, `${k} ${lb.id} y ${lb.y}`);
       }
     }
   }
 });
 
-test('F-19 #5: LB states run read, flow, fill, pursue in order; fill goal lies in his gap', () => {
+test('F-19 #5: LB states run drop, flow, fill, pursue in order; fill goal lies in his lane', () => {
   for (const k of Object.keys(FRONTS)) {
     // tackles off: this test watches AI behavior past the point a tackle would end the play.
     const play = createPlay(25, 'insideZone', { front: k, tackles: false });
@@ -370,7 +366,7 @@ test('F-19 #5: LB states run read, flow, fill, pursue in order; fill goal lies i
       }
     }
     for (const [id, q] of Object.entries(seq)) {
-      assert.equal(q[0], 'read', `${k} ${id}`);
+      assert.equal(q[0], 'drop', `${k} ${id}`);
       // on walkedUp the RB stalls behind the doubled DL, so the SAM stays in 'fill'; the RB stall is owned by
       // F-35 (lane read / patience), which restores this check (see .work/maps/F-35-refresh-notes.md).
       if (k !== 'walkedUp') assert.equal(q[q.length - 1], 'pursue', `${k} ${id} ${q}`);
@@ -378,6 +374,39 @@ test('F-19 #5: LB states run read, flow, fill, pursue in order; fill goal lies i
       for (let i = 1; i < idx.length; i++) assert.ok(idx[i] > idx[i - 1], `${k} ${id} ${q}`);
     }
     assert.ok(play.run.carried, `${k} handoff`);
+  }
+});
+
+test('F-34 #4: every front, each LB commits to his own lane: committed x differ by 2 body radii', () => {
+  for (const k of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front: k });
+    play.snap();
+    const ids = lbs(play).map((lb) => lb.id);
+    for (let i = 0; i < 120 && play.ball.phase !== 'dead' && !ids.every((id) => play.defense.committed[id]); i++) play.step(DT);
+    for (const id of ids) assert.ok(play.defense.committed[id], `${k} ${id} committed`);
+    for (let a = 0; a < ids.length; a++) {
+      for (let b = a + 1; b < ids.length; b++) {
+        const dx = Math.abs(play.defense.committed[ids[a]].x - play.defense.committed[ids[b]].x);
+        assert.ok(dx >= 2 * BODY_RADIUS - 1e-9, `${k} ${ids[a]}/${ids[b]} lanes ${dx}`);
+      }
+    }
+  }
+});
+
+test('F-34 #5: every front, an unengaged LB in drop, flow or fill stays out of the line', () => {
+  for (const k of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front: k, tackles: false });
+    play.snap();
+    for (let i = 0; i < 180; i++) {
+      play.step(DT);
+      for (const lb of lbs(play)) {
+        const e = play.defense.agents[lb.id];
+        if (!['drop', 'flow', 'fill'].includes(e.state) || play.blockersOf(lb.id).length > 0) continue;
+        // A stand-up edge LB can line up shallower than the bound (odd34 PO at 1 yd): he must not go shallower than he started.
+        const bound = Math.min(FILL_DEPTH - BODY_RADIUS, e.y0 - 25 - 0.05);
+        assert.ok(lb.y - 25 >= bound, `${k} ${lb.id} ${e.state} depth ${lb.y - 25} at ${i}`);
+      }
+    }
   }
 });
 
