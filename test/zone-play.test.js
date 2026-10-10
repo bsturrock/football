@@ -85,11 +85,8 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   const RG = p2.player('RG');
   const RT = p2.player('RT');
   const lb = p2.player(W);
-  // The stayer must hold the DL first. On this front RT engages too late to hold before the play ends,
-  // so give him the hold directly once RG is on the DL; this test is about the range rule, not the timing.
   for (let i = 0; i < 240 && !RG.block.engaged; i++) p2.step(DT);
   assert.equal(RG.block.target, 'LDT');
-  Object.assign(RT.block, { engaged: true, held: COMBO_HOLD });
   // A spot from current positions: inside SWITCH_DIST of RG, laterally nearer RG than RT, clear of every other body.
   let spot = null;
   for (let dy = 0.4; dy < SWITCH_DIST && !spot; dy += 0.1) {
@@ -104,6 +101,10 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   }
   assert.ok(spot, 'a clear spot');
   Object.assign(lb, spot);
+  // The range trigger only applies while the watched LB has not committed (a commit takes precedence).
+  assert.ok(!p2.defense.committed?.[W], 'watched LB has not committed');
+  // Fixture for the gate precondition: RT cannot hold LDT naturally before the play dies on this lineup.
+  Object.assign(RT.block, { engaged: true, held: COMBO_HOLD });
   p2.step(DT);
   assert.equal(RG.block.target, W);
   assert.equal(RT.block.target, 'LDT');
@@ -381,8 +382,9 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
       for (const c of play.combos) {
         const key = c.target + c.watch;
         if (!engagedOnce.has(key) && [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.engaged && b.target === c.target; })) engagedOnce.add(key);
-        // A blocker's own release (defender past the play) ends the check: the DL is then no longer a block target.
-        const released = [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.target === c.target && b.released; });
+        // Only a 'past' release ends the check: once the carrier is RELEASE_PAST upfield the blocker lets the DL go
+        // by design (acc. 4). A 'lost' or 'shed' release still fails the check.
+        const released = [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.target === c.target && b.released === 'past'; });
         if (released) engagedOnce.delete(key);
         else if (engagedOnce.has(key)) assert.ok(play.blockersOf(c.target).length > 0, `${front} ${c.target} unblocked at ${i}`);
         if (!switched.has(key)) {

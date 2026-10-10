@@ -266,3 +266,32 @@ test('T-92: taker held is irrelevant', () =>
 test('T-92: commit trigger also gated by the stayer hold', () => {
   assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), []);
 });
+
+test('T-92: a gated wait records the climber on ctx and leaves players alone', () => {
+  const s = sw();
+  Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
+  s.g('C').block.held = 0;
+  const p0 = structuredClone(s.players);
+  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), []);
+  assert.deepEqual(s.ctx.climbers, { C: 'LG' });
+  assert.deepEqual(s.players, p0);
+});
+const lockSetup = () => {
+  const s = sw();
+  Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
+  s.g('C').block.held = 0;
+  zoneSwitch(s.players, null, s.ctx); // records LG
+  // C becomes laterally nearer the LB
+  Object.assign(s.g('MLB'), { x: -0.5, y: 25.0 });
+  s.g('C').block.held = COMBO_HOLD;
+  s.g('LG').block.held = COMBO_HOLD;
+  return s;
+};
+test('T-92: the climber chosen on the first trigger tick is kept', () => {
+  const s = lockSetup();
+  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('T-92: without the lock the nearer blocker climbs', () => {
+  const s = lockSetup();
+  assert.deepEqual(zoneSwitch(s.players, null, { combos: s.ctx.combos }), [{ blocker: 'C', target: 'MLB' }]);
+});

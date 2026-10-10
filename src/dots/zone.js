@@ -36,12 +36,13 @@ export function zoneSwitch(players, ballPos, ctx) {
     const dl = byId.get(c.target);
     const holds = (x) =>
       x.block?.target === c.target && x.block.engaged && (x.block.held ?? 0) >= COMBO_HOLD - 1e-9;
-    // The climber is fixed the first tick a trigger fires (non-enumerable, so the combo shape is unchanged) and
-    // kept while the stayer has not held yet; positions drifting must not hand the climb to the other blocker.
+    // The climber is fixed the first tick a trigger fires and kept (ctx.climbers) until the combo switches;
+    // positions drifting must not hand the climb to the other blocker.
     const go = (pick) => {
-      const taker = c.taker === o.id ? o : c.taker === p.id ? p : pick;
+      const locked = ctx.climbers?.[c.owner];
+      const taker = locked === o.id ? o : locked === p.id ? p : pick;
       if (dl && dl.react?.state !== 'winning' && holds(taker === o ? p : o)) out.push({ blocker: taker.id, target: w.id });
-      else if (!c.taker) Object.defineProperty(c, 'taker', { value: taker.id, writable: true, configurable: true, enumerable: false });
+      else if (!locked) ctx.climbers = { ...ctx.climbers, [c.owner]: taker.id };
     };
     const cm = ctx.committed?.[c.watch];
     if (cm) {
