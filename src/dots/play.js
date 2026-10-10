@@ -19,7 +19,7 @@ import {
   stepBlocking,
 } from './blocking.js';
 
-export const SNAP_DURATION = 0.35; // seconds
+export const SNAP_DURATION = 0.25; // seconds; quick shotgun snap, ball C to QB at roughly 18 yd/s
 export const MAX_SUBSTEP = 1 / 60; // max sim seconds per stepBlocking call
 export const SIM_SPEED = 0.35; // dots page default time scale
 export const SIM_SPEED_MIN = 0.1;

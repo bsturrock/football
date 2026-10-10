@@ -72,7 +72,7 @@ test('QB and RB alignment in the backfield', () => {
   const qb = byId('QB');
   const rb = byId('RB');
   assert.equal(qb.dx, 0);
-  assert.equal(qb.dy, -4.5);
+  assert.equal(qb.dy, -5.0);
   assert.equal(rb.dy, qb.dy);
   assert.equal(rb.dx, 1.8);
 });
@@ -81,7 +81,7 @@ test('QB/RB shotgun spacing measured from C', () => {
   const C = byId('C');
   const QB = byId('QB');
   const RB = byId('RB');
-  assert.ok(Math.abs(QB.dy - C.dy + 4.1) < 1e-9);
+  assert.ok(Math.abs(QB.dy - C.dy + 4.6) < 1e-9);
   assert.equal(QB.dx, C.dx);
   assert.equal(RB.dy, QB.dy);
   assert.ok(Math.abs(RB.dx - C.dx - 1.8) < 1e-9);
@@ -96,7 +96,7 @@ test('buildLineup(25) positions players from the line of scrimmage', () => {
     assert.equal(pl.x, p.dx);
     assert.equal(pl.y, 25 + p.dy);
   });
-  assert.equal(lineup.find((pl) => pl.id === 'QB').y, 20.5);
+  assert.equal(lineup.find((pl) => pl.id === 'QB').y, 20);
 });
 
 test('buildLineup gives every player a distinct empty assignment', () => {
@@ -208,8 +208,8 @@ test('F-14 #3: front and LBs', () => {
   for (const id of ['LDE', 'LDT', 'RDT', 'RDE']) assert.equal(byId(id).dy, 0.7, id);
   assert.deepEqual([byId('MLB').dx, byId('MLB').dy], [1.6, 4.5]);
   assert.deepEqual([byId('WLB').dx, byId('WLB').dy], [-1.6, 4.5]);
-  assert.deepEqual([byId('QB').dx, byId('QB').dy], [0, -4.5]);
-  assert.deepEqual([byId('RB').dx, byId('RB').dy], [1.8, -4.5]);
+  assert.deepEqual([byId('QB').dx, byId('QB').dy], [0, -5.0]);
+  assert.deepEqual([byId('RB').dx, byId('RB').dy], [1.8, -5.0]);
 });
 
 test('F-14 #4: no pre-snap overlap at any shift', () => {
