@@ -2,7 +2,7 @@
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
 import { createPlay, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
-import { FRONTS, BALL_LENGTH, BALL_WIDTH } from './roster.js';
+import { FRONTS, PERSONNEL, BALL_LENGTH, BALL_WIDTH } from './roster.js';
 import { BODY_RADIUS } from './blocking.js';
 import { wrapAngle, angleDiff, facingDir } from './facing.js';
 import { HW } from '../util.js';
@@ -91,6 +91,11 @@ export function frontOptions() {
   return Object.entries(FRONTS).map(([key, f]) => ({ key, name: f.name }));
 }
 
+// Picker options for offensive personnel: one per PERSONNEL entry, in PERSONNEL order.
+export function personnelOptions() {
+  return Object.entries(PERSONNEL).map(([key, p]) => ({ key, name: p.name }));
+}
+
 // Text for a player's zone-number label ('' hides it).
 export function numberLabel(n) {
   return n === null || n === undefined ? '' : String(n);
@@ -151,6 +156,7 @@ export function initDotsView(container) {
   const panel = document.getElementById('info-panel');
   const resetBtn = document.getElementById('reset-btn');
   const frontSelect = document.getElementById('front-select');
+  const personnelSelect = document.getElementById('personnel-select');
   const hint = document.getElementById('hint');
   const speedReadout = hint ? hint.appendChild(document.createElement('span')) : null;
   const showSpeed = () => {
@@ -560,6 +566,24 @@ export function initDotsView(container) {
       showLB();
       showFight();
       frontSelect.blur(); // so ArrowLeft/ArrowRight go back to the DL shift
+    });
+  }
+  if (personnelSelect) {
+    for (const { key, name } of personnelOptions()) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = name;
+      personnelSelect.appendChild(opt);
+    }
+    personnelSelect.value = play.personnel;
+    personnelSelect.addEventListener('change', () => {
+      play.reset();
+      play.setPersonnel(personnelSelect.value);
+      if (selectedId && !play.player(selectedId)) selectedId = null;
+      showShift();
+      showLB();
+      showFight();
+      personnelSelect.blur(); // so ArrowLeft/ArrowRight go back to the DL shift
     });
   }
   window.addEventListener('keydown', (e) => {

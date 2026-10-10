@@ -4,7 +4,7 @@ import { steerStep, hardCore } from './steering.js';
 import { stepReact } from './react.js';
 import { startFoot, retargetFoot, footGoal, footPush } from './technique.js';
 
-export const BLOCKER_ROLES = ['OL'];
+export const BLOCKER_ROLES = ['OL', 'TE'];
 // 0.56 yd = 20 in wide, the top of the 16-20 in shoulder range; area about 2.2 sq ft, between
 // the 1.5 sq ft crush minimum and the 2.5-3 sq ft comfortable footprint.
 export const BODY_RADIUS = 0.28;

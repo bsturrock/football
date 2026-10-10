@@ -15,9 +15,10 @@ const ROSTER_FRONTS = {
 
 export const FRONT_NAMES = Object.freeze([...Object.keys(ROSTER_FRONTS), ...Object.keys(FRONTS).filter((k) => k !== 'base')]);
 
-export function frontPlayers(name) {
-  if (name in ROSTER_FRONTS) return buildLineup(LOS, 'insideZone', ROSTER_FRONTS[name]);
-  if (Object.hasOwn(FRONTS, name)) return buildLineup(LOS, 'insideZone', { front: name });
+// Fixtures default to the no-TE look; pass 'te' for the tight-end lineup.
+export function frontPlayers(name, personnel = 'noTe') {
+  if (name in ROSTER_FRONTS) return buildLineup(LOS, 'insideZone', { ...ROSTER_FRONTS[name], personnel });
+  if (Object.hasOwn(FRONTS, name)) return buildLineup(LOS, 'insideZone', { front: name, personnel });
   throw new Error(`frontPlayers: unknown front ${name}`);
 }
 

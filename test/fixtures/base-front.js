@@ -15,9 +15,10 @@ export const LB_READ = { MLB: 0.35, WLB: 0.5, SLB: 0.5 };
 export const IZ_FREE = { base: ['LDE', 'SLB'], dlPlus4: ['SLB', 'LDE'], dlMinus4: ['WLB', 'SLB'], lbMinus6: ['MLB', 'LDE'] };
 // insideZone after 6x shiftLB(-1): the LB the RT/RG combo watches
 export const LB_MINUS6_RG_WATCH = 'SLB';
-// createPlay(25, 'insideZone').numbers: unshifted, after 6x shiftLB(-1), after 4x shiftDL(1)
+// createPlay(25, 'insideZone').numbers (the lineup includes the attached TE, PLAYS.insideZone.personnel):
+// unshifted, after 6x shiftLB(-1), after 4x shiftDL(1)
 export const IZ_NUMBERS = {
-  base: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, LDE: -3, LDT: -1, RDT: 0, RDE: 2, MLB: -2, WLB: 1, SLB: -4 },
-  lbMinus6: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, MLB: 0, RDT: 1, RDE: 2, WLB: 3, LDT: -1, LDE: -3, SLB: -2 },
-  dlPlus4: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, WLB: 0, RDE: 1, RDT: -1, MLB: -2, LDT: -3, LDE: -5, SLB: -4 },
+  base: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, TE: -3, LDE: -3, LDT: -1, RDT: 0, RDE: 2, MLB: -2, WLB: 1, SLB: -4 },
+  lbMinus6: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, TE: -3, MLB: 0, RDT: 1, RDE: 2, WLB: 3, LDT: -1, LDE: -3, SLB: -2 },
+  dlPlus4: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, TE: -3, WLB: 0, RDE: 1, RDT: -1, MLB: -2, LDT: -3, LDE: -5, SLB: -4 },
 };

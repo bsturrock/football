@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP, FIXED_DT, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { BODY_RADIUS, assignBlocks } from '../src/dots/blocking.js';
-import { buildLineup, FRONTS, DL_ROLES, LB_ROLES } from '../src/dots/roster.js';
+import { buildLineup, FRONTS, DL_ROLES, LB_ROLES, PERSONNEL, PLAYS } from '../src/dots/roster.js';
 import { numberPlay } from '../src/dots/numbering.js';
+import { zonePlan } from '../src/dots/zone.js';
 import { hardCore } from '../src/dots/steering.js';
 
 const H = hardCore(BODY_RADIUS);
@@ -408,5 +409,76 @@ test('F-18 #5: numbering, blocks and run follow the set front for every front', 
     }
     for (let i = 0; i < 180; i++) play.step(1 / 60);
     assert.equal(play.run.carried, true, k);
+  }
+});
+
+test('F-39 #3: personnel defaults to the play personnel and is set by createPlay opts', () => {
+  const te = createPlay(25, 'insideZone', { personnel: 'te' });
+  assert.equal(te.personnel, 'te');
+  const tes = te.players.filter((p) => p.role === 'TE');
+  assert.equal(tes.length, 1);
+
+  const def = createPlay(25, 'insideZone');
+  assert.equal(def.personnel, PLAYS.insideZone.personnel ?? 'noTe');
+  assert.deepEqual(posOf(def.players), posOf(buildLineup(25, 'insideZone')));
+});
+
+test('F-39 #3: setPersonnel adds and removes the TE, rejects unknown keys', () => {
+  const play = createPlay(25, 'insideZone', { personnel: 'noTe' });
+  assert.equal(play.players.some((p) => p.role === 'TE'), false);
+
+  assert.equal(play.setPersonnel('te'), 'te');
+  assert.equal(play.personnel, 'te');
+  assert.equal(play.players.filter((p) => p.role === 'TE').length, 1);
+
+  const before = posOf(play.players);
+  assert.equal(play.setPersonnel('nope'), false);
+  assert.equal(play.personnel, 'te');
+  assert.deepEqual(posOf(play.players), before);
+
+  assert.equal(play.setPersonnel('noTe'), 'noTe');
+  assert.equal(play.players.some((p) => p.role === 'TE'), false);
+});
+
+test('F-39 #3: setPersonnel is refused once the ball is live; reset, setFront and shiftDL keep it', () => {
+  const play = createPlay(25, 'insideZone');
+  play.setPersonnel('te');
+  assert.equal(play.setFront('odd34'), 'odd34');
+  assert.equal(play.personnel, 'te');
+  assert.equal(play.players.filter((p) => p.role === 'TE').length, 1);
+  assert.equal(play.shiftDL(1), 1);
+  assert.equal(play.personnel, 'te');
+  assert.equal(play.players.filter((p) => p.role === 'TE').length, 1);
+  assert.deepEqual(posOf(play.players), posOf(buildLineup(25, 'insideZone', { front: 'odd34', dlShift: DL_SHIFT_STEP, personnel: 'te' })));
+
+  play.reset();
+  assert.equal(play.personnel, 'te');
+  play.snap();
+  assert.equal(play.setPersonnel('te'), false);
+  assert.equal(play.setPersonnel('noTe'), false);
+  assert.equal(play.personnel, 'te');
+});
+
+test('F-39 #3: the TE takes his zone-plan block at the snap', () => {
+  const play = createPlay(25, 'insideZone', { personnel: 'te' });
+  const plan = zonePlan(play.players, play.numbers, 25);
+  assert.ok(plan.blocks.TE, 'zone plan blocks the TE');
+  play.snap();
+  const te = play.player('TE');
+  assert.equal(te.block.target, plan.blocks.TE);
+  assert.notEqual(te.block.target, null);
+});
+
+test('F-39 #7: TE engages and the play ends in a tackle on every front', () => {
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front, personnel: 'te' });
+    play.snap();
+    let engaged = false;
+    for (let i = 0; i < 360 && play.ball.phase !== 'dead'; i++) {
+      play.step(1 / 60);
+      if (play.player('TE').block?.engaged) engaged = true;
+    }
+    assert.equal(play.ball.phase, 'dead', front);
+    assert.equal(engaged, true, front);
   }
 });

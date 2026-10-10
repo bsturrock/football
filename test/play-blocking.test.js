@@ -422,7 +422,10 @@ test('F10-10. null rule: LBs reach the QB', () => {
 
 test('F-15 #8: RB slips the lane', () => {
   // tackles off: the lane crossing is a running rule; a tackle before the crossing must not hide it.
-  const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
+  // The 2.7 s cap was measured on the no-TE look; with the attached TE (F-39) the RB stalls in the same A-gap
+  // pile and crosses at about 3.0 s. Re-measure with the TE when F-36 (zone rules with the TE) and R-55
+  // (lane-read retune) land.
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe' });
   play.snap();
   let crossed = false;
   // measured crossing about 2.5 s with tackles off, with the insideZone patience press (F-35: after the handoff

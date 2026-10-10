@@ -48,6 +48,20 @@ export const POSITIONS = Object.freeze([
   pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, 4.5, 7.5, 0.5, { read: 0.5 }),
 ]);
 
+// Offensive personnel = extra offense rows added to the POSITIONS offense. noTe is the no-TE look
+// (a nickel front for it is a future FRONTS entry).
+const RT = POSITIONS.find((p) => p.id === 'RT');
+const RG = POSITIONS.find((p) => p.id === 'RG');
+export const PERSONNEL = Object.freeze({
+  noTe: Object.freeze({ name: 'No TE (5 OL)', rows: Object.freeze([]) }),
+  te: Object.freeze({
+    name: '1 TE (attached right)',
+    // Attached: one OL split outside the right tackle, on the tackle's depth. His side is the
+    // strong side. Strength 0.9 keeps him above every defender's strength / 0.7071 like the OL.
+    rows: Object.freeze([pos('TE', 'Tight End', 'offense', 'TE', RT.dx + (RT.dx - RG.dx), RT.dy, 6.5, 0.9)]),
+  }),
+});
+
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
 // fronts are written for a playside-left play (the only play today).
 // Nearest base defense row of the same role to the alignment (dx, dy); ties go to the earlier row.
@@ -121,6 +135,7 @@ export const FRONTS = Object.freeze({
 //         pre-snap and snapTo is the position id that receives the snap.
 //   assignments: { [positionId]: { goal, target } } holds per-position goals
 //         and targets. Empty for the base play; later plays add entries here.
+//   personnel?: key of PERSONNEL (optional; absent = 'noTe').
 export const PLAYS = Object.freeze({
   base: Object.freeze({
     name: 'Base',
@@ -132,6 +147,8 @@ export const PLAYS = Object.freeze({
     name: 'Inside Zone',
     ball: Object.freeze({ start: 'C', snapTo: 'QB' }),
     assignments: Object.freeze({}),
+    // Attached TE: 6 blockers vs the 7-man box. 'noTe' is the no-TE look.
+    personnel: 'te',
     playside: 'left',
     scheme: 'zone', // names the blocking scheme play.js applies at the snap
     run: Object.freeze({ carrier: 'RB', patience: 0.5 }), // run: { carrier, patience? } = who takes the handoff; patience = seconds the RB presses and re-reads behind the line before committing (0 or absent: commit at once; carrier.js clamps and scales it)
@@ -147,12 +164,15 @@ export const DL_ROLES = Object.freeze(['DE', 'DT']);
 export const LB_ROLES = Object.freeze(['LB']);
 
 // front picks a key of FRONTS for the defense. dlShift is a lateral offset in yards
-// added to x of every DL player; lbShift does the same for LBs.
-export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0, lbShift = 0 } = {}) {
+// added to x of every DL player; lbShift does the same for LBs. personnel picks a key of
+// PERSONNEL (default: the play's personnel, else 'noTe').
+export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0, lbShift = 0, personnel } = {}) {
   const play = PLAYS[playKey];
   if (!play) throw new Error(`buildLineup: unknown play "${playKey}"`);
   if (!Object.hasOwn(FRONTS, front)) throw new Error(`buildLineup: unknown front "${front}"`);
-  const rows = [...POSITIONS.filter((p) => p.team === 'offense'), ...FRONTS[front].defenders];
+  const key = personnel ?? play.personnel ?? 'noTe';
+  if (!Object.hasOwn(PERSONNEL, key)) throw new Error(`buildLineup: unknown personnel "${key}"`);
+  const rows = [...POSITIONS.filter((p) => p.team === 'offense'), ...PERSONNEL[key].rows, ...FRONTS[front].defenders];
   return rows.map((p) => {
     const a = play.assignments[p.id];
     return {

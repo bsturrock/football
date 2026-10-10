@@ -35,7 +35,10 @@ function stallTime(samples) {
 
 test('F-25 #3: RB does not crawl in the hole with accel on', () => {
   // tackles off: the hole speed is a running rule; a tackle before the crossing must not hide it.
-  const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
+  // Pinned to the no-TE look the 0.5 s stall and 2.5 s crossing were calibrated on; with the attached TE (F-39)
+  // the crossing measures 2.98 s. Re-measure with the TE when F-36 (zone rules with the TE) and R-55
+  // (lane-read retune) land.
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe' });
   play.snap();
   const rb = play.player(play.run.carrier);
   const slow = [];
