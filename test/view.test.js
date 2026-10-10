@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { FRONTS, BALL_LENGTH } from '../src/dots/roster.js';
@@ -85,6 +85,11 @@ test('shiftLabel supports the LB group', () => {
   assert.equal(shiftLabel(0, 'LB', '⇧←/→'), 'LB shift: even (⇧←/→)');
   assert.equal(shiftLabel(-2, 'LB', '⇧←/→'), `LB shift: ${formatYards(2 * LB_SHIFT_STEP)} yd L (⇧←/→)`);
   assert.equal(shiftLabel(-6, 'LB', '⇧←/→'), `LB shift: ${formatYards(6 * LB_SHIFT_STEP)} yd L (⇧←/→)`);
+});
+
+test('T-117: fightLabel shows the defense-fights-blocks state and the F key', () => {
+  assert.equal(fightLabel(true), 'Defense fights blocks: on (F)');
+  assert.equal(fightLabel(false), 'Defense fights blocks: off (F)');
 });
 
 test('F-14 #9: formatYards keeps two decimals, drops trailing zeros', () => {
