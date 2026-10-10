@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
-  LB_READ_TIME, KEY_MOVE, FLOW_MAX, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, intercept,
+  LB_READ_TIME, KEY_MOVE, FLOW_MAX, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, intercept, CONTAIN_DEPTH, CONTAIN_WIDTH, CONTAIN_SPEED,
 } from '../src/dots/defense.js';
 import { readFront } from '../src/dots/front.js';
 import { numberPlay } from '../src/dots/numbering.js';
@@ -31,7 +31,11 @@ test('F-33/F-34: base call gives every DL an attack agent, LBs a zone agent in d
     const fr = readFront(pl, frontNumbers(pl), LOS);
     const df = startDefense(pl, fr, { los: LOS, carrierId: 'RB' });
     for (const p of pl) {
-      if (p.role === 'DE' || p.role === 'DT') {
+      if (fr.edge != null && p.id === fr.edge) {
+        assert.equal(df.agents[p.id].behavior, 'contain', `${name} ${p.id}`);
+        assert.equal(df.agents[p.id].assign.type, 'contain');
+        assert.equal(df.agents[p.id].state, 'read');
+      } else if (p.role === 'DE' || p.role === 'DT') {
         assert.equal(df.agents[p.id].behavior, 'attack', `${name} ${p.id}`);
         assert.equal(df.agents[p.id].assign.type, 'attack');
         assert.equal(df.agents[p.id].assign.gap, 'fit');
@@ -268,7 +272,8 @@ test('F-33: row order decides, first match wins; no row -> no agent', () => {
   assert.ok(WHO.dl(lde, f) && !WHO.lb(lde, f));
   const base = startDefense(s.players, s.front, { los: LOS, carrierId: 'RB' });
   assert.equal(base.agents.MLB.behavior, 'zone');
-  assert.equal(base.agents.LDE.behavior, 'attack');
+  assert.equal(base.agents[s.front.edge].behavior, 'contain');
+  assert.equal(base.agents.LDT.behavior, 'attack');
   assert.ok(!('QB' in base.agents) && !('RB' in base.agents));
 });
 
@@ -296,7 +301,7 @@ test('F-33: validateCall and startDefense throw on unknown who/type', () => {
   const s = setup();
   by(s.players, 'LDE').def = { assign: { type: 'tt' } };
   assert.throws(() => startDefense(s.players, s.front, { los: LOS, carrierId: 'RB' }), /tt/);
-  assert.deepEqual(Object.keys(ASSIGNMENTS).sort(), ['attack', 'zone']);
+  assert.deepEqual(Object.keys(ASSIGNMENTS).sort(), ['attack', 'contain', 'zone']);
 });
 
 test('F-33: penetrate and gapFit goals', () => {
@@ -467,4 +472,106 @@ test('F-34 #7: stepDefense records ballV from consecutive ball positions; LB pur
   assert.ok(out.MLB);
   near(out.MLB.x, want.x);
   near(out.MLB.y, want.y);
+});
+
+// F-38: the backside edge keeps contain.
+const cx = (s) => {
+  const end = by(s.players, s.front.line[s.front.line.length - 1].id);
+  return end.x - s.front.side * CONTAIN_WIDTH;
+};
+const toSqueeze = (s) => {
+  by(s.players, 'LG').y += KEY_MOVE;
+  step(s, s.defense.agents[s.front.edge].read);
+  assert.equal(s.defense.agents[s.front.edge].state, 'squeeze');
+};
+
+test('F-38: WHO.edge matches only the edge; pickAssign with and without front; contain validates', () => {
+  const s = setup();
+  assert.ok(s.front.edge != null);
+  for (const f of s.front.defenders) {
+    const d = by(s.players, f.id);
+    assert.equal(WHO.edge(d, f, s.front), f.id === s.front.edge, f.id);
+    assert.equal(WHO.edge(d, f), false);
+  }
+  const rows = CALLS.base.rows;
+  const edge = by(s.players, s.front.edge);
+  const f = s.front.defenders.find((x) => x.id === s.front.edge);
+  assert.deepEqual(pickAssign(rows, edge, f, s.front), { type: 'contain' });
+  assert.notEqual(pickAssign(rows, edge, f).type, 'contain');
+  validateBehavior('contain');
+});
+
+test('F-38: edge holds his alignment at CONTAIN_SPEED before the read, then squeezes to the contain point', () => {
+  const s = setup();
+  const id = s.front.edge;
+  const d = by(s.players, id);
+  const out = step(s, 0.01);
+  near(out[id].x, d.x);
+  near(out[id].y, d.y);
+  near(out[id].rate, CONTAIN_SPEED * d.speed);
+  assert.equal(out[id].key, 'def:read');
+  by(s.players, 'LG').y += KEY_MOVE;
+  const o2 = step(s, s.defense.agents[id].read);
+  assert.equal(s.defense.agents[id].state, 'squeeze');
+  near(o2[id].x, cx(s));
+  near(o2[id].y, LOS - CONTAIN_DEPTH);
+  near(o2[id].rate, CONTAIN_SPEED * d.speed);
+  const endId = s.front.line[s.front.line.length - 1].id;
+  by(s.players, endId).x += 0.7;
+  near(step(s, 0.01)[id].x, cx(s));
+  near(cx(s), o2[id].x + 0.7);
+});
+
+test('F-38: edge pursues from read and squeeze on the listed triggers, else stays', () => {
+  const edgeOf = (s) => s.defense.agents[s.front.edge];
+  const fresh = (state) => {
+    const s = setup();
+    if (state === 'squeeze') toSqueeze(s);
+    return s;
+  };
+  for (const state of ['read', 'squeeze']) {
+    // ball outside the contain x
+    let s = fresh(state);
+    s.ball = { x: cx(s) - s.front.side * 1, y: LOS - 3 };
+    step(s, 0.01);
+    assert.equal(edgeOf(s).state, 'pursue', `${state} outside`);
+    // carried ball past the los
+    s = fresh(state);
+    s.run.carried = true;
+    s.ball = { x: cx(s) + s.front.side * 1, y: LOS + 1 };
+    step(s, 0.01);
+    assert.equal(edgeOf(s).state, 'pursue', `${state} past`);
+    // RB committed playside of center
+    s = fresh(state);
+    s.run.locked = true;
+    s.run.x = s.front.centerX + s.front.side * 2;
+    step(s, 0.01);
+    assert.equal(edgeOf(s).state, 'pursue', `${state} committed playside`);
+    // RB committed backside of center
+    s = fresh(state);
+    s.run.locked = true;
+    s.run.x = s.front.centerX - s.front.side * 2;
+    step(s, 0.01);
+    assert.equal(edgeOf(s).state, state, `${state} committed backside`);
+  }
+  const near0 = (s) => {
+    const d = by(s.players, s.front.edge);
+    return { x: cx(s) + s.front.side * 1, y: d.y };
+  };
+  let s = fresh('squeeze');
+  s.run.carried = true;
+  s.ball = near0(s);
+  const d = by(s.players, s.front.edge);
+  assert.ok(Math.hypot(s.ball.x - d.x, s.ball.y - d.y) <= PURSUE_REACH);
+  step(s, 0.01);
+  assert.equal(edgeOf(s).state, 'pursue', 'carried within reach');
+  s = fresh('squeeze');
+  s.ball = near0(s);
+  step(s, 0.01);
+  assert.equal(edgeOf(s).state, 'squeeze', 'uncarried within reach');
+  s = fresh('squeeze');
+  s.run.carried = true;
+  s.ball = { x: cx(s) + s.front.side * (PURSUE_REACH + 3), y: LOS - 3 };
+  step(s, 0.01);
+  assert.equal(edgeOf(s).state, 'squeeze', 'carried far');
 });

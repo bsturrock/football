@@ -1,6 +1,8 @@
 // Defender decisions as data: a behaviour is a small state machine whose states
 // name a GOAL (where to run) and whose exits name TRIGGERS (when to change state).
 // Pure: reads players, never moves them; blocking.js steers toward the goals.
+// The backside edge keeps contain: he reads run, squeezes to a point outside the backside end
+// lineman, and pursues only when the ball gets outside him, crosses the los, or the RB commits away.
 // A blitz or drop is a new GOALS entry plus a state row; linebackers do not blitz today.
 import { BODY_RADIUS } from './blocking.js';
 import { GAP_NAMES, liveGaps } from './front.js';
@@ -14,6 +16,10 @@ export const DROP_SPEED = 0.6; // fraction of speed while dropping, a backpedal 
 export const FILL_DEPTH = 3.5; // yd past the los where he fills: football depth (3-5 yd), not body geometry (tunable)
 export const PENETRATE_DEPTH = 4 * BODY_RADIUS; // yd behind the los the DL aims for
 export const PURSUE_REACH = 8 * BODY_RADIUS; // yd: a DL this close to the carried ball pursues
+
+export const CONTAIN_DEPTH = 1.0; // yd behind the los: the backside edge's contain depth, about the tackle's heel line (tunable)
+export const CONTAIN_WIDTH = 2 * BODY_RADIUS; // yd outside the backside end lineman: one contact distance (tunable)
+export const CONTAIN_SPEED = 0.5; // fraction of speed while reading and squeezing: a controlled squeeze (tunable)
 
 export const LEAD_MAX = 1.0; // s, the longest lead a pursuer takes (tunable)
 
@@ -65,6 +71,14 @@ function laneX(env, fit) {
   return lo <= hi ? clamp(aimX(env), lo, hi) : (span.lo + span.hi) / 2;
 }
 
+// The x of the edge's contain point: just outside the backside end lineman (live, else snap spot, else his own alignment).
+function containX(e, env) {
+  const last = env.defense.lineIds[env.defense.lineIds.length - 1];
+  const p = last && env.players.find((q) => q.id === last.id);
+  const endX = p ? p.x : (last && env.defense.line[last.id]?.x) ?? e.x0;
+  return endX - env.defense.side * CONTAIN_WIDTH;
+}
+
 export const KEYS = Object.freeze({
   olMove: (env) => env.defense.lineIds.some(({ id }) => {
     const p = env.players.find((q) => q.id === id);
@@ -101,6 +115,8 @@ export const GOALS = Object.freeze({
   gapFit: (d, e, env) => {
     return { x: laneX(env, e.fit) ?? e.x0, y: env.los - PENETRATE_DEPTH };
   },
+  hold: (d, e) => ({ x: e.x0, y: e.y0 }),
+  contain: (d, e, env) => ({ x: containX(e, env), y: env.los - CONTAIN_DEPTH }),
   pursue: (d, e, env) => intercept(d, env.ballPos, env.defense.ballV, d.speed),
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
 });
@@ -112,6 +128,10 @@ export const TRIGGERS = Object.freeze({
   carrierPast: (d, e, env) => !!env.run?.carried && env.ballPos.y > env.los,
   committed: (d, e, env) => !!env.run?.locked || e.st >= FLOW_MAX - 1e-9,
   ballClose: (d, e, env) => !!env.run?.carried && Math.hypot(env.ballPos.x - d.x, env.ballPos.y - d.y) <= PURSUE_REACH,
+  // The ball (carrier or QB) is outside his contain x.
+  ballOutside: (d, e, env) => env.defense.side * (env.ballPos.x - containX(e, env)) < 0,
+  // The RB committed to the playside of the center.
+  committedAway: (d, e, env) => !!env.run?.locked && env.run.x != null && env.defense.side * (env.run.x - env.defense.centerX) > 0,
   atFill: (d, e, env) => {
     const g = GOALS.fill(d, e, env);
     return Math.hypot(d.x - g.x, d.y - g.y) <= BODY_RADIUS;
@@ -129,6 +149,15 @@ export const BEHAVIORS = Object.freeze({
       pursue: { goal: 'ball', speed: 1, exits: [] },
     },
   },
+  contain: {
+    start: 'read',
+    keys: ['runBlock', 'mesh', 'backfield'],
+    states: {
+      read: { goal: 'hold', speed: CONTAIN_SPEED, exits: [{ when: 'ballOutside', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committedAway', to: 'pursue' }, { when: 'recognized', to: 'squeeze' }] },
+      squeeze: { goal: 'contain', speed: CONTAIN_SPEED, exits: [{ when: 'ballOutside', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committedAway', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
+    },
+  },
   zone: {
     start: 'drop',
     keys: ['runBlock', 'mesh', 'backfield'],
@@ -144,10 +173,13 @@ export const BEHAVIORS = Object.freeze({
 // A call is a data table of assignment rows. A new call is a new key; per-player changes are
 // rows (selectors in WHO) or a roster row's `def.assign`. LB types belong to the LB AI
 // (R-43 edits only the `lb` row and adds LB types). Row order decides: first match wins.
+// The edge row comes first so the backside edge defender keeps contain whatever his role
+// (odd34's edge is an LB).
 export const CALLS = Object.freeze({
   base: Object.freeze({
     name: 'Base',
     rows: Object.freeze([
+      Object.freeze({ who: 'edge', type: 'contain' }),
       Object.freeze({ who: 'dl', type: 'attack', gap: 'fit' }),
       Object.freeze({ who: 'lb', type: 'zone', depth: ZONE_DEPTH }),
     ]),
@@ -156,13 +188,15 @@ export const CALLS = Object.freeze({
 
 // selector name -> (player, front-read entry) => bool
 export const WHO = Object.freeze({
-  dl: (d, f) => DL_ROLES.includes(d.role),
-  lb: (d, f) => LB_ROLES.includes(d.role),
+  dl: (d, f, front) => DL_ROLES.includes(d.role),
+  lb: (d, f, front) => LB_ROLES.includes(d.role),
+  edge: (d, f, front) => front?.edge != null && front.edge === d.id,
 });
 
 // assignment type -> behaviour name
 export const ASSIGNMENTS = Object.freeze({
   attack: Object.freeze({ behavior: 'attack' }),
+  contain: Object.freeze({ behavior: 'contain' }),
   zone: Object.freeze({ behavior: 'zone' }),
 });
 
@@ -184,8 +218,8 @@ export function validateBehavior(name, behaviors = BEHAVIORS) {
 }
 
 // First row whose selector matches, as an assignment ({type, ...params}); null when none.
-export function pickAssign(rows, d, f) {
-  const row = rows.find((r) => WHO[r.who](d, f));
+export function pickAssign(rows, d, f, front) {
+  const row = rows.find((r) => WHO[r.who](d, f, front));
   if (!row) return null;
   const { who, ...rest } = row;
   return rest;
@@ -212,6 +246,7 @@ export function startDefense(players, front, { los, call = 'base', carrierId } =
     call,
     los,
     side: front.side,
+    centerX: front.centerX,
     t: 0,
     carrierId,
     rb0: rb ? { x: rb.x, y: rb.y } : null,
@@ -230,7 +265,7 @@ export function startDefense(players, front, { los, call = 'base', carrierId } =
   for (const f of front.defenders) {
     const d = players.find((p) => p.id === f.id);
     if (!d) continue;
-    let assign = d.def?.assign ?? pickAssign(table.rows, d, f);
+    let assign = d.def?.assign ?? pickAssign(table.rows, d, f, front);
     if (assign && !Object.hasOwn(ASSIGNMENTS, assign.type)) throw new Error(`defense: unknown type "${assign.type}"`);
     if (assign?.type === 'zone' && assign.depth === undefined) assign = { ...assign, depth: ZONE_DEPTH };
     const name = d.def?.behavior ?? (assign ? ASSIGNMENTS[assign.type].behavior : null);
