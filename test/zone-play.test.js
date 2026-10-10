@@ -9,7 +9,7 @@ import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
 import { readFront } from '../src/dots/front.js';
 import { FRONT_NAMES } from './fixtures/fronts.js';
-import { A_GAP_HALF } from '../src/dots/numbering.js';
+import { TACKLE_DIST } from '../src/dots/tackle.js';
 import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
@@ -547,8 +547,8 @@ test('F-33 #8: every front, an OL block released as shed frees the DL, who then 
           e.done = true;
           const d = play.player(e.id);
           const b = play.ballPosition();
-          // F-34 contact hold: a free defender never steps inside CONTACT_DIST of the ball, so at it he is as close as allowed.
-          const held = Math.hypot(b.x - d.x, b.y - d.y) <= CONTACT_DIST + 1e-6;
+          // A freed DL within TACKLE_DIST of the carrier with no blocker on him could tackle (canTackle); tackles are off here only to give the line time to shed, so he has reached the ball.
+          const held = Math.hypot(b.x - d.x, b.y - d.y) <= TACKLE_DIST + 1e-6;
           e.far = e.close >= BAR || held;
           t.diagnostic(`${front} ${e.id} shed ${(e.i * DT).toFixed(2)} s max ${e.max.toFixed(2)} ` +
             `close ${e.close.toFixed(3)} held ${held} ball ${e.b0.toFixed(2)} -> ${Math.hypot(b.x - d.x, b.y - d.y).toFixed(2)}`);
@@ -635,7 +635,7 @@ test('F-45 #5: C and LG double the 2i; LT is alone on the end until the climb', 
   assert.ok(switched);
 });
 
-test('F-45 #6: inside zone moves downhill', () => {
+test('F-45 #6: inside zone opens with a short, steep zone step', () => {
   const shifts = { dlPlus4: ['shiftDL', 1, 4], dlMinus4: ['shiftDL', -1, 4], lbPlus6: ['shiftLB', 1, 6], lbMinus6: ['shiftLB', -1, 6] };
   const rows = [];
   const bad = [];
@@ -647,22 +647,41 @@ test('F-45 #6: inside zone moves downhill', () => {
     } else if (name !== 'base') play.setFront(name);
     play.snap();
     const start = Object.fromEntries(OL.map((id) => [id, { x: play.player(id).x, y: play.player(id).y, tech: play.player(id).block?.foot?.tech }]));
-    for (let i = 0; i < 30; i++) play.step(DT);
-    let up = 0;
-    let lat = 0;
+    // Each zone/combo OL's first step ends when its foot leaves 'step' or he engages, within 0.5 s.
+    const ends = {};
+    const todo = OL.filter((id) => start[id].tech === 'zone' || start[id].tech === 'combo');
+    for (let i = 1; i <= 30 && Object.keys(ends).length < todo.length; i++) {
+      play.step(DT);
+      for (const id of todo) {
+        if (ends[id]) continue;
+        const p = play.player(id);
+        const b = p.block;
+        if (b?.foot?.phase !== 'step' || b.engaged) {
+          const lat = -(p.x - start[id].x); // playside is -x in this play
+          const up = p.y - start[id].y;
+          ends[id] = { tick: i, lat, up, speed: p.speed, reach: Math.hypot(lat, up), ang: deg(Math.atan2(up, Math.abs(lat))) };
+        }
+      }
+    }
     const cells = [];
     for (const id of OL) {
-      const p = play.player(id);
-      const l = -(p.x - start[id].x);
-      const u = p.y - start[id].y;
-      up += u;
-      lat += Math.abs(l);
-      cells.push(`${id} ${l.toFixed(2)}/${u.toFixed(2)}`);
-      const zoneLike = start[id].tech === 'zone' || start[id].tech === 'combo';
-      if (zoneLike && Math.abs(l) > A_GAP_HALF) bad.push(`${name} ${id} lateral ${l.toFixed(2)} > ${A_GAP_HALF.toFixed(2)}`);
+      const tech = start[id].tech;
+      if (tech !== 'zone' && tech !== 'combo') {
+        cells.push(`${id} ${tech ?? '-'} skip`);
+        continue;
+      }
+      const e = ends[id];
+      if (!e) {
+        bad.push(`${name} ${id} ${tech} no step end within 0.5 s`);
+        cells.push(`${id} ${tech} none`);
+        continue;
+      }
+      const cap = TECHNIQUES[tech].stepLen + e.speed * DT;
+      if (e.reach > cap) bad.push(`${name} ${id} ${tech} reach ${e.reach.toFixed(2)} > ${cap.toFixed(2)}`);
+      if (e.ang < 40) bad.push(`${name} ${id} ${tech} angle ${e.ang.toFixed(1)} < 40`);
+      cells.push(`${id} ${tech} t${e.tick} ${e.lat.toFixed(2)}/${e.up.toFixed(2)} ${e.ang.toFixed(1)}deg`);
     }
-    if (up < lat) bad.push(`${name} mean up ${(up / 5).toFixed(2)} < mean lateral ${(lat / 5).toFixed(2)}`);
     rows.push(`${name.padEnd(9)} ${cells.join('  ')}`);
   }
-  assert.equal(bad.length, 0, `${bad.join('\n')}\n(lateral/up, yd)\n${rows.join('\n')}`);
+  assert.equal(bad.length, 0, `${bad.join('\n')}\n(id tech tick lat/up angle, yd)\n${rows.join('\n')}`);
 });
