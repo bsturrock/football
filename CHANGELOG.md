@@ -33,3 +33,4 @@
 - 2026-10-10 F-34 Defensive call table; LBs drop in zone, recognize run, fit their own lane and pursue with lead (R-43) f66eafc
 - 2026-10-10 F-35 RB live gap read: cutbacks, inside runs, free-lane aim (R-44) e198d9d
 - 2026-10-10 F-37 Player facing: every mover turns toward travel or his engaged man (R-46) 62538cc
+- 2026-10-10 F-39 Attached tight end: 6 blockers for inside zone, no-TE look kept (R-54) 16f5773
