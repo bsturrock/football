@@ -9,7 +9,7 @@ import {
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { hardCore, PACES } from '../src/dots/steering.js';
 import { numberPlay } from '../src/dots/numbering.js';
-import { buildLineup } from '../src/dots/roster.js';
+import { buildLineup, PLAYS } from '../src/dots/roster.js';
 
 const LOS = 25;
 const H = hardCore(BODY_RADIUS);
@@ -435,4 +435,8 @@ test('commit: lane and x are fixed; aim moves at most CUT_ALLOW from run.x', () 
     assert.equal(run.aim.y, GOAL_LINE_Y);
   }
   assert.ok(rb.y > 0);
+});
+
+test('data: insideZone declares patience 0.5', () => {
+  assert.equal(PLAYS.insideZone.run.patience, 0.5);
 });
