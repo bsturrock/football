@@ -111,7 +111,8 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
 });
 
 test('F-12 #8: base insideZone combos switch; backside end LDE is never blocked', () => {
-  const play = createPlay(25, 'insideZone');
+  // tackles off: the combo switch is a blocking rule; a tackle before COMBO_HOLD must not hide it.
+  const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
   const seen = new Set(OL.map((id) => play.player(id).block.target));
   const switched = () => play.combos.every((c) => [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
@@ -246,7 +247,8 @@ test('F-17 #6: ride a sideways-moving defender', () => {
 });
 
 test('F-17 #7: RG climbs to MLB in aim phase', () => {
-  const play = createPlay(25, 'insideZone');
+  // tackles off: the climb is a blocking rule; a tackle before COMBO_HOLD must not hide it.
+  const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
   let hit = false;
   for (let t = 0; t < 2 && !hit; t += DT) {
@@ -429,7 +431,8 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
 });
 
 test('T-92 #6: base: RG climbs to MLB and LG/LT to WLB only after the partner held', () => {
-  const play = createPlay(25, 'insideZone');
+  // tackles off: the climb is a blocking rule; a tackle before COMBO_HOLD must not hide it.
+  const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
   let rg = false;
   let wlb = false;

@@ -420,7 +420,8 @@ test('F10-10. null rule: LBs reach the QB', () => {
 });
 
 test('F-15 #8: RB slips the lane', () => {
-  const play = createPlay(25, 'insideZone', { accel: true });
+  // tackles off: the lane crossing is a running rule; a tackle before the crossing must not hide it.
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
   play.snap();
   let crossed = false;
   // accel: RB crosses GAP_DEPTH at 1.70 s measured; 1.70 * 1.25 = 2.125, rounded up to 0.05 s
@@ -556,7 +557,8 @@ test('F-32 shed: a defender who wins for SHED_TIME is released, then reacts as f
 });
 
 test('F-32 past: once the ball is RELEASE_PAST upfield of a defender, nobody is engaged on him', () => {
-  const play = createPlay(25, 'insideZone');
+  // tackles off: the 'past' release is a blocking rule; a tackle before the release must not hide it.
+  const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
   let seen = 0;
   for (let i = 0; i < 360 && play.ball.phase !== 'dead'; i++) {

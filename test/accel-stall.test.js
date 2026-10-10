@@ -34,7 +34,8 @@ function stallTime(samples) {
 }
 
 test('F-25 #3: RB does not crawl in the hole with accel on', () => {
-  const play = createPlay(25, 'insideZone', { accel: true });
+  // tackles off: the hole speed is a running rule; a tackle before the crossing must not hide it.
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
   play.snap();
   const rb = play.player(play.run.carrier);
   const slow = [];
