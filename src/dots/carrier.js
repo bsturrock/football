@@ -46,6 +46,10 @@ export const PRESSURE_DIST = 8 * BODY_RADIUS; // an unblocked defender this clos
 export const BEND_MAX = 1; // times a committed RB may re-pick his lane while still behind the los (at most 2)
 export const CUT_ALLOW = BODY_RADIUS / 2; // after the commit, how far the aim x may move from run.x
 // The RB's pace per phase, as data.
+export const SHUFFLE_WIDTH = BODY_RADIUS; // yd: lateral half-width of the patience shuffle around the track point
+export const SHUFFLE_STEP = 0.12; // s: quick feet, time spent shuffling toward one side before flipping
+export const SHUFFLE_LEAD = 0.5 * SHUFFLE_WIDTH; // yd: while he is farther than this from the track point the shuffle centers this far ahead of him, so the sides still reverse on the way in
+export const SHUFFLE_CREEP = BODY_RADIUS; // yd: how far ahead of the RB (toward the press depth) the shuffle goal sits, so he creeps forward
 export const PHASE_PACE = Object.freeze({ press: PACES.press, commit: PACES.burst });
 
 // Patience window in seconds. `rb.patience` is the per-back rating hook (no roster value yet; absent means 1).
@@ -269,7 +273,17 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     goal = { x: run.approach.x, y: run.approach.y, key: 'mesh', ignore: holdId };
   } else if (!run.locked) {
     run.press = { x: trackPointX(players, run, rb), y: los - PRESS_DEPTH };
-    goal = { ...run.press, key: 'press', pace: PHASE_PACE.press, ignore: null };
+    // Shuffle around the anchor: side flips every SHUFFLE_STEP of pressTime, first side moves him toward the track point.
+    if (run.shuffleSide0 === undefined) run.shuffleSide0 = rb.x <= run.press.x ? 1 : -1;
+    const flips = Math.floor((run.pressTime - dt) / SHUFFLE_STEP + 1e-9);
+    const side = flips % 2 === 0 ? run.shuffleSide0 : -run.shuffleSide0;
+    goal = {
+      x: clamp(run.press.x, rb.x - SHUFFLE_LEAD, rb.x + SHUFFLE_LEAD) + side * SHUFFLE_WIDTH,
+      y: Math.min(run.press.y, rb.y + SHUFFLE_CREEP),
+      key: 'press:' + side,
+      pace: PHASE_PACE.press,
+      ignore: null,
+    };
   } else {
     if (!justCommitted && rb.y < los + LANE_AHEAD) {
       const w = laneWindows(players, run.line, run.side).find((e) => e.side === run.lane.side && e.name === run.lane.name);
