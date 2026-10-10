@@ -1,7 +1,7 @@
 // Inside-zone numbering: a pure pre-snap scheme read.
 import { POSITIONS } from './roster.js';
 
-export const LINE_ROLES = Object.freeze(['OL']);
+export const LINE_ROLES = Object.freeze(['OL', 'TE']);
 export const BOX_MARGIN = 4;
 export const BOX_DEPTH = 8;
 export const PLAYSIDE_SIGN = Object.freeze({ left: -1, right: 1 });

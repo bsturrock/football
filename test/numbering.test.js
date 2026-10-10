@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { numberPlay, A_GAP_HALF } from '../src/dots/numbering.js';
-import { POSITIONS } from '../src/dots/roster.js';
+import { numberPlay, A_GAP_HALF, LINE_ROLES } from '../src/dots/numbering.js';
+import { POSITIONS, buildLineup } from '../src/dots/roster.js';
+import { isBlocker, BLOCKER_ROLES } from '../src/dots/blocking.js';
 
 // numbering rules are tested on fixed coordinates; the real roster's numbers are covered by `test/inside-zone.test.js`.
 const FIXTURE = Object.freeze([
@@ -115,4 +116,46 @@ test('F-14 #11: no playside lineman: 0-gap fallback is half the roster C-guard s
   const right = numberPlay(mk(-2.2, 'LG', 1), { los: 25, centerId: 'C', playside: 'right' });
   assert.equal(right.A, 0);
   assert.equal(right.B, 1);
+});
+
+test('F-39 #2: LINE_ROLES and BLOCKER_ROLES both include TE and OL', () => {
+  for (const roles of [LINE_ROLES, BLOCKER_ROLES]) {
+    assert.ok(roles.includes('TE'));
+    assert.ok(roles.includes('OL'));
+  }
+});
+
+test('F-39 #2: TE lineup, backside TE numbers after the backside tackle; OL unchanged', () => {
+  const te = buildLineup(25, 'insideZone', { personnel: 'te' });
+  const noTe = buildLineup(25, 'insideZone', { personnel: 'noTe' });
+  const teP = te.find((p) => p.role === 'TE');
+  const n = numberPlay(te, { los: 25, centerId: 'C', playside: 'left' });
+  const nNoTe = numberPlay(noTe, { los: 25, centerId: 'C', playside: 'left' });
+  assert.equal(n[teP.id], n.RT - 1);
+  for (const p of te.filter((q) => q.role === 'OL')) assert.equal(n[p.id], nNoTe[p.id], p.id);
+  for (const p of te) if (p.role === 'QB' || p.role === 'RB') assert.equal(n[p.id], null);
+});
+
+test('F-39 #2: playside TE numbers after the playside tackle', () => {
+  const te = buildLineup(25, 'insideZone', { personnel: 'te' });
+  const teP = te.find((p) => p.role === 'TE');
+  const n = numberPlay(te, { los: 25, centerId: 'C', playside: 'right' });
+  assert.equal(n[teP.id], n.RT + 1);
+});
+
+test('F-39 #2: isBlocker true for TE, false for QB, RB and defenders', () => {
+  const te = buildLineup(25, 'insideZone', { personnel: 'te' });
+  assert.equal(isBlocker(te.find((p) => p.role === 'TE')), true);
+  for (const p of te) {
+    if (p.role === 'QB' || p.role === 'RB' || p.team === 'defense') assert.equal(isBlocker(p), false, p.id);
+  }
+});
+
+test('F-39 #2: no-TE lineup numbers equal the default lineup numbers', () => {
+  const explicit = buildLineup(25, 'insideZone', { personnel: 'noTe' });
+  const dflt = buildLineup(25, 'insideZone');
+  assert.deepEqual(
+    numberPlay(explicit, { los: 25, centerId: 'C', playside: 'left' }),
+    numberPlay(dflt, { los: 25, centerId: 'C', playside: 'left' }),
+  );
 });
