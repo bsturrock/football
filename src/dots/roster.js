@@ -14,8 +14,9 @@ export const BALL_WIDTH = 6.7 / 36;
 // def is an optional per-defender behaviour object. def.read = seconds after the snap
 // before this defender can recognise run (per-player tunable, 0.3-0.6); a missing
 // def.read falls back to READ_TIME in defense.js.
-const pos = (id, name, team, role, dx, dy, speed, strength, def) =>
-  Object.freeze({ id, name, team, role, dx, dy, speed, strength, def: def ? Object.freeze({ ...def }) : null });
+// ratings is an optional object of per-position ratings (0-1), spread onto the row (the RB's vision).
+const pos = (id, name, team, role, dx, dy, speed, strength, def, ratings) =>
+  Object.freeze({ id, name, team, role, dx, dy, speed, strength, def: def ? Object.freeze({ ...def }) : null, ...ratings });
 
 // Ratings per position. speed is yd/s of short-area play speed (about 80% of the
 // 40-yard-dash average); steering.js's ACCEL_TAU ramp models the start from rest.
@@ -32,7 +33,7 @@ export const POSITIONS = Object.freeze([
   pos('RT', 'Right Tackle', 'offense', 'OL', 2.4, -0.75, 6.0, 1.0),
   // QB 5 yd behind the center (shotgun 5-7 yd); RB level with him, about 3 ft of daylight to his side.
   pos('QB', 'Quarterback', 'offense', 'QB', 0, -5.3, 7.0, 0.3),
-  pos('RB', 'Running Back', 'offense', 'RB', 1.6, -5.3, 8.0, 0.5),
+  pos('RB', 'Running Back', 'offense', 'RB', 1.6, -5.3, 8.0, 0.5, null, { vision: 0.8 }),
   // Defense faces -y, so its left is +x.
   // DL at dy 0.6: the body front sits just past the ball's front tip. Techniques use a
   // 0.25 yd (9 in) shade: 0 = 0, 1 = 0.25, 2i = 0.95, 3 = 1.45, 5 = 2.65, 7 = 3.35
@@ -185,6 +186,7 @@ export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0
       speed: p.speed,
       strength: p.strength,
       def: p.def,
+      ...(p.vision !== undefined ? { vision: p.vision } : {}),
       assignment: a ? { ...a } : emptyAssignment(),
     };
   });

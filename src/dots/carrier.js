@@ -37,6 +37,13 @@ export const CUT_COST = 0.25; // score per yard from the RB's own x
 export const CLOSING_FRACTION = 1 / 8; // a free defender moving downhill faster than this fraction of his top speed is closing at full speed
 export const SWITCH_MARGIN = BODY_RADIUS / 2; // score a rival lane must beat the current one by
 
+// Vision (F-48): the RB looks past the line band to the second level when scoring a hole.
+export const DEFAULT_VISION = 0.5; // a back with no vision rating
+export const SECOND_LEVEL_DEPTH = 18 * BODY_RADIUS; // yd: depth of the second level beyond los + LANE_AHEAD
+export const LEVEL2_CAP = 8 * BODY_RADIUS; // yd: lateral clearance beyond which a second-level defender no longer matters
+export const LEVEL2_COST = 0.25; // score per yard of missing clearance, times vision
+export const FLOW_HORIZON = 0.6; // s: longest look-ahead when projecting a second-level defender sideways
+
 // Patience tunables (F-35): the RB presses toward the track point behind the line while he re-reads lanes, then commits.
 export const PATIENCE_MAX = 0.8; // s: longest patience window
 export const PRESS_DEPTH = 3 * BODY_RADIUS; // press point depth behind the los; must exceed LOCK_DEPTH so pressing never line-locks
@@ -58,6 +65,8 @@ export function patienceWindow(runDef, rb) {
 }
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+export const visionOf = (rb) => clamp(rb.vision ?? DEFAULT_VISION, 0, 1);
 
 const PLAY_COUNT = LANES.filter((l) => l.side === 'play').length;
 const BACK_COUNT = LANES.filter((l) => l.side === 'back').length;
@@ -139,12 +148,24 @@ function trackPointX(players, run, rb) {
   return xOfN(run.track) ?? xOfN(0) ?? rb.x;
 }
 
-export function scoreLanes(players, run, rb, los, proj) {
+// Optional `flow` = {id: vx}: each defender's measured lateral velocity (no entry means 0). The second-level term projects
+// every free defender between los + LANE_AHEAD and that plus SECOND_LEVEL_DEPTH sideways by the RB's time to the band
+// (capped at FLOW_HORIZON); a lane loses vision * LEVEL2_COST per yard its clearance to the nearest one falls short of LEVEL2_CAP.
+export function scoreLanes(players, run, rb, los, proj, flow) {
   const trackX = trackPointX(players, run, rb);
+  const vision = visionOf(rb);
+  const t = Math.min(FLOW_HORIZON, Math.max(0, los + LANE_AHEAD - rb.y) / (rb.speed || 1));
+  const near = los + LANE_AHEAD;
+  const second = players
+    .filter((d) => d.team === 'defense' && d.y > near && d.y <= near + SECOND_LEVEL_DEPTH && engagedOn(players, d.id).length === 0)
+    .map((d) => d.x + (flow?.[d.id] ?? 0) * t);
   return laneWindows(players, run.line, run.side).map((w) => {
     const f = freeLane(players, w, rb.id, los, proj);
-    const score = Math.min(f.room, ROOM_CAP) - TRACK_COST * Math.abs(f.x - trackX) - CUT_COST * Math.abs(f.x - rb.x);
-    return { side: w.side, name: w.name, lo: w.lo, hi: w.hi, x: f.x, width: f.width, room: f.room, open: f.open, score };
+    let room2 = Infinity;
+    for (const px of second) room2 = Math.min(room2, Math.abs(px - f.x) - H);
+    const level2 = vision * LEVEL2_COST * Math.max(0, LEVEL2_CAP - room2);
+    const score = Math.min(f.room, ROOM_CAP) - TRACK_COST * Math.abs(f.x - trackX) - CUT_COST * Math.abs(f.x - rb.x) - level2;
+    return { side: w.side, name: w.name, lo: w.lo, hi: w.hi, x: f.x, width: f.width, room: f.room, open: f.open, score, level2 };
   });
 }
 
@@ -203,6 +224,7 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
 // Carrier-owned memory: each free defender's velocity from his last-seen position, plus the RB's time to get through the band.
 function readProjection(players, run, rb, los, dt) {
   const vel = {};
+  const flow = {};
   for (const d of players) {
     if (d.team !== 'defense') continue;
     const prev = run.seen[d.id];
@@ -212,11 +234,12 @@ function readProjection(players, run, rb, los, dt) {
       const sp = Math.hypot(vx, vy);
       // A defender heading downhill is projected at his top speed along his heading (he is still accelerating); others at their velocity.
       const top = d.speed ?? 0;
+      flow[d.id] = vx;
       vel[d.id] = vy < 0 && sp > top * CLOSING_FRACTION && top > 0 ? { vx: 0, vy: (vy / sp) * top } : { vx: 0, vy };
     }
     run.seen[d.id] = { x: d.x, y: d.y };
   }
-  return { vel, horizon: Math.max(0, los - rb.y) / (rb.speed || 1) };
+  return { vel, flow, horizon: Math.max(0, los - rb.y) / (rb.speed || 1) };
 }
 
 export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
@@ -235,7 +258,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
   let justCommitted = false;
   const proj = readProjection(players, run, rb, los, dt);
   if (run.carried && !run.locked) {
-    run.lanes = scoreLanes(players, run, rb, los);
+    run.lanes = scoreLanes(players, run, rb, los, undefined, proj.flow);
     let pick = null;
     if (run.lanes.length) {
       pick = chooseLane(run.lanes, run.lane);
@@ -293,7 +316,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
       if (free && free.open) run.cut = clamp(free.x - run.x, -CUT_ALLOW, CUT_ALLOW);
       else if (!run.pastLos && (run.bends ?? 0) < BEND_MAX) {
         // Committed lane closed before the line: bend once into the best open lane.
-        run.lanes = scoreLanes(players, run, rb, los, proj);
+        run.lanes = scoreLanes(players, run, rb, los, proj, proj.flow);
         const pick = run.lanes.length ? chooseLane(run.lanes, null) : null;
         if (pick && pick.open && (pick.side !== run.lane.side || pick.name !== run.lane.name)) {
           run.lane = { side: pick.side, name: pick.name };
