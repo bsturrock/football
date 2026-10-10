@@ -13,6 +13,7 @@
 //    step's advance and half the last two steps' advance: drop any lane (and set
 //    laneOff, which bars lanes until release A), flip once (up to MAX_FLIPS),
 //    then hold and lean on collision.
+//  - Accel: see ACCEL_TAU below; players with a numeric p.v ramp up from rest.
 //  - Lane: if the obstacle and its neighbour on the pass side are spaced >= 2 * H
 //    apart, aim at their midpoint and hold that lane while both are ahead.
 export const AVOID_CLEARANCE = 0.3;
@@ -28,7 +29,17 @@ export const SQUEEZE = 0.25;
 // may get.
 export function hardCore(radius) { return 2 * radius * (1 - SQUEEZE); }
 
+// Opt-in acceleration: a mover carrying a numeric p.v (current speed, yd/s) has
+// maxStep capped by a ramp from v toward his top speed (p.speed, else maxStep/dt)
+// with time constant ACCEL_TAU. The caller owns p.v; steerStep never writes it.
+export const ACCEL_TAU = 0.7; // seconds; exponential time constant to top speed (tunable)
+
 export function steerStep(p, goal, players, maxStep, dt, radius) {
+  if (typeof p.v === 'number' && dt > 0) {
+    const top = typeof p.speed === 'number' ? p.speed : maxStep / dt;
+    const ramp = p.v + (top - p.v) * (1 - Math.exp(-dt / ACCEL_TAU));
+    maxStep = Math.min(maxStep, ramp * dt);
+  }
   if (p.steer && p.steer.key !== goal.key) p.steer = null;
 
   const gx = goal.x - p.x, gy = goal.y - p.y;

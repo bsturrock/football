@@ -31,7 +31,7 @@ export const LB_SHIFT_MAX = 6; // steps allowed each way
 
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base' } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = false } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const play = {
     los,
@@ -41,6 +41,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     retargetRule: scheme ? scheme.rule : doubleTeamPeel,
     timeScale,
     front,
+    accel,
     dlShift: 0,
     lbShift: 0,
     numbers: {},
@@ -122,6 +123,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       holder: null,
       t: 0,
     });
+    if (play.accel) for (const p of play.players) p.v = 0;
     if (scheme) {
       const plan = scheme.plan(play.players, play.numbers, los);
       play.combos = plan.combos;
@@ -170,6 +172,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       }
     }
     if (ball.phase === 'presnap') return;
+    const starts = play.accel ? play.players.map((p) => [p.x, p.y]) : null;
     if (play.run) {
       const handed = stepCarrier(
         play.players,
@@ -188,6 +191,11 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     ctx.committed = play.defense ? play.defense.committed : null;
     ctx.rule = play.retargetRule;
     play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
+    if (starts) {
+      play.players.forEach((p, i) => {
+        p.v = Math.min(p.speed, Math.hypot(p.x - starts[i][0], p.y - starts[i][1]) / sdt);
+      });
+    }
   };
 
   play.step = (dt) => {
