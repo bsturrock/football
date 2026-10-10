@@ -59,7 +59,9 @@ export const KEYS = Object.freeze({
 
 export const GOALS = Object.freeze({
   drop: (d, e, env) => ({ x: e.x0, y: env.los + (e.assign?.depth ?? ZONE_DEPTH) }),
-  // Lateral at his start depth, never shallower than the fill depth (a drop is not undone toward the line).
+  // Differs from brief item 5 (y: d.y) by pm decision (T-98 answer, option a): an LB who reads run out of his drop
+  // flows downhill back to at least his alignment depth y0 while moving laterally, instead of flowing at his dropped
+  // depth. That also keeps the F-32 combo-climb timing intact. Never shallower than the fill depth.
   flow: (d, e, env) => ({ x: laneX(env, e.fit) ?? aimX(env), y: Math.max(e.y0, env.los + FILL_DEPTH) }),
   fill: (d, e, env) => ({ x: laneX(env, e.fit) ?? aimX(env), y: env.los + FILL_DEPTH }),
   penetrate: (d, e, env) => {

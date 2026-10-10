@@ -493,10 +493,12 @@ test('F-33 #8: every front, an OL block released as shed frees the DL, who then 
   for (const front of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front });
     play.snap();
+    let lastI = -1;
     const prev = new Set();
     const events = [];
     for (let sec = 0, i = 0; sec < 4 && play.ball.phase !== 'dead'; sec += DT, i++) {
       play.step(DT);
+      lastI = i;
       const now = new Set();
       for (const o of play.players) {
         if (o.team !== 'offense' || o.block?.released !== 'shed') continue;
@@ -536,7 +538,8 @@ test('F-33 #8: every front, an OL block released as shed frees the DL, who then 
     const dead = play.ball.phase === 'dead';
     for (const e of events) {
       sheds++;
-      assert.ok(e.free, `${front} ${e.id} react null after shed`);
+      // A tackle ending the play on the shed tick leaves no later tick to free him (the sim stops stepping): not checked.
+      if (!(dead && lastI <= e.i)) assert.ok(e.free, `${front} ${e.id} react null after shed`);
       if (e.done) assert.ok(e.far, `${front} ${e.id} moves toward the ball after the shed`);
       else assert.ok(dead, `${front} ${e.id} not checked 0.5 s later while play live`);
     }
