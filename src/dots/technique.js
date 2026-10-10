@@ -1,6 +1,11 @@
 // Blocking technique table, footwork phase machine and drive/ride push math.
 // Pure: no imports, no mutation of arguments.
 //
+// Push (footPush): drive = vertical or combo watch lean. On a blindside hit the base
+// bends from the drive toward the contact line (BLIND_START..BLIND_FULL degrees). The
+// target's lateral velocity (relative to the base) rotates the base by up to RIDE_MAX,
+// smoothed by RIDE_TAU, and the push turns toward that at most PUSH_TURN rad/s.
+//
 // Row fields:
 //   step     first-step angle in degrees from the line of scrimmage toward playside
 //            (0 = flat, 90 = upfield), keyed by shade (head/playside/backside/none)
@@ -18,7 +23,12 @@
 
 export const FIRST_STEP_LEN = 0.5; // yards, length of the first step (tunable)
 export const RIDE_MIN = 0.3; // yd/s, target lateral speed needed to set ride side (tunable)
-export const RIDE_GAIN = 1.0; // unitless, lateral weight of the ride push (tunable)
+export const RIDE_MAX = 70; // degrees, max ride rotation off the base (tunable)
+export const RIDE_FULL = 3; // yd/s, lateral speed giving the full RIDE_MAX (tunable)
+export const RIDE_TAU = 0.1; // s, ride angle smoothing time constant (tunable)
+export const PUSH_TURN = Math.PI; // rad/s, max push turn rate (tunable)
+export const BLIND_START = 30; // degrees, contact-vs-drive angle where the base starts bending (tunable)
+export const BLIND_FULL = 75; // degrees, contact-vs-drive angle where the base is the contact line (tunable)
 export const COMBO_MAX_LEAN = 30; // degrees from vertical, max combo drive lean (tunable)
 
 const freezeRow = (r) => Object.freeze({ ...r, step: Object.freeze(r.step), phases: Object.freeze(r.phases) });
@@ -82,16 +92,25 @@ export function driveDir(tech, target, watch) {
   return { x: 0, y: 1 };
 }
 
-export function rideSign(prev, vx) {
-  return Math.abs(vx) >= RIDE_MIN ? Math.sign(vx) : prev;
+export function rotate(v, a) {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return { x: v.x * c - v.y * s, y: v.x * s + v.y * c };
 }
 
-export function rideDir(drive, sign) {
-  if (sign === 0) return drive;
-  const x = drive.x + RIDE_GAIN * sign;
-  const y = drive.y;
-  const len = Math.hypot(x, y);
-  return { x: x / len, y: y / len };
+// Signed angle from a to b in radians, positive counter-clockwise.
+export function signedAngle(a, b) {
+  return Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y);
+}
+
+// Rotate unit vector `from` toward `to` by at most maxAngle; never overshoots.
+export function rotateToward(from, to, maxAngle) {
+  const ang = signedAngle(from, to);
+  const len = Math.hypot(to.x, to.y);
+  if (Math.abs(ang) <= maxAngle) return len > 0 ? { x: to.x / len, y: to.y / len } : from;
+  const r = rotate(from, Math.sign(ang) * maxAngle);
+  const rl = Math.hypot(r.x, r.y);
+  return { x: r.x / rl, y: r.y / rl };
 }
 
 export function nextTech(tech) {
@@ -109,7 +128,6 @@ export function startFoot(tech, shade, watch, blocker, target) {
     ox: blocker.x,
     oy: blocker.y,
     ride: 0,
-    tx: target.x,
     push: null,
   };
 }
@@ -125,7 +143,6 @@ export function retargetFoot(foot, blocker, target) {
     ox: blocker.x,
     oy: blocker.y,
     ride: 0,
-    tx: target.x,
     push: null,
   };
 }
@@ -150,9 +167,35 @@ export function footGoal(foot, blocker, spot, side, radius) {
   return { phase, goal };
 }
 
-export function footPush(foot, target, watch, dt) {
-  const vx = dt > 0 ? (target.x - foot.tx) / dt : 0;
-  const ride = rideSign(foot.ride, vx);
-  const push = rideDir(driveDir(foot.tech, target, watch), ride);
+export function footPush(foot, target, watch, vel, contact, dt) {
+  const drive = driveDir(foot.tech, target, watch);
+  const c = contact ?? drive;
+  const theta = Math.abs(signedAngle(drive, c));
+  const w = Math.max(0, Math.min(1, (theta - rad(BLIND_START)) / (rad(BLIND_FULL) - rad(BLIND_START))));
+  let bx = (1 - w) * drive.x + w * c.x;
+  let by = (1 - w) * drive.y + w * c.y;
+  let bl = Math.hypot(bx, by);
+  let base;
+  if (bl < 1e-9) {
+    const cl = Math.hypot(c.x, c.y);
+    base = { x: c.x / cl, y: c.y / cl };
+  } else base = { x: bx / bl, y: by / bl };
+
+  const v = vel ?? { x: 0, y: 0 };
+  const along = v.x * base.x + v.y * base.y;
+  const lat = { x: v.x - along * base.x, y: v.y - along * base.y };
+  const sp = Math.hypot(lat.x, lat.y);
+  const first = foot.push == null;
+  let ride = foot.ride;
+  if (dt > 0) {
+    let target_ride = foot.ride;
+    if (sp >= RIDE_MIN) target_ride = Math.sign(signedAngle(base, lat)) * rad(RIDE_MAX) * Math.min(1, sp / RIDE_FULL);
+    ride = first ? target_ride : foot.ride + (target_ride - foot.ride) * (1 - Math.exp(-dt / RIDE_TAU));
+  }
+  const desired = rotate(base, ride);
+  const from = foot.push ?? c;
+  const fl = Math.hypot(from.x, from.y);
+  const start = fl > 0 ? { x: from.x / fl, y: from.y / fl } : drive;
+  const push = rotateToward(start, desired, dt > 0 ? PUSH_TURN * dt : 0);
   return { ride, push };
 }

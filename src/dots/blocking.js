@@ -393,6 +393,7 @@ export function separateBodies(players, dt = Infinity, extraAnchors) {
 const closingLeavers = new WeakSet();
 
 export function stepBlocking(players, ballPos, dt, ctx) {
+  const start = players.map((p) => ({ x: p.x, y: p.y }));
   const engagedAtStart = players.filter((p) => p.block?.engaged).map((p) => p.id);
   if (ctx && ctx.rule) {
     for (const e of ctx.rule(players, ballPos, ctx)) {
@@ -445,7 +446,6 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       b.block.winT = 0;
       if ('released' in b.block) b.block.released = null;
       justEngaged.add(b.id);
-      if (foot) foot.tx = T.x;
       b.steer = null;
       b.block.seq = ++ctx.seq;
     } else if (b.block.cool > 0) {
@@ -457,13 +457,14 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const foot = b.block?.foot;
     if (!foot || !b.block.engaged) continue;
     const watch = foot.watch ? byId(players, foot.watch) ?? null : null;
-    const { ride, push } = footPush(foot, byId(players, b.block.target), watch, dt);
+    const T = byId(players, b.block.target);
+    const dx = T.x - b.x;
+    const dy = T.y - b.y;
+    const dist = Math.hypot(dx, dy);
+    const contact = dist < 1e-9 ? null : { x: dx / dist, y: dy / dist };
+    const { ride, push } = footPush(foot, T, watch, T.vel ?? { x: 0, y: 0 }, contact, dt);
     foot.ride = ride;
     foot.push = push;
-  }
-
-  for (const b of players) {
-    if (b.block?.foot && b.block.engaged) b.block.foot.tx = byId(players, b.block.target).x;
   }
 
   for (const d of players) {
@@ -550,5 +551,11 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (!p.block || p.block.engaged || p.block.released) closingLeavers.delete(p);
     else if (!leaving.includes(p.id)) leaving.push(p.id);
   }
-  return separateBodies(players, dt, leaving);
+  const out = separateBodies(players, dt, leaving);
+  if (dt > 0) {
+    players.forEach((p, i) => {
+      p.vel = { x: (p.x - start[i].x) / dt, y: (p.y - start[i].y) / dt };
+    });
+  }
+  return out;
 }
