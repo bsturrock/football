@@ -98,7 +98,8 @@ export function numberLabel(n) {
 // Text for the RB's hole read ('' hides it; play.run may be null or undefined before the snap).
 export function runLabel(run) {
   if (!run || !run.carried) return '';
-  return `Hole: ${run.gap} (${run.locked ? 'locked' : 'reading'})`;
+  const hole = run.lane?.side === 'back' ? `${run.gap} back` : run.gap;
+  return `Hole: ${hole} (${run.locked ? 'locked' : 'reading'})`;
 }
 
 // Draw position of a player: interpolated from the start of the last sim tick toward the current

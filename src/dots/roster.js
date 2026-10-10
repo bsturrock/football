@@ -134,7 +134,7 @@ export const PLAYS = Object.freeze({
     assignments: Object.freeze({}),
     playside: 'left',
     scheme: 'zone', // names the blocking scheme play.js applies at the snap
-    run: Object.freeze({ carrier: 'RB' }), // run: { carrier } = who takes the handoff; read order is fixed in carrier.js
+    run: Object.freeze({ carrier: 'RB', patience: 0.5 }), // run: { carrier, patience? } = who takes the handoff; patience = seconds the RB presses and re-reads behind the line before committing (0 or absent: commit at once; carrier.js clamps and scales it)
   }),
 });
 

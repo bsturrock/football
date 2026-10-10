@@ -33,13 +33,30 @@ export function hardCore(radius) { return 2 * radius * (1 - SQUEEZE); }
 // maxStep capped by a ramp from v toward his top speed (p.speed, else maxStep/dt)
 // with time constant ACCEL_TAU. The caller owns p.v; steerStep never writes it.
 export const ACCEL_TAU = 0.7; // seconds; exponential time constant to top speed (tunable)
+// Faster time constant for a committed burst (seconds; tunable, faster than ACCEL_TAU).
+export const BURST_TAU = 0.25;
+
+// Per-phase pace table (tunables): a phase picks a target speed as a fraction of
+// top speed and how fast to reach it. press = controlled wait speed, burst =
+// commit. Any mover may pass one as goal.pace.
+export const PACES = Object.freeze({
+  cruise: Object.freeze({ frac: 1, tau: ACCEL_TAU }),
+  press: Object.freeze({ frac: 0.5, tau: ACCEL_TAU }),
+  burst: Object.freeze({ frac: 1, tau: BURST_TAU }),
+});
 
 export function steerStep(p, goal, players, maxStep, dt, radius) {
   const fullStep = maxStep;
+  const pace = goal.pace || null;
   if (typeof p.v === 'number' && dt > 0) {
-    const top = typeof p.speed === 'number' ? p.speed : maxStep / dt;
-    const ramp = p.v + (top - p.v) * (1 - Math.exp(-dt / ACCEL_TAU));
+    let top = typeof p.speed === 'number' ? p.speed : maxStep / dt;
+    let tau = ACCEL_TAU;
+    if (pace) { top *= pace.frac; tau = pace.tau; }
+    const ramp = p.v + (top - p.v) * (1 - Math.exp(-dt / tau));
     maxStep = Math.min(maxStep, ramp * dt);
+  } else if (pace && dt > 0) {
+    const top = (typeof p.speed === 'number' ? p.speed : maxStep / dt) * pace.frac;
+    maxStep = Math.min(maxStep, top * dt);
   }
   if (p.steer && p.steer.key !== goal.key) p.steer = null;
 

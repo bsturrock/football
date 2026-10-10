@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { BODY_RADIUS } from '../src/dots/blocking.js';
-import { READS, MESH_AHEAD, HANDOFF_DIST, gapWindows, gapCenter } from '../src/dots/carrier.js';
+import { LANES, MESH_AHEAD, HANDOFF_DIST, CUT_ALLOW } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
 const near = (a, b, m = '') => assert.ok(Math.abs(a - b) < 1e-9, `${m} ${a} !~ ${b}`);
@@ -44,57 +43,6 @@ test('F-13 #4: QB hands the ball to the RB at the mesh point', () => {
   assert.equal(play.run, null);
 });
 
-const defIdx = (id) =>
-  createPlay(25, 'insideZone').players.filter((p) => p.team === 'defense').findIndex((p) => p.id === id);
-
-function forced(pins) {
-  const play = createPlay(25, 'insideZone');
-  play.snap();
-  const W = play.run.windows;
-  const defs = play.players.filter((p) => p.team === 'defense');
-  const place = () => {
-    defs.forEach((d, i) => {
-      if (pins[i]) {
-        d.x = gapCenter(W[pins[i]]);
-        d.y = 25 + 2 * BODY_RADIUS;
-      } else {
-        d.x = 15 + i;
-        d.y = 45;
-      }
-    });
-  };
-  let t = 0;
-  while (!play.run.locked) {
-    assert.ok(t < 1.5, 'lock within cap');
-    place();
-    play.step(DT);
-    t += DT;
-  }
-  return { play, place, t, W };
-}
-
-test('F-13 #5: forced reads A, B, C and A default when nothing opens', () => {
-  const iT = defIdx('RDT'), iE = defIdx('RDE'), iL = defIdx('LDT');
-  assert.ok(iT >= 0 && iE >= 0 && iL >= 0);
-
-  const a = forced({});
-  assert.equal(a.play.run.gap, 'A');
-  let t = a.t;
-  while (a.play.player('RB').y < 25) {
-    assert.ok(t < 1.5, 'RB reaches los within cap');
-    a.place();
-    a.play.step(DT);
-    t += DT;
-  }
-  assert.ok(Math.abs(a.play.player('RB').x - a.play.run.x) <= (a.W.A.hi - a.W.A.lo) / 2 + BODY_RADIUS);
-
-  assert.equal(forced({ [iT]: 'A' }).play.run.gap, 'B');
-  assert.equal(forced({ [iT]: 'A', [iE]: 'B' }).play.run.gap, 'C');
-  const d = forced({ [iT]: 'A', [iE]: 'B', [iL]: 'C' });
-  assert.equal(d.play.run.gap, 'A');
-  near(d.play.run.x, gapCenter(d.W.A));
-});
-
 const alignments = [
   [],
   Array(6).fill(['LB', -1]),
@@ -105,37 +53,70 @@ const alignments = [
   Array(4).fill(['DL', -1]),
 ];
 
-test('F-13 #6: read invariants hold across alignments', () => {
+test('F-13 #5: lane read invariants hold across alignments', () => {
   for (const al of alignments) {
-    // tackles off: this test watches AI behavior past the point a tackle would end the play.
+    // tackles off: on base the backside end ends the play at about 1.1 s, before the RB reaches the line.
     const play = createPlay(25, 'insideZone', { tackles: false });
     for (const [k, d] of al) (k === 'LB' ? play.shiftLB(d) : play.shiftDL(d));
     play.snap();
     const run = play.run;
-    assert.deepEqual(run.windows, gapWindows(play.players, play.numbers, run.side));
-    let lockedGap = null;
+    let lockedLane = null;
     let lockedX = null;
-    for (let i = 0; i < 90; i++) {
-      const track = run.carried && !run.locked;
-      const prev = run.read;
+    for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
       play.step(DT);
-      if (track) {
-        const label = JSON.stringify(al.length) + ' step ' + i;
-        assert.ok(run.read >= prev, label);
-        assert.ok(
-          run.gap === READS[run.read] || (run.read === READS.length - 1 && run.gap === 'A'),
-          label,
-        );
-        const ax = run.locked ? run.x : run.aim.x;
-        near(ax, gapCenter(run.windows[run.gap]), label);
-        assert.ok(ax >= run.windows.C.lo - 1e-9, label);
+      const label = JSON.stringify(al.length) + ' step ' + i;
+      if (run.carried && !run.locked) {
+        assert.ok(LANES.some((l) => l.side === run.lane.side && l.name === run.lane.name), label);
+        const l = run.lanes.find((e) => e.side === run.lane.side && e.name === run.lane.name);
+        assert.ok(l, label);
+        near(run.aim.x, l.x, label);
       }
       if (run.locked) {
-        if (lockedGap === null) { lockedGap = run.gap; lockedX = run.x; }
-        assert.equal(run.gap, lockedGap);
-        assert.equal(run.x, lockedX);
+        if (lockedLane === null) { lockedLane = { ...run.lane }; lockedX = run.x; }
+        assert.deepEqual(run.lane, lockedLane, label);
+        assert.equal(run.x, lockedX, label);
+        assert.ok(Math.abs(run.aim.x - run.x) <= CUT_ALLOW + 1e-9, label);
       }
     }
-    assert.ok(run.locked, 'locked within 1.5 s');
+    assert.ok(run.locked || play.ball.phase === 'dead', 'locked or dead within 4 s');
+  }
+});
+
+test('F-35: insideZone RB presses then commits within the patience window', () => {
+  const play = createPlay(25, 'insideZone', { tackles: false });
+  play.snap();
+  let steps = 0;
+  let handoff = null;
+  while (handoff === null && steps < 240) {
+    play.step(DT);
+    steps++;
+    if (play.run.carried) handoff = steps;
+  }
+  assert.ok(handoff !== null, 'handed off within 4 s');
+  let commit = null;
+  while (commit === null && steps < handoff + 240) {
+    play.step(DT);
+    steps++;
+    if (play.run.locked) commit = steps;
+  }
+  assert.ok(commit !== null, 'RB committed within 4 s of the handoff');
+  assert.ok(commit - handoff <= Math.ceil(play.run.patience / DT) + 1,
+    `committed ${((commit - handoff) * DT).toFixed(3)} s after the handoff (window ${play.run.patience} s)`);
+  near(play.run.patience, 0.5, 'patience');
+  assert.ok(['window', 'clear', 'line', 'pressure'].includes(play.run.commitBy), `commitBy ${play.run.commitBy}`);
+});
+
+test('F-35 determinism: two fresh plays give identical RB positions every tick', () => {
+  const a = createPlay(25, 'insideZone', { tackles: false });
+  const b = createPlay(25, 'insideZone', { tackles: false });
+  a.snap();
+  b.snap();
+  for (let i = 0; i < 120; i++) {
+    a.step(DT);
+    b.step(DT);
+    const ra = a.player('RB');
+    const rb = b.player('RB');
+    assert.equal(ra.x, rb.x, 'x step ' + i);
+    assert.equal(ra.y, rb.y, 'y step ' + i);
   }
 });
