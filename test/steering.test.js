@@ -256,3 +256,38 @@ test('ignored body held at 2 * radius', () => {
   const d = Math.hypot(p.x - o.x, p.y - o.y);
   assert.ok(d >= 2 * RAD - 1e-9 && d <= 2 * RAD + 1e-3, `d ${d}`);
 });
+
+// ---- per-phase pace (goal.pace) ----
+function paceStep(pace, v) {
+  const p = { id: 'p', x: 0, y: 0, speed: 6 };
+  if (v !== undefined) p.v = v;
+  const goal = { x: 0, y: 100, key: 'g', ignore: null };
+  if (pace) goal.pace = pace;
+  steerStep(p, goal, [p], 6 * DT, DT, RAD);
+  return Math.hypot(p.x, p.y);
+}
+
+test('pace: absent leaves today\'s step', () => {
+  assert.ok(Math.abs(paceStep(null) - 6 * DT) < 1e-9);
+  const want = 6 * (1 - Math.exp(-DT / S.ACCEL_TAU)) * DT;
+  assert.ok(Math.abs(paceStep(null, 0) - want) < 1e-9);
+});
+
+test('pace: press with accel off caps at half top speed', () => {
+  assert.ok(Math.abs(paceStep(S.PACES.press) - 0.5 * 6 * DT) < 1e-9);
+});
+
+test('pace: press with accel on eases down from top speed', () => {
+  const s = paceStep(S.PACES.press, 6);
+  assert.ok(s < 6 * DT && s > 3 * DT, `s ${s}`);
+});
+
+test('pace: burst accelerates faster than cruise', () => {
+  const b = paceStep(S.PACES.burst, 3), c = paceStep(S.PACES.cruise, 3);
+  assert.ok(b > c && b <= 6 * DT + 1e-12 && c <= 6 * DT + 1e-12, `b ${b} c ${c}`);
+});
+
+test('pace: PACES and entries are frozen', () => {
+  assert.ok(Object.isFrozen(S.PACES));
+  for (const k of Object.keys(S.PACES)) assert.ok(Object.isFrozen(S.PACES[k]));
+});
