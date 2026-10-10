@@ -1,16 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { angleDiff } from '../src/dots/facing.js';
-import { FRONTS, BALL_LENGTH } from '../src/dots/roster.js';
+import { FRONTS, PERSONNEL, BALL_LENGTH } from '../src/dots/roster.js';
 
 test('frontOptions has one entry per FRONTS key, in order, with matching names', () => {
   const opts = frontOptions();
   assert.deepEqual(opts.map((o) => o.key), Object.keys(FRONTS));
   assert.deepEqual(opts.map((o) => o.name), Object.values(FRONTS).map((f) => f.name));
   assert.deepEqual(opts[0], { key: 'base', name: '4-3 Base' });
+});
+
+test('personnelOptions has one entry per PERSONNEL key, in order, with matching names', () => {
+  const opts = personnelOptions();
+  assert.deepEqual(opts.map((o) => o.key), Object.keys(PERSONNEL));
+  assert.deepEqual(opts.map((o) => o.name), Object.values(PERSONNEL).map((p) => p.name));
 });
 
 const players = () => createPlay(25).players;
