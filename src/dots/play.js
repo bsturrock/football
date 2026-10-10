@@ -33,7 +33,7 @@ export const LB_SHIFT_MAX = 6; // steps allowed each way
 // A scheme's plan returns {side, blocks, techs, combos, free, front}.
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = false } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = true } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const play = {
     los,

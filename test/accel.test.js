@@ -52,8 +52,18 @@ test('play level accel', () => {
   play.step(0.2);
   assert.ok(Math.hypot(rb.x - sx, rb.y - sy) < 0.3 * rb.speed * 0.75);
 
-  const plain = createPlay(25, 'insideZone');
+  const plain = createPlay(25, 'insideZone', { accel: false });
   plain.snap();
   plain.step(0.1);
   for (const p of plain.players) assert.equal(p.v, undefined);
+});
+
+test('F-25 #1: accel is the createPlay default', () => {
+  const play = createPlay(25, 'insideZone');
+  assert.ok(play.snap());
+  for (const p of play.players) assert.equal(p.v, 0);
+  play.step(0.1);
+  for (const p of play.players) {
+    assert.ok(Number.isFinite(p.v) && p.v >= 0 && p.v <= p.speed + 1e-9, `${p.id} v=${p.v}`);
+  }
 });
