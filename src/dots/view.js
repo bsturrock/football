@@ -1,7 +1,7 @@
 // Dots view layer: top-down three.js rendering of the dots play state.
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
-import { createPlay, SIM_SPEED, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
+import { createPlay, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
 import { FRONTS } from './roster.js';
 import { BODY_RADIUS } from './blocking.js';
 import { HW } from '../util.js';
@@ -60,6 +60,15 @@ export function shiftLabel(steps, group = 'DL', keys = '←/→') {
   return `${group} shift: ${yd} yd ${side} (${keys})`;
 }
 
+// Sim speed step per -/+ press (keys or buttons).
+export const SPEED_STEP = 0.05;
+
+// Next sim speed after one step (dir: +1 faster, -1 slower), rounded to 2 decimals and clamped.
+export function speedStep(timeScale, dir) {
+  const next = Math.round((timeScale + dir * SPEED_STEP) * 100) / 100;
+  return Math.min(SIM_SPEED_MAX, Math.max(SIM_SPEED_MIN, next));
+}
+
 // Picker options for the defensive front: one per FRONTS entry, in FRONTS order.
 export function frontOptions() {
   return Object.entries(FRONTS).map(([key, f]) => ({ key, name: f.name }));
@@ -88,6 +97,13 @@ export function initDotsView(container) {
     if (speedReadout) speedReadout.textContent = `Speed ${play.timeScale.toFixed(2)}x (-/+)`;
   };
   showSpeed();
+  // Bar reads [−] Speed 0.35x (-/+) [+] on phones and desktop alike.
+  const speedDown = document.getElementById('speed-down');
+  const speedUp = document.getElementById('speed-up');
+  if (speedDown && speedReadout && speedUp) {
+    speedDown.after(speedReadout);
+    speedReadout.after(speedUp);
+  }
   const shiftReadout = hint ? hint.appendChild(document.createElement('span')) : null;
   const showShift = () => {
     if (shiftReadout) shiftReadout.textContent = shiftLabel(play.dlShift);
@@ -390,6 +406,16 @@ export function initDotsView(container) {
 
   const doReset = () => { play.reset(); showShift(); showLB(); };
   resetBtn?.addEventListener('click', doReset);
+  // Buttons sit outside #field, so no pointer handlers here; blur keeps the -/= keys working.
+  const speedBtn = (btn, dir) => {
+    btn?.addEventListener('click', () => {
+      play.setTimeScale(speedStep(play.timeScale, dir));
+      showSpeed();
+      btn.blur();
+    });
+  };
+  speedBtn(speedDown, -1);
+  speedBtn(speedUp, 1);
   if (frontSelect) {
     for (const { key, name } of frontOptions()) {
       const opt = document.createElement('option');
@@ -418,9 +444,8 @@ export function initDotsView(container) {
     }
     // Shift stays allowed so '+' (Shift+=) and '_' (Shift+-) work; ctrl/meta/alt keep browser zoom.
     if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-      const step = (d) => Math.round((play.timeScale + d) * 100) / 100;
-      if (e.key === '-' || e.key === '_') { play.setTimeScale(step(-0.05)); showSpeed(); return; }
-      if (e.key === '=' || e.key === '+') { play.setTimeScale(step(0.05)); showSpeed(); return; }
+      if (e.key === '-' || e.key === '_') { play.setTimeScale(speedStep(play.timeScale, -1)); showSpeed(); return; }
+      if (e.key === '=' || e.key === '+') { play.setTimeScale(speedStep(play.timeScale, 1)); showSpeed(); return; }
     }
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
