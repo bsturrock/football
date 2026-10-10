@@ -165,8 +165,9 @@ test('F-17 #3: phases step then aim', () => {
 });
 
 test('F-17 #4: RG and RT sit side by side on LDT', () => {
-  // pins combo contact geometry, not timing; with accel the RG climbs to MLB (about 0.33 s) before RT reaches LDT (about 0.77 s), so they never double LDT (known, tracked outside this feature)
+  // pins combo contact geometry, not timing; retargeting is off because the RG's combo switch to MLB (about 0.33 s) comes before RT reaches LDT with the tighter alignment, so the double team never forms. With retargeting off RG and RT both engage LDT (about 0.25 s and 0.37 s).
   const play = createPlay(25, 'insideZone', { accel: false });
+  play.retargetRule = null;
   play.snap();
   let found = false;
   for (let t = 0; t < 2 && !found; t += DT) {

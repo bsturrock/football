@@ -228,7 +228,7 @@ test('stepBlocking with peel rule', () => {
 });
 
 test('closing blocker engages on body contact without teleporting', () => {
-  const ps = [O('a', 0, 10 - CONTACT_DIST + 0.05, { block: blk('d') }), D('d', BODY_RADIUS, 10, { speed: 0 })];
+  const ps = [O('a', 0, 10 - CONTACT_DIST + 0.05, { block: blk('d') }), D('d', ENGAGE_TOL + 6 * DT + 0.02, 10, { speed: 0 })];
   const ctx = { rule: null, seq: 0 };
   const spot = contactSpot(ps, ps[0]);
   assert.ok(Math.hypot(spot.x - ps[0].x, spot.y - ps[0].y) > ENGAGE_TOL);

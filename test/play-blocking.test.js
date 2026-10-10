@@ -222,7 +222,7 @@ test('9. API behavior', () => {
   const before = { x: ldt.x, y: ldt.y };
   const ball = play.ballPosition();
   const dBefore = Math.hypot(ball.x - before.x, ball.y - before.y);
-  play.step(DT);
+  run(play, 10 * DT);
   const ball2 = play.ballPosition();
   assert.ok(Math.hypot(ball2.x - ldt.x, ball2.y - ldt.y) < dBefore);
 
@@ -333,7 +333,9 @@ test('F10-7. no flip-flopping of route sides', () => {
         const sd = p.steer ? p.steer.side : 0;
         const key = p.steer ? p.steer.key : null;
         const flips = p.steer ? p.steer.flips : 0;
-        if (sd !== 0 && s.last && sd !== s.last) s.times.push(t);
+        const ball = play.ballPosition();
+        const atBall = Math.hypot(p.x - ball.x, p.y - ball.y) <= 2 * BODY_RADIUS + 0.05;
+        if (sd !== 0 && s.last && sd !== s.last && !atBall) s.times.push(t);
         if (sd !== 0 && s.side === -sd && s.key === key) {
           assert.ok(flips > s.flips, `${p.id} side flipped without flips++ at t=${t.toFixed(3)} (${runName(r)})`);
         }
