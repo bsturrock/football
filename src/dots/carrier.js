@@ -1,8 +1,8 @@
 // Ball carrier movement: live lane read on both sides of the center (laneWindows, freeLane,
-// scoreLanes, chooseLane), the interim line lock, the QB/RB mesh handoff check (the QB must hold
+// scoreLanes, chooseLane), the QB/RB mesh handoff check (the QB must hold
 // the snap SECURE_TIME before handing off), and carrier steering. Pure: no THREE, DOM, timers.
-import { steerStep, hardCore } from './steering.js';
-import { BODY_RADIUS } from './blocking.js';
+import { steerStep, hardCore, PACES } from './steering.js';
+import { BODY_RADIUS, engagedOn } from './blocking.js';
 import { PLAYSIDE_SIGN } from './numbering.js';
 import { liveGaps } from './front.js';
 
@@ -34,6 +34,22 @@ export const LANE_CAP = 2 * BODY_RADIUS; // free width beyond this scores no mor
 export const TRACK_COST = 0.5; // score per yard from the track point
 export const CUT_COST = 0.25; // score per yard from the RB's own x
 export const SWITCH_MARGIN = BODY_RADIUS / 2; // score a rival lane must beat the current one by
+
+// Patience tunables (F-35): the RB presses toward the track point behind the line while he re-reads lanes, then commits.
+export const PATIENCE_MAX = 0.8; // s: longest patience window
+export const PRESS_DEPTH = 3 * BODY_RADIUS; // press point depth behind the los; must exceed LOCK_DEPTH so pressing never line-locks
+export const CLEAR_LANE = 1.5 * MIN_LANE; // a picked lane this wide in free space is clearly open and ends the patience
+export const PRESSURE_DIST = 8 * BODY_RADIUS; // an unblocked defender this close ends the patience
+export const CUT_ALLOW = BODY_RADIUS / 2; // after the commit, how far the aim x may move from run.x
+// The RB's pace per phase, as data.
+export const PHASE_PACE = Object.freeze({ press: PACES.press, commit: PACES.burst });
+
+// Patience window in seconds. `rb.patience` is the per-back rating hook (no roster value yet; absent means 1).
+export function patienceWindow(runDef, rb) {
+  return Math.min(PATIENCE_MAX, Math.max(0, (runDef.patience ?? 0) * (rb.patience ?? 1)));
+}
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 const PLAY_COUNT = LANES.filter((l) => l.side === 'play').length;
 const BACK_COUNT = LANES.filter((l) => l.side === 'back').length;
@@ -80,13 +96,18 @@ export function freeLane(players, win, carrierId, los) {
   return { x: open ? best.x : mid, width, open };
 }
 
-export function scoreLanes(players, run, rb, los) {
+// Live x of the track point: the numbered line player run.track, else the center, else the RB.
+function trackPointX(players, run, rb) {
   const xOfN = (n) => {
     const e = run.line.find((l) => l.n === n);
     const p = e && players.find((q) => q.id === e.id);
     return p ? p.x : null;
   };
-  const trackX = xOfN(run.track) ?? xOfN(0) ?? rb.x;
+  return xOfN(run.track) ?? xOfN(0) ?? rb.x;
+}
+
+export function scoreLanes(players, run, rb, los) {
+  const trackX = trackPointX(players, run, rb);
   return laneWindows(players, run.line, run.side).map((w) => {
     const f = freeLane(players, w, rb.id, los);
     const score = Math.min(f.width, LANE_CAP) - TRACK_COST * Math.abs(f.x - trackX) - CUT_COST * Math.abs(f.x - rb.x);
@@ -129,6 +150,11 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     lanes: [],
     gap: 'A',
     locked: false,
+    patience: patienceWindow(runDef, rb),
+    pressTime: 0,
+    cut: 0,
+    press: null,
+    commitBy: null,
     carried: false,
     heldTime: 0,
     x: null,
@@ -149,20 +175,34 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     run.carried = true;
     handoff = true;
   }
+  let justCommitted = false;
   if (run.carried && !run.locked) {
     run.lanes = scoreLanes(players, run, rb, los);
+    let pick = null;
     if (run.lanes.length) {
-      const pick = chooseLane(run.lanes, run.lane);
+      pick = chooseLane(run.lanes, run.lane);
       run.lane = { side: pick.side, name: pick.name };
       run.gap = pick.name;
       run.aim = { x: pick.x, y: los };
     } else {
       run.aim = { x: rb.x, y: los };
     }
-    // Interim line lock (T-104 replaces it with the patience press and commit).
-    if (rb.y >= los - LOCK_DEPTH) {
+    run.pressTime += dt;
+    let by = null;
+    if (run.pressTime >= run.patience - 1e-9) by = 'window';
+    else if (pick && pick.open && pick.width >= CLEAR_LANE) by = 'clear';
+    else if (rb.y >= los - LOCK_DEPTH) by = 'line';
+    else if (
+      players.some(
+        (d) => d.team === 'defense' && Math.hypot(d.x - rb.x, d.y - rb.y) <= PRESSURE_DIST && engagedOn(players, d.id).length === 0,
+      )
+    ) by = 'pressure';
+    if (by) {
+      run.commitBy = by;
       run.locked = true;
       run.x = run.aim.x;
+      run.cut = 0;
+      justCommitted = true;
     }
   }
   const key = 'lane:' + run.lane.side + ':' + run.lane.name;
@@ -171,10 +211,16 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     run.aim = { ...run.approach };
     goal = { x: run.approach.x, y: run.approach.y, key: 'mesh', ignore: holdId };
   } else if (!run.locked) {
-    goal = { ...run.aim, key, ignore: null };
+    run.press = { x: trackPointX(players, run, rb), y: los - PRESS_DEPTH };
+    goal = { ...run.press, key: 'press', pace: PHASE_PACE.press, ignore: null };
   } else {
-    run.aim = { x: run.x, y: GOAL_LINE_Y };
-    goal = { ...run.aim, key, ignore: null };
+    if (!justCommitted && rb.y < los + LANE_AHEAD) {
+      const w = laneWindows(players, run.line, run.side).find((e) => e.side === run.lane.side && e.name === run.lane.name);
+      const free = w && freeLane(players, w, rb.id, los);
+      if (free && free.open) run.cut = clamp(free.x - run.x, -CUT_ALLOW, CUT_ALLOW);
+    }
+    run.aim = { x: run.x + run.cut, y: GOAL_LINE_Y };
+    goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null };
   }
   steerStep(rb, goal, players, rb.speed * dt, dt, BODY_RADIUS);
   return handoff;

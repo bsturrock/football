@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { LANES, MESH_AHEAD, HANDOFF_DIST } from '../src/dots/carrier.js';
+import { LANES, MESH_AHEAD, HANDOFF_DIST, CUT_ALLOW } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
 const near = (a, b, m = '') => assert.ok(Math.abs(a - b) < 1e-9, `${m} ${a} !~ ${b}`);
@@ -75,6 +75,7 @@ test('F-13 #5: lane read invariants hold across alignments', () => {
         if (lockedLane === null) { lockedLane = { ...run.lane }; lockedX = run.x; }
         assert.deepEqual(run.lane, lockedLane, label);
         assert.equal(run.x, lockedX, label);
+        assert.ok(Math.abs(run.aim.x - run.x) <= CUT_ALLOW + 1e-9, label);
       }
     }
     assert.ok(run.locked || play.ball.phase === 'dead', 'locked or dead within 4 s');
@@ -94,4 +95,13 @@ test('F-35 determinism: two fresh plays give identical RB positions every tick',
     assert.equal(ra.x, rb.x, 'x step ' + i);
     assert.equal(ra.y, rb.y, 'y step ' + i);
   }
+});
+
+test('F-35: with no patience on the play, the RB commits within one tick of the handoff', () => {
+  const play = createPlay(25, 'insideZone', { tackles: false });
+  play.snap();
+  const run = play.run;
+  for (let i = 0; i < 240 && !run.carried; i++) play.step(DT);
+  assert.equal(run.carried, true);
+  assert.equal(run.locked, true);
 });
