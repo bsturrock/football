@@ -429,3 +429,10 @@ test('separateBodies: a free body wedged against an anchor is not pushed back by
   near(ps[1].x, 2 * BODY_RADIUS, 1e-9);
   near(ps[2].x, 4 * BODY_RADIUS, 1e-9);
 });
+
+test('F-41 #2: an engaged blocker follows his spot before the lost check', () => {
+  const ps = [O('a', 0, 10 - (CONTACT_DIST + ENGAGE_TOL - 0.005), { block: blk('d', { engaged: true, seq: 1, held: 0, winT: 0 }) }), D('d', 0, 10)];
+  stepBlocking(ps, { x: 0, y: 0 }, DT, { rule: null, seq: 1 });
+  assert.equal(ps[0].block.engaged, true);
+  assert.notEqual(ps[0].block.released, 'lost');
+});

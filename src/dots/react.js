@@ -91,10 +91,14 @@ export function stepReact(react, d, push, goal, dt, opts = {}) {
   const m = Math.hypot(x, y);
   const dir = m < 1e-9 ? null : { x: x / m, y: y / m };
   // Leverage is the single place a defender earns a shed: his goal is close and
-  // off his blocker's line (including goals behind the push). Ratings (hand use,
+  // off his blocker's line (including goals behind the blocker). The line is the blocker's
+  // body line (blockers' mean position to the defender, opts.line), not the push: ride and
+  // combo lean rotate the push, which would read a goal straight behind the body as off-line.
+  // Without opts.line the push direction is used. Ratings (hand use,
   // strength) multiply in here later. A doubled defender (push.n > 1) gets no
   // leverage: he wins only by out-pushing both (the along rule) or once a partner leaves.
-  const leverage = opts.leverage !== false && (push.n ?? 1) === 1 && !!pu && bm <= SHED_REACH && g.x * -pu.x + g.y * -pu.y <= LEVER_COS;
+  const lu = opts.line ?? pu;
+  const leverage = opts.leverage !== false && (push.n ?? 1) === 1 && !!pu && bm <= SHED_REACH && g.x * -lu.x + g.y * -lu.y <= LEVER_COS;
   let state = 'neutral';
   if (pu) {
     if (along <= -WIN_SPEED || leverage) state = 'winning';
