@@ -36,7 +36,7 @@ export const LB_SHIFT_MAX = 6; // steps allowed each way
 // A scheme's plan returns {side, blocks, techs, combos, free, front}.
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = true } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = true, tackles = true } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const play = {
     los,
@@ -47,6 +47,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     timeScale,
     front,
     accel,
+    tackles,
     dlShift: 0,
     lbShift: 0,
     numbers: {},
@@ -222,7 +223,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
         p.v = Math.min(p.speed, Math.max(moved, p.v * Math.exp(-sdt / ACCEL_TAU)));
       });
     }
-    if (ball.phase === 'carried') {
+    if (play.tackles && ball.phase === 'carried') {
       const end = playEnd(play.players, play.run.carrier);
       if (end) {
         const c = play.player(play.run.carrier);

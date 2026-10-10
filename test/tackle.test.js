@@ -105,3 +105,13 @@ test('tackle: nothing is tackled before the handoff', () => {
   play.step(DT);
   assert.notEqual(play.ball.phase, 'dead');
 });
+
+test('tackle: tackles option off never ends the play', () => {
+  const play = createPlay(25, 'insideZone', { front: 'odd34', tackles: false });
+  play.snap();
+  for (let i = 0; i < 240; i++) {
+    play.step(DT);
+    assert.notEqual(play.ball.phase, 'dead');
+  }
+  assert.equal(play.result, null);
+});
