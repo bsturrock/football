@@ -1,34 +1,19 @@
-// Accel stalls seen with `accel: true` (F-25), absent with accel off. Both tests are
-// `todo` until T-73 fixes them. Mechanisms, confirmed by instrumenting steerStep:
+// Accel stalls seen with `accel: true` (F-25), absent with accel off. Fixed by T-73.
 //
-// Shared ratchet. play.step (src/dots/play.js ~line 198) sets p.v to the distance
-// actually moved this substep (after the slide projection, ray-cast clamp and
-// separateBodies push-back), and steerStep (src/dots/steering.js line 40) caps the
-// next step by a ramp that starts from that p.v. So any substep that moves a
-// fraction eta < 1 of its cap lowers the next cap, and the ramp only adds
-// about (1 - exp(-dt / ACCEL_TAU)) * (p.speed - v) per substep (~0.17 yd/s at 60 Hz).
-// The fixed point is v* = eta * a / (1 - eta * (1 - a)): with eta ~ 0.2 that is
-// ~0.04 yd/s. Without accel the cap is the constant top-speed step, so a blocked
-// mover still makes the same fraction of a large step and squeezes through.
+// Mechanisms (instrumented by T-72):
+//  - Shared ratchet. play.step set p.v to the distance moved in the substep, and
+//    steerStep capped the next step by a ramp from that p.v. A substep clipped by
+//    contact (slide projection, ray clamp, separateBodies push-back) therefore
+//    lowered the next cap, converging on ~0.04 yd/s (A: RB in the RDE/RDT lane,
+//    B: MLB wedged between LDT and C with retargetRule = null).
+//  - Stuck release judged progress against the ramp-capped maxStep, so a mover
+//    crawling at his own tiny cap never counted as stuck.
 //
-// (A) RB crawling in the hole. Entering the RB's lane [RDE, RDT] (steerStep lane
-// branch, lines ~99-115), the hard-core ray clamp (lines ~152-168) and slide
-// projection (lines ~140-150) cut his step against the two bodies, and the
-// separateBodies push in the same substep undoes more of it; the lower measured
-// p.v shrinks the ramp cap (line 40) for the next substep (v drops 7.2 -> 0.2 in
-// 3 substeps). The stuck release (line 177) compares progress with the already
-// ramp-capped maxStep, so a mover crawling at his own tiny cap makes ~cap of
-// progress, never < 0.25 * cap, and stuck never accumulates until it drifts down
-// to 0.3 s at ~3.7 s.
-//
-// (B) MLB wedged short of the QB. Same ratchet, but the loss is in the slide
-// projection alone (steerStep lines ~140-150), not separation push-back (measuring
-// p.v from the steer step only does not help). Pressed into LDT (distance ~0.52)
-// and C (~0.70) with the goal straight at the QB, the two contact normals
-// project away ~80% of the step: cap 0.0036 yd, post-slide step 0.0007 yd
-// (eta ~ 0.2), v ~ 0.04. Flips are already spent (MAX_FLIPS, line 22), and the
-// stuck test (line 177) is again judged against the ramp-capped maxStep with a
-// two-step progress average that alternates, so it cycles 0..0.27 s and never fires.
+// Fix. (1) steerStep judges stuck progress against the caller's uncapped maxStep.
+// (2) play.step gives p.v inertia: measured speed may fall no faster than
+// exp(-dt / ACCEL_TAU) per substep (the ramp's own time constant), so a clipped
+// substep no longer collapses the cap. Measured: RB crosses y >= 25 + GAP_DEPTH
+// at about 1.7 s; MLB and WLB reach the QB within CONTACT_DIST + 0.05.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
@@ -48,7 +33,7 @@ function stallTime(samples) {
   return best * DT;
 }
 
-test('F-25 #3: RB does not crawl in the hole with accel on', { todo: 'accel stall, fixed by T-73' }, () => {
+test('F-25 #3: RB does not crawl in the hole with accel on', () => {
   const play = createPlay(25, 'insideZone', { accel: true });
   play.snap();
   const rb = play.player(play.run.carrier);
@@ -64,7 +49,7 @@ test('F-25 #3: RB does not crawl in the hole with accel on', { todo: 'accel stal
   assert.ok(crossed !== null && crossed <= 2.5, `RB reached y >= ${25 + GAP_DEPTH} at ${crossed}s (want <= 2.5)`);
 });
 
-test('F-25 #4: MLB and WLB reach the QB without wedging with accel on', { todo: 'accel stall, fixed by T-73' }, () => {
+test('F-25 #4: MLB and WLB reach the QB without wedging with accel on', () => {
   const play = createPlay(25, 'base', { accel: true });
   play.snap();
   play.retargetRule = null;

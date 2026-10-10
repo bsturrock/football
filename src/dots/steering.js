@@ -35,6 +35,7 @@ export function hardCore(radius) { return 2 * radius * (1 - SQUEEZE); }
 export const ACCEL_TAU = 0.7; // seconds; exponential time constant to top speed (tunable)
 
 export function steerStep(p, goal, players, maxStep, dt, radius) {
+  const fullStep = maxStep;
   if (typeof p.v === 'number' && dt > 0) {
     const top = typeof p.speed === 'number' ? p.speed : maxStep / dt;
     const ramp = p.v + (top - p.v) * (1 - Math.exp(-dt / ACCEL_TAU));
@@ -174,7 +175,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     // Also judge the net advance over two steps, so a forward step that
     // separation undoes the next step (a 2-cycle) still counts as stuck.
     if (s.lx2 !== undefined) prog = Math.min(prog, ((sx - s.lx2) * ux + (sy - s.ly2) * uy) / 2);
-    if (prog < STUCK_PROGRESS * maxStep) s.stuck += dt; else s.stuck = 0;
+    if (prog < STUCK_PROGRESS * fullStep) s.stuck += dt; else s.stuck = 0;
     if (s.stuck >= STUCK_TIME - 1e-9) {
       s.stuck = 0;
       if (s.lane) { s.lane = null; s.laneOff = true; }
