@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   gapWindows, gapCenter, gapOpen, readHole, pickGap, startRun, stepCarrier,
-  READS, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, GAP_DEPTH, LOCK_DEPTH, RUN_DEPTH, READ_TIME,
+  READS, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, GAP_DEPTH, LOCK_DEPTH, GOAL_LINE_Y, READ_TIME,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { numberPlay } from '../src/dots/numbering.js';
@@ -132,7 +132,7 @@ test('F-13 stepCarrier: no handoff without the ball; then handoff reads A', () =
   near(run.aim.y, LOS);
 });
 
-test('F-13 stepCarrier: lock freezes the hole and x, then runs RUN_DEPTH past the line', () => {
+test('F-13 stepCarrier: lock freezes the hole and x, then runs to the goal line', () => {
   const { pl, numbers, run, rb } = setup();
   const dt = 1 / 60;
   const A = gapWindows(pl, numbers, -1).A;
@@ -148,7 +148,26 @@ test('F-13 stepCarrier: lock freezes the hole and x, then runs RUN_DEPTH past th
   for (let i = 0; i < 10; i++) stepCarrier(pl, run, { los: LOS, numbers, ballHeld: true, holdId: 'QB' }, dt);
   assert.equal(run.gap, gap);
   assert.equal(run.x, x);
-  assert.equal(run.aim.y, LOS + RUN_DEPTH);
+  assert.equal(run.aim.y, GOAL_LINE_Y);
+});
+
+test('F-31 stepCarrier: locked carrier with no defenders runs past los + 10 and is still moving', () => {
+  const { pl, numbers, run, rb } = setup();
+  const offense = pl.filter((p) => p.team === 'offense');
+  const dt = 1 / 60;
+  const A = gapWindows(pl, numbers, -1).A;
+  rb.x = gapCenter(A);
+  rb.y = LOS - LOCK_DEPTH + 0.05;
+  run.carried = true;
+  const steps = Math.ceil((12 / rb.speed + 1) / dt);
+  let prevY = rb.y;
+  for (let i = 0; i < steps; i++) {
+    prevY = rb.y;
+    stepCarrier(offense, run, { los: LOS, numbers, ballHeld: true, holdId: 'QB' }, dt);
+  }
+  assert.equal(run.locked, true);
+  assert.ok(rb.y > LOS + 10, `rb.y ${rb.y} not past los + 10`);
+  assert.ok(rb.y > prevY, `rb.y ${rb.y} not increasing (prev ${prevY})`);
 });
 
 const defAt = (id, x, y) => ({ id, team: 'defense', x, y });
