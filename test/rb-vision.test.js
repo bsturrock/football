@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { buildLineup } from '../src/dots/roster.js';
+import { buildLineup, FRONTS } from '../src/dots/roster.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import {
   scoreLanes, chooseLane, visionOf, DEFAULT_VISION, LANE_AHEAD, SWITCH_MARGIN, SECOND_LEVEL_DEPTH, LEVEL2_CAP,
@@ -141,4 +141,29 @@ test('F-48 #4: a defender with a blocker engaged adds nothing', () => {
   ol.block = saved;
   assert.ok(lanes.every((l) => l.level2 === 0), 'engaged LB leaves every lane unpenalised');
   assert.ok(laneWindows(s.play.players, s.run.line, s.run.side).length > 0);
+});
+
+test('F-48 #11a: no dithering on any front, either personnel', () => {
+  for (const front of Object.keys(FRONTS)) {
+    for (const personnel of ['noTe', 'te']) {
+      const play = createPlay(LOS, 'insideZone', { front, personnel });
+      play.snap();
+      const run = play.run;
+      const seq = [];
+      let prev = null;
+      for (let n = 1; n <= 300 && !run.locked && play.ball.phase !== 'dead'; n++) {
+        play.step(DT);
+        if (!(run.carried && !run.locked)) continue;
+        const key = run.lane.side + run.lane.name;
+        if (key !== prev) { seq.push({ n, key }); prev = key; }
+      }
+      const ctx = `${front}/${personnel} ${JSON.stringify(seq)}`;
+      assert.ok(seq.length - 1 <= 3, `at most 3 pick changes: ${ctx}`);
+      for (let i = 2; i < seq.length; i++) {
+        if (seq[i].key === seq[i - 2].key) {
+          assert.ok((seq[i].n - seq[i - 1].n) * DT >= 0.2, `A-B-A flip within 0.2 s: ${ctx}`);
+        }
+      }
+    }
+  }
 });
