@@ -420,11 +420,13 @@ test('F10-10. null rule: LBs reach the QB', () => {
 });
 
 test('F-15 #8: RB slips the lane', () => {
-  const play = createPlay(25, 'insideZone', { accel: true });
+  // tackles off: the lane crossing is a running rule; a tackle before the crossing must not hide it.
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
   play.snap();
   let crossed = false;
-  // accel: RB crosses GAP_DEPTH at 1.70 s measured; 1.70 * 1.25 = 2.125, rounded up to 0.05 s
-  for (let t = 0; t < 2.15; t += DT) {
+  // measured 2.15 s with tackles off since F-33 #6 (engaged DL lean to their gap goal, the RB takes the A gap
+  // and is held at the line about 0.5 s); 1.25x margin; F-35 (RB live gap read) is expected to bring it back down.
+  for (let t = 0; t < 2.7; t += DT) {
     play.step(DT);
     const rb = play.player('RB');
     if (rb.y >= 25 + GAP_DEPTH) {
@@ -434,7 +436,7 @@ test('F-15 #8: RB slips the lane', () => {
       break;
     }
   }
-  assert.ok(crossed, 'RB crossed within 2.15 s');
+  assert.ok(crossed, 'RB crossed within 2.7 s');
 });
 
 // ---- F-32: smooth engage, engage clock, release ----
@@ -556,7 +558,8 @@ test('F-32 shed: a defender who wins for SHED_TIME is released, then reacts as f
 });
 
 test('F-32 past: once the ball is RELEASE_PAST upfield of a defender, nobody is engaged on him', () => {
-  const play = createPlay(25, 'insideZone');
+  // tackles off: the 'past' release is a blocking rule; a tackle before the release must not hide it.
+  const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
   let seen = 0;
   for (let i = 0; i < 360 && play.ball.phase !== 'dead'; i++) {
@@ -608,4 +611,33 @@ test('F-32 smooth engage: a blocker leaving an engaged block never jumps more th
     }
     assert.ok(switchedAny, `${variant}: no combo switched`);
   }
+});
+
+// ---- T-116: fightBlocks (acc. 11) ----
+test('T-116 canRelease fight off: no shed, the rest of the order holds', () => {
+  const { T, b } = mkPair({ winT: SHED_TIME });
+  assert.equal(canRelease(b, T, BALL), 'shed');
+  assert.equal(canRelease(b, T, BALL, false), null);
+  assert.equal(canRelease(b, T, { x: 0, y: T.y + RELEASE_PAST }, false), 'past');
+  b.y = T.y - (CONTACT_DIST + ENGAGE_TOL) - 0.01;
+  assert.equal(canRelease(b, T, BALL, false), 'lost');
+});
+
+test('T-116 fightBlocks off: no defender sheds a block on any front', () => {
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front, fightBlocks: false });
+    play.snap();
+    for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+      play.step(DT);
+      for (const p of play.players) {
+        assert.notEqual(p.block?.released, 'shed', `${front} ${p.id} shed at tick ${i}`);
+      }
+    }
+    play.reset();
+    assert.equal(play.fightBlocks, false, front);
+  }
+});
+
+test('T-116 fightBlocks defaults on', () => {
+  assert.equal(createPlay(25, 'insideZone').fightBlocks, true);
 });

@@ -159,8 +159,8 @@ export const driveForce = (p) => p.strength;
 // Single place where future factors (skills, leverage, fatigue) multiply in.
 export const blockForce = (p) => p.strength;
 
-// Summed blocker push vector. Single source of the push sum.
-function blockPush(blockers) {
+// Summed blocker push vector and the number of blockers summed (n). Single source of the push sum; stepReact reads n to tell a double team.
+export function blockPush(blockers) {
   let x = 0;
   let y = 0;
   for (const b of blockers) {
@@ -169,7 +169,7 @@ function blockPush(blockers) {
     x += bf * d.x;
     y += bf * d.y;
   }
-  return { x, y };
+  return { x, y, n: blockers.length };
 }
 
 // The one function that decides who wins an engaged block. Pure.
@@ -252,20 +252,28 @@ function moveToward(p, tx, ty, maxStep) {
   p.y += (dy / d) * s;
 }
 
+// The ball is well upfield of the target: the blocker may let go of him, and may not re-engage him.
+const ballPast = (T, ballPos) => ballPos.y >= T.y + RELEASE_PAST;
+
 // Single release predicate for an engaged block. First match wins: 'shed' (the target has won
-// for SHED_TIME), 'past' (the ball is well upfield of the target), 'lost' (contact broken), or null.
+// for SHED_TIME, only when fight is true), 'past' (the ball is well upfield of the target), 'lost'
+// (contact broken), or null. fight = false (play option fightBlocks off) means no shed.
 // Later shed decisions (R-42 DL AI) go here.
-export function canRelease(b, T, ballPos) {
-  if ((b.block.winT ?? 0) >= SHED_TIME) return 'shed';
-  if (ballPos.y >= T.y + RELEASE_PAST) return 'past';
+export function canRelease(b, T, ballPos, fight = true) {
+  if (fight && (b.block.winT ?? 0) >= SHED_TIME) return 'shed';
+  if (ballPast(T, ballPos)) return 'past';
   if (Math.hypot(T.x - b.x, T.y - b.y) > CONTACT_DIST + ENGAGE_TOL) return 'lost';
   return null;
 }
 
 // Single engage predicate: 'spot' (within ENGAGE_TOL of the spot), 'contact' (touching the target
-// in front), or null (also null while the re-engage cooldown runs).
-export function canEngage(b, T, spot) {
+// in front), or null. Null also when: the re-engage cooldown runs (b.block.cool); the ball is past
+// the target (ballPos given and ballPast); the target shed a blocker within REENGAGE_DELAY
+// (T.shedFree > 0, he is free of every blocker). ballPos is optional so 3-arg callers skip the past check.
+export function canEngage(b, T, spot, ballPos) {
   if ((b.block.cool ?? 0) > 0) return null;
+  if (ballPos && ballPast(T, ballPos)) return null;
+  if ((T.shedFree ?? 0) > 0) return null;
   // Engage only well inside canRelease's 'lost' range, or the block would drop on the next tick.
   const near = Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_NEAR;
   if (near && Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL) return 'spot';
@@ -392,6 +400,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
   }
 
+  const fight = ctx?.fightBlocks !== false;
   let holderId = null;
   for (const p of players) {
     if (Math.hypot(p.x - ballPos.x, p.y - ballPos.y) < 1e-9) {
@@ -429,7 +438,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       );
     }
     const T = byId(players, b.block.target);
-    const hit = canEngage(b, T, spot);
+    const hit = canEngage(b, T, spot, ballPos);
     if (hit) {
       b.block.engaged = true;
       b.block.held = 0;
@@ -459,10 +468,11 @@ export function stepBlocking(players, ballPos, dt, ctx) {
 
   for (const d of players) {
     if (!isDefense(d)) continue;
+    if ((d.shedFree ?? 0) > 0) d.shedFree = Math.max(0, d.shedFree - dt);
     const eng = engagedOn(players, d.id);
     if (eng.length) {
       d.steer = null;
-      d.react = stepReact(d.react ?? null, d, blockPush(eng), ballPos, dt);
+      d.react = stepReact(d.react ?? null, d, blockPush(eng), ctx?.defGoals?.[d.id] ?? ballPos, dt, { leverage: fight });
       const v = resolveBlock(d, eng, ballPos);
       d.x = Math.min(HW, Math.max(-HW, d.x + v.vx * dt));
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
@@ -506,13 +516,14 @@ export function stepBlocking(players, ballPos, dt, ctx) {
 
   for (const b of players) {
     if (!b.block || !b.block.engaged || justEngaged.has(b.id)) continue;
-    const reason = canRelease(b, byId(players, b.block.target), ballPos);
+    const reason = canRelease(b, byId(players, b.block.target), ballPos, fight);
     if (!reason) continue;
     b.block.engaged = false;
     b.block.seq = null;
     b.block.released = reason;
     if (b.block.foot) b.block.foot.push = null;
     if (reason !== 'past') b.block.cool = REENGAGE_DELAY;
+    if (reason === 'shed') byId(players, b.block.target).shedFree = REENGAGE_DELAY;
   }
 
   for (const b of players) {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   REACT_STATES, ANCHOR_RATE, RECOVER_RATE, ANCHOR_MIN, ANCHOR_LATERAL,
   startReact, anchorSide, anchorDir, stepReact, anchorHold, HOLD_GIVE, HOLD_STIFF,
+  SHED_REACH, LEVER_COS, WIN_SPEED,
 } from '../src/dots/react.js';
 
 const DT = 1 / 60;
@@ -176,4 +177,35 @@ test('stepReact keeps the engage spot and holds with anchorHold', () => {
   const want = anchorHold(0, 10, def(0, 10 + 30 * 0.05), PUSH);
   near(r.hold.x, want.x); near(r.hold.y, want.y);
   assert.ok(r.hold.y < 0);
+});
+
+test('F-33 #7: leverage is goal within SHED_REACH and off the blocker line', () => {
+  const d = def(0, 10);
+  assert.equal(SHED_REACH, 8 * 0.28);
+  assert.equal(LEVER_COS, 0.5);
+  // square block: the push runs along y, so the line through the blocker is the y axis
+  const behind = stepReact(null, d, PUSH, { x: 0, y: 10 - 1 }, DT);
+  assert.notEqual(behind.state, 'winning', 'goal straight behind the blocker');
+  const lateral = stepReact(null, d, PUSH, { x: 1, y: 10 }, DT);
+  assert.equal(lateral.state, 'winning', 'lateral goal in reach');
+  const far = stepReact(null, d, PUSH, { x: SHED_REACH + 0.5, y: 10 }, DT);
+  assert.notEqual(far.state, 'winning', 'lateral goal beyond reach');
+  const zero = stepReact(null, d, { x: 0, y: 0 }, { x: 1, y: 10 }, DT);
+  assert.equal(zero.state, 'neutral');
+  // moving against the push is still winning, goal out of reach
+  let r = stepReact(null, def(0, 10), PUSH, ball, DT);
+  r = stepReact(r, def(0, 10 - 2 * WIN_SPEED * DT), PUSH, ball, DT);
+  assert.equal(r.state, 'winning');
+});
+
+test('F-33 #7: doubled defender gets no leverage; opts.leverage false disables it', () => {
+  const d = def(0, 10);
+  const goal = { x: 1, y: 10 };
+  assert.notEqual(stepReact(null, d, { ...PUSH, n: 2 }, goal, DT).state, 'winning', 'n 2');
+  assert.equal(stepReact(null, d, { ...PUSH, n: 1 }, goal, DT).state, 'winning', 'n 1');
+  assert.notEqual(stepReact(null, d, { ...PUSH, n: 1 }, goal, DT, { leverage: false }).state, 'winning', 'switch off');
+  const p2 = { ...PUSH, n: 2 };
+  let r = stepReact(null, def(0, 10), p2, ball, DT);
+  r = stepReact(r, def(0, 10 - 2 * WIN_SPEED * DT), p2, ball, DT);
+  assert.equal(r.state, 'winning', 'along rule not gated');
 });

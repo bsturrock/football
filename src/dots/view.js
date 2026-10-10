@@ -71,6 +71,11 @@ export function shiftLabel(steps, group = 'DL', keys = '←/→') {
   return `${group} shift: ${yd} yd ${side} (${keys})`;
 }
 
+// Label for the defense-fights-blocks toggle (F key or button).
+export function fightLabel(on) {
+  return `Defense fights blocks: ${on ? 'on' : 'off'} (F)`;
+}
+
 // Sim speed step per -/+ press (keys or buttons).
 export const SPEED_STEP = 0.05;
 
@@ -459,7 +464,21 @@ export function initDotsView(container) {
     camera.updateProjectionMatrix();
   }, { passive: false });
 
-  const doReset = () => { play.reset(); showShift(); showLB(); };
+  const fightBtn = document.getElementById('fight-btn');
+  const showFight = () => {
+    if (fightBtn) fightBtn.textContent = fightLabel(play.fightBlocks);
+  };
+  showFight();
+  const toggleFight = () => {
+    play.fightBlocks = !play.fightBlocks;
+    showFight();
+  };
+  fightBtn?.addEventListener('click', () => {
+    toggleFight();
+    fightBtn.blur();
+  });
+
+  const doReset = () => { play.reset(); showShift(); showLB(); showFight(); };
   resetBtn?.addEventListener('click', doReset);
   // Buttons sit outside #field, so no pointer handlers here; blur keeps the -/= keys working.
   const speedBtn = (btn, dir) => {
@@ -485,6 +504,7 @@ export function initDotsView(container) {
       if (selectedId && !play.player(selectedId)) selectedId = null;
       showShift();
       showLB();
+      showFight();
       frontSelect.blur(); // so ArrowLeft/ArrowRight go back to the DL shift
     });
   }
@@ -510,6 +530,7 @@ export function initDotsView(container) {
       return;
     }
     if (e.key.toLowerCase() === 'r') doReset();
+    if (e.key.toLowerCase() === 'f') { toggleFight(); return; }
   });
 
   // ---- Loop ----

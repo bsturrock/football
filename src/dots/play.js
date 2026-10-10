@@ -36,7 +36,7 @@ export const LB_SHIFT_MAX = 6; // steps allowed each way
 // A scheme's plan returns {side, blocks, techs, combos, free, front}.
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = true, tackles = true } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = true, tackles = true, fightBlocks = true } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const play = {
     los,
@@ -48,6 +48,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     front,
     accel,
     tackles,
+    // off = defenders never win leverage or shed; blocks still release 'past' and 'lost'.
+    fightBlocks,
     dlShift: 0,
     lbShift: 0,
     numbers: {},
@@ -214,6 +216,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       : null;
     ctx.committed = play.defense ? play.defense.committed : null;
     ctx.rule = play.retargetRule;
+    ctx.fightBlocks = play.fightBlocks;
     play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
     if (starts) {
       play.players.forEach((p, i) => {
