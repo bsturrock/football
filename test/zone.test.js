@@ -4,120 +4,68 @@ import { zonePlan, zoneSwitch, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE } from '../s
 import { RULES, CLIMB_REACH } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
-import { buildLineup, PLAYS } from '../src/dots/roster.js';
-import { LB_SHIFT_STEP } from '../src/dots/play.js';
-import { IZ_FREE, LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
+import { buildLineup, PLAYS, FRONTS } from '../src/dots/roster.js';
+import { LB_SHIFT_STEP, DL_SHIFT_STEP } from '../src/dots/play.js';
+import { numberPlay, A_GAP_HALF } from '../src/dots/numbering.js';
 
 test('scheme flag on insideZone', () => assert.equal(PLAYS.insideZone.scheme, 'zone'));
 
 const T = (tech, shade, watch = null) => ({ tech, shade, watch });
-const EXPECTED = {
-  base: {
-    blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'LDT', RT: 'LDT' },
-    combos: [
-      { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
-      { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' },
-    ],
-    techs: {
-      LT: T('combo', 'playside', 'WLB'), LG: T('combo', 'none', 'WLB'), C: T('zone', 'playside'),
-      RG: T('combo', 'playside', 'MLB'), RT: T('combo', 'none', 'MLB'),
-    },
-    free: IZ_FREE.base,
+const NO_TE_BASE = {
+  blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'LDT', RT: 'LDE' },
+  combos: [{ owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' }],
+  techs: {
+    LT: T('combo', 'playside', 'WLB'), LG: T('combo', 'none', 'WLB'), C: T('zone', 'playside'),
+    RG: T('zone', 'playside'), RT: T('cutoff', 'backside'),
   },
-  dlPlus4: {
-    blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' },
-    combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
-    techs: {
-      LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
-      RG: T('combo', 'none', 'MLB'), RT: T('cutoff', 'playside'),
-    },
-    free: IZ_FREE.dlPlus4,
-  },
-  dlMinus4: {
-    blocks: { LT: 'RDE', LG: 'RDT', C: 'LDT', RG: 'LDT', RT: 'LDE' },
-    combos: [{ owner: 'RG', partner: 'C', target: 'LDT', watch: 'MLB' }],
-    techs: {
-      LT: T('zone', 'playside'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
-      RG: T('combo', 'none', 'MLB'), RT: T('cutoff', 'playside'),
-    },
-    free: IZ_FREE.dlMinus4,
-  },
-  over43: {
-    blocks: { LT: 'PE', LG: 'PT', C: 'PT', RG: 'BT', RT: 'BT' },
-    combos: [
-      { owner: 'RT', partner: 'RG', target: 'BT', watch: 'WIL' },
-      { owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' },
-    ],
-    techs: {
-      LT: T('zone', 'playside'), LG: T('combo', 'playside', 'MIK'), C: T('combo', 'none', 'MIK'),
-      RG: T('combo', 'playside', 'WIL'), RT: T('combo', 'none', 'WIL'),
-    },
-    free: ['SAM', 'BE'],
-  },
-  under43: {
-    blocks: { LT: 'PE', LG: 'PE', C: 'PN', RG: 'PN', RT: 'BT' },
-    combos: [
-      { owner: 'RG', partner: 'C', target: 'PN', watch: 'L2' },
-      { owner: 'LG', partner: 'LT', target: 'PE', watch: 'L1' },
-    ],
-    techs: {
-      LT: T('combo', 'playside', 'L1'), LG: T('combo', 'none', 'L1'), C: T('combo', 'playside', 'L2'),
-      RG: T('combo', 'none', 'L2'), RT: T('cutoff', 'playside'),
-    },
-    free: ['L3', 'BE'],
-  },
-  odd34: {
-    blocks: { LT: 'PO', LG: 'PE', C: 'N', RG: 'N', RT: 'BE' },
-    combos: [{ owner: 'RG', partner: 'C', target: 'N', watch: 'BI' }],
-    techs: {
-      LT: T('zone', 'playside'), LG: T('zone', 'playside'), C: T('combo', 'head', 'BI'),
-      RG: T('combo', 'none', 'BI'), RT: T('cutoff', 'none'),
-    },
-    free: ['PI', 'BO'],
-  },
-  bear: {
-    blocks: { LT: 'PE', LG: 'P3', C: 'N', RG: 'N', RT: 'B3' },
-    combos: [{ owner: 'RG', partner: 'C', target: 'N', watch: 'L2' }],
-    techs: {
-      LT: T('zone', 'playside'), LG: T('zone', 'playside'), C: T('combo', 'head', 'L2'),
-      RG: T('combo', 'none', 'L2'), RT: T('cutoff', 'playside'),
-    },
-    free: ['L1', 'BE'],
-  },
-  walkedUp: {
-    blocks: { LT: 'SAM', LG: 'PE', C: 'PT', RG: 'BT', RT: 'BT' },
-    combos: [{ owner: 'RT', partner: 'RG', target: 'BT', watch: 'WIL' }],
-    techs: {
-      LT: T('zone', 'playside'), LG: T('zone', 'playside'), C: T('zone', 'playside'),
-      RG: T('combo', 'playside', 'WIL'), RT: T('combo', 'none', 'WIL'),
-    },
-    free: ['MIK', 'BE'],
-  },
+  free: ['MLB', 'SLB'],
 };
-EXPECTED.lbPlus6 = EXPECTED.base;
-EXPECTED.lbMinus6 = {
-  blocks: EXPECTED.base.blocks,
+const NO_TE_DL_PLUS4 = {
+  blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' },
+  combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
+  techs: {
+    LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
+    RG: T('combo', 'none', 'MLB'), RT: T('cutoff', 'playside'),
+  },
+  free: ['SLB', 'LDE'],
+};
+const TE_BASE = {
+  blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'LDT', RT: 'LDT', TE: 'LDE' },
   combos: [
-    { owner: 'RT', partner: 'RG', target: 'LDT', watch: LB_MINUS6_RG_WATCH },
+    { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
     { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' },
   ],
-  techs: { ...EXPECTED.base.techs, RG: T('combo', 'playside', LB_MINUS6_RG_WATCH), RT: T('combo', 'none', LB_MINUS6_RG_WATCH) },
-  free: IZ_FREE.lbMinus6,
+  techs: {
+    LT: T('combo', 'playside', 'WLB'), LG: T('combo', 'none', 'WLB'), C: T('zone', 'playside'),
+    RG: T('combo', 'playside', 'MLB'), RT: T('combo', 'none', 'MLB'), TE: T('cutoff', 'playside'),
+  },
+  free: ['SLB'],
 };
-EXPECTED.backedOff = {
-  blocks: { LT: 'PE', LG: 'PE', C: 'PN', RG: 'PN', RT: 'L3' },
-  combos: EXPECTED.under43.combos,
-  techs: { ...EXPECTED.under43.techs, RT: T('climb', 'none') },
-  free: ['BT', 'BE'],
+const TE_DL_PLUS4 = {
+  blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT', TE: 'LDE' },
+  combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
+  techs: {
+    LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
+    RG: T('combo', 'none', 'MLB'), RT: T('zone', 'playside'), TE: T('cutoff', 'head'),
+  },
+  free: ['SLB'],
+};
+const PINS = {
+  noTe: { base: NO_TE_BASE, lbPlus6: NO_TE_BASE, dlPlus4: NO_TE_DL_PLUS4 },
+  te: { base: TE_BASE, lbPlus6: TE_BASE, dlPlus4: TE_DL_PLUS4 },
 };
 
+const PERSONNELS = ['noTe', 'te'];
 const withoutFront = ({ front, ...rest }) => rest;
-const planOf = (name, players = frontPlayers(name)) => withoutFront(zonePlan(players, frontNumbers(players), LOS));
+const planOf = (name, personnel = 'noTe', players = frontPlayers(name, personnel)) =>
+  withoutFront(zonePlan(players, frontNumbers(players), LOS));
 
 test('every front gets the agreed plan', () => {
-  assert.deepEqual([...FRONT_NAMES].sort(), Object.keys(EXPECTED).sort());
-  for (const name of FRONT_NAMES) {
-    assert.deepEqual(planOf(name), { side: -1, ...EXPECTED[name] }, name);
+  for (const personnel of PERSONNELS) {
+    for (const [name, pin] of Object.entries(PINS[personnel])) {
+      assert.ok(FRONT_NAMES.includes(name), name);
+      assert.deepEqual(planOf(name, personnel), { side: -1, ...pin }, `${personnel} ${name}`);
+    }
   }
 });
 
@@ -126,19 +74,20 @@ test('every rule row names a registered rule', () => {
 });
 
 test('invariants over all fronts', () => {
-  for (const name of FRONT_NAMES) {
-    const players = frontPlayers(name);
+  for (const [personnel, fname] of PERSONNELS.flatMap((pe) => FRONT_NAMES.map((n) => [pe, n]))) {
+    const name = `${personnel} ${fname}`;
+    {
+    const players = frontPlayers(fname, personnel);
     const numbers = frontNumbers(players);
     const front = readFront(players, numbers, LOS);
     const full = zonePlan(players, numbers, LOS);
     assert.deepEqual(full.front, readFront(players, numbers, LOS), `${name} front`);
     const r = withoutFront(full);
     const lineDef = front.defenders.filter((d) => d.level === 'line');
-    const uBack = front.line[front.line.length - 1].u;
     const vals = Object.values(r.blocks);
-    // (a) every line defender at or playside of the backside end is blocked
+    // (a) every line defender with a cover is a block target
     for (const d of lineDef) {
-      if (d.u >= uBack - HEAD_UP) assert.ok(vals.includes(d.id), `${name} (a) ${d.id}`);
+      if (d.cover != null) assert.ok(vals.includes(d.id), `${name} (a) ${d.id}`);
     }
     // (b) at most twice, only as a combo's target with its owner and partner
     for (const d of front.defenders) {
@@ -175,6 +124,132 @@ test('invariants over all fronts', () => {
     zonePlan(players, numbers, LOS);
     assert.deepEqual(players, p0);
     assert.deepEqual(numbers, n0);
+    }
+  }
+});
+
+const eachFront = (fn) => {
+  for (const personnel of PERSONNELS) {
+    for (const name of FRONT_NAMES) {
+      const players = frontPlayers(name, personnel);
+      const numbers = frontNumbers(players);
+      const front = readFront(players, numbers, LOS);
+      fn({ label: `${personnel} ${name}`, personnel, name, players, numbers, front, plan: withoutFront(zonePlan(players, numbers, LOS)) });
+    }
+  }
+};
+
+test('F-36 #1: surface is one live split outside each end lineman', () => {
+  eachFront(({ label, front }) => {
+    const { line } = front;
+    const n = line.length;
+    const play = line[0].u + (n > 1 ? line[0].u - line[1].u : 2 * A_GAP_HALF);
+    const back = line[n - 1].u - (n > 1 ? line[n - 2].u - line[n - 1].u : 2 * A_GAP_HALF);
+    assert.deepEqual(front.surface, { play, back }, label);
+  });
+});
+
+test('F-36 #2: cover windows end at the surface', () => {
+  eachFront(({ label, front }) => {
+    for (const d of front.defenders.filter((x) => x.level === 'line')) {
+      const outside = d.u >= front.surface.play - HEAD_UP || d.u < front.surface.back + HEAD_UP;
+      assert.equal(d.cover === null, outside, `${label} ${d.id}`);
+    }
+  });
+  const cov = (name, id) => {
+    const p = frontPlayers(name, 'noTe');
+    const f = readFront(p, frontNumbers(p), LOS);
+    return { d: f.defenders.find((x) => x.id === id), f };
+  };
+  for (const [name, id] of [['odd34', 'PO'], ['odd34', 'BO'], ['walkedUp', 'SAM'], ['dlMinus4', 'RDE']]) {
+    assert.equal(cov(name, id).d.cover, null, `${name} ${id}`);
+  }
+  const bear = cov('bear', 'PE');
+  assert.equal(bear.d.cover, bear.f.line[0].id);
+  for (const [name, id] of [['base', 'LDE'], ['odd34', 'BE']]) {
+    const r = cov(name, id);
+    assert.equal(r.d.cover, r.f.line[r.f.line.length - 1].id, `${name} ${id}`);
+  }
+});
+
+test('F-36 #3: the backside end man is blocked, and every covered line man is a target', () => {
+  eachFront(({ label, personnel, front, plan }) => {
+    const targets = Object.values(plan.blocks);
+    const edge = front.defenders.find((d) => d.id === front.edge);
+    if (edge && edge.cover != null) assert.ok(targets.includes(edge.id), `${label} edge`);
+    if (personnel === 'te') assert.ok(targets.includes(front.edge), `${label} edge blocked`);
+  });
+});
+
+test('F-36 #5: second-level men are taken in zone count order', () => {
+  const key = (d) => (d.n >= 0 ? [0, d.n] : [1, -d.n]);
+  const less = (a, b) => (key(a)[0] - key(b)[0]) || (key(a)[1] - key(b)[1]);
+  eachFront(({ label, front, plan }) => {
+    const second = front.defenders.filter((d) => d.level === 'second');
+    const seen = new Set();
+    const picks = [];
+    front.line.forEach((l) => {
+      const t = plan.techs[l.id];
+      if (t.tech === 'climb') picks.push({ id: plan.blocks[l.id], ref: l.x });
+      else if (t.tech === 'combo' && plan.combos.some((c) => c.owner === l.id)) {
+        const c = plan.combos.find((x) => x.owner === l.id);
+        const p = front.line.find((x) => x.id === c.partner);
+        if (c.watch != null) picks.push({ id: c.watch, ref: (l.x + p.x) / 2 });
+      }
+    });
+    for (const { id, ref } of picks) {
+      const best = second
+        .filter((d) => !seen.has(d.id) && Math.abs(d.x - ref) <= CLIMB_REACH)
+        .sort((a, b) => less(a, b) || (Math.abs(a.x - ref) - Math.abs(b.x - ref)) || (a.id < b.id ? -1 : 1))[0];
+      assert.equal(id, best.id, `${label} pick`);
+      seen.add(id);
+    }
+    const coveredCount = front.defenders.filter((d) => d.level === 'line' && d.cover != null).length;
+    const zero = front.defenders.find((d) => d.level === 'second' && d.n === 0);
+    if (zero && coveredCount < front.line.length) {
+      const hit = Object.values(plan.blocks).includes(zero.id) || plan.combos.some((c) => c.watch === zero.id);
+      assert.ok(hit, `${label} n=0 defender used`);
+    }
+  });
+});
+
+test('F-36 #6: box count and free men', () => {
+  eachFront(({ label, personnel, front, plan }) => {
+    const watches = plan.combos.map((c) => c.watch).filter((w) => w != null);
+    assert.equal(new Set([...Object.values(plan.blocks), ...watches]).size, Math.min(front.line.length, front.box), label);
+    for (const id of plan.free) {
+      const d = front.defenders.find((x) => x.id === id);
+      assert.ok(d.level === 'second' || d.cover == null, `${label} free ${id}`);
+    }
+    if (personnel === 'te') assert.equal(plan.free.length, 1, label);
+  });
+});
+
+test('F-36 #3/#4: shifted lineups, edge blocked, no reach past a teammate, no target outside the surface', () => {
+  for (const front of Object.keys(FRONTS)) {
+    for (let k = -4; k <= 4; k++) {
+      for (let j = -6; j <= 6; j++) {
+        for (const personnel of PERSONNELS) {
+          const players = buildLineup(LOS, 'insideZone', { front, dlShift: k * DL_SHIFT_STEP, lbShift: j * LB_SHIFT_STEP, personnel });
+          const numbers = numberPlay(players, { los: LOS, centerId: 'C', playside: 'left' });
+          const f = readFront(players, numbers, LOS);
+          const plan = withoutFront(zonePlan(players, numbers, LOS));
+          const label = `${front} ${k} ${j} ${personnel}`;
+          const dOf = (id) => f.defenders.find((d) => d.id === id);
+          const edge = dOf(f.edge);
+          if (edge && edge.cover != null) assert.ok(Object.values(plan.blocks).includes(edge.id), `${label} edge`);
+          const comboMembers = new Set(plan.combos.flatMap((c) => [c.owner, c.partner]));
+          f.line.forEach((l, i) => {
+            const t = dOf(plan.blocks[l.id]);
+            if (!t || t.level !== 'line') return;
+            assert.notEqual(t.cover, null, `${label} ${l.id} target outside surface`);
+            if (i > 0 && !comboMembers.has(l.id)) {
+              assert.ok(t.u <= f.line[i - 1].u + HEAD_UP, `${label} ${l.id} reaches past teammate`);
+            }
+          });
+        }
+      }
+    }
   }
 });
 

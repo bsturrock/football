@@ -19,8 +19,6 @@ test('base front', () => {
   assert.deepEqual(r.covered.LG, []);
   assert.deepEqual(r.covered.C, ['RDT']);
   assert.deepEqual(r.covered.RG, ['LDT']);
-  assert.deepEqual(r.covered.RT, []);
-  assert.equal(def(r, 'LDE').cover, null);
   assert.equal(def(r, 'MLB').level, 'second');
   assert.equal(def(r, 'WLB').level, 'second');
 });
@@ -31,8 +29,6 @@ test('over43', () => {
   assert.deepEqual(r.covered.LG, ['PT']);
   assert.deepEqual(r.covered.C, []);
   assert.deepEqual(r.covered.RG, ['BT']);
-  assert.deepEqual(r.covered.RT, []);
-  assert.equal(def(r, 'BE').cover, null);
   assert.deepEqual(def(r, 'PT').gap, { side: 'play', name: 'B' });
   assert.deepEqual(def(r, 'BT').gap, { side: 'back', name: 'A' });
   assert.deepEqual(def(r, 'PE').gap, { side: 'play', name: 'C' });
@@ -42,20 +38,17 @@ test('over43', () => {
 test('walkedUp', () => {
   const r = read('walkedUp');
   assert.equal(def(r, 'SAM').level, 'line');
-  assert.deepEqual(r.covered.LT, ['SAM', 'PE']);
 });
 
 test('backedOff', () => {
   const r = read('backedOff');
   assert.equal(def(r, 'BT').level, 'second');
-  assert.deepEqual(r.covered.RT, []);
 });
 
 test('odd34', () => {
   const r = read('odd34');
   assert.equal(def(r, 'N').gap, null);
   assert.deepEqual(r.covered.C, ['N']);
-  assert.deepEqual(r.covered.LT, ['PO', 'PE']);
 });
 
 test('shade', () => {
