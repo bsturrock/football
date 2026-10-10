@@ -26,3 +26,4 @@
 - 2026-10-10 F-26 Dots on GitHub Pages (R-34) b4dc049
 - 2026-10-10 F-27 Mobile speed buttons on the dots page (R-35) efd6f54
 - 2026-10-10 F-28 Bigger dots UI on mobile (R-37) 894d10e
+- 2026-10-10 F-30 Real-world scale: bodies, splits, alignments, ball, field and speed (R-38) 164f203
