@@ -4,7 +4,7 @@ import { createPlay } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES } from '../src/dots/technique.js';
+import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
@@ -221,34 +221,40 @@ test('F-17 #4: RG and RT sit side by side on LDT', () => {
 });
 
 test('F-17 #5: push directions', () => {
+  // A combo blocker's drive leans toward his watch, at most COMBO_MAX_LEAN off vertical. Counted only when the push is settled (turned less than the rate cap) and base is the drive, so push = rotate(drive, ride).
   const play = createPlay(25, 'insideZone');
   play.snap();
   let c = 0;
   let r = 0;
-  const WLB_DX = () => play.player('WLB').x - play.player('RDT').x;
+  const pt = (p) => ({ x: p.x, y: p.y });
+  const ang = (a, b) => deg(Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y));
+  const groups = [['RDT', ['C', 'LG']], ['LDT', ['RG', 'RT']]];
   for (let t = 0; t < 1.0; t += DT) {
-    // The push is computed before defenders move this step, so compare against the pre-step spread.
-    const dx = play.player('MLB').x - play.player('LDT').x;
-    const cdx = WLB_DX();
-    play.step(DT);
-    for (const id of ['C', 'LG']) {
-      const b = play.player(id).block;
-      if (b.engaged && b.target === 'RDT' && b.foot.ride === 0 && b.foot.push) {
-        c++;
-        assert.equal(Math.sign(b.foot.push.x), Math.sign(cdx), id);
-        assert.ok(deg(Math.acos(b.foot.push.y)) <= 30 + 1e-9, id);
+    const pre = [];
+    for (const [tid, ids] of groups) {
+      for (const id of ids) {
+        const b = play.player(id);
+        const f = b.block.foot;
+        pre.push({ id, tid, tgt: pt(play.player(tid)), watch: f?.watch ? pt(play.player(f.watch)) : null, me: pt(b), push: f?.push ? { ...f.push } : null });
       }
     }
-    for (const id of ['RG', 'RT']) {
-      const b = play.player(id).block;
-      if (b.engaged && b.target === 'LDT' && b.foot.ride === 0 && b.foot.push) {
-        r++;
-        assert.equal(Math.sign(b.foot.push.x), Math.sign(dx));
-        assert.ok(deg(Math.acos(b.foot.push.y)) <= 30 + 1e-9);
-      }
+    play.step(DT);
+    for (const s of pre) {
+      const b = play.player(s.id).block;
+      const f = b.foot;
+      if (!(b.engaged && b.target === s.tid && f && s.push && s.watch)) continue;
+      if (Math.abs(ang(s.push, f.push)) >= deg(PUSH_TURN * DT) - 1e-6) continue;
+      const drive = driveDir(f.tech, s.tgt, s.watch);
+      const contact = { x: s.tgt.x - s.me.x, y: s.tgt.y - s.me.y };
+      if (Math.abs(ang(drive, contact)) > BLIND_START) continue;
+      if (s.tid === 'RDT') c++; else r++;
+      const unrot = rotate(f.push, -f.ride);
+      assert.ok(Math.abs(ang(unrot, drive)) <= 1, `${s.id} unrot vs drive ${ang(unrot, drive)}`);
+      assert.equal(Math.sign(drive.x), Math.sign(s.watch.x - s.tgt.x), s.id);
+      assert.ok(deg(Math.acos(Math.min(1, drive.y))) <= 30 + 1e-9, s.id);
     }
   }
-  assert.ok(c > 0 && r > 0);
+  assert.ok(c > 0 && r > 0, `c ${c} r ${r}`);
 });
 
 test('F-17 #6: ride a sideways-moving defender', () => {
@@ -258,17 +264,17 @@ test('F-17 #6: ride a sideways-moving defender', () => {
   const C = play.player('C');
   const RDT = play.player('RDT');
   assert.ok(C.block.engaged && C.block.target === 'RDT');
-  for (let i = 0; i < 3; i++) {
-    RDT.x += 0.02;
+  // footPush reads the target's vel from the previous pass, so inject it right before each step.
+  let reached = false;
+  for (let i = 0; i < 40 && !reached; i++) {
+    RDT.vel = { x: 1.2, y: 0 };
     play.step(DT);
+    reached = C.block.foot.ride < 0 && C.block.foot.push.x > 0;
   }
-  assert.equal(C.block.foot.ride, 1);
-  assert.ok(C.block.foot.push.x > 0);
+  assert.ok(reached, `ride ${C.block.foot.ride}`);
   for (let i = 0; i < 3; i++) {
-    const x0 = RDT.x;
     play.step(DT);
-    const vx = (RDT.x - x0) / DT;
-    assert.ok(C.block.foot.ride === 1 || vx < -RIDE_MIN, `ride ${C.block.foot.ride} vx ${vx}`);
+    assert.ok(C.block.foot.ride < 0 || RDT.vel.x < -RIDE_MIN, `ride ${C.block.foot.ride} vx ${RDT.vel.x}`);
   }
 });
 
