@@ -9,6 +9,7 @@ import { zonePlan, zoneSwitch } from './zone.js';
 import { readFront } from './front.js';
 import { ACCEL_TAU } from './steering.js';
 import { playEnd } from './tackle.js';
+import { initFacing, stepFacing } from './facing.js';
 import { startDefense, stepDefense } from './defense.js';
 import {
   BODY_RADIUS,
@@ -65,7 +66,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
   let acc = 0;
   const snapshotPrev = () => {
     play.prev = {};
-    for (const p of play.players) play.prev[p.id] = { x: p.x, y: p.y };
+    for (const p of play.players) play.prev[p.id] = { x: p.x, y: p.y, facing: p.facing };
   };
 
   play.player = (id) => play.players.find((p) => p.id === id);
@@ -111,6 +112,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       dlShift: play.dlShift * DL_SHIFT_STEP,
       lbShift: play.lbShift * LB_SHIFT_STEP,
     });
+    initFacing(play.players);
     // Pre-snap read: computed only here, so shifts keep it in sync with the lineup.
     const def = PLAYS[playKey];
     play.numbers = def.playside
@@ -226,6 +228,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
         p.v = Math.min(p.speed, Math.max(moved, p.v * Math.exp(-sdt / ACCEL_TAU)));
       });
     }
+    stepFacing(play.players, play.prev, sdt);
     if (play.tackles && ball.phase === 'carried') {
       const end = playEnd(play.players, play.run.carrier);
       if (end) {
