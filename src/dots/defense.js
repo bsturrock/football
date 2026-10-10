@@ -64,6 +64,8 @@ export const GOALS = Object.freeze({
 });
 
 export const TRIGGERS = Object.freeze({
+  // A shed means he beat his man, so he plays the ball.
+  shed: (d, e, env) => env.players.some((p) => p.block?.target === d.id && p.block.released === 'shed'),
   recognized: (d, e, env) => env.defense.t >= e.read - 1e-9 && env.behavior.keys.some((k) => KEYS[k](env)),
   carrierPast: (d, e, env) => !!env.run?.carried && env.ballPos.y > env.los,
   committed: (d, e, env) => !!env.run?.locked || e.st >= FLOW_MAX - 1e-9,
@@ -80,8 +82,8 @@ export const BEHAVIORS = Object.freeze({
     start: 'attack',
     keys: ['olMove', 'mesh'],
     states: {
-      attack: { goal: 'penetrate', speed: 1, exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }, { when: 'recognized', to: 'fit' }] },
-      fit: { goal: 'gapFit', speed: 1, exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
+      attack: { goal: 'penetrate', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }, { when: 'recognized', to: 'fit' }] },
+      fit: { goal: 'gapFit', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
       pursue: { goal: 'ball', speed: 1, exits: [] },
     },
   },

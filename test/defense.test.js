@@ -313,3 +313,42 @@ test('F-33: ballClose and attack exits', () => {
   step(v, 1);
   assert.equal(v.defense.agents.LDT.state, 'pursue');
 });
+
+test('F-33 #4/#8: a shed blocker sends his DL to pursue from attack or fit', () => {
+  const dlOf = (s) => Object.keys(s.defense.agents).find((id) => s.defense.agents[id].behavior === 'attack');
+  const shed = (s, id, released = 'shed') => {
+    by(s.players, 'LG').block = { target: id, engaged: false, released, seq: null, angle: 'straight' };
+  };
+
+  const s = setup();
+  const dlId = dlOf(s);
+  assert.ok(dlId);
+  step(s);
+  assert.notEqual(s.defense.agents[dlId].state, 'pursue');
+
+  const a = setup();
+  const aId = dlOf(a);
+  shed(a, aId);
+  step(a);
+  assert.equal(a.defense.agents[aId].state, 'pursue');
+  assert.equal(step(a)[aId], undefined);
+
+  const f = setup();
+  const fId = dlOf(f);
+  f.defense.agents[fId].state = 'fit';
+  shed(f, fId);
+  step(f);
+  assert.equal(f.defense.agents[fId].state, 'pursue');
+  assert.equal(step(f)[fId], undefined);
+
+  for (const released of ['lost', 'past']) {
+    const u = setup();
+    const uId = dlOf(u);
+    shed(u, uId, released);
+    step(u);
+    assert.notEqual(u.defense.agents[uId].state, 'pursue', released);
+  }
+
+  assert.equal(TRIGGERS.shed(by(s.players, 'LDT'), s.defense.agents.LDT, { players: s.players }), false);
+  assert.doesNotThrow(() => validateBehavior('attack'));
+});
