@@ -21,7 +21,9 @@ import {
 } from './blocking.js';
 
 export const SNAP_DURATION = 0.25; // seconds; quick shotgun snap, ball C to QB at roughly 18 yd/s
-export const MAX_SUBSTEP = 1 / 60; // max sim seconds per stepBlocking call
+export const FIXED_DT = 1 / 60; // sim seconds per tick
+export const MAX_SUBSTEP = FIXED_DT; // max sim seconds per stepBlocking call
+export const MAX_TICKS_PER_STEP = 30; // runaway-frame guard: 0.5 s of sim per step call
 export const SIM_SPEED = 0.35; // dots page default time scale
 export const SIM_SPEED_MIN = 0.1;
 export const SIM_SPEED_MAX = 2;
@@ -50,8 +52,16 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     combos: [],
     run: null,
     defense: null,
+    ticks: 0,
+    alpha: 0,
+    prev: {},
   };
   let ctx = { seq: 0 };
+  let acc = 0;
+  const snapshotPrev = () => {
+    play.prev = {};
+    for (const p of play.players) play.prev[p.id] = { x: p.x, y: p.y };
+  };
 
   play.player = (id) => play.players.find((p) => p.id === id);
 
@@ -114,6 +124,10 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       from: null,
       to: null,
     });
+    play.ticks = 0;
+    play.alpha = 0;
+    acc = 0;
+    snapshotPrev();
   };
 
   play.snap = () => {
@@ -126,6 +140,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       t: 0,
     });
     if (play.accel) for (const p of play.players) p.v = 0;
+    acc = 0;
+    snapshotPrev();
     let plan = null;
     if (scheme) {
       plan = scheme.plan(play.players, play.numbers, los);
@@ -204,10 +220,22 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     }
   };
 
+  // Fixed-tick clock: whole FIXED_DT ticks from an accumulator, so the result
+  // does not depend on the frame rate or time scale the caller steps with.
   play.step = (dt) => {
-    const total = dt * play.timeScale;
-    const n = Math.max(1, Math.ceil(total / MAX_SUBSTEP - 1e-9));
-    for (let i = 0; i < n; i++) advance(total / n);
+    if (play.ball.phase === 'presnap') return;
+    acc += dt * play.timeScale;
+    let n = 0;
+    while (acc >= FIXED_DT - 1e-9 && n < MAX_TICKS_PER_STEP) {
+      snapshotPrev();
+      advance(FIXED_DT);
+      acc -= FIXED_DT;
+      play.ticks += 1;
+      n++;
+    }
+    if (acc >= FIXED_DT - 1e-9) acc = 0; // runaway frame: drop the excess
+    if (acc < 0) acc = 0;
+    play.alpha = Math.min(acc / FIXED_DT, 1 - 1e-12);
   };
 
   play.ballPosition = () => {
