@@ -3,6 +3,7 @@ import { A_GAP_HALF } from './numbering.js';
 
 export const LINE_DEPTH = 2.0; // yards past the los still counted as on the line
 export const HEAD_UP = A_GAP_HALF / 3;
+export const COVER_SHADE = A_GAP_HALF / 2;
 export const GAP_NAMES = Object.freeze(['A', 'B', 'C', 'D', 'E', 'F']);
 
 export function shade(uBlocker, uDefender) {
@@ -67,6 +68,13 @@ export function readFront(players, numbers, los) {
     back: line[lastI].u - (line.length > 1 ? line[lastI - 1].u - line[lastI].u : 2 * A_GAP_HALF),
   };
 
+  // Lower edge of line[i]'s cover window. A playside lineman owns a DL on his inside shoulder
+  // (nearer him than the gap's middle); the center and backside keep the head-up band.
+  const lowerOf = (i) => {
+    if (i === lastI) return surface.back + HEAD_UP;
+    return line[i].u - (line[i].u > HEAD_UP ? COVER_SHADE : HEAD_UP);
+  };
+
   const defenders = numbered
     .filter((p) => p.team === 'defense')
     .map((p) => {
@@ -75,8 +83,8 @@ export function readFront(players, numbers, los) {
       let cover = null;
       if (level === 'line') {
         for (let i = 0; i < line.length; i++) {
-          const upper = i === 0 ? surface.play - HEAD_UP : line[i - 1].u - HEAD_UP;
-          const lower = i === lastI ? surface.back + HEAD_UP : line[i].u - HEAD_UP;
+          const upper = i === 0 ? surface.play - HEAD_UP : lowerOf(i - 1);
+          const lower = lowerOf(i);
           if (u >= lower && u < upper) { cover = line[i].id; break; }
         }
       }
