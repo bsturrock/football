@@ -96,6 +96,26 @@ export function runLabel(run) {
   return `Hole: ${run.gap} (${run.locked ? 'locked' : 'reading'})`;
 }
 
+// Draw position of a player: interpolated from the start of the last sim tick toward the current
+// position by play.alpha (the leftover fraction of a tick). Reads play state only; no caches.
+export function drawPos(play, p) {
+  const prev = play.prev?.[p.id];
+  if (!prev) return { x: p.x, y: p.y };
+  const a = play.alpha ?? 0;
+  return { x: prev.x + (p.x - prev.x) * a, y: prev.y + (p.y - prev.y) * a };
+}
+
+// Panel text for how the play ended ('' while the play is live).
+export function resultLabel(result) {
+  if (!result) return '';
+  const yards = result.yards;
+  const yardsText = (yards >= 0 ? '+' : '') + yards.toFixed(1) + ' yd';
+  if (result.reason === 'tackle') return `Tackled by ${result.by}, ${yardsText}`;
+  if (result.reason === 'touchdown') return `Touchdown, ${yardsText}`;
+  if (result.reason === 'out') return `Out of bounds, ${yardsText}`;
+  return `Play over, ${yardsText}`;
+}
+
 export function initDotsView(container) {
   const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED });
   const tooltip = document.getElementById('tooltip');
@@ -243,7 +263,8 @@ export function initDotsView(container) {
       }
     }
     for (const p of play.players) {
-      const w = fieldToWorld(p.x, p.y);
+      const d = drawPos(play, p);
+      const w = fieldToWorld(d.x, d.y);
       labelFor(p.id).position.set(w.x, 0.13, w.z);
     }
   }
@@ -275,8 +296,10 @@ export function initDotsView(container) {
       const target = play.player(p.block.target);
       const line = blockLineFor(p.id);
       if (!target) { line.visible = false; continue; }
-      const a = fieldToWorld(p.x, p.y);
-      const b = fieldToWorld(target.x, target.y);
+      const da = drawPos(play, p);
+      const db = drawPos(play, target);
+      const a = fieldToWorld(da.x, da.y);
+      const b = fieldToWorld(db.x, db.y);
       const pos = line.geometry.attributes.position;
       pos.setXYZ(0, a.x, 0.12, a.z);
       pos.setXYZ(1, b.x, 0.12, b.z);
@@ -314,6 +337,7 @@ export function initDotsView(container) {
     const b = play.ball;
     if (b.phase === 'presnap') return `Ball: ${b.holder} (pre-snap)`;
     if (b.phase === 'snapping') return 'Ball: snapping…';
+    if (b.phase === 'dead') return 'Ball: dead';
     return `Ball: ${b.holder}`;
   }
 
@@ -338,6 +362,7 @@ export function initDotsView(container) {
     }
     html += `<div style="margin-top:6px">${ballStatus()}</div>`;
     const rl = runLabel(play.run); if (rl) html += `<div>${rl}</div>`;
+    const res = resultLabel(play.result); if (res) html += `<div><b>${res}</b></div>`;
     if (html !== lastPanel) { panel.innerHTML = html; lastPanel = html; }
   }
 
@@ -347,7 +372,8 @@ export function initDotsView(container) {
     for (const p of play.players) {
       const m = dotFor(p);
       m.visible = true;
-      const w = fieldToWorld(p.x, p.y);
+      const d = drawPos(play, p);
+      const w = fieldToWorld(d.x, d.y);
       m.position.set(w.x, 0.1, w.z);
     }
     for (const [id, m] of dotMeshes) if (!current.has(id)) m.visible = false;
@@ -355,14 +381,21 @@ export function initDotsView(container) {
     for (const [id, line] of blockLines) if (!current.has(id)) line.visible = false;
     syncBlockLines();
     syncLabels();
-    const bp = play.ballPosition();
-    const off = play.ball.holder ? BALL_DRAW_AHEAD : 0;
-    const bw = fieldToWorld(bp.x, bp.y + off);
+    const holder = play.ball.holder && play.player(play.ball.holder);
+    let bw;
+    if (holder) {
+      const d = drawPos(play, holder);
+      bw = fieldToWorld(d.x, d.y + BALL_DRAW_AHEAD);
+    } else {
+      const bp = play.ballPosition();
+      bw = fieldToWorld(bp.x, bp.y);
+    }
     ball.position.set(bw.x, 0.2, bw.z);
     const sel = selectedId && play.player(selectedId);
     ring.visible = !!sel;
     if (sel) {
-      const w = fieldToWorld(sel.x, sel.y);
+      const d = drawPos(play, sel);
+      const w = fieldToWorld(d.x, d.y);
       ring.position.set(w.x, 0.15, w.z);
     }
     updatePanel();

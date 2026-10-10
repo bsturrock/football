@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
+import { createPlay, SNAP_DURATION, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, MAX_SUBSTEP, FIXED_DT, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { BODY_RADIUS, assignBlocks } from '../src/dots/blocking.js';
 import { buildLineup, FRONTS, DL_ROLES, LB_ROLES } from '../src/dots/roster.js';
 import { numberPlay } from '../src/dots/numbering.js';
@@ -26,15 +26,17 @@ test('snap() moves to snapping; second snap() is refused', () => {
   assert.equal(play.snap(), false);
 });
 
-test('mid-snap ballPosition is the midpoint of C and QB', () => {
+test('mid-snap ballPosition is the C to QB lerp at ball.t', () => {
   const play = createPlay(25);
   play.snap();
-  play.step(SNAP_DURATION / 2);
+  for (let i = 0; i < 7; i++) play.step(FIXED_DT);
+  const t = play.ball.t;
+  assert.ok(t > 0 && t < 1);
   const c = play.player('C');
   const qb = play.player('QB');
   const p = play.ballPosition();
-  near(p.x, (c.x + qb.x) / 2);
-  near(p.y, (c.y + qb.y) / 2);
+  near(p.x, c.x + (qb.x - c.x) * t);
+  near(p.y, c.y + (qb.y - c.y) * t);
 });
 
 test('step past the end hands ball to QB and then does nothing', () => {
@@ -91,10 +93,11 @@ test('time scale: defaults to real time; SIM_SPEED is the dots page default', ()
 test('time scale: snap progress advances by dt * timeScale', () => {
   const play = createPlay(25, 'base', { timeScale: 0.5 });
   play.snap();
-  play.step(SNAP_DURATION);
+  for (let i = 0; i < 6; i++) play.step(2 * FIXED_DT);
   assert.equal(play.ball.phase, 'snapping');
-  near(play.ball.t, 0.5);
-  play.step(SNAP_DURATION);
+  assert.equal(play.ticks, 6);
+  near(play.ball.t, (6 * FIXED_DT) / SNAP_DURATION);
+  play.step(SNAP_DURATION * 2);
   assert.equal(play.ball.phase, 'held');
 });
 

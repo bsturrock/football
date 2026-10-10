@@ -107,7 +107,8 @@ const alignments = [
 
 test('F-13 #6: read invariants hold across alignments', () => {
   for (const al of alignments) {
-    const play = createPlay(25, 'insideZone');
+    // tackles off: this test watches AI behavior past the point a tackle would end the play.
+    const play = createPlay(25, 'insideZone', { tackles: false });
     for (const [k, d] of al) (k === 'LB' ? play.shiftLB(d) : play.shiftDL(d));
     play.snap();
     const run = play.run;

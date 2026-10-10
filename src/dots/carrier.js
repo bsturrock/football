@@ -12,7 +12,9 @@ export const HANDOFF_DIST = BODY_RADIUS;
 export const GAP_BACK = 2 * BODY_RADIUS;
 export const GAP_DEPTH = 4 * BODY_RADIUS;
 export const LOCK_DEPTH = 2 * BODY_RADIUS;
-export const RUN_DEPTH = 10; // yards past the line the carrier runs once committed
+// The opponent goal line in field y (the shared convention: y is the yard line, 0 own goal to 100 opponent goal).
+// The carrier runs to it once locked; the play-end rule (tackle.js) imports it for the touchdown check, so this is its single source.
+export const GOAL_LINE_Y = 100;
 // Timing tunable, not a body size: seconds from the handoff to a forced commit.
 export const READ_TIME = 0.75;
 // Timing tunable: seconds the QB holds the snap, catching and presenting the ball, before a handoff.
@@ -121,7 +123,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
   } else if (!run.locked) {
     goal = { ...run.aim, key: 'hole:' + run.gap, ignore: null };
   } else {
-    run.aim = { x: run.x, y: los + RUN_DEPTH };
+    run.aim = { x: run.x, y: GOAL_LINE_Y };
     goal = { ...run.aim, key: 'hole:' + run.gap, ignore: null };
   }
   steerStep(rb, goal, players, rb.speed * dt, dt, BODY_RADIUS);

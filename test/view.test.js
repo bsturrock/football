@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { FRONTS, BALL_LENGTH } from '../src/dots/roster.js';
@@ -138,4 +138,34 @@ test('F-30 #9: field, ball and ring constants', () => {
   // Pre-snap the ball's rear tip sits on the LOS.
   const play = createPlay(25, 'insideZone');
   assert.ok(Math.abs(play.ballPosition().y + BALL_DRAW_AHEAD - BALL_LENGTH / 2 - 25) < 1e-9);
+});
+
+test('T-89: drawPos interpolates from prev by alpha', () => {
+  const play = { prev: { A: { x: 0, y: 0 } }, alpha: 0.25 };
+  assert.deepEqual(drawPos(play, { id: 'A', x: 4, y: 8 }), { x: 1, y: 2 });
+  assert.deepEqual(drawPos(play, { id: 'B', x: 4, y: 8 }), { x: 4, y: 8 });
+  assert.deepEqual(drawPos({ prev: { A: { x: 0, y: 0 } }, alpha: 0 }, { id: 'A', x: 4, y: 8 }), { x: 0, y: 0 });
+});
+
+test('T-89: drawPos on a real play lies on the prev-to-current segment', () => {
+  const play = createPlay(25, 'insideZone');
+  play.snap();
+  play.step(1 / 120);
+  for (const p of play.players) {
+    const prev = play.prev[p.id];
+    const d = drawPos(play, p);
+    const a = play.alpha;
+    assert.ok(Math.abs(d.x - (prev.x + (p.x - prev.x) * a)) < 1e-9, p.id);
+    assert.ok(Math.abs(d.y - (prev.y + (p.y - prev.y) * a)) < 1e-9, p.id);
+    assert.ok(a >= 0 && a < 1);
+  }
+});
+
+test('T-89: resultLabel', () => {
+  assert.equal(resultLabel(null), '');
+  assert.equal(resultLabel(undefined), '');
+  assert.equal(resultLabel({ reason: 'tackle', by: 'MLB', yards: 3.42 }), 'Tackled by MLB, +3.4 yd');
+  assert.equal(resultLabel({ reason: 'touchdown', by: null, yards: 75 }), 'Touchdown, +75.0 yd');
+  assert.equal(resultLabel({ reason: 'out', by: null, yards: -1.25 }), `Out of bounds, ${(-1.25).toFixed(1)} yd`);
+  assert.equal(resultLabel({ reason: 'mystery', by: null, yards: 0 }), 'Play over, +0.0 yd');
 });
