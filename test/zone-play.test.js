@@ -312,6 +312,9 @@ test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off 
       const dl = play.player(id);
       if (e.state !== 'pursue') {
         const sp = gapSpan(play.players, play.defense, e.fit);
+        // Bound is 2*BODY_RADIUS, not 1: the DL aims at the gap's current middle with no lead and the
+        // speed ramp is slow, so he trails the moving gap (measured: base LDE ~0.294 yd outside at tick 47).
+        // Tighten to 1*BODY_RADIUS when P-16 (lead the moving gap) lands.
         if (sp) assert.ok(dl.x >= sp.lo - 2 * BODY_RADIUS && dl.x <= sp.hi + 2 * BODY_RADIUS, `${id} x ${dl.x} in ${sp.lo}..${sp.hi} t=${i}`);
       }
       if (!handoff) assert.ok(Math.hypot(dl.x - qb.x, dl.y - qb.y) > CONTACT_DIST + BODY_RADIUS, `${id} at QB t=${i}`);
