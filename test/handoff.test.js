@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { LANES, MESH_AHEAD, HANDOFF_DIST } from '../src/dots/carrier.js';
+import { LANES, MESH_AHEAD, HANDOFF_DIST, CUT_ALLOW } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
 const near = (a, b, m = '') => assert.ok(Math.abs(a - b) < 1e-9, `${m} ${a} !~ ${b}`);
@@ -75,10 +75,35 @@ test('F-13 #5: lane read invariants hold across alignments', () => {
         if (lockedLane === null) { lockedLane = { ...run.lane }; lockedX = run.x; }
         assert.deepEqual(run.lane, lockedLane, label);
         assert.equal(run.x, lockedX, label);
+        assert.ok(Math.abs(run.aim.x - run.x) <= CUT_ALLOW + 1e-9, label);
       }
     }
     assert.ok(run.locked || play.ball.phase === 'dead', 'locked or dead within 4 s');
   }
+});
+
+test('F-35: insideZone RB presses then commits within the patience window', () => {
+  const play = createPlay(25, 'insideZone', { tackles: false });
+  play.snap();
+  let steps = 0;
+  let handoff = null;
+  while (handoff === null && steps < 240) {
+    play.step(DT);
+    steps++;
+    if (play.run.carried) handoff = steps;
+  }
+  assert.ok(handoff !== null, 'handed off within 4 s');
+  let commit = null;
+  while (commit === null && steps < handoff + 240) {
+    play.step(DT);
+    steps++;
+    if (play.run.locked) commit = steps;
+  }
+  assert.ok(commit !== null, 'RB committed within 4 s of the handoff');
+  assert.ok(commit - handoff <= Math.ceil(play.run.patience / DT) + 1,
+    `committed ${((commit - handoff) * DT).toFixed(3)} s after the handoff (window ${play.run.patience} s)`);
+  near(play.run.patience, 0.5, 'patience');
+  assert.ok(['window', 'clear', 'line', 'pressure'].includes(play.run.commitBy), `commitBy ${play.run.commitBy}`);
 });
 
 test('F-35 determinism: two fresh plays give identical RB positions every tick', () => {

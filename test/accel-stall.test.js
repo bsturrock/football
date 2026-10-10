@@ -13,7 +13,7 @@
 // (2) play.step gives p.v inertia: measured speed may fall no faster than
 // exp(-dt / ACCEL_TAU) per substep (the ramp's own time constant), so a clipped
 // substep no longer collapses the cap. Measured: RB crosses y >= 25 + GAP_DEPTH
-// at about 1.7 s; MLB and WLB reach the QB (or crowd up behind a defender who has) within CONTACT_DIST + 0.05.
+// at about 2.5 s with the insideZone patience press (0.5 s, F-35) in the hole; MLB and WLB reach the QB (or crowd up behind a defender who has) within CONTACT_DIST + 0.05.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
@@ -42,7 +42,8 @@ test('F-25 #3: RB does not crawl in the hole with accel on', () => {
   let crossed = null;
   for (let i = 1; i <= 600 && crossed === null; i++) {
     play.step(DT);
-    if (play.ball.phase === 'carried') slow.push(rb.v < 1);
+    // After the commit only: the press (F-35) is a deliberate slow read, not a stall.
+    if (play.ball.phase === 'carried' && play.run.locked) slow.push(rb.v < 1);
     if (rb.y >= 25 + GAP_DEPTH) crossed = i * DT;
   }
   const stall = stallTime(slow);

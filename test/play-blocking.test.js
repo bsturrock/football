@@ -425,8 +425,9 @@ test('F-15 #8: RB slips the lane', () => {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
   play.snap();
   let crossed = false;
-  // measured 2.15 s with tackles off since F-33 #6 (engaged DL lean to their gap goal, the RB takes the A gap
-  // and is held at the line about 0.5 s); 1.25x margin; F-35 (RB live gap read) is expected to bring it back down.
+  // measured crossing about 2.5 s with tackles off, with the insideZone patience press (F-35: after the handoff
+  // the RB presses behind the line for a 0.5 s window while re-reading lanes). On base he commits early by the
+  // clear-lane trigger. The 2.7 s cap is a 1.25x margin on the measured crossing.
   for (let t = 0; t < 2.7; t += DT) {
     play.step(DT);
     const rb = play.player('RB');
