@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { POSITIONS, FRONTS, buildLineup } from '../src/dots/roster.js';
+import { BEHAVIORS } from '../src/dots/defense.js';
 
 test('F-22 #1/#2: SLB row and base front', () => {
   const slb = POSITIONS.find((p) => p.id === 'SLB');
@@ -22,12 +23,22 @@ test('F-22 #1/#2: SLB row and base front', () => {
   assert.equal(FRONTS.base.name, '4-3 Base');
   assert.equal(buildLineup(25, 'base').length, 14);
 
+  // Nearest base LB row by alignment (same rule as roleRating; earlier row wins a tie).
+  const nearestBaseLb = (dx, dy) => {
+    let best = null;
+    let bestD = Infinity;
+    for (const p of POSITIONS.filter((q) => q.team === 'defense' && q.role === 'LB')) {
+      const dist = Math.hypot(p.dx - dx, p.dy - dy);
+      if (dist < bestD) { bestD = dist; best = p; }
+    }
+    return best;
+  };
   for (const key of Object.keys(FRONTS)) {
     if (key === 'base') continue;
     for (const d of FRONTS[key].defenders.filter((p) => p.role === 'LB')) {
       assert.equal(d.speed, 7.5, `${key} ${d.id} speed`);
       assert.equal(d.strength, 0.5, `${key} ${d.id} strength`);
-      assert.deepEqual(d.def, { read: 0.35 }, `${key} ${d.id} def`);
+      assert.deepEqual(d.def, nearestBaseLb(d.dx, d.dy).def, `${key} ${d.id} def`);
     }
   }
 });
@@ -45,5 +56,6 @@ test('F-22 #6: base inside zone with SLB runs 3 s', () => {
     }
   });
   assert.equal(play.ball.holder, 'RB');
-  assert.ok(states.some((s) => s !== 'read'), `SLB states: ${[...new Set(states)].join(',')}`);
+  const start = BEHAVIORS[play.defense.agents.SLB.behavior].start;
+  assert.ok(states.some((s) => s !== start), `SLB states: ${[...new Set(states)].join(',')}`);
 });

@@ -42,7 +42,7 @@ export const POSITIONS = Object.freeze([
   pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -0.95, 0.6, 6.5, 0.6),
   pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5),
   // LBs at 4.5 yd, inside the 3-5 yd range. MLB (Mike) at center-right of the box, WLB (Will) at -x,
-  // SLB (Sam) outside the Mike on the offense-right (+x) side. SLB stays after MLB: roleRating reads the first LB row.
+  // SLB (Sam) outside the Mike on the offense-right (+x) side. Fronts inherit ratings and def from the nearest base row of the same role (roleRating).
   pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, 4.5, 7.5, 0.5, { read: 0.35 }),
   pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, 4.5, 7.5, 0.5, { read: 0.5 }),
   pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, 4.5, 7.5, 0.5, { read: 0.5 }),
@@ -50,8 +50,15 @@ export const POSITIONS = Object.freeze([
 
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
 // fronts are written for a playside-left play (the only play today).
-const roleRating = (role) => {
-  const row = POSITIONS.find((p) => p.team === 'defense' && p.role === role);
+// Nearest base defense row of the same role to the alignment (dx, dy); ties go to the earlier row.
+const roleRating = (role, dx, dy) => {
+  let row = null;
+  let best = Infinity;
+  for (const p of POSITIONS) {
+    if (p.team !== 'defense' || p.role !== role) continue;
+    const d = Math.hypot(p.dx - dx, p.dy - dy);
+    if (d < best) { best = d; row = p; }
+  }
   return { speed: row.speed, strength: row.strength, def: row.def };
 };
 const NAMES = Object.freeze({
@@ -64,7 +71,7 @@ const NAMES = Object.freeze({
 });
 // rows: [id, role, dx, dy]
 const defenders = (rows) => Object.freeze(rows.map(([id, role, dx, dy]) => {
-  const r = roleRating(role);
+  const r = roleRating(role, dx, dy);
   return pos(id, NAMES[id], 'defense', role, dx, dy, r.speed, r.strength, r.def);
 }));
 const swap = (rows, id, dx, dy) => rows.map((r) => (r[0] === id ? [r[0], r[1], dx, dy] : r));
