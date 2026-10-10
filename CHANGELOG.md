@@ -29,3 +29,4 @@
 - 2026-10-10 F-30 Real-world scale: bodies, splits, alignments, ball, field and speed (R-38) 164f203
 - 2026-10-10 F-31 Tackle, play end and fixed timestep (R-40) 47d3c2a
 - 2026-10-10 F-32 Zone combos hold, backside cutoff, block release, smooth engage (R-41) b49fd66
+- 2026-10-10 F-33 Defensive call table and DL attack: gap, read, shed (R-42) 3dc5a8b
