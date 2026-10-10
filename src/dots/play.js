@@ -2,7 +2,7 @@
 // Ball phases: presnap -> snapping -> held -> carried -> dead (carried and dead only on plays with a run).
 // Time advances only through step(dt); there are no timers or clocks here.
 
-import { FRONTS, PLAYS, buildLineup } from './roster.js';
+import { FRONTS, PERSONNEL, PLAYS, buildLineup } from './roster.js';
 import { numberPlay } from './numbering.js';
 import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
@@ -37,7 +37,7 @@ export const LB_SHIFT_MAX = 6; // steps allowed each way
 // A scheme's plan returns {side, blocks, techs, combos, free, front}.
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = true, tackles = true, fightBlocks = true } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', personnel = undefined, accel = true, tackles = true, fightBlocks = true } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const play = {
     los,
@@ -47,6 +47,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     retargetRule: scheme ? scheme.rule : doubleTeamPeel,
     timeScale,
     front,
+    personnel: personnel ?? PLAYS[playKey].personnel ?? 'noTe',
     accel,
     tackles,
     // off = defenders never win leverage or shed; blocks still release 'past' and 'lost'.
@@ -98,6 +99,16 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     return key;
   };
 
+  // Pre-snap offensive personnel, a key of PERSONNEL. Only changes while the ball is presnap.
+  // Offensive personnel: no-TE look or attached TE.
+  play.setPersonnel = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (!Object.hasOwn(PERSONNEL, key)) return false;
+    play.personnel = key;
+    play.reset();
+    return key;
+  };
+
   // Scales how fast play.step advances; the only place time scale applies.
   play.setTimeScale = (s) => {
     if (!Number.isFinite(s)) return play.timeScale;
@@ -111,6 +122,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       front: play.front,
       dlShift: play.dlShift * DL_SHIFT_STEP,
       lbShift: play.lbShift * LB_SHIFT_STEP,
+      personnel: play.personnel,
     });
     initFacing(play.players);
     // Pre-snap read: computed only here, so shifts keep it in sync with the lineup.
