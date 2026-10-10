@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { buildLineup, FRONTS } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
-import { BODY_RADIUS, SPREAD, ENGAGE_TOL } from '../src/dots/blocking.js';
+import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
 import { gapSpan, GOALS } from '../src/dots/defense.js';
 import { zoneSwitch, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
@@ -279,14 +279,14 @@ test('F-17 #9: watch ids', () => {
 const ORDER = ['read', 'flow', 'fill', 'pursue'];
 const lbs = (play) => play.players.filter((p) => p.role === 'LB');
 
-test('F-19 #6: defense is null until an insideZone snap; LBs have agents, linemen do not', () => {
+test('F-19 #6: defense is null until an insideZone snap; LBs and linemen have agents', () => {
   for (const k of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front: k });
     assert.equal(play.defense, null, k);
     play.snap();
     assert.ok(play.defense, k);
     for (const lb of lbs(play)) assert.ok(play.defense.agents[lb.id], `${k} ${lb.id}`);
-    for (const p of play.players) if (p.role === 'DE' || p.role === 'DT') assert.ok(!play.defense.agents[p.id], `${k} ${p.id}`);
+    for (const p of play.players) if (p.role === 'DE' || p.role === 'DT') assert.equal(play.defense.agents[p.id]?.assign.type, 'attack', `${k} ${p.id}`);
     play.reset();
     assert.equal(play.defense, null, k);
   }
@@ -294,6 +294,29 @@ test('F-19 #6: defense is null until an insideZone snap; LBs have agents, lineme
   assert.equal(base.defense, null);
   base.snap();
   assert.equal(base.defense, null);
+});
+
+test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off the QB', () => {
+  const play = createPlay(25, 'insideZone');
+  play.snap();
+  const free = Object.values(play.players).filter((p) => (p.role === 'DE' || p.role === 'DT')
+    && !play.players.some((o) => OL.includes(o.id) && o.block?.target === p.id)).map((p) => p.id);
+  assert.ok(free.length > 0);
+  const qb = play.player('QB');
+  let handoff = false;
+  for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+    play.step(DT);
+    if (play.run.carried) handoff = true;
+    for (const id of free) {
+      const e = play.defense.agents[id];
+      const dl = play.player(id);
+      if (e.state !== 'pursue') {
+        const sp = gapSpan(play.players, play.defense, e.fit);
+        if (sp) assert.ok(dl.x >= sp.lo - 2 * BODY_RADIUS && dl.x <= sp.hi + 2 * BODY_RADIUS, `${id} x ${dl.x} in ${sp.lo}..${sp.hi} t=${i}`);
+      }
+      if (!handoff) assert.ok(Math.hypot(dl.x - qb.x, dl.y - qb.y) > CONTACT_DIST + BODY_RADIUS, `${id} at QB t=${i}`);
+    }
+  }
 });
 
 test('F-19 #4: LBs hold depth while reading, mirror the RB, and stay upfield of the snap line until pursue', () => {
