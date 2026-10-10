@@ -8,6 +8,7 @@ import {
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
+import { A_GAP_HALF } from '../src/dots/numbering.js';
 
 const DT = 1 / 60;
 const H = hardCore(BODY_RADIUS);
@@ -430,8 +431,8 @@ test('F-15 #8: RB slips the lane', () => {
     play.step(DT);
     const rb = play.player('RB');
     if (rb.y >= 25 + GAP_DEPTH) {
-      const W = play.run.windows[play.run.gap];
-      assert.ok(rb.x >= W.lo - BODY_RADIUS && rb.x <= W.hi + BODY_RADIUS, `rb.x ${rb.x} window [${W.lo}, ${W.hi}]`);
+      assert.ok(play.run.locked, `RB crossed unlocked (gap ${play.run.gap})`);
+      assert.ok(Math.abs(rb.x - play.run.x) <= A_GAP_HALF + BODY_RADIUS, `rb.x ${rb.x} run.x ${play.run.x}`);
       crossed = true;
       break;
     }

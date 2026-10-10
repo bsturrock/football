@@ -111,6 +111,9 @@ test('F-13 #7: runLabel', () => {
   assert.equal(runLabel({ carried: false, locked: false, gap: 'A' }), '');
   assert.equal(runLabel({ carried: true, locked: false, gap: 'A' }), 'Hole: A (reading)');
   assert.equal(runLabel({ carried: true, locked: true, gap: 'B' }), 'Hole: B (locked)');
+  assert.equal(runLabel({ carried: true, locked: false, gap: 'A', lane: { side: 'back', name: 'A' } }), 'Hole: A back (reading)');
+  assert.equal(runLabel({ carried: true, locked: true, gap: 'A', lane: { side: 'back', name: 'A' } }), 'Hole: A back (locked)');
+  assert.equal(runLabel({ carried: true, locked: true, gap: 'B', lane: { side: 'play', name: 'B' } }), 'Hole: B (locked)');
 });
 
 test('F-20 #7: reactLabel', () => {
