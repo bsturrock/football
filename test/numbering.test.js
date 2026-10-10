@@ -151,11 +151,13 @@ test('F-39 #2: isBlocker true for TE, false for QB, RB and defenders', () => {
   }
 });
 
-test('F-39 #2: no-TE lineup numbers equal the default lineup numbers', () => {
+test('F-39 #2: no-TE numbers are unchanged: equal the base play numbers and the TE lineup without the TE', () => {
   const explicit = buildLineup(25, 'insideZone', { personnel: 'noTe' });
-  const dflt = buildLineup(25, 'insideZone');
   assert.deepEqual(
     numberPlay(explicit, { los: 25, centerId: 'C', playside: 'left' }),
-    numberPlay(dflt, { los: 25, centerId: 'C', playside: 'left' }),
+    numberPlay(buildLineup(25, 'base'), { los: 25, centerId: 'C', playside: 'left' }),
   );
+  const withTe = numberPlay(buildLineup(25, 'insideZone', { personnel: 'te' }), { los: 25, centerId: 'C', playside: 'left' });
+  delete withTe.TE;
+  assert.deepEqual(withTe, numberPlay(explicit, { los: 25, centerId: 'C', playside: 'left' }));
 });

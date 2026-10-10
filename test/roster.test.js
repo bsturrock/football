@@ -469,7 +469,9 @@ test('F-39 #7: buildLineup personnel option', () => {
   assert.equal(tePl.y, 25 + PERSONNEL.te.rows[0].dy);
   assert.deepEqual(tePl.assignment, { goal: null, target: null });
   assert.equal(tePl.def, null);
-  assert.deepEqual(buildLineup(25, 'insideZone', { personnel: 'noTe' }), buildLineup(25, 'insideZone'));
+  const noTe = buildLineup(25, 'insideZone', { personnel: 'noTe' });
+  assert.equal(noTe.some((pl) => pl.role === 'TE'), false);
+  assert.deepEqual(te.filter((pl) => pl.id !== 'TE'), noTe);
   assert.throws(() => buildLineup(25, 'base', { personnel: 'nope' }), /nope/);
   const shifted = buildLineup(25, 'insideZone', { personnel: 'te', dlShift: 1.2, lbShift: -2 });
   assert.equal(shifted.find((pl) => pl.id === 'TE').x, tePl.x);

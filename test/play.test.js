@@ -424,7 +424,7 @@ test('F-39 #3: personnel defaults to the play personnel and is set by createPlay
 });
 
 test('F-39 #3: setPersonnel adds and removes the TE, rejects unknown keys', () => {
-  const play = createPlay(25, 'insideZone');
+  const play = createPlay(25, 'insideZone', { personnel: 'noTe' });
   assert.equal(play.players.some((p) => p.role === 'TE'), false);
 
   assert.equal(play.setPersonnel('te'), 'te');
