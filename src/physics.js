@@ -157,7 +157,8 @@ function physReach(d){
 function lockGrip(d, c, kind){
   const D = d.ph, C = c.ph;
   const nearer = h => D.bodies[PI_[h]].position.distanceTo(C.bodies[0].position);
-  const hands = kind === 'wrap' ? ['faL', 'faR'] : [nearer('faL') <= nearer('faR') ? 'faL' : 'faR'];   // B-093: one arm = the hand nearer the runner (not always the left)
+  // B-098: a wrap builds the nearer hand first so the solver order mirrors (cannon gives the later constraint the last word); never put back a fixed L-first order
+  const hands = kind === 'wrap' ? (nearer('faL') <= nearer('faR') ? ['faL', 'faR'] : ['faR', 'faL']) : [nearer('faL') <= nearer('faR') ? 'faL' : 'faR'];   // B-093: one arm = the hand nearer the runner (not always the left)
   for(const h of hands){
     const hb = D.bodies[PI_[h]], hw = hb.pointToWorldFrame(new CANNON.Vec3(0, HAND_Y, 0));
     let best = null, bd = 1e9;
