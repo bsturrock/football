@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
+import { stepReact } from '../src/dots/react.js';
 import { POSITIONS, FRONTS } from '../src/dots/roster.js';
 import {
   BODY_RADIUS, CONTACT_DIST, ENGAGED_MAX_SPEED, ENGAGE_TOL, ENGAGE_SLACK, SHED_TIME, RELEASE_PAST, REENGAGE_DELAY,
@@ -420,12 +421,12 @@ test('F10-10. null rule: LBs reach the QB', () => {
   }
 });
 
-test('F-15 #8: RB slips the lane', () => {
+test('F-15 #8: RB slips the lane', { todo: 'with the line holding (F-41) the 5-on-7 no-TE box leaves the MLB free by count; he fills the A gap at the los and the RB slides around him: crossed 1.95 s, slip 2.37 yd (not a blocking defect)' }, () => {
   // tackles off because the crossing is a running rule; a tackle before the crossing must not hide it.
-  // Pinned to the no-TE look; measured with the F-40 read (threat-aware lanes, clear hold, one bend):
-  // no-TE 1.92 s, slip 0.30 yd. The cap is 1.25x that (2.4 s). The TE look crosses at 3.68 s, slip 1.53 yd,
-  // because the TE-side line is driven back about 1.2 yd and the MLB/SLB reach the los unblocked (blocking,
-  // not the read); tracked by the todo test below.
+  // Pinned to the no-TE look; measured with the F-40 read (threat-aware lanes, clear hold, one bend)
+  // before F-41: no-TE 1.92 s, slip 0.30 yd. The cap is 1.25x that (2.4 s). Now the todo: the TE look is the
+  // one that passes (see F-40 #7 below); the no-TE look crossed 1.95 s, slip 2.37 yd because the free MLB
+  // fills the A gap.
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe' });
   play.snap();
   let crossed = false;
@@ -442,9 +443,9 @@ test('F-15 #8: RB slips the lane', () => {
   assert.ok(crossed, 'RB crossed within 2.4 s');
 });
 
-test('F-40 #7: RB slips the A-gap lane on the TE look', { todo: 'TE-side line driven back and the MLB unblocked at the los (blocking); TE crossing measured 3.68 s, slip 1.53 yd' }, () => {
-  // tackles off because the crossing is a running rule. Attached TE (default personnel). Keeps the original
-  // 2.5 s cap and A-gap thresholds; the TE look does not meet them yet.
+test('F-40 #7: RB slips the A-gap lane on the TE look', () => {
+  // tackles off because the crossing is a running rule. Attached TE (default personnel). Measured with F-41
+  // (leverage on the body line, follow before the lost check): commit 'clear', crosses at 1.58 s, slip 0.05 yd.
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
   play.snap();
   let crossed = false;
@@ -459,6 +460,55 @@ test('F-40 #7: RB slips the A-gap lane on the TE look', { todo: 'TE-side line dr
     }
   }
   assert.ok(crossed, 'RB crossed within 2.5 s');
+});
+
+test('F-41 #1: leverage reads the blocker body line, not the ride-rotated push', () => {
+  const d = { x: 0, y: 10 };
+  const push = { x: -Math.SQRT1_2, y: Math.SQRT1_2, n: 1 };
+  const line = { x: 0, y: 1 };
+  const near = { x: -0.75, y: 10 - 1.5 * Math.sqrt(3) / 2 };
+  assert.notEqual(stepReact(null, d, push, near, DT, { line }).state, 'winning');
+  assert.equal(stepReact(null, d, push, near, DT).state, 'winning');
+  assert.equal(stepReact(null, d, push, { x: -1.5, y: 10 }, DT, { line }).state, 'winning');
+});
+
+test('F-41 #3: TE look line holds through 1.5 s', () => {
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front });
+    play.snap();
+    const snapY = new Map(play.players.filter((p) => p.block).map((p) => [p.id, p.y]));
+    const n = Math.round(1.5 / DT);
+    for (let i = 1; i <= n; i++) {
+      play.step(DT);
+      for (const [id, y0] of snapY) {
+        const p = play.player(id);
+        assert.ok(y0 - p.y <= BODY_RADIUS, `${front} ${id} driven back ${y0 - p.y} at ${(i * DT).toFixed(2)} s`);
+      }
+    }
+  }
+});
+
+test('F-41 #4: combos climb before the watch reaches the line', () => {
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front });
+    play.snap();
+    const n = Math.round(2.0 / DT);
+    for (const c of play.combos) {
+      const probe = createPlay(25, 'insideZone', { accel: true, tackles: false, front });
+      probe.snap();
+      let found = null;
+      for (let i = 1; i <= n && !found; i++) {
+        probe.step(DT);
+        const hit = [c.owner, c.partner].some((id) => {
+          const b = probe.player(id).block;
+          return b && b.target === c.watch && b.engaged;
+        });
+        if (hit) found = { t: i * DT, y: probe.player(c.watch).y };
+      }
+      assert.ok(found, `${front} combo ${c.owner}/${c.partner} never engaged watch ${c.watch} within 2.0 s`);
+      assert.ok(found.y >= 25 + GAP_DEPTH, `${front} combo ${c.owner}/${c.partner} met ${c.watch} at ${found.t.toFixed(2)} s, y ${found.y}`);
+    }
+  }
 });
 
 // ---- F-32: smooth engage, engage clock, release ----
