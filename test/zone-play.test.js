@@ -7,6 +7,7 @@ import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/block
 import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
+import { readFront } from '../src/dots/front.js';
 import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
@@ -111,46 +112,52 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   assert.equal(RT.block.target, 'LDT');
 });
 
-test('F-12 #8: base insideZone combos switch; backside end LDE is never blocked', () => {
+test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blocked', () => {
   // tackles off: the combo switch is a blocking rule; a tackle before COMBO_HOLD must not hide it.
   const play = createPlay(25, 'insideZone', { tackles: false });
+  const edge = readFront(play.players, play.numbers, 25).edge;
   play.snap();
-  const seen = new Set(OL.map((id) => play.player(id).block.target));
+  const seen = new Set([...OL, 'TE'].map((id) => play.player(id).block.target));
   const switched = () => play.combos.every((c) => [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
   let t = 0;
   while (t < 4.0 && play.ball.phase !== 'dead' && !switched()) {
     play.step(DT);
     t += DT;
-    for (const id of OL) seen.add(play.player(id).block.target);
+    for (const id of [...OL, 'TE']) seen.add(play.player(id).block.target);
   }
   assert.deepEqual(new Set([play.player('RG').block.target, play.player('RT').block.target]), new Set(['MLB', 'LDT']));
   // Which of LG/LT takes the WLB follows zoneSwitch's laterally-closer rule and moved with F-15 soft contact.
   assert.deepEqual(new Set([play.player('LG').block.target, play.player('LT').block.target]), new Set(['WLB', 'RDE']));
-  assert.ok(!seen.has('LDE'));
+  assert.ok(edge);
+  assert.ok(seen.has(edge));
 });
 
 const deg = (r) => (r * 180) / Math.PI;
 
 test('F-17 #2: first step angles', () => {
-  const want = { LT: 30, LG: 60, C: 30, RG: 30, RT: 60 };
+  const want = { LT: 30, LG: 60, C: 30, RG: 30, RT: 60, TE: 10 };
   const play = createPlay(25, 'insideZone');
-  const pre = Object.fromEntries(OL.map((id) => [id, { x: play.player(id).x, y: play.player(id).y }]));
+  const pre = Object.fromEntries([...OL, 'TE'].map((id) => [id, { x: play.player(id).x, y: play.player(id).y }]));
   play.snap();
   play.step(DT);
   const side = -1;
-  for (const id of OL) {
+  for (const id of [...OL, 'TE']) {
     const p = play.player(id);
     const a = deg(Math.atan2(p.y - pre[id].y, side * (p.x - pre[id].x)));
     assert.ok(Math.abs(a - want[id]) <= 2, `${id} ${a}`);
   }
+  // With the DL shifted out, RT is no longer the backside end lineman: he zone-blocks the end man in his
+  // playside gap (30 degrees), and the uncovered TE combos with him (60 degrees).
   const p2 = createPlay(25, 'insideZone');
   for (let i = 0; i < 4; i++) p2.shiftDL(-1);
-  const r0 = { x: p2.player('RT').x, y: p2.player('RT').y };
+  const r0 = Object.fromEntries(['RT', 'TE'].map((id) => [id, { x: p2.player(id).x, y: p2.player(id).y }]));
   p2.snap();
   p2.step(DT);
-  const RT = p2.player('RT');
-  const a = deg(Math.atan2(RT.y - r0.y, side * (RT.x - r0.x)));
-  assert.ok(Math.abs(a - 10) <= 2, `RT ${a}`);
+  for (const [id, w] of [['RT', 30], ['TE', 60]]) {
+    const p = p2.player(id);
+    const a = deg(Math.atan2(p.y - r0[id].y, side * (p.x - r0[id].x)));
+    assert.ok(Math.abs(a - w) <= 2, `${id} ${a}`);
+  }
 });
 
 test('F-17 #3: phases step then aim', () => {

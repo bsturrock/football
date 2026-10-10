@@ -147,6 +147,8 @@ export const PLAYS = Object.freeze({
     name: 'Inside Zone',
     ball: Object.freeze({ start: 'C', snapTo: 'QB' }),
     assignments: Object.freeze({}),
+    // Attached TE: 6 blockers vs the 7-man box. 'noTe' is the no-TE look.
+    personnel: 'te',
     playside: 'left',
     scheme: 'zone', // names the blocking scheme play.js applies at the snap
     run: Object.freeze({ carrier: 'RB', patience: 0.5 }), // run: { carrier, patience? } = who takes the handoff; patience = seconds the RB presses and re-reads behind the line before committing (0 or absent: commit at once; carrier.js clamps and scales it)
