@@ -18,3 +18,4 @@
 - 2026-10-09 F-18 Defensive fronts as game data with a front picker (R-23) f1d02f8
 - 2026-10-09 F-20 Block reactions: driven defenders anchor and lean (R-25) 7e5a8c9
 - 2026-10-09 F-19 Linebacker read, flow, fill, pursue from a defender behaviour table (R-24) 1073ec0
+- 2026-10-10 F-21 Shotgun depth, quick snap, player acceleration, RB mesh timing (R-26) 802fdf6
