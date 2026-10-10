@@ -215,3 +215,44 @@ test('F-15 #10: full width toward goal.ignore', () => {
     }
   }
 });
+
+function slideRun(accel) {
+  const H = S.hardCore(RAD), maxStep = 6 * DT;
+  const o = { id: 'o', x: 0, y: 2 };
+  // ignore 'o' puts the contact circle at 2 * RAD; the goal lies past the body so the mover must slide
+  const p = { id: 'p', x: accel ? 0 : Math.sin(Math.PI / 12) * (2 * RAD + 0.01), y: 2 + (accel ? 1 : Math.cos(Math.PI / 12)) * (2 * RAD + 0.01) };
+  if (accel) { p.speed = 6; p.v = 0; }
+  const goal = accel ? { x: -6, y: 2, key: 'g', ignore: 'o' } : { x: 8, y: 0, key: 'g', ignore: 'o' };
+  const moves = [];
+  const n = accel ? 90 : 20;
+  for (let i = 0; i < n; i++) {
+    const x0 = p.x, y0 = p.y;
+    steerStep(p, goal, [p, o], accel ? Math.min(maxStep, (p.v + 30 * DT) * DT) : maxStep, DT, RAD);
+    const moved = Math.hypot(p.x - x0, p.y - y0);
+    moves.push(moved);
+    if (accel) p.v = Math.min(p.speed, moved / DT);
+    assert.ok(Math.hypot(p.x - o.x, p.y - o.y) >= 2 * RAD - 1e-9, `step ${i}`);
+  }
+  return { p, moves, maxStep };
+}
+
+test('slide along a body keeps full step, no accel', () => {
+  const { moves, maxStep } = slideRun(false);
+  const mean = moves.reduce((a, b) => a + b, 0) / moves.length;
+  assert.ok(mean >= 0.9 * maxStep, `mean ${mean}`);
+  for (const m of moves) assert.ok(m >= 0.5 * maxStep, `move ${m}`);
+});
+
+test('slide along a body keeps speed with accel', () => {
+  const { p } = slideRun(true);
+  assert.ok(p.v >= 0.8 * p.speed, `v ${p.v}`);
+});
+
+test('ignored body held at 2 * radius', () => {
+  const p = { id: 'p', x: 0, y: 0 }, o = { id: 'o', x: 0, y: 2 };
+  for (let i = 0; i < 60; i++) {
+    steerStep(p, { x: o.x, y: o.y, key: 'g', ignore: 'o' }, [p, o], 6 * DT, DT, RAD);
+  }
+  const d = Math.hypot(p.x - o.x, p.y - o.y);
+  assert.ok(d >= 2 * RAD - 1e-9 && d <= 2 * RAD + 1e-3, `d ${d}`);
+});

@@ -135,12 +135,14 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   }
 
   let vx = dx * Math.min(maxStep, D), vy = dy * Math.min(maxStep, D);
+  // a tangent slide step of length s ends about s^2/(2c) outside the circle, so this keeps the mover touching on the next call
+  const sl = Math.min(maxStep, D), tol = Math.max(1e-6, sl * sl / (2 * radius));
   for (let pass = 0; pass < 2; pass++) {
     for (const o of players) {
       if (o === p) continue;
       const rx = o.x - p.x, ry = o.y - p.y;
       const d = Math.hypot(rx, ry);
-      if (d > 0 && d <= contact(o) + 1e-6) {
+      if (d > 0 && d <= contact(o) + tol) {
         const nx = rx / d, ny = ry / d;
         const dot = vx * nx + vy * ny;
         if (dot > 0) { vx -= dot * nx; vy -= dot * ny; }
