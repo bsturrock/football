@@ -44,3 +44,4 @@
 - 2026-10-10 F-45 Inside zone: playside inside-shade covers, interior doubles, downhill footwork (R-60) b2d8545
 - 2026-10-10 F-46 RB patience shuffle: quick tentative feet, never still (R-59) dfb06bc
 - 2026-10-10 F-47 Inside zone combo climb: live gap-side climber, climb on hand-off (R-62) fe20a9e
+- 2026-10-10 F-48 RB vision: second-level hole read and open-field contact avoidance (R-61) 966225e
