@@ -298,7 +298,9 @@ test('F-19 #6: defense is null until an insideZone snap; LBs and linemen have ag
     play.snap();
     assert.ok(play.defense, k);
     for (const lb of lbs(play)) assert.ok(play.defense.agents[lb.id], `${k} ${lb.id}`);
-    for (const p of play.players) if (p.role === 'DE' || p.role === 'DT') assert.equal(play.defense.agents[p.id]?.assign.type, 'attack', `${k} ${p.id}`);
+    const edge = readFront(play.players, play.numbers, 25).edge;
+    if (edge != null) assert.equal(play.defense.agents[edge]?.assign.type, 'contain', `${k} ${edge}`);
+    for (const p of play.players) if ((p.role === 'DE' || p.role === 'DT') && p.id !== edge) assert.equal(play.defense.agents[p.id]?.assign.type, 'attack', `${k} ${p.id}`);
     play.reset();
     assert.equal(play.defense, null, k);
   }
@@ -359,10 +361,12 @@ test('F-19 #5: LB states run drop, flow, fill, pursue in order; fill goal lies i
     // tackles off: this test watches AI behavior past the point a tackle would end the play.
     const play = createPlay(25, 'insideZone', { front: k, tackles: false });
     play.snap();
-    const seq = Object.fromEntries(lbs(play).map((lb) => [lb.id, []]));
+    // the edge LB (odd34) plays contain, with its own states (covered in defense.test.js)
+    const zoneLbs = lbs(play).filter((lb) => play.defense.agents[lb.id].behavior === 'zone');
+    const seq = Object.fromEntries(zoneLbs.map((lb) => [lb.id, []]));
     for (let i = 0; i < 180; i++) {
       play.step(DT);
-      for (const lb of lbs(play)) {
+      for (const lb of zoneLbs) {
         const e = play.defense.agents[lb.id];
         const q = seq[lb.id];
         if (q[q.length - 1] !== e.state) q.push(e.state);
