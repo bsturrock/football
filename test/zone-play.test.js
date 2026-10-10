@@ -6,7 +6,7 @@ import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
 import { gapSpan, GOALS } from '../src/dots/defense.js';
-import { zoneSwitch, SWITCH_DIST } from '../src/dots/zone.js';
+import { zoneSwitch, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
 import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
@@ -61,14 +61,22 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   ]);
   const switched = () => play.combos.every((c) => [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
   let t = 0;
-  while (t < 2.0 && play.ball.phase !== 'dead' && !switched()) {
+  while (t < 4.0 && play.ball.phase !== 'dead' && !switched()) {
     play.step(DT);
     t += DT;
   }
+  // A combo climbs only after its stayer has held the DL: the RG/RT combo may still be holding when the play ends.
+  let climbed = 0;
   for (const c of play.combos) {
     const targets = new Set([c.owner, c.partner].map((id) => play.player(id).block.target));
-    assert.deepEqual(targets, new Set([c.watch, c.target]), `${c.owner}/${c.partner} targets`);
+    if (targets.has(c.watch)) {
+      climbed++;
+      assert.deepEqual(targets, new Set([c.watch, c.target]), `${c.owner}/${c.partner} targets`);
+    } else {
+      assert.deepEqual(targets, new Set([c.target]), `${c.owner}/${c.partner} still double`);
+    }
   }
+  assert.ok(climbed > 0);
 
   // Range: the RG-watch LB within SWITCH_DIST of RG, laterally nearer RG than RT, clear of everyone else.
   const p2 = createPlay(25, 'insideZone');
@@ -77,12 +85,24 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   const RG = p2.player('RG');
   const RT = p2.player('RT');
   const lb = p2.player(W);
-  const spot = { x: RG.x + 0.3, y: RG.y + 1.0 };
-  assert.ok(Math.hypot(spot.x - RG.x, spot.y - RG.y) < SWITCH_DIST);
-  assert.ok(Math.abs(spot.x - RG.x) < Math.abs(spot.x - RT.x));
-  for (const p of p2.players) {
-    if (p.id !== W) assert.ok(Math.hypot(spot.x - p.x, spot.y - p.y) >= 2 * BODY_RADIUS, p.id);
+  // The stayer must hold the DL first. On this front RT engages too late to hold before the play ends,
+  // so give him the hold directly once RG is on the DL; this test is about the range rule, not the timing.
+  for (let i = 0; i < 240 && !RG.block.engaged; i++) p2.step(DT);
+  assert.equal(RG.block.target, 'LDT');
+  Object.assign(RT.block, { engaged: true, held: COMBO_HOLD });
+  // A spot from current positions: inside SWITCH_DIST of RG, laterally nearer RG than RT, clear of every other body.
+  let spot = null;
+  for (let dy = 0.4; dy < SWITCH_DIST && !spot; dy += 0.1) {
+    for (const dx of [0, -0.3, 0.3, -0.6, 0.6]) {
+      const c = { x: RG.x + dx, y: RG.y + dy };
+      if (Math.hypot(dx, dy) >= SWITCH_DIST - 0.05 || Math.abs(c.x - RG.x) >= Math.abs(c.x - RT.x)) continue;
+      if (p2.players.every((p) => p.id === W || Math.hypot(c.x - p.x, c.y - p.y) >= 2 * BODY_RADIUS)) {
+        spot = c;
+        break;
+      }
+    }
   }
+  assert.ok(spot, 'a clear spot');
   Object.assign(lb, spot);
   p2.step(DT);
   assert.equal(RG.block.target, W);
@@ -345,4 +365,59 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
       }
     }
   }
+});
+
+const HOLD_OK = (x, target) => x.block?.target === target && x.block.engaged && (x.block.held ?? 0) >= COMBO_HOLD - 1e-9;
+
+test('T-92 #5: every front, the double never leaves the DL unblocked; partner climbs after the hold', () => {
+  let switches = 0;
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front });
+    play.snap();
+    const engagedOnce = new Set();
+    const switched = new Set();
+    for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+      play.step(DT);
+      for (const c of play.combos) {
+        const key = c.target + c.watch;
+        if (!engagedOnce.has(key) && [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.engaged && b.target === c.target; })) engagedOnce.add(key);
+        // A blocker's own release (defender past the play) ends the check: the DL is then no longer a block target.
+        const released = [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.target === c.target && b.released; });
+        if (released) engagedOnce.delete(key);
+        else if (engagedOnce.has(key)) assert.ok(play.blockersOf(c.target).length > 0, `${front} ${c.target} unblocked at ${i}`);
+        if (!switched.has(key)) {
+          const climber = [c.owner, c.partner].find((id) => play.player(id).block?.target === c.watch);
+          if (climber) {
+            switched.add(key);
+            switches++;
+            const other = play.player(climber === c.owner ? c.partner : c.owner);
+            assert.ok(HOLD_OK(other, c.target), `${front} ${c.watch} stayer holds`);
+          }
+        }
+      }
+    }
+  }
+  assert.ok(switches > 0);
+});
+
+test('T-92 #6: base: RG climbs to MLB and LG/LT to WLB only after the partner held', () => {
+  const play = createPlay(25, 'insideZone');
+  play.snap();
+  let rg = false;
+  let wlb = false;
+  for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+    play.step(DT);
+    if (!rg && play.player('RG').block?.target === 'MLB') {
+      rg = true;
+      assert.ok(HOLD_OK(play.player('RT'), 'LDT'));
+    }
+    if (!wlb) {
+      const climber = ['LG', 'LT'].find((id) => play.player(id).block?.target === 'WLB');
+      if (climber) {
+        wlb = true;
+        assert.ok(HOLD_OK(play.player(climber === 'LG' ? 'LT' : 'LG'), 'RDE'));
+      }
+    }
+  }
+  assert.ok(rg && wlb);
 });

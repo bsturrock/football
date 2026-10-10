@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { zonePlan, zoneSwitch, SWITCH_DIST, INSIDE_ZONE } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
@@ -181,7 +181,7 @@ test('invariants over all fronts', () => {
 const sw = () => {
   const players = buildLineup(25, 'insideZone', { lbShift: -6 * LB_SHIFT_STEP });
   const g = (id) => players.find((p) => p.id === id);
-  const blk = { target: 'RDT', angle: 'straight', engaged: true, seq: 1 };
+  const blk = { target: 'RDT', angle: 'straight', engaged: true, seq: 1, held: COMBO_HOLD };
   g('C').block = { ...blk };
   g('LG').block = { ...blk };
   Object.assign(g('C'), { x: 0, y: 24.3 });
@@ -253,4 +253,16 @@ test('F-19 #8: purity with committed', () => {
   zoneSwitch(players, null, ctx);
   assert.deepEqual(players, p0);
   assert.deepEqual(ctx, c0);
+});
+
+test('T-92: stayer held just under COMBO_HOLD -> no switch', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = COMBO_HOLD - 0.01; }), []));
+test('T-92: stayer not engaged -> no switch', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.engaged = false; }), []));
+test('T-92: winning DL -> no switch', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('RDT').react = { state: 'winning' }; }), []));
+test('T-92: taker held is irrelevant', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('LG').block.held = 0; }), [{ blocker: 'LG', target: 'MLB' }]));
+test('T-92: commit trigger also gated by the stayer hold', () => {
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), []);
 });

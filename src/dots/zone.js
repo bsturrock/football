@@ -4,6 +4,8 @@ import { runScheme } from './assign.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
+// the blocker who stays must have held the DL this long before his partner climbs
+export const COMBO_HOLD = 0.5;
 
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
@@ -31,12 +33,21 @@ export function zoneSwitch(players, ballPos, ctx) {
     const w = byId.get(c.watch);
     if (!o || !p || !w) continue;
     if (o.block?.target === c.watch || p.block?.target === c.watch) continue;
+    const dl = byId.get(c.target);
+    const holds = (x) =>
+      x.block?.target === c.target && x.block.engaged && (x.block.held ?? 0) >= COMBO_HOLD - 1e-9;
+    // The climber is fixed the first tick a trigger fires (non-enumerable, so the combo shape is unchanged) and
+    // kept while the stayer has not held yet; positions drifting must not hand the climb to the other blocker.
+    const go = (pick) => {
+      const taker = c.taker === o.id ? o : c.taker === p.id ? p : pick;
+      if (dl && dl.react?.state !== 'winning' && holds(taker === o ? p : o)) out.push({ blocker: taker.id, target: w.id });
+      else if (!c.taker) Object.defineProperty(c, 'taker', { value: taker.id, writable: true, configurable: true, enumerable: false });
+    };
     const cm = ctx.committed?.[c.watch];
     if (cm) {
       const dxO = Math.abs(o.x - cm.x);
       const dxP = Math.abs(p.x - cm.x);
-      const taker = dxP < dxO - 1e-9 ? p : o;
-      out.push({ blocker: taker.id, target: w.id });
+      go(dxP < dxO - 1e-9 ? p : o);
       continue;
     }
     const dO = Math.hypot(w.x - o.x, w.y - o.y);
@@ -44,8 +55,7 @@ export function zoneSwitch(players, ballPos, ctx) {
     if (Math.min(dO, dP) > SWITCH_DIST) continue;
     const lo = Math.abs(o.x - w.x);
     const lp = Math.abs(p.x - w.x);
-    const taker = lp < lo - 1e-9 ? p : o;
-    out.push({ blocker: taker.id, target: w.id });
+    go(lp < lo - 1e-9 ? p : o);
   }
   return out;
 }
