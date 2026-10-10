@@ -37,3 +37,4 @@
 - 2026-10-10 F-36 Inside zone assignments from general blocking rules (R-47) fccd3da
 - 2026-10-10 F-40 RB reads threats, waits, and bends out of a closed lane (TE retune) (R-55) 29ffc4e
 - 2026-10-10 F-41 TE-side line holds and the double climbs in time (R-56) 434a6ba
+- 2026-10-10 F-38 Backside edge reads and keeps contain (R-52) dab02e0
