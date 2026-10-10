@@ -18,7 +18,11 @@ export const PURSUE_REACH = 8 * BODY_RADIUS; // yd: a DL this close to the carri
 export const LEAD_MAX = 1.0; // s, the longest lead a pursuer takes (tunable)
 
 // Where a pursuer at d running at `speed` meets a ball at `ball` moving at v: the earliest
-// non-negative meeting time, capped at LEAD_MAX (also used when no meeting exists).
+// non-negative meeting time, capped at LEAD_MAX (also used when no meeting exists). The lead
+// time is also capped at the pursuer's time to reach the ball's current spot, so a close
+// pursuer's lead point shrinks with his distance and ball-velocity noise cannot throw it yards
+// away. A man 1 yd from the ball carrier plays the man, he does not run to where the carrier
+// will be in a second.
 export function intercept(d, ball, v, speed) {
   const rx = ball.x - d.x;
   const ry = ball.y - d.y;
@@ -36,7 +40,8 @@ export function intercept(d, ball, v, speed) {
       if (roots.length) t = Math.min(...roots);
     }
   }
-  t = Math.min(t, LEAD_MAX);
+  const reach = speed > 0 ? Math.hypot(rx, ry) / speed : Infinity;
+  t = Math.min(t, LEAD_MAX, reach);
   return { x: ball.x + v.x * t, y: ball.y + v.y * t };
 }
 
