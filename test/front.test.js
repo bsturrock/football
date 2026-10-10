@@ -4,6 +4,7 @@ import { readFront, shade, liveGaps, HEAD_UP, LINE_DEPTH } from '../src/dots/fro
 import { frontPlayers, frontNumbers, LOS, FRONT_NAMES } from './fixtures/fronts.js';
 import { buildLineup } from '../src/dots/roster.js';
 import { numberPlay } from '../src/dots/numbering.js';
+import { BASE_COVERED } from './fixtures/base-front.js';
 
 const read = (name, personnel = 'noTe') => {
   const players = frontPlayers(name, personnel);
@@ -15,10 +16,7 @@ test('base front', () => {
   const r = read('base');
   assert.equal(r.side, -1);
   assert.deepEqual(r.line.map((l) => l.id), ['LT', 'LG', 'C', 'RG', 'RT']);
-  assert.deepEqual(r.covered.LT, ['RDE']);
-  assert.deepEqual(r.covered.LG, []);
-  assert.deepEqual(r.covered.C, ['RDT']);
-  assert.deepEqual(r.covered.RG, ['LDT']);
+  for (const [id, want] of Object.entries(BASE_COVERED)) assert.deepEqual(r.covered[id], want, id);
   assert.equal(def(r, 'MLB').level, 'second');
   assert.equal(def(r, 'WLB').level, 'second');
 });

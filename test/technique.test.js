@@ -15,7 +15,7 @@ test('stepDir every tech/shade', () => {
       for (const side of [-1, 1]) nearPt(stepDir(t, s, side), side * Math.cos(rad(a)), Math.sin(rad(a)));
     }
   }
-  nearPt(stepDir('zone', 'head', -1), -0.7071067811865476, 0.7071067811865476);
+  nearPt(stepDir('zone', 'head', -1), -Math.cos(rad(60)), Math.sin(rad(60)));
   nearPt(stepDir('cutoff', 'none', 1), Math.cos(rad(10)), Math.sin(rad(10)));
   assert.equal(stepDir('nope', 'head', 1), null);
   assert.equal(stepDir('zone', 'nope', 1), null);
@@ -75,12 +75,12 @@ test('footGoal', () => {
   let foot = mk();
   let r = footGoal(foot, { x: 0, y: 0 }, spot, -1, 0.35);
   assert.equal(r.phase, 'step');
-  nearPt(r.goal, -0.5 * Math.cos(rad(30)), 0.5 * Math.sin(rad(30)));
+  nearPt(r.goal, -0.25 * Math.cos(rad(45)), 0.25 * Math.sin(rad(45)));
   assert.ok(!('squeeze' in r.goal));
-  r = footGoal(foot, { x: 0, y: 0.5 - 1e-10 }, spot, -1, 0.35);
+  r = footGoal(foot, { x: 0, y: 0.25 - 1e-10 }, spot, -1, 0.35);
   assert.equal(r.phase, 'aim');
   nearPt(r.goal, 2.825, 1);
-  r = footGoal(foot, { x: 0, y: 0.3 }, spot, -1, 0.35);
+  r = footGoal(foot, { x: 0, y: 0.1 }, spot, -1, 0.35);
   assert.equal(r.phase, 'step');
   r = footGoal(mk({ phase: 'aim' }), { x: 0, y: 0 }, spot, -1, 0.35);
   assert.equal(r.phase, 'aim');
@@ -88,6 +88,24 @@ test('footGoal', () => {
   footGoal(foot, { x: 0, y: 1 }, spot, -1, 0.35);
   assert.deepEqual(foot, clone);
   assert.throws(() => footGoal(mk({ phase: 'bogus' }), { x: 0, y: 0 }, spot, -1, 0.35), /bogus/);
+});
+
+test('zone and combo take a short step at >= 45 degrees', () => {
+  for (const tech of ['zone', 'combo']) {
+    const row = TECHNIQUES[tech];
+    assert.ok(row.stepLen <= 0.25, tech);
+    for (const shade of Object.keys(row.step)) {
+      assert.ok(row.step[shade] >= 45, `${tech} ${shade}`);
+      for (const side of [-1, 1]) {
+        const foot = startFoot(tech, shade, null, { x: 2, y: 3 }, { x: 0, y: 0 });
+        const g = footGoal(foot, { x: 2, y: 3 }, { x: 0, y: 5 }, side, 0.35).goal;
+        const dx = side * (g.x - 2);
+        const dy = g.y - 3;
+        assert.ok(Math.hypot(dx, dy) <= row.stepLen + 1e-9, `${tech} ${shade} len`);
+        assert.ok(Math.atan2(dy, dx) >= rad(45) - 1e-9, `${tech} ${shade} angle`);
+      }
+    }
+  }
 });
 
 test('footPush', () => {

@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import {
   laneWindows, freeLane, scoreLanes, chooseLane, startRun, stepCarrier,
   LANES, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, LOCK_DEPTH, GOAL_LINE_Y,
-  LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
+  GAP_DEPTH, LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
   PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, CLEAR_ROOM, CLEAR_HOLD, BEND_MAX,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { hardCore, PACES } from '../src/dots/steering.js';
-import { numberPlay } from '../src/dots/numbering.js';
+import { numberPlay, A_GAP_HALF } from '../src/dots/numbering.js';
 import { buildLineup, PLAYS } from '../src/dots/roster.js';
 
 const LOS = 25;
@@ -332,7 +332,7 @@ test('F-13 stepCarrier: no handoff without the ball; then handoff reads a lane',
   const l = get(run.lanes, run.lane.side, run.lane.name);
   assert.equal(run.locked, true);
   near(run.x, l.x);
-  near(run.aim.y, GOAL_LINE_Y);
+  near(run.aim.y, LOS + GAP_DEPTH);
 });
 
 test('F-13 stepCarrier: lock freezes lane and x, then runs to the goal line', () => {
@@ -551,13 +551,38 @@ test('commit: lane and x are fixed; aim moves at most CUT_ALLOW from run.x', () 
   for (let i = 0; i < 90; i++) {
     if (i === 2) { ds[0].x = x; ds[0].y = LOS + BODY_RADIUS; }
     if (i === 5) { ds[1].x = x + 0.3; ds[1].y = LOS + 2 * BODY_RADIUS; }
+    const behind = rb.y < LOS;
     go(pl, run);
     assert.deepEqual(run.lane, lane);
     assert.equal(run.x, x);
     assert.ok(Math.abs(run.aim.x - run.x) <= CUT_ALLOW + 1e-9);
-    assert.equal(run.aim.y, GOAL_LINE_Y);
+    assert.equal(run.aim.y, behind ? LOS + GAP_DEPTH : GOAL_LINE_Y);
   }
   assert.ok(rb.y > 0);
+});
+
+test('T-148: a committed RB enters his lane at the line', () => {
+  const { pl, run, rb } = setup(PATIENCE_MAX);
+  run.carried = true;
+  run.locked = true;
+  run.lane = { side: 'play', name: 'B' };
+  run.gap = 'B';
+  rb.x = 0;
+  rb.y = LOS - 3 * BODY_RADIUS;
+  run.x = 2.5;
+  run.cut = 0;
+  run.bends = BEND_MAX;
+  let crossed = false;
+  for (let i = 0; i < 300 && !crossed; i++) {
+    const behind = rb.y < LOS;
+    go(pl, run);
+    if (behind) assert.equal(run.aim.y, LOS + GAP_DEPTH);
+    if (rb.y >= LOS + GAP_DEPTH) {
+      crossed = true;
+      assert.ok(Math.abs(rb.x - run.x) <= A_GAP_HALF + BODY_RADIUS, `x ${rb.x} vs lane ${run.x}`);
+    }
+  }
+  assert.ok(crossed);
 });
 
 test('data: insideZone declares patience 0.5', () => {

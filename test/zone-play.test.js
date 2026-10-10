@@ -4,10 +4,12 @@ import { createPlay } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
+import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
 import { readFront } from '../src/dots/front.js';
+import { FRONT_NAMES } from './fixtures/fronts.js';
+import { TACKLE_DIST } from '../src/dots/tackle.js';
 import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
@@ -34,10 +36,10 @@ test('F-12 #6: insideZone snap assigns zone targets and combos; base unchanged',
   assert.equal(play.retargetRule, zoneSwitch);
   assert.deepEqual(play.combos, []);
   assert.ok(play.snap());
-  assert.deepEqual(targets(play), { C: 'RDT', LG: 'RDE', LT: 'RDE', RG: 'LDT', RT: 'LDT' });
+  assert.deepEqual(targets(play), { C: 'RDT', LG: 'RDT', LT: 'RDE', RG: 'LDT', RT: 'LDT' });
   assert.deepEqual(play.combos, [
     { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
-    { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' },
+    { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' },
   ]);
   play.reset();
   assert.deepEqual(play.combos, []);
@@ -59,9 +61,9 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   play.snap();
   assert.equal(play.combos.length, 2);
   assert.deepEqual(play.combos.find((c) => c.owner === 'RT'), { owner: 'RT', partner: 'RG', target: 'LDT', watch: W });
-  const lg = play.combos.find((c) => c.owner === 'LG');
-  assert.equal(lg.partner, 'LT');
-  assert.equal(lg.target, 'RDE');
+  const lg = play.combos.find((c) => c.owner === 'C');
+  assert.equal(lg.partner, 'LG');
+  assert.equal(lg.target, 'RDT');
   assert.ok(lg.watch != null);
   const switched = () => play.combos.every((c) => [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
   let t = 0;
@@ -137,7 +139,7 @@ test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blo
 const deg = (r) => (r * 180) / Math.PI;
 
 test('F-17 #2: first step angles', () => {
-  const want = { LT: 30, LG: 60, C: 30, RG: 30, RT: 60, TE: 10 };
+  const want = { LT: 45, LG: 60, C: 60, RG: 45, RT: 60, TE: 10 };
   const play = createPlay(25, 'insideZone');
   const pre = Object.fromEntries([...OL, 'TE'].map((id) => [id, { x: play.player(id).x, y: play.player(id).y }]));
   play.snap();
@@ -149,13 +151,13 @@ test('F-17 #2: first step angles', () => {
     assert.ok(Math.abs(a - want[id]) <= 2, `${id} ${a}`);
   }
   // With the DL shifted out, RT is no longer the backside end lineman: he zone-blocks the end man in his
-  // playside gap (30 degrees), and the uncovered TE combos with him (60 degrees).
+  // playside gap (45 degrees), and the uncovered TE combos with him (60 degrees).
   const p2 = createPlay(25, 'insideZone');
   for (let i = 0; i < 4; i++) p2.shiftDL(-1);
   const r0 = Object.fromEntries(['RT', 'TE'].map((id) => [id, { x: p2.player(id).x, y: p2.player(id).y }]));
   p2.snap();
   p2.step(DT);
-  for (const [id, w] of [['RT', 30], ['TE', 60]]) {
+  for (const [id, w] of [['RT', 45], ['TE', 60]]) {
     const p = p2.player(id);
     const a = deg(Math.atan2(p.y - r0[id].y, side * (p.x - r0[id].x)));
     assert.ok(Math.abs(a - w) <= 2, `${id} ${a}`);
@@ -163,7 +165,7 @@ test('F-17 #2: first step angles', () => {
 });
 
 test('F-17 #3: phases step then aim', () => {
-  // LT, LG, RT reach aim at about 0.37 s with accel; C and RG engage at about 0.30 s.
+  // LT and RT reach aim unengaged at about 0.37 s with accel; C and RG engage at about 0.28 s; LG engages the 2i in front of him at about 0.37 s, before he is seen in aim.
   const play = createPlay(25, 'insideZone', { accel: true });
   play.snap();
   for (const id of OL) assert.equal(play.player(id).block.foot.phase, 'step', id);
@@ -178,12 +180,12 @@ test('F-17 #3: phases step then aim', () => {
         seenAim.add(id);
         const f = b.foot;
         const p = play.player(id);
-        assert.ok(Math.hypot(p.x - f.ox, p.y - f.oy) >= FIRST_STEP_LEN - 0.05, id);
+        assert.ok(Math.hypot(p.x - f.ox, p.y - f.oy) >= (TECHNIQUES[f.tech].stepLen ?? FIRST_STEP_LEN) - 0.05, id);
       }
       if (seenAim.has(id)) assert.notEqual(b.foot.phase, 'step', id);
     }
   }
-  for (const id of ['LT', 'LG', 'RT']) assert.ok(seenAim.has(id), id);
+  for (const id of ['LT', 'RT']) assert.ok(seenAim.has(id), id);
   for (const id of OL) {
     const b = play.player(id).block;
     assert.ok(b.engaged || b.foot.phase === 'aim', id);
@@ -214,14 +216,19 @@ test('F-17 #5: push directions', () => {
   play.snap();
   let c = 0;
   let r = 0;
+  const WLB_DX = () => play.player('WLB').x - play.player('RDT').x;
   for (let t = 0; t < 1.0; t += DT) {
     // The push is computed before defenders move this step, so compare against the pre-step spread.
     const dx = play.player('MLB').x - play.player('LDT').x;
+    const cdx = WLB_DX();
     play.step(DT);
-    const C = play.player('C');
-    if (C.block.engaged && C.block.target === 'RDT' && C.block.foot.ride === 0 && C.block.foot.push) {
-      c++;
-      assert.ok(Math.abs(C.block.foot.push.x) < 1e-9 && Math.abs(C.block.foot.push.y - 1) < 1e-9);
+    for (const id of ['C', 'LG']) {
+      const b = play.player(id).block;
+      if (b.engaged && b.target === 'RDT' && b.foot.ride === 0 && b.foot.push) {
+        c++;
+        assert.equal(Math.sign(b.foot.push.x), Math.sign(cdx), id);
+        assert.ok(deg(Math.acos(b.foot.push.y)) <= 30 + 1e-9, id);
+      }
     }
     for (const id of ['RG', 'RT']) {
       const b = play.player(id).block;
@@ -285,7 +292,8 @@ test('F-17 #9: watch ids', () => {
   play.snap();
   assert.equal(play.player('RG').block.foot.watch, 'MLB');
   assert.equal(play.player('RT').block.foot.watch, 'MLB');
-  assert.equal(play.player('C').block.foot.watch, null);
+  assert.equal(play.player('C').block.foot.watch, 'WLB');
+  assert.equal(play.player('LG').block.foot.watch, 'WLB');
 });
 
 const ORDER = ['drop', 'flow', 'fill', 'pursue'];
@@ -470,7 +478,7 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
   assert.ok(switches > 0);
 });
 
-test('T-92 #6: base: RG climbs to MLB and LG/LT to WLB only after the partner held', () => {
+test('T-92 #6: base: RG climbs to MLB and C/LG to WLB only after the partner held', () => {
   // tackles off: the climb is a blocking rule; a tackle before COMBO_HOLD must not hide it.
   const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
@@ -483,10 +491,10 @@ test('T-92 #6: base: RG climbs to MLB and LG/LT to WLB only after the partner he
       assert.ok(HOLD_OK(play.player('RT'), 'LDT'));
     }
     if (!wlb) {
-      const climber = ['LG', 'LT'].find((id) => play.player(id).block?.target === 'WLB');
+      const climber = ['C', 'LG'].find((id) => play.player(id).block?.target === 'WLB');
       if (climber) {
         wlb = true;
-        assert.ok(HOLD_OK(play.player(climber === 'LG' ? 'LT' : 'LG'), 'RDE'));
+        assert.ok(HOLD_OK(play.player(climber === 'C' ? 'LG' : 'C'), 'RDT'));
       }
     }
   }
@@ -539,8 +547,8 @@ test('F-33 #8: every front, an OL block released as shed frees the DL, who then 
           e.done = true;
           const d = play.player(e.id);
           const b = play.ballPosition();
-          // F-34 contact hold: a free defender never steps inside CONTACT_DIST of the ball, so at it he is as close as allowed.
-          const held = Math.hypot(b.x - d.x, b.y - d.y) <= CONTACT_DIST + 1e-6;
+          // A freed DL within TACKLE_DIST of the carrier with no blocker on him could tackle (canTackle); tackles are off here only to give the line time to shed, so he has reached the ball.
+          const held = Math.hypot(b.x - d.x, b.y - d.y) <= TACKLE_DIST + 1e-6;
           e.far = e.close >= BAR || held;
           t.diagnostic(`${front} ${e.id} shed ${(e.i * DT).toFixed(2)} s max ${e.max.toFixed(2)} ` +
             `close ${e.close.toFixed(3)} held ${held} ball ${e.b0.toFixed(2)} -> ${Math.hypot(b.x - d.x, b.y - d.y).toFixed(2)}`);
@@ -557,4 +565,123 @@ test('F-33 #8: every front, an OL block released as shed frees the DL, who then 
     }
   }
   assert.ok(sheds >= 1);
+});
+
+test('F-45 #1-#4: interior doubles on the 4-3 base', () => {
+  for (const personnel of ['noTe', 'te']) {
+    const play = createPlay(25, 'insideZone', { personnel });
+    assert.ok(play.snap());
+    assert.deepEqual(play.combos.find((c) => c.owner === 'C'), { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' }, personnel);
+    assert.equal(play.player('LT').block.target, 'RDE', personnel);
+    assert.deepEqual(OL.filter((id) => play.player(id).block.target === 'RDE'), ['LT'], personnel);
+    for (const c of play.combos) assert.notEqual(play.player(c.target).role, 'DE', `${personnel} ${c.target}`);
+  }
+  for (const front of ['over43', 'walkedUp']) {
+    const play = createPlay(25, 'insideZone', { front });
+    play.snap();
+    for (const c of play.combos) assert.equal(play.player(c.target).role, 'DT', `${front} ${c.target}`);
+  }
+  const expected = {
+    under43: [{ owner: 'RG', partner: 'C', target: 'PN', watch: 'L2' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'L1' }],
+    backedOff: [{ owner: 'RG', partner: 'C', target: 'PN', watch: 'L2' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'L1' }],
+    odd34: [{ owner: 'RG', partner: 'C', target: 'N', watch: 'BI' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'PI' }],
+    over43: [{ owner: 'RT', partner: 'RG', target: 'BT', watch: 'WIL' }, { owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' }],
+    walkedUp: [{ owner: 'RT', partner: 'RG', target: 'BT', watch: 'WIL' }, { owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' }],
+    bear: [{ owner: 'RG', partner: 'C', target: 'N', watch: 'L1' }],
+  };
+  for (const [front, combos] of Object.entries(expected)) {
+    const play = createPlay(25, 'insideZone', { front });
+    play.snap();
+    assert.deepEqual(play.combos, combos, front);
+  }
+});
+
+test('F-45 #2: readFront cover windows: a 4i is on the tackle, a backside shade on C goes to RG', () => {
+  const play = createPlay(25, 'insideZone');
+  const side = Math.sign(play.player('LG').x - play.player('C').x);
+  const u = (id) => side * (play.player(id).x - play.player('C').x);
+  const cover = (id, du) => {
+    const players = play.players.map((p) => ({ ...p }));
+    const dl = players.find((p) => p.id === 'RDE');
+    dl.x = play.player('C').x + side * (u(id) + du);
+    return readFront(players, play.numbers, 25).covered;
+  };
+  assert.ok(cover('LT', -0.25).LT.includes('RDE'));
+  assert.ok(cover('C', -0.25).RG.includes('RDE'));
+});
+
+test('F-45 #5: C and LG double the 2i; LT is alone on the end until the climb', () => {
+  const play = createPlay(25, 'insideZone', { personnel: 'te', tackles: false });
+  play.snap();
+  const engaged = new Set();
+  let switched = false;
+  for (let t = 0; t < 4 && play.ball.phase !== 'dead'; t += DT) {
+    play.step(DT);
+    const C = play.player('C');
+    const LG = play.player('LG');
+    for (const o of [C, LG]) if (o.block.engaged && o.block.target === 'RDT') engaged.add(o.id);
+    if (!switched) {
+      if (C.block.target === 'WLB' || LG.block.target === 'WLB') {
+        switched = true;
+        const other = C.block.target === 'WLB' ? LG : C;
+        assert.ok(HOLD_OK(other, 'RDT'));
+      } else {
+        const ids = play.blockersOf('RDE');
+        assert.ok(ids.every((id) => id === 'LT'), `RDE blockers ${ids}`);
+      }
+    }
+  }
+  assert.deepEqual([...engaged].sort(), ['C', 'LG']);
+  assert.ok(switched);
+});
+
+test('F-45 #6: inside zone opens with a short, steep zone step', () => {
+  const shifts = { dlPlus4: ['shiftDL', 1, 4], dlMinus4: ['shiftDL', -1, 4], lbPlus6: ['shiftLB', 1, 6], lbMinus6: ['shiftLB', -1, 6] };
+  const rows = [];
+  const bad = [];
+  for (const name of FRONT_NAMES) {
+    const play = createPlay(25, 'insideZone', { tackles: false });
+    if (name in shifts) {
+      const [fn, dir, n] = shifts[name];
+      for (let i = 0; i < n; i++) play[fn](dir);
+    } else if (name !== 'base') play.setFront(name);
+    play.snap();
+    const start = Object.fromEntries(OL.map((id) => [id, { x: play.player(id).x, y: play.player(id).y, tech: play.player(id).block?.foot?.tech }]));
+    // Each zone/combo OL's first step ends when its foot leaves 'step' or he engages, within 0.5 s.
+    const ends = {};
+    const todo = OL.filter((id) => start[id].tech === 'zone' || start[id].tech === 'combo');
+    for (let i = 1; i <= 30 && Object.keys(ends).length < todo.length; i++) {
+      play.step(DT);
+      for (const id of todo) {
+        if (ends[id]) continue;
+        const p = play.player(id);
+        const b = p.block;
+        if (b?.foot?.phase !== 'step' || b.engaged) {
+          const lat = -(p.x - start[id].x); // playside is -x in this play
+          const up = p.y - start[id].y;
+          ends[id] = { tick: i, lat, up, speed: p.speed, reach: Math.hypot(lat, up), ang: deg(Math.atan2(up, Math.abs(lat))) };
+        }
+      }
+    }
+    const cells = [];
+    for (const id of OL) {
+      const tech = start[id].tech;
+      if (tech !== 'zone' && tech !== 'combo') {
+        cells.push(`${id} ${tech ?? '-'} skip`);
+        continue;
+      }
+      const e = ends[id];
+      if (!e) {
+        bad.push(`${name} ${id} ${tech} no step end within 0.5 s`);
+        cells.push(`${id} ${tech} none`);
+        continue;
+      }
+      const cap = TECHNIQUES[tech].stepLen + e.speed * DT;
+      if (e.reach > cap) bad.push(`${name} ${id} ${tech} reach ${e.reach.toFixed(2)} > ${cap.toFixed(2)}`);
+      if (e.ang < 40) bad.push(`${name} ${id} ${tech} angle ${e.ang.toFixed(1)} < 40`);
+      cells.push(`${id} ${tech} t${e.tick} ${e.lat.toFixed(2)}/${e.up.toFixed(2)} ${e.ang.toFixed(1)}deg`);
+    }
+    rows.push(`${name.padEnd(9)} ${cells.join('  ')}`);
+  }
+  assert.equal(bad.length, 0, `${bad.join('\n')}\n(id tech tick lat/up angle, yd)\n${rows.join('\n')}`);
 });

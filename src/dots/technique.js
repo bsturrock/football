@@ -4,6 +4,7 @@
 // Row fields:
 //   step     first-step angle in degrees from the line of scrimmage toward playside
 //            (0 = flat, 90 = upfield), keyed by shade (head/playside/backside/none)
+//   stepLen  optional first-step length in yards (default FIRST_STEP_LEN)
 //   aim      fraction of the radius the aim point sits playside of the target spot
 //   drive    push mode once engaged: 'vertical' or 'watch' (lean toward watched player)
 //   next     technique entered after coming off onto a new target
@@ -23,8 +24,8 @@ export const COMBO_MAX_LEAN = 30; // degrees from vertical, max combo drive lean
 const freezeRow = (r) => Object.freeze({ ...r, step: Object.freeze(r.step), phases: Object.freeze(r.phases) });
 
 export const TECHNIQUES = Object.freeze({
-  zone: freezeRow({ step: { head: 45, playside: 30, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
-  combo: freezeRow({ step: { head: 45, playside: 30, backside: 60, none: 60 }, aim: 0.5, drive: 'watch', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  zone: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
+  combo: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'watch', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'vertical', next: 'cutoff', phases: ['step', 'aim'], retarget: 'aim' }),
 });
@@ -48,10 +49,12 @@ export const PHASES = Object.freeze({
   step: Object.freeze({
     goal(foot, spot, side, radius) {
       const d = stepDir(foot.tech, foot.shade, side) ?? { x: 0, y: 1 };
-      return { x: foot.ox + d.x * FIRST_STEP_LEN, y: foot.oy + d.y * FIRST_STEP_LEN };
+      const len = TECHNIQUES[foot.tech].stepLen ?? FIRST_STEP_LEN;
+      return { x: foot.ox + d.x * len, y: foot.oy + d.y * len };
     },
     done(foot, blocker) {
-      return Math.hypot(blocker.x - foot.ox, blocker.y - foot.oy) >= FIRST_STEP_LEN - 1e-9;
+      const len = TECHNIQUES[foot.tech].stepLen ?? FIRST_STEP_LEN;
+      return Math.hypot(blocker.x - foot.ox, blocker.y - foot.oy) >= len - 1e-9;
     },
   }),
   aim: Object.freeze({

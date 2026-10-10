@@ -288,7 +288,8 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
         }
       }
     }
-    run.aim = { x: run.x + run.cut, y: GOAL_LINE_Y };
+    // Behind the line, run to the hole in his lane; turn vertical once at the line.
+    run.aim = { x: run.x + run.cut, y: rb.y < los ? los + GAP_DEPTH : GOAL_LINE_Y };
     goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null };
   }
   steerStep(rb, goal, players, rb.speed * dt, dt, BODY_RADIUS);
