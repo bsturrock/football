@@ -59,6 +59,14 @@ export function readFront(players, numbers, los) {
     .map((p) => ({ id: p.id, x: p.x, u: side * (p.x - centerX), n: numbers[p.id] }))
     .sort(byUThenId);
 
+  // The surface: one live split outside each end lineman, where a tight end would stand.
+  // Line defenders beyond it are outside the surface and cover nobody.
+  const lastI = line.length - 1;
+  const surface = {
+    play: line[0].u + (line.length > 1 ? line[0].u - line[1].u : 2 * A_GAP_HALF),
+    back: line[lastI].u - (line.length > 1 ? line[lastI - 1].u - line[lastI].u : 2 * A_GAP_HALF),
+  };
+
   const defenders = numbered
     .filter((p) => p.team === 'defense')
     .map((p) => {
@@ -67,8 +75,9 @@ export function readFront(players, numbers, los) {
       let cover = null;
       if (level === 'line') {
         for (let i = 0; i < line.length; i++) {
-          const upper = i === 0 ? Infinity : line[i - 1].u - HEAD_UP;
-          if (u >= line[i].u - HEAD_UP && u < upper) { cover = line[i].id; break; }
+          const upper = i === 0 ? surface.play - HEAD_UP : line[i - 1].u - HEAD_UP;
+          const lower = i === lastI ? surface.back + HEAD_UP : line[i].u - HEAD_UP;
+          if (u >= lower && u < upper) { cover = line[i].id; break; }
         }
       }
       let gap = null;
@@ -111,5 +120,5 @@ export function readFront(players, numbers, los) {
     }
   }
 
-  return { side, centerX, box: defenders.length, line, defenders, covered, strong, edge };
+  return { side, centerX, box: defenders.length, line, defenders, covered, strong, edge, surface };
 }
