@@ -2,12 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
-  LB_READ_TIME, KEY_MOVE, FLOW_MAX, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH,
+  LB_READ_TIME, KEY_MOVE, FLOW_MAX, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, intercept,
 } from '../src/dots/defense.js';
 import { readFront } from '../src/dots/front.js';
 import { numberPlay } from '../src/dots/numbering.js';
 import { buildLineup } from '../src/dots/roster.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
+import { TACKLE_DIST } from '../src/dots/tackle.js';
 import { frontPlayers, FRONT_NAMES, frontNumbers } from './fixtures/fronts.js';
 import { BASE_LB_IDS } from './fixtures/base-front.js';
 
@@ -144,7 +145,8 @@ test('F-34: atFill goes to pursue; carrierPast from fill', () => {
   mlb.y = out.MLB.y;
   step(s, 0.01);
   assert.equal(s.defense.agents.MLB.state, 'pursue');
-  assert.ok(!('MLB' in step(s, 0.01)));
+  const pur = step(s, 0.01).MLB;
+  assert.deepEqual({ x: pur.x, y: pur.y }, intercept(mlb, s.ball, s.defense.ballV, mlb.speed));
 
   const t = setup();
   t.run.carried = true;
@@ -169,7 +171,7 @@ test('F-34: a shed blocker sends an LB in flow or fill to pursue, not in drop', 
     shed(s);
     step(s);
     assert.equal(s.defense.agents.MLB.state, 'pursue', st);
-    assert.equal(step(s).MLB, undefined);
+    assert.equal(step(s).MLB.key, 'def:pursue', st);
   }
 });
 
@@ -396,4 +398,54 @@ test('F-33 #4/#8: a shed blocker sends his DL to pursue from attack or fit', () 
 
   assert.equal(TRIGGERS.shed(by(s.players, 'LDT'), s.defense.agents.LDT, { players: s.players }), false);
   assert.doesNotThrow(() => validateBehavior('attack'));
+});
+
+test('F-34 #7: intercept leads a crossing carrier, returns a still ball, caps at LEAD_MAX', () => {
+  const ball = { x: 0, y: 30 };
+  const lead = intercept({ x: 5, y: 30 }, ball, { x: 0, y: 6 }, 7.5);
+  assert.ok(lead.y > ball.y);
+  near(lead.x, 0);
+  assert.deepEqual(intercept({ x: 5, y: 30 }, ball, { x: 0, y: 0 }, 7.5), ball);
+  const away = intercept({ x: 0, y: 20 }, ball, { x: 0, y: 9 }, 7.5);
+  near(away.y, ball.y + 9 * LEAD_MAX);
+  near(away.x, 0);
+  const eq = intercept({ x: 0, y: 20 }, ball, { x: 0, y: 7.5 }, 7.5);
+  near(eq.y, ball.y + 7.5 * LEAD_MAX);
+});
+
+test('F-34 #7: a chase from the side reaches TACKLE_DIST in fewer ticks with intercept than with the carrier spot', () => {
+  const run = (lead) => {
+    const dt = 1 / 60;
+    const d = { x: 8, y: 10 };
+    let c = 10;
+    for (let i = 1; i < 2000; i++) {
+      const g = lead ? intercept(d, { x: 0, y: c }, { x: 0, y: 6 }, 7.5) : { x: 0, y: c };
+      const dist = Math.hypot(g.x - d.x, g.y - d.y);
+      const k = dist > 0 ? Math.min(7.5 * dt, dist) / dist : 0;
+      d.x += (g.x - d.x) * k;
+      d.y += (g.y - d.y) * k;
+      c += 6 * dt;
+      if (Math.hypot(d.x, d.y - c) <= TACKLE_DIST) return i;
+    }
+    return Infinity;
+  };
+  assert.ok(run(true) < run(false));
+});
+
+test('F-34 #7: stepDefense records ballV from consecutive ball positions; LB pursue goal is intercept', () => {
+  const s = setup();
+  step(s);
+  assert.deepEqual(s.defense.ballV, { x: 0, y: 0 });
+  s.ball = { x: 1, y: LOS - 3 + 0.3 };
+  step(s, 0.05);
+  near(s.defense.ballV.x, 20 * 1);
+  near(s.defense.ballV.y, 6);
+  const mlb = by(s.players, 'MLB');
+  const e = s.defense.agents.MLB;
+  e.state = 'pursue';
+  const out = step(s, 0.05);
+  const want = intercept(mlb, s.ball, s.defense.ballV, mlb.speed);
+  assert.ok(out.MLB);
+  near(out.MLB.x, want.x);
+  near(out.MLB.y, want.y);
 });

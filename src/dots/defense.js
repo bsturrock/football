@@ -15,6 +15,31 @@ export const FILL_DEPTH = 3.5; // yd past the los where he fills: football depth
 export const PENETRATE_DEPTH = 4 * BODY_RADIUS; // yd behind the los the DL aims for
 export const PURSUE_REACH = 8 * BODY_RADIUS; // yd: a DL this close to the carried ball pursues
 
+export const LEAD_MAX = 1.0; // s, the longest lead a pursuer takes (tunable)
+
+// Where a pursuer at d running at `speed` meets a ball at `ball` moving at v: the earliest
+// non-negative meeting time, capped at LEAD_MAX (also used when no meeting exists).
+export function intercept(d, ball, v, speed) {
+  const rx = ball.x - d.x;
+  const ry = ball.y - d.y;
+  const a = v.x * v.x + v.y * v.y - speed * speed;
+  const b = 2 * (rx * v.x + ry * v.y);
+  const c = rx * rx + ry * ry;
+  let t = LEAD_MAX;
+  if (Math.abs(a) < 1e-12) {
+    if (Math.abs(b) > 1e-12 && -c / b >= 0) t = -c / b;
+  } else {
+    const disc = b * b - 4 * a * c;
+    if (disc >= 0) {
+      const q = Math.sqrt(disc);
+      const roots = [(-b - q) / (2 * a), (-b + q) / (2 * a)].filter((r) => r >= 0);
+      if (roots.length) t = Math.min(...roots);
+    }
+  }
+  t = Math.min(t, LEAD_MAX);
+  return { x: ball.x + v.x * t, y: ball.y + v.y * t };
+}
+
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // The live span of the fit's gap, or null when there is no center to walk from.
@@ -71,6 +96,7 @@ export const GOALS = Object.freeze({
   gapFit: (d, e, env) => {
     return { x: laneX(env, e.fit) ?? e.x0, y: env.los - PENETRATE_DEPTH };
   },
+  pursue: (d, e, env) => intercept(d, env.ballPos, env.defense.ballV, d.speed),
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
 });
 
@@ -105,7 +131,7 @@ export const BEHAVIORS = Object.freeze({
       drop: { goal: 'drop', speed: DROP_SPEED, exits: [{ when: 'recognized', to: 'flow' }] },
       flow: { goal: 'flow', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committed', to: 'fill' }] },
       fill: { goal: 'fill', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'atFill', to: 'pursue' }] },
-      pursue: { goal: 'ball', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
 });
@@ -188,6 +214,8 @@ export function startDefense(players, front, { los, call = 'base', carrierId } =
     line: {},
     agents: {},
     committed: {},
+    ballV: { x: 0, y: 0 },
+    ballPrev: null,
   };
   for (const l of front.line) {
     const p = players.find((q) => q.id === l.id);
@@ -219,6 +247,10 @@ export function startDefense(players, front, { los, call = 'base', carrierId } =
 
 export function stepDefense(players, defense, { run, ballPos }, dt) {
   defense.t += dt;
+  defense.ballV = defense.ballPrev && dt > 0
+    ? { x: (ballPos.x - defense.ballPrev.x) / dt, y: (ballPos.y - defense.ballPrev.y) / dt }
+    : { x: 0, y: 0 };
+  defense.ballPrev = { x: ballPos.x, y: ballPos.y };
   const out = {};
   for (const [id, e] of Object.entries(defense.agents)) {
     const d = players.find((p) => p.id === id);
