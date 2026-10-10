@@ -481,7 +481,7 @@ function judgeSlip(t, opts, { noTe }) {
   }
 }
 
-test('F-15 #8: no-TE look: DTs do not beat the OL, the back does not stall, a free MLB fills downhill', { todo: 'rule c: the RB crosses locked but 2.50 yd off run.x (max A_GAP_HALF + BODY_RADIUS = 0.88); rules a, b, d pass' }, (t) => {
+test('F-15 #8: no-TE look: DTs do not beat the OL, the back does not stall, a free MLB fills downhill', (t) => {
   judgeSlip(t, { personnel: 'noTe' }, { noTe: true });
 });
 

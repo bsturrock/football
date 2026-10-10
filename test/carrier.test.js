@@ -111,6 +111,25 @@ test('freeLane: a defender at the middle closes a narrow window; depth band edge
   near(closed.x, -0.6);
 });
 
+test('freeLane with a projection: a free defender closing downhill from beyond the band closes the lane; standing or leaving does not', () => {
+  const pl = parked(mk());
+  const win = { lo: -1.2, hi: 0 };
+  const far = LOS + LANE_AHEAD + 2; // beyond the static band
+  const withD = () => [...pl, defAt('Z', -0.6, far)];
+  const proj = (vy) => ({ vel: { Z: { vx: 0, vy } }, horizon: 0.5 });
+  // without a projection the defender is invisible (unchanged read)
+  assert.equal(freeLane(withD(), win, 'RB', LOS).open, true);
+  const closing = freeLane(withD(), win, 'RB', LOS, proj(-6));
+  const still = freeLane(withD(), win, 'RB', LOS, proj(0));
+  const leaving = freeLane(withD(), win, 'RB', LOS, proj(6));
+  assert.equal(closing.open, false);
+  assert.equal(still.open, true);
+  assert.equal(leaving.open, true);
+  assert.equal(still.room, Infinity);
+  assert.equal(leaving.room, Infinity);
+  assert.ok(closing.room < still.room);
+});
+
 test('freeLane: the carrier himself is ignored', () => {
   const pl = parked(mk());
   const rb = by(pl, 'RB');
