@@ -2,12 +2,23 @@
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
 import { createPlay, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
-import { FRONTS } from './roster.js';
+import { FRONTS, BALL_LENGTH, BALL_WIDTH } from './roster.js';
 import { BODY_RADIUS } from './blocking.js';
 import { HW } from '../util.js';
 
 // Number label square covers the dot.
 export const LABEL_SIZE = 2 * BODY_RADIUS;
+
+// Real-world field and ball scale (yards). Ball rear tip sits on the holder's front edge.
+export const BALL_DRAW_AHEAD = BODY_RADIUS + BALL_LENGTH / 2;
+export const HASH_HALF = 18.5 / 6; // hashes 18 ft 6 in apart, centered
+export const HASH_LEN = 2 / 3; // 2 ft tick
+export const YARD_LINE_W = 1 / 9; // 4 in
+export const GOAL_LINE_W = 2 / 9; // 8 in
+export const BORDER_W = 2; // 6 ft white border
+export const UPRIGHTS_W = 18.5 / 3; // goal posts 18 ft 6 in apart
+export const RING_INNER = 2.1 * BODY_RADIUS;
+export const RING_OUTER = 2.7 * BODY_RADIUS;
 
 const SHIFT_STEP = Object.freeze({ DL: DL_SHIFT_STEP, LB: LB_SHIFT_STEP });
 
@@ -156,11 +167,20 @@ export function initDotsView(container) {
   flat(2 * HW, 10, 0x1b4f8a, 0, -5, 0.01);
   flat(2 * HW, 10, 0x8a1b1b, 0, 105, 0.01);
   for (let y = 0; y <= 100; y += 5) {
-    const thick = y === 0 || y === 50 || y === 100;
-    flat(2 * HW, thick ? 0.5 : 0.25, 0xffffff, 0, y, 0.02);
+    const goal = y === 0 || y === 100;
+    flat(2 * HW, goal ? GOAL_LINE_W : YARD_LINE_W, 0xffffff, 0, y, 0.02);
   }
-  flat(0.5, 120, 0xffffff, -HW, 50, 0.02);
-  flat(0.5, 120, 0xffffff, HW, 50, 0.02);
+  for (let y = 1; y <= 99; y++) {
+    if (y % 5 === 0) continue;
+    flat(HASH_LEN, YARD_LINE_W, 0xffffff, -HASH_HALF, y, 0.02);
+    flat(HASH_LEN, YARD_LINE_W, 0xffffff, HASH_HALF, y, 0.02);
+  }
+  flat(BORDER_W, 120 + 2 * BORDER_W, 0xffffff, -(HW + BORDER_W / 2), 50, 0.02);
+  flat(BORDER_W, 120 + 2 * BORDER_W, 0xffffff, HW + BORDER_W / 2, 50, 0.02);
+  flat(2 * HW + 2 * BORDER_W, BORDER_W, 0xffffff, 0, -10 - BORDER_W / 2, 0.02);
+  flat(2 * HW + 2 * BORDER_W, BORDER_W, 0xffffff, 0, 110 + BORDER_W / 2, 0.02);
+  flat(UPRIGHTS_W, 0.15, 0xffd400, 0, -10, 0.03);
+  flat(UPRIGHTS_W, 0.15, 0xffd400, 0, 110, 0.03);
   flat(2 * HW, 0.3, 0xffd400, 0, play.los, 0.03);
 
   // ---- Dots ----
@@ -269,19 +289,21 @@ export function initDotsView(container) {
   }
 
   // ---- Ball marker ----
+  // Unit circles scaled to the ball's width (x) and length (y) before the -PI/2 x turn, so length runs along z.
   const ball = new THREE.Group();
-  const outline = new THREE.Mesh(new THREE.CircleGeometry(0.38, 20),
+  const outline = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24),
     new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  const fill = new THREE.Mesh(new THREE.CircleGeometry(0.3, 20),
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24),
     new THREE.MeshBasicMaterial({ color: 0x8b4513 }));
+  outline.scale.set(BALL_WIDTH + 0.06, BALL_LENGTH + 0.06, 1);
+  fill.scale.set(BALL_WIDTH, BALL_LENGTH, 1);
   outline.rotation.x = fill.rotation.x = -Math.PI / 2;
   fill.position.y = 0.01;
   ball.add(outline, fill);
-  ball.scale.set(1, 1, 1.4);
   scene.add(ball);
 
   // ---- Selection ring ----
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.95, 32),
+  const ring = new THREE.Mesh(new THREE.RingGeometry(RING_INNER, RING_OUTER, 32),
     new THREE.MeshBasicMaterial({ color: 0xffffff }));
   ring.rotation.x = -Math.PI / 2;
   ring.visible = false;
@@ -334,7 +356,7 @@ export function initDotsView(container) {
     syncBlockLines();
     syncLabels();
     const bp = play.ballPosition();
-    const off = play.ball.holder ? 0.35 : 0;
+    const off = play.ball.holder ? BALL_DRAW_AHEAD : 0;
     const bw = fieldToWorld(bp.x, bp.y + off);
     ball.position.set(bw.x, 0.2, bw.z);
     const sel = selectedId && play.player(selectedId);
