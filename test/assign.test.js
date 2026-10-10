@@ -38,16 +38,22 @@ test('climb at the playside end, dlPlus4', () => {
 });
 
 test('at filtering and first-match order', () => {
-  const r = runScheme(read('base'), { rules: [
+  const f = read('base');
+  const r = runScheme(f, { rules: [
     { when: 'covered', at: 'playEnd', tech: 'X' }, { when: 'covered', tech: 'Y' },
   ] });
+  const open = Object.keys(f.covered).filter((id) => f.covered[id].length === 0);
+  assert.equal(open.length, 1);
   assert.equal(r.techs.LT.tech, 'X');
-  assert.equal(r.techs.C.tech, 'Y');
+  for (const id of Object.keys(f.covered)) {
+    if (f.covered[id].length > 0 && id !== 'LT') assert.equal(r.techs[id].tech, 'Y', id);
+  }
   for (const [id, t] of Object.entries(r.techs)) {
     if (id !== 'LT') assert.equal(t.tech, 'Y', id);
   }
-  assert.ok(!('LG' in r.techs));
-  assert.ok(!('LG' in r.blocks));
+  const [uncovered] = open;
+  assert.ok(!(uncovered in r.techs));
+  assert.ok(!(uncovered in r.blocks));
 });
 
 test('purity', () => {
