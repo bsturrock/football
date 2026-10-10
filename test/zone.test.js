@@ -6,6 +6,7 @@ import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
 import { buildLineup, PLAYS } from '../src/dots/roster.js';
 import { LB_SHIFT_STEP } from '../src/dots/play.js';
+import { IZ_FREE, LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 test('scheme flag on insideZone', () => assert.equal(PLAYS.insideZone.scheme, 'zone'));
 
@@ -21,7 +22,7 @@ const EXPECTED = {
       LT: T('combo', 'playside', 'WLB'), LG: T('combo', 'none', 'WLB'), C: T('zone', 'playside'),
       RG: T('combo', 'playside', 'MLB'), RT: T('combo', 'none', 'MLB'),
     },
-    free: ['LDE'],
+    free: IZ_FREE.base,
   },
   dlPlus4: {
     blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' },
@@ -30,7 +31,7 @@ const EXPECTED = {
       LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
       RG: T('combo', 'none', 'MLB'), RT: T('cutoff', 'playside'),
     },
-    free: ['LDE'],
+    free: IZ_FREE.dlPlus4,
   },
   dlMinus4: {
     blocks: { LT: 'RDE', LG: 'RDT', C: 'LDT', RG: 'LDT', RT: 'LDE' },
@@ -39,7 +40,7 @@ const EXPECTED = {
       LT: T('zone', 'playside'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
       RG: T('combo', 'none', 'MLB'), RT: T('cutoff', 'playside'),
     },
-    free: ['WLB'],
+    free: IZ_FREE.dlMinus4,
   },
   over43: {
     blocks: { LT: 'PE', LG: 'PT', C: 'PT', RG: 'BT', RT: 'BT' },
@@ -94,7 +95,15 @@ const EXPECTED = {
   },
 };
 EXPECTED.lbPlus6 = EXPECTED.base;
-EXPECTED.lbMinus6 = EXPECTED.base;
+EXPECTED.lbMinus6 = {
+  blocks: EXPECTED.base.blocks,
+  combos: [
+    { owner: 'RT', partner: 'RG', target: 'LDT', watch: LB_MINUS6_RG_WATCH },
+    { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' },
+  ],
+  techs: { ...EXPECTED.base.techs, RG: T('combo', 'playside', LB_MINUS6_RG_WATCH), RT: T('combo', 'none', LB_MINUS6_RG_WATCH) },
+  free: IZ_FREE.lbMinus6,
+};
 EXPECTED.backedOff = {
   blocks: { LT: 'PE', LG: 'PE', C: 'PN', RG: 'PN', RT: 'L3' },
   combos: EXPECTED.under43.combos,
