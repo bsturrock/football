@@ -7,6 +7,7 @@ import { BODY_RADIUS, SPREAD, ENGAGE_TOL } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
 import { gapSpan, GOALS } from '../src/dots/defense.js';
 import { zoneSwitch, SWITCH_DIST } from '../src/dots/zone.js';
+import { LB_MINUS6_RG_WATCH, LB_MINUS6_RG_TAKEN_AT } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
@@ -48,16 +49,17 @@ test('F-12 #6: insideZone snap assigns zone targets and combos; base unchanged',
   assert.deepEqual(targets(base), Object.fromEntries(OL.map((id) => [id, fresh.find((p) => p.id === id).block.target])));
 });
 
-test('F-12 #7: shifted MLB: both combos switch to their watch; range gives MLB to RG', () => {
-  // Measured (sim time, cap 2.0 s): WLB taken at 0.500 s (LG), MLB taken at 0.350 s (RG) (commit-driven release, F-19).
+test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the RG-watch LB to RG', () => {
+  // Measured (sim time, cap 2.0 s): WLB taken at 0.500 s (LG); the RG-watch LB at LB_MINUS6_RG_TAKEN_AT (RG) (commit-driven release, F-19).
+  const W = LB_MINUS6_RG_WATCH;
   const play = createPlay(25, 'insideZone');
   for (let i = 0; i < 6; i++) play.shiftLB(-1);
   play.snap();
   assert.deepEqual(play.combos, [
-    { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
+    { owner: 'RT', partner: 'RG', target: 'LDT', watch: W },
     { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' },
   ]);
-  const first = { MLB: null, WLB: null };
+  const first = { [W]: null, WLB: null };
   let t = 0;
   while (t < 2.0) {
     play.step(DT);
@@ -68,28 +70,28 @@ test('F-12 #7: shifted MLB: both combos switch to their watch; range gives MLB t
       }
     }
   }
-  assert.ok(first.MLB !== null && Math.abs(first.MLB - 0.350) <= 0.1, `MLB switch at ${first.MLB}`);
+  assert.ok(first[W] !== null && Math.abs(first[W] - LB_MINUS6_RG_TAKEN_AT) <= 0.1, `${W} switch at ${first[W]}`);
   assert.ok(first.WLB !== null && Math.abs(first.WLB - 0.500) <= 0.1, `WLB switch at ${first.WLB}`);
-  assert.equal(play.player('RG').block.target, 'MLB');
+  assert.equal(play.player('RG').block.target, W);
   assert.equal(play.player('RT').block.target, 'LDT');
   assert.deepEqual(new Set([play.player('LG').block.target, play.player('LT').block.target]), new Set(['WLB', 'RDE']));
 
-  // Range: MLB within SWITCH_DIST of RG, laterally nearer RG than RT, clear of everyone else.
+  // Range: the RG-watch LB within SWITCH_DIST of RG, laterally nearer RG than RT, clear of everyone else.
   const p2 = createPlay(25, 'insideZone');
   for (let i = 0; i < 6; i++) p2.shiftLB(-1);
   p2.snap();
   const RG = p2.player('RG');
   const RT = p2.player('RT');
-  const MLB = p2.player('MLB');
+  const lb = p2.player(W);
   const spot = { x: RG.x + 0.3, y: RG.y + 1.0 };
   assert.ok(Math.hypot(spot.x - RG.x, spot.y - RG.y) < SWITCH_DIST);
   assert.ok(Math.abs(spot.x - RG.x) < Math.abs(spot.x - RT.x));
   for (const p of p2.players) {
-    if (p.id !== 'MLB') assert.ok(Math.hypot(spot.x - p.x, spot.y - p.y) >= 2 * BODY_RADIUS, p.id);
+    if (p.id !== W) assert.ok(Math.hypot(spot.x - p.x, spot.y - p.y) >= 2 * BODY_RADIUS, p.id);
   }
-  Object.assign(MLB, spot);
+  Object.assign(lb, spot);
   p2.step(DT);
-  assert.equal(RG.block.target, 'MLB');
+  assert.equal(RG.block.target, W);
   assert.equal(RT.block.target, 'LDT');
 });
 
