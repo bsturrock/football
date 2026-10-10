@@ -19,3 +19,4 @@
 - 2026-10-09 F-20 Block reactions: driven defenders anchor and lean (R-25) 7e5a8c9
 - 2026-10-09 F-19 Linebacker read, flow, fill, pursue from a defender behaviour table (R-24) 1073ec0
 - 2026-10-10 F-21 Shotgun depth, quick snap, player acceleration, RB mesh timing (R-26) 802fdf6
+- 2026-10-10 F-22 4-3 Base gets its third linebacker (R-28) 687428c
