@@ -28,3 +28,4 @@
 - 2026-10-10 F-28 Bigger dots UI on mobile (R-37) 894d10e
 - 2026-10-10 F-30 Real-world scale: bodies, splits, alignments, ball, field and speed (R-38) 164f203
 - 2026-10-10 F-31 Tackle, play end and fixed timestep (R-40) 47d3c2a
+- 2026-10-10 F-32 Zone combos hold, backside cutoff, block release, smooth engage (R-41) b49fd66
