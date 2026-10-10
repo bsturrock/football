@@ -337,8 +337,10 @@ function rankBodies(players, anchored) {
 // blockers and their targets) hold their ground; a free body yields to anything nearer an
 // anchor than itself, so a body wedged against an anchor is not pushed back in by a free
 // body behind him. Sweeps are bounded and deterministic.
-export function separateBodies(players, dt = Infinity) {
-  const anchored = new Set();
+// extraAnchors: optional ids held at rank 0 for this call (blockers who left an engaged
+// block this tick keep splitting overlaps with their anchored neighbours).
+export function separateBodies(players, dt = Infinity, extraAnchors) {
+  const anchored = new Set(extraAnchors || []);
   for (const p of players) {
     if (p.block && p.block.engaged) {
       anchored.add(p.id);
@@ -378,7 +380,12 @@ export function separateBodies(players, dt = Infinity) {
   return moveTotal();
 }
 
+// Blockers who left an engaged block by retarget keep their anchor rank while they close on
+// the new target, so their neighbours keep splitting overlaps with them as before.
+const closingLeavers = new WeakSet();
+
 export function stepBlocking(players, ballPos, dt, ctx) {
+  const engagedAtStart = players.filter((p) => p.block?.engaged).map((p) => p.id);
   if (ctx && ctx.rule) {
     for (const e of ctx.rule(players, ballPos, ctx)) {
       setBlock(players, e.blocker, e.target, e.angle ?? 'straight');
@@ -516,5 +523,15 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     moveToward(b, spot.x, spot.y, b.speed * dt);
   }
 
-  return separateBodies(players, dt);
+  const leaving = engagedAtStart.filter((id) => !byId(players, id).block?.engaged);
+  for (const id of leaving) {
+    const p = byId(players, id);
+    if (p.block && !p.block.released) closingLeavers.add(p);
+  }
+  for (const p of players) {
+    if (!closingLeavers.has(p)) continue;
+    if (!p.block || p.block.engaged || p.block.released) closingLeavers.delete(p);
+    else if (!leaving.includes(p.id)) leaving.push(p.id);
+  }
+  return separateBodies(players, dt, leaving);
 }

@@ -570,3 +570,42 @@ test('F-32 past: once the ball is RELEASE_PAST upfield of a defender, nobody is 
   }
   assert.ok(seen > 0, 'ball never passed a defender');
 });
+
+test('F-32 smooth engage: a blocker leaving an engaged block never jumps more than speed * dt + ENGAGE_SLACK', () => {
+  for (const variant of ['other', 'first']) {
+    let switchedAny = false;
+    const plays = [createPlay(25, 'base')];
+    for (const front of Object.keys(FRONTS)) plays.push(createPlay(25, 'insideZone', { front }));
+    for (const play of plays) {
+      const done = new Set();
+      play.retargetRule = (players) => {
+        const out = [];
+        for (const c of play.combos) {
+          if (done.has(c.owner)) continue;
+          const o = players.find((p) => p.id === c.owner);
+          const q = players.find((p) => p.id === c.partner);
+          const eng = (p) => p.block?.engaged && p.block.target === c.target;
+          if (!eng(o) || !eng(q)) continue;
+          const first = o.block.held >= q.block.held ? o : q;
+          const second = first === o ? q : o;
+          if (first.block.held < 0.5) continue;
+          done.add(c.owner);
+          out.push({ blocker: variant === 'first' ? first.id : second.id, target: c.watch });
+        }
+        return out;
+      };
+      play.snap();
+      let prev = snapshot(play);
+      for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+        play.step(DT);
+        for (const id of OL) {
+          const p = play.player(id);
+          assert.ok(moved(p, prev.get(id)) <= p.speed * DT + ENGAGE_SLACK + EPS, `${variant} ${id} moved ${moved(p, prev.get(id))} at tick ${i}`);
+        }
+        prev = snapshot(play);
+      }
+      if (done.size) switchedAny = true;
+    }
+    assert.ok(switchedAny, `${variant}: no combo switched`);
+  }
+});
