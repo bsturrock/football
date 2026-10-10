@@ -307,7 +307,8 @@ test('F-19 #4: LBs hold depth while reading, mirror the RB, and stay upfield of 
 
 test('F-19 #5: LB states run read, flow, fill, pursue in order; fill goal lies in his gap', () => {
   for (const k of Object.keys(FRONTS)) {
-    const play = createPlay(25, 'insideZone', { front: k });
+    // tackles off: this test watches AI behavior past the point a tackle would end the play.
+    const play = createPlay(25, 'insideZone', { front: k, tackles: false });
     play.snap();
     const seq = Object.fromEntries(lbs(play).map((lb) => [lb.id, []]));
     for (let i = 0; i < 180; i++) {
