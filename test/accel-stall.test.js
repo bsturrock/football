@@ -12,8 +12,8 @@
 // Fix. (1) steerStep judges stuck progress against the caller's uncapped maxStep.
 // (2) play.step gives p.v inertia: measured speed may fall no faster than
 // exp(-dt / ACCEL_TAU) per substep (the ramp's own time constant), so a clipped
-// substep no longer collapses the cap. Measured: RB crosses y >= 25 + GAP_DEPTH
-// at about 2.5 s with the insideZone patience press (0.5 s, F-35) in the hole; MLB and WLB reach the QB (or crowd up behind a defender who has) within CONTACT_DIST + 0.05.
+// substep no longer collapses the cap. Measured (F-40 read, no-TE look): RB crosses y >= 25 + GAP_DEPTH
+// at 1.92 s; MLB and WLB reach the QB (or crowd up behind a defender who has) within CONTACT_DIST + 0.05.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
@@ -34,10 +34,10 @@ function stallTime(samples) {
 }
 
 test('F-25 #3: RB does not crawl in the hole with accel on', () => {
-  // tackles off: the hole speed is a running rule; a tackle before the crossing must not hide it.
-  // Pinned to the no-TE look the 0.5 s stall and 2.5 s crossing were calibrated on; with the attached TE (F-39)
-  // the crossing measures 2.98 s. Re-measure with the TE when F-36 (zone rules with the TE) and R-55
-  // (lane-read retune) land.
+  // tackles off because the hole speed is a running rule; a tackle before the crossing must not hide it.
+  // Pinned to the no-TE look; measured with the F-40 read: 1.92 s, the cap is 1.25x that (2.4 s).
+  // The TE look crosses at 3.68 s because of blocking (the TE timing target lives in the F-40 #7 todo test
+  // in test/play-blocking.test.js).
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe' });
   play.snap();
   const rb = play.player(play.run.carrier);
@@ -51,7 +51,7 @@ test('F-25 #3: RB does not crawl in the hole with accel on', () => {
   }
   const stall = stallTime(slow);
   assert.ok(stall <= 0.5, `RB crawled (v < 1) for ${stall.toFixed(2)}s`);
-  assert.ok(crossed !== null && crossed <= 2.5, `RB reached y >= ${25 + GAP_DEPTH} at ${crossed}s (want <= 2.5)`);
+  assert.ok(crossed !== null && crossed <= 2.4, `RB reached y >= ${25 + GAP_DEPTH} at ${crossed}s (want <= 2.4)`);
 });
 
 test('F-25 #4: MLB and WLB reach the QB without wedging with accel on', () => {
