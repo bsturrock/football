@@ -5,6 +5,7 @@ import { steerStep, hardCore, PACES } from './steering.js';
 import { BODY_RADIUS, engagedOn } from './blocking.js';
 import { PLAYSIDE_SIGN } from './numbering.js';
 import { liveGaps } from './front.js';
+import { HW } from '../util.js';
 
 const H = hardCore(BODY_RADIUS);
 export const MESH_AHEAD = 2 * BODY_RADIUS; // RB touching the QB's front
@@ -43,6 +44,20 @@ export const SECOND_LEVEL_DEPTH = 18 * BODY_RADIUS; // yd: depth of the second l
 export const LEVEL2_CAP = 8 * BODY_RADIUS; // yd: lateral clearance beyond which a second-level defender no longer matters
 export const LEVEL2_COST = 0.25; // score per yard of missing clearance, times vision
 export const FLOW_HORIZON = 0.6; // s: longest look-ahead when projecting a second-level defender sideways
+
+// Open-field avoidance (F-48): past the los the RB bends away from free defenders he can see.
+export const AVOID_SIGHT_MIN = 3; // yd: sight range at vision 0
+export const AVOID_SIGHT_MAX = 9; // yd: sight range at vision 1
+export const AVOID_FAN = Math.PI / 3; // rad: widest heading off vertical, so he never runs backward or flat
+export const AVOID_STEP = Math.PI / 36; // rad: candidate heading spacing (5 deg)
+export const AVOID_CONTACT = 2 * BODY_RADIUS + 0.3; // yd: distance at which a defender has him
+export const AVOID_SIDELINE = 1; // yd: the ray stops this far inside the sideline
+export const AVOID_TURN_COST = 0.25; // yd of safe run per radian of turn away from the no-threat heading
+export const AVOID_SWITCH = 1.5; // yd: score a rival heading must beat the held one by
+export const AVOID_HOLD = 0.3; // s: a new heading is held at least this long
+export const AVOID_LINGER = 0.5; // s: a cut line is kept this long after the last man leaves his sight
+export const AVOID_AIM_DIST = 4; // yd: how far along the heading the aim sits
+const AVOID_RAY_STEP = 0.25; // yd
 
 // Patience tunables (F-35): the RB presses toward the track point behind the line while he re-reads lanes, then commits.
 export const PATIENCE_MAX = 0.8; // s: longest patience window
@@ -211,6 +226,12 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     clearLane: null,
     bends: 0,
     pastLos: false,
+    avoid: null,
+    avoidAt: 0,
+    avoidClock: 0,
+    avoidLine: null,
+    avoidSeen: 0,
+    avoidForced: false, // the last switch left a line that ran into a man
     cut: 0,
     press: null,
     commitBy: null,
@@ -240,6 +261,80 @@ function readProjection(players, run, rb, los, dt) {
     run.seen[d.id] = { x: d.x, y: d.y };
   }
   return { vel, flow, horizon: Math.max(0, los - rb.y) / (rb.speed || 1) };
+}
+
+// Safe run of heading th from the RB: how far along the ray he gets before a seen defender can reach the spot first.
+function safeRun(rb, th, threats, sight) {
+  const sx = Math.sin(th);
+  const sy = Math.cos(th);
+  const rbSpeed = rb.speed || 1;
+  for (let s = AVOID_RAY_STEP; s <= sight + 1e-9; s += AVOID_RAY_STEP) {
+    const px = rb.x + s * sx;
+    if (Math.abs(px) > HW - AVOID_SIDELINE) return s - AVOID_RAY_STEP;
+    const py = rb.y + s * sy;
+    for (const d of threats) {
+      const gap = Math.hypot(px - d.x, py - d.y) - AVOID_CONTACT;
+      if (gap <= 0 || (d.speed > 0 && gap / d.speed <= s / rbSpeed)) return s - AVOID_RAY_STEP;
+    }
+  }
+  return sight;
+}
+
+// The committed aim past the los: vertical when nobody is seen, else the best held heading away from free defenders.
+function openFieldAim(players, run, rb, dt) {
+  const vertical = { x: run.x + run.cut, y: GOAL_LINE_Y };
+  const sight = AVOID_SIGHT_MIN + visionOf(rb) * (AVOID_SIGHT_MAX - AVOID_SIGHT_MIN);
+  const threats = players.filter(
+    (d) =>
+      d.team === 'defense' &&
+      d.y >= rb.y - 2 * BODY_RADIUS &&
+      Math.hypot(d.x - rb.x, d.y - rb.y) <= sight &&
+      engagedOn(players, d.id).length === 0,
+  );
+  run.avoidClock += dt;
+  // A cut is committed: if the man drops out of sight, finish the line for AVOID_LINGER before running vertical again.
+  if (threats.length) run.avoidSeen = run.avoidClock;
+  const holding = run.avoid !== null && run.avoid !== 0 && run.avoidClock - run.avoidSeen < AVOID_LINGER - 1e-9;
+  if (!threats.length && !holding) {
+    run.avoid = null;
+    return vertical;
+  }
+  // Headings are stored as an offset from the no-threat heading thV (offset 0 is the vertical aim itself), so a heading
+  // that ignores the threat is the exact vertical aim and a held heading does not drift as he moves.
+  const thV = Math.atan2(vertical.x - rb.x, vertical.y - rb.y);
+  const absOf = (off) => clamp(thV + off, -AVOID_FAN, AVOID_FAN);
+  const score = (off) => {
+    const th = absOf(off);
+    const S = safeRun(rb, th, threats, sight);
+    return { off, S, score: S * Math.cos(th) - AVOID_TURN_COST * Math.abs(th - thV) };
+  };
+  const n = Math.round(2 * AVOID_FAN / AVOID_STEP);
+  let best = null;
+  for (let k = -n; k <= n; k++) {
+    const off = k * AVOID_STEP;
+    if (k !== 0 && Math.abs(thV + off) > AVOID_FAN) continue;
+    const ax = rb.x + AVOID_AIM_DIST * Math.sin(absOf(off));
+    if (Math.abs(ax) > HW - AVOID_SIDELINE && Math.abs(ax) > Math.abs(rb.x)) continue; // never aim toward the sideline
+    const c = score(off);
+    if (!best || c.score > best.score + 1e-9 || (Math.abs(c.score - best.score) <= 1e-9 && Math.abs(c.off) < Math.abs(best.off))) best = c;
+  }
+  let off = best.off;
+  if (run.avoid !== null) {
+    const held = score(run.avoid);
+    const free = run.avoidClock - run.avoidAt >= AVOID_HOLD - 1e-9 || held.S < AVOID_CONTACT;
+    if (!(free && best.score > held.score + AVOID_SWITCH)) off = run.avoid;
+    else run.avoidForced = held.S < AVOID_CONTACT;
+  }
+  if (off !== run.avoid) {
+    run.avoid = off;
+    run.avoidAt = run.avoidClock;
+    run.avoidLine = { x: rb.x, y: rb.y, th: absOf(off) }; // the line he cuts onto: a plant, then this line
+  }
+  if (off === 0) return vertical;
+  // Aim at the point AVOID_AIM_DIST ahead of him on the cut line, so incidental sideways jostle does not move the aim.
+  const { x: lx, y: ly, th } = run.avoidLine;
+  const ay = rb.y + AVOID_AIM_DIST * Math.cos(th);
+  return { x: lx + (ay - ly) * Math.tan(th), y: ay };
 }
 
 export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
@@ -310,7 +405,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     };
   } else {
     if (rb.y >= los) run.pastLos = true;
-    if (!justCommitted && rb.y < los + LANE_AHEAD) {
+    if (!justCommitted && !run.pastLos && rb.y < los + LANE_AHEAD) {
       const w = laneWindows(players, run.line, run.side).find((e) => e.side === run.lane.side && e.name === run.lane.name);
       const free = w && freeLane(players, w, rb.id, los, proj);
       if (free && free.open) run.cut = clamp(free.x - run.x, -CUT_ALLOW, CUT_ALLOW);
@@ -329,7 +424,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     }
     // Behind the line, run to the hole in his lane; turn vertical once at the line.
     // The turn is latched (pastLos): contact pushing him back behind the line must not flip the aim back.
-    run.aim = { x: run.x + run.cut, y: !run.pastLos ? los + GAP_DEPTH : GOAL_LINE_Y };
+    run.aim = !run.pastLos ? { x: run.x + run.cut, y: los + GAP_DEPTH } : openFieldAim(players, run, rb, dt);
     goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null };
   }
   steerStep(rb, goal, players, rb.speed * dt, dt, BODY_RADIUS);
