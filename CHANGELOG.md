@@ -20,3 +20,4 @@
 - 2026-10-09 F-19 Linebacker read, flow, fill, pursue from a defender behaviour table (R-24) 1073ec0
 - 2026-10-10 F-21 Shotgun depth, quick snap, player acceleration, RB mesh timing (R-26) 802fdf6
 - 2026-10-10 F-22 4-3 Base gets its third linebacker (R-28) 687428c
+- 2026-10-10 F-23 Contact-circle slide keeps full speed (R-29) 0e10f42
