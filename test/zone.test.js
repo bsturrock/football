@@ -7,53 +7,9 @@ import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.
 import { buildLineup, PLAYS, FRONTS } from '../src/dots/roster.js';
 import { LB_SHIFT_STEP, DL_SHIFT_STEP } from '../src/dots/play.js';
 import { numberPlay, A_GAP_HALF } from '../src/dots/numbering.js';
+import { IZ_PLAN_PINS } from './fixtures/base-front.js';
 
 test('scheme flag on insideZone', () => assert.equal(PLAYS.insideZone.scheme, 'zone'));
-
-const T = (tech, shade, watch = null) => ({ tech, shade, watch });
-const NO_TE_BASE = {
-  blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'LDT', RT: 'LDE' },
-  combos: [{ owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' }],
-  techs: {
-    LT: T('combo', 'playside', 'WLB'), LG: T('combo', 'none', 'WLB'), C: T('zone', 'playside'),
-    RG: T('zone', 'playside'), RT: T('cutoff', 'backside'),
-  },
-  free: ['MLB', 'SLB'],
-};
-const NO_TE_DL_PLUS4 = {
-  blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' },
-  combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
-  techs: {
-    LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
-    RG: T('combo', 'none', 'MLB'), RT: T('cutoff', 'playside'),
-  },
-  free: ['SLB', 'LDE'],
-};
-const TE_BASE = {
-  blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'LDT', RT: 'LDT', TE: 'LDE' },
-  combos: [
-    { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
-    { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' },
-  ],
-  techs: {
-    LT: T('combo', 'playside', 'WLB'), LG: T('combo', 'none', 'WLB'), C: T('zone', 'playside'),
-    RG: T('combo', 'playside', 'MLB'), RT: T('combo', 'none', 'MLB'), TE: T('cutoff', 'playside'),
-  },
-  free: ['SLB'],
-};
-const TE_DL_PLUS4 = {
-  blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT', TE: 'LDE' },
-  combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
-  techs: {
-    LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
-    RG: T('combo', 'none', 'MLB'), RT: T('zone', 'playside'), TE: T('cutoff', 'head'),
-  },
-  free: ['SLB'],
-};
-const PINS = {
-  noTe: { base: NO_TE_BASE, lbPlus6: NO_TE_BASE, dlPlus4: NO_TE_DL_PLUS4 },
-  te: { base: TE_BASE, lbPlus6: TE_BASE, dlPlus4: TE_DL_PLUS4 },
-};
 
 const PERSONNELS = ['noTe', 'te'];
 const withoutFront = ({ front, ...rest }) => rest;
@@ -62,7 +18,7 @@ const planOf = (name, personnel = 'noTe', players = frontPlayers(name, personnel
 
 test('every front gets the agreed plan', () => {
   for (const personnel of PERSONNELS) {
-    for (const [name, pin] of Object.entries(PINS[personnel])) {
+    for (const [name, pin] of Object.entries(IZ_PLAN_PINS[personnel])) {
       assert.ok(FRONT_NAMES.includes(name), name);
       assert.deepEqual(planOf(name, personnel), { side: -1, ...pin }, `${personnel} ${name}`);
     }

@@ -22,3 +22,51 @@ export const IZ_NUMBERS = {
   lbMinus6: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, TE: -3, MLB: 0, RDT: 1, RDE: 2, WLB: 3, LDT: -1, LDE: -3, SLB: -2 },
   dlPlus4: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, TE: -3, WLB: 0, RDE: 1, RDT: -1, MLB: -2, LDT: -3, LDE: -5, SLB: -4 },
 };
+// readFront(...).covered for the listed linemen, base front, noTe, playside left
+export const BASE_COVERED = { LT: ['RDE'], LG: [], C: ['RDT'], RG: ['LDT'] };
+
+const T = (tech, shade, watch = null) => ({ tech, shade, watch });
+const NO_TE_BASE = {
+  blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'LDT', RT: 'LDE' },
+  combos: [{ owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' }],
+  techs: {
+    LT: T('combo', 'playside', 'WLB'), LG: T('combo', 'none', 'WLB'), C: T('zone', 'playside'),
+    RG: T('zone', 'playside'), RT: T('cutoff', 'backside'),
+  },
+  free: ['MLB', 'SLB'],
+};
+const NO_TE_DL_PLUS4 = {
+  blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' },
+  combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
+  techs: {
+    LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
+    RG: T('combo', 'none', 'MLB'), RT: T('cutoff', 'playside'),
+  },
+  free: ['SLB', 'LDE'],
+};
+const TE_BASE = {
+  blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'LDT', RT: 'LDT', TE: 'LDE' },
+  combos: [
+    { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
+    { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' },
+  ],
+  techs: {
+    LT: T('combo', 'playside', 'WLB'), LG: T('combo', 'none', 'WLB'), C: T('zone', 'playside'),
+    RG: T('combo', 'playside', 'MLB'), RT: T('combo', 'none', 'MLB'), TE: T('cutoff', 'playside'),
+  },
+  free: ['SLB'],
+};
+const TE_DL_PLUS4 = {
+  blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT', TE: 'LDE' },
+  combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
+  techs: {
+    LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
+    RG: T('combo', 'none', 'MLB'), RT: T('zone', 'playside'), TE: T('cutoff', 'head'),
+  },
+  free: ['SLB'],
+};
+// zonePlan output without `front` per personnel and roster front shift, playside left
+export const IZ_PLAN_PINS = {
+  noTe: { base: NO_TE_BASE, lbPlus6: NO_TE_BASE, dlPlus4: NO_TE_DL_PLUS4 },
+  te: { base: TE_BASE, lbPlus6: TE_BASE, dlPlus4: TE_DL_PLUS4 },
+};
