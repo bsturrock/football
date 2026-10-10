@@ -22,3 +22,4 @@
 - 2026-10-10 F-22 4-3 Base gets its third linebacker (R-28) 687428c
 - 2026-10-10 F-23 Contact-circle slide keeps full speed (R-29) 0e10f42
 - 2026-10-10 F-24 One front read per snap and a shared live-gap helper (R-31) f00d8f2
+- 2026-10-10 F-25 Acceleration on by default in createPlay (R-33) 5b5fb03
