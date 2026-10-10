@@ -71,6 +71,23 @@ function laneX(env, fit) {
   return lo <= hi ? clamp(aimX(env), lo, hi) : (span.lo + span.hi) / 2;
 }
 
+// The DL's fit gap span shifted to where its middle will be when he gets there: the middle's lateral
+// velocity is tracked per agent (e.gapMid, on defense.t) and led with the pursuit intercept, so the
+// same lead time and caps apply. A still gap (or the first call) returns the live span unshifted.
+function ledSpan(d, e, env) {
+  const span = gapSpan(env.players, env.defense, e.fit);
+  if (!span) return null;
+  const mid = (span.lo + span.hi) / 2;
+  const t = env.defense.t;
+  const prev = e.gapMid;
+  e.gapMid = { x: mid, t };
+  const raw = prev && t > prev.t ? (mid - prev.x) / (t - prev.t) : 0;
+  const vx = d ? clamp(raw, -d.speed, d.speed) : raw;
+  if (vx === 0) return span;
+  const shift = intercept(d, { x: mid, y: d.y }, { x: vx, y: 0 }, d.speed).x - mid;
+  return { lo: span.lo + shift, hi: span.hi + shift };
+}
+
 // The x of the edge's contain point: just outside the backside end lineman (live, else snap spot, else his own alignment).
 function containX(e, env) {
   const last = env.defense.lineIds[env.defense.lineIds.length - 1];
@@ -109,11 +126,15 @@ export const GOALS = Object.freeze({
   flow: (d, e, env) => ({ x: laneX(env, e.fit) ?? aimX(env), y: Math.max(e.y0, env.los + FILL_DEPTH) }),
   fill: (d, e, env) => ({ x: laneX(env, e.fit) ?? aimX(env), y: env.los + FILL_DEPTH }),
   penetrate: (d, e, env) => {
-    const span = gapSpan(env.players, env.defense, e.fit);
+    const span = ledSpan(d, e, env);
     return { x: span ? (span.lo + span.hi) / 2 : e.x0, y: env.los - PENETRATE_DEPTH };
   },
   gapFit: (d, e, env) => {
-    return { x: laneX(env, e.fit) ?? e.x0, y: env.los - PENETRATE_DEPTH };
+    const span = gapSpan(env.players, env.defense, e.fit);
+    if (!span) return { x: e.x0, y: env.los - PENETRATE_DEPTH };
+    const lo = span.lo + BODY_RADIUS;
+    const hi = span.hi - BODY_RADIUS;
+    return { x: lo <= hi ? clamp(aimX(env), lo, hi) : (span.lo + span.hi) / 2, y: env.los - PENETRATE_DEPTH };
   },
   hold: (d, e) => ({ x: e.x0, y: e.y0 }),
   contain: (d, e, env) => ({ x: containX(e, env), y: env.los - CONTAIN_DEPTH }),
@@ -139,14 +160,14 @@ export const TRIGGERS = Object.freeze({
 });
 
 export const BEHAVIORS = Object.freeze({
-  pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'ball', speed: 1, exits: [] } } },
+  pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'pursue', speed: 1, exits: [] } } },
   attack: {
     start: 'attack',
     keys: ['olMove', 'mesh'],
     states: {
       attack: { goal: 'penetrate', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }, { when: 'recognized', to: 'fit' }] },
       fit: { goal: 'gapFit', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
-      pursue: { goal: 'ball', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
   contain: {
