@@ -4,8 +4,8 @@ import { runScheme } from './assign.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
-// the blocker who stays must have held the DL this long before his partner climbs
-export const COMBO_HOLD = 0.5;
+// the blocker who stays must have held the DL this long before his partner climbs; at 0.5 s on base the backside climber leaves after the Mike has filled the hole
+export const COMBO_HOLD = 0.3;
 
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
