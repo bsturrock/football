@@ -24,3 +24,4 @@
 - 2026-10-10 F-24 One front read per snap and a shared live-gap helper (R-31) f00d8f2
 - 2026-10-10 F-25 Acceleration on by default in createPlay (R-33) 5b5fb03
 - 2026-10-10 F-26 Dots on GitHub Pages (R-34) b4dc049
+- 2026-10-10 F-27 Mobile speed buttons on the dots page (R-35) efd6f54
