@@ -29,8 +29,9 @@ export const LANES = Object.freeze([
 // Tunables (line number of the track point; distances in body radii; costs in score per yard).
 export const TRACK = 1; // default track point: the numbered line player with this number (playside guard)
 export const LANE_AHEAD = 6 * BODY_RADIUS; // band depth past the los
-export const MIN_LANE = BODY_RADIUS; // narrowest free segment that counts as open
-export const LANE_CAP = 2 * BODY_RADIUS; // free width beyond this scores no more
+export const MIN_LANE = BODY_RADIUS / 4; // narrowest slack he squeezes through: a segment this wide counts as open
+export const THREAT_MARGIN = BODY_RADIUS / 2; // extra room a free (unblocked) defender needs on top of the contact distance
+export const ROOM_CAP = 4 * BODY_RADIUS; // room beyond this scores no more
 export const TRACK_COST = 0.5; // score per yard from the track point
 export const CUT_COST = 0.25; // score per yard from the RB's own x
 export const SWITCH_MARGIN = BODY_RADIUS / 2; // score a rival lane must beat the current one by
@@ -38,7 +39,8 @@ export const SWITCH_MARGIN = BODY_RADIUS / 2; // score a rival lane must beat th
 // Patience tunables (F-35): the RB presses toward the track point behind the line while he re-reads lanes, then commits.
 export const PATIENCE_MAX = 0.8; // s: longest patience window
 export const PRESS_DEPTH = 3 * BODY_RADIUS; // press point depth behind the los; must exceed LOCK_DEPTH so pressing never line-locks
-export const CLEAR_LANE = 1.5 * MIN_LANE; // a picked lane this wide in free space is clearly open and ends the patience
+export const CLEAR_ROOM = 4 * BODY_RADIUS; // a picked open lane with this much room to every free defender is clear
+export const CLEAR_HOLD = 0.25; // s a lane must stay clear before it ends the patience (stays below the play's patience)
 export const PRESSURE_DIST = 8 * BODY_RADIUS; // an unblocked defender this close ends the patience
 export const CUT_ALLOW = BODY_RADIUS / 2; // after the commit, how far the aim x may move from run.x
 // The RB's pace per phase, as data.
@@ -69,14 +71,18 @@ export function laneWindows(players, line, side) {
   return out;
 }
 
-// Free space of a window: [lo + H, hi - H] minus every other player's open body interval
-// (x - H, x + H) inside the band [los - GAP_BACK, los + LANE_AHEAD].
+// Free space of a window: [lo + H, hi - H] minus the removed interval of every other body in the band
+// [los - GAP_BACK, los + LANE_AHEAD]. Fit versus threat: an offensive body or a defender with a blocker engaged is a
+// wall he squeezes past (removes x +- H); a free defender is a threat and needs THREAT_MARGIN more each side.
+// `room` is the least clearance |d.x - x| - H to any free defender between the carrier and the band's far edge.
 export function freeLane(players, win, carrierId, los) {
   let segs = win.lo + H < win.hi - H ? [[win.lo + H, win.hi - H]] : [];
+  const free = (d) => d.team === 'defense' && engagedOn(players, d.id).length === 0;
   for (const p of players) {
     if (p.id === carrierId || p.y < los - GAP_BACK || p.y > los + LANE_AHEAD) continue;
-    const l = p.x - H;
-    const r = p.x + H;
+    const m = H + (free(p) ? THREAT_MARGIN : 0);
+    const l = p.x - m;
+    const r = p.x + m;
     const next = [];
     for (const [s, e] of segs) {
       if (l > s) next.push([s, Math.min(e, l)]);
@@ -93,7 +99,15 @@ export function freeLane(players, win, carrierId, los) {
   }
   const width = best ? best.w : 0;
   const open = width >= MIN_LANE;
-  return { x: open ? best.x : mid, width, open };
+  const x = open ? best.x : mid;
+  const rb = players.find((p) => p.id === carrierId);
+  const yLo = rb ? rb.y : -Infinity;
+  let room = Infinity;
+  for (const d of players) {
+    if (d.id === carrierId || !free(d) || d.y < yLo || d.y > los + LANE_AHEAD) continue;
+    room = Math.min(room, Math.abs(d.x - x) - H);
+  }
+  return { x, width, open, room };
 }
 
 // Live x of the track point: the numbered line player run.track, else the center, else the RB.
@@ -110,8 +124,8 @@ export function scoreLanes(players, run, rb, los) {
   const trackX = trackPointX(players, run, rb);
   return laneWindows(players, run.line, run.side).map((w) => {
     const f = freeLane(players, w, rb.id, los);
-    const score = Math.min(f.width, LANE_CAP) - TRACK_COST * Math.abs(f.x - trackX) - CUT_COST * Math.abs(f.x - rb.x);
-    return { side: w.side, name: w.name, lo: w.lo, hi: w.hi, x: f.x, width: f.width, open: f.open, score };
+    const score = Math.min(f.room, ROOM_CAP) - TRACK_COST * Math.abs(f.x - trackX) - CUT_COST * Math.abs(f.x - rb.x);
+    return { side: w.side, name: w.name, lo: w.lo, hi: w.hi, x: f.x, width: f.width, room: f.room, open: f.open, score };
   });
 }
 
@@ -152,6 +166,8 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     locked: false,
     patience: patienceWindow(runDef, rb),
     pressTime: 0,
+    clearTime: 0,
+    clearLane: null,
     cut: 0,
     press: null,
     commitBy: null,
@@ -188,9 +204,13 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
       run.aim = { x: rb.x, y: los };
     }
     run.pressTime += dt;
+    const clear = !!(pick && pick.open && pick.room >= CLEAR_ROOM);
+    if (clear && run.clearLane && run.clearLane.side === pick.side && run.clearLane.name === pick.name) run.clearTime += dt;
+    else run.clearTime = clear ? dt : 0;
+    run.clearLane = clear ? { side: pick.side, name: pick.name } : null;
     let by = null;
     if (run.pressTime >= run.patience - 1e-9) by = 'window';
-    else if (pick && pick.open && pick.width >= CLEAR_LANE) by = 'clear';
+    else if (run.clearTime >= CLEAR_HOLD - 1e-9) by = 'clear';
     else if (rb.y >= los - LOCK_DEPTH) by = 'line';
     else if (
       players.some(
