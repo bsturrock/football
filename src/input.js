@@ -52,7 +52,7 @@ export const canThrow = () => S.phase === 'live' && ball.state === 'held' && bal
 export const charge = () => Math.min(1, S.chargeT/0.9);
 export function snap(){
   const run = PLAYS[S.play].run;
-  S.phase = 'live'; S.clock = 0; S.runMode = !!run;
+  S.phase = 'live'; S.clock = 0; S.runMode = !!run; S.runSeen = !!run && !PLAYS[S.play].delay;   // B-097: the line fires out at the snap on a run; a delayed run (Draw) shows a pass set until the handoff
   // linemen fire out on the snap; the defensive line reacts to the ball a beat later (better awareness, quicker)
   [...OL, TE, ...EXTRA.filter(e => e.pos === 'TE')].forEach(o => o.fire = 0.35);
   DL.forEach(d => { d.fire = 0.35; d.fireDelay = 0.15 - d.rAwr/1000; });
@@ -70,7 +70,7 @@ export function snap(){
 export function pitch(from, to, dur){ Object.assign(ball, {state:'pitch', pf:from, pt:to, t:0, pdur:dur, holder:null}); }
 export function giveBall(p){
   ball.state = 'held'; ball.holder = p;
-  if(p === RB && S.runMode){ RB.auto = true; S.handoffAt = S.clock; resolveBlocks(PLAYS[S.play], S.flip, true); }   // the blockers read the defense once more after the exchange
+  if(p === RB && S.runMode){ RB.auto = true; S.handoffAt = S.clock; S.runSeen = true; resolveBlocks(PLAYS[S.play], S.flip, true); }   // the blockers read the defense once more after the exchange
 }
 export function throwArc(c, d){ return {speed: 30 - c*13, apex: 0.6 + c*5 + d*0.04}; }
 export function throwTarget(){
