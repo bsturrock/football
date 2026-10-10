@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { buildLineup, FRONTS } from '../src/dots/roster.js';
+import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
@@ -52,7 +52,8 @@ test('F-12 #6: insideZone snap assigns zone targets and combos; base unchanged',
 test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the RG-watch LB to RG', () => {
   // Both combos switch to their watch LB; the RG-watch LB ends with RG (commit-driven release, F-19).
   const W = LB_MINUS6_RG_WATCH;
-  const play = createPlay(25, 'insideZone');
+  // tackles off: the climb is a blocking rule; a shed DL's tackle must not end the play before it.
+  const play = createPlay(25, 'insideZone', { tackles: false });
   for (let i = 0; i < 6; i++) play.shiftLB(-1);
   play.snap();
   assert.deepEqual(play.combos, [
@@ -410,9 +411,9 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
       for (const c of play.combos) {
         const key = c.target + c.watch;
         if (!engagedOnce.has(key) && [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.engaged && b.target === c.target; })) engagedOnce.add(key);
-        // Only a 'past' release ends the check: once the carrier is RELEASE_PAST upfield the blocker lets the DL go
-        // by design (acc. 4). A 'lost' or 'shed' release still fails the check.
-        const released = [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.target === c.target && b.released === 'past'; });
+        // A 'past' or 'shed' release ends the check: once the carrier is RELEASE_PAST upfield, or the DL has
+        // won leverage (F-33), the blocker lets him go by design. A 'lost' release still fails the check.
+        const released = [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.target === c.target && (b.released === 'past' || b.released === 'shed'); });
         if (released) engagedOnce.delete(key);
         else if (engagedOnce.has(key)) assert.ok(play.blockersOf(c.target).length > 0, `${front} ${c.target} unblocked at ${i}`);
         if (!switched.has(key)) {
@@ -451,4 +452,43 @@ test('T-92 #6: base: RG climbs to MLB and LG/LT to WLB only after the partner he
     }
   }
   assert.ok(rg && wlb);
+});
+
+test('F-33 #8: every front, an OL block released as shed frees the DL, who then leaves the spot', () => {
+  let sheds = 0;
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front });
+    play.snap();
+    const prev = new Set();
+    const events = [];
+    for (let t = 0, i = 0; t < 4 && play.ball.phase !== 'dead'; t += DT, i++) {
+      play.step(DT);
+      const now = new Set();
+      for (const o of play.players) {
+        if (o.team !== 'offense' || o.block?.released !== 'shed') continue;
+        const key = o.id + '>' + o.block.target;
+        now.add(key);
+        const d = play.player(o.block.target);
+        if (!prev.has(key) && DL_ROLES.includes(d.role)) events.push({ i, id: d.id, x: d.x, y: d.y });
+      }
+      prev.clear();
+      for (const k of now) prev.add(k);
+      for (const e of events) {
+        if (e.i === i || e.i + 1 === i) e.free = e.free || play.player(e.id).react === null;
+        if (!e.done && i >= e.i + Math.round(0.5 / DT)) {
+          e.done = true;
+          const d = play.player(e.id);
+          e.far = Math.hypot(d.x - e.x, d.y - e.y) >= 4 * BODY_RADIUS;
+        }
+      }
+    }
+    const dead = play.ball.phase === 'dead';
+    for (const e of events) {
+      sheds++;
+      assert.ok(e.free, `${front} ${e.id} react null after shed`);
+      if (e.done) assert.ok(e.far, `${front} ${e.id} leaves the shed spot`);
+      else assert.ok(dead, `${front} ${e.id} not checked 0.5 s later while play live`);
+    }
+  }
+  assert.ok(sheds >= 1);
 });
