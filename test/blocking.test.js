@@ -4,8 +4,10 @@ import { HW } from '../src/util.js';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
   doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
+  SHED_TIME, REENGAGE_DELAY, RELEASE_PAST,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
+import { startReact, WIN_SPEED } from '../src/dots/react.js';
 
 const DT = 1 / 60;
 const near = (a, b, tol = 1e-4) => assert.ok(Math.abs(a - b) < tol, `${a} !~ ${b}`);
@@ -140,7 +142,7 @@ test('stepBlocking closing, engaging, seq', () => {
   const ctx = { rule: null, seq: 0 };
   let prev = ps.map((p) => ({ x: p.x, y: p.y }));
   for (let i = 0; i < 600 && ps.some((p) => p.block && !p.block.engaged); i++) {
-    stepBlocking(ps, { x: 2.5, y: 50 }, DT, ctx);
+    stepBlocking(ps, { x: 2.5, y: -50 }, DT, ctx);
     for (const j of [0, 1]) {
       if (!ps[j].block.engaged) assert.ok(Math.hypot(ps[j].x - prev[j].x, ps[j].y - prev[j].y) <= 6 * DT + 1e-9);
     }
@@ -326,6 +328,45 @@ test('canEngage', () => {
   assert.equal(canEngage(b, T, { x: 5, y: 5 }), 'contact');
   assert.equal(canEngage(O('c', 0, 5, { block: blk('t') }), T, { x: 0, y: 10 - CONTACT_DIST }), null);
   assert.equal(canEngage(O('c', 0, 11.1, { block: blk('t') }), T, { x: 0, y: 10 - CONTACT_DIST }), null);
+});
+
+test('canEngage: ball past the target and shed-free targets refuse engage', () => {
+  const b = O('b', 0, 10 - CONTACT_DIST, { block: blk('t') });
+  const spot = { x: 0, y: 10 - CONTACT_DIST + 0.1 };
+  const contactSpotArg = { x: 5, y: 5 };
+  const behind = { x: 0, y: 10 - 3 };
+  const past = { x: 0, y: 10 + RELEASE_PAST };
+  const T = D('t', 0, 10);
+  // ball behind the target: same results as the 3-arg call
+  assert.equal(canEngage(b, T, spot, behind), 'spot');
+  assert.equal(canEngage(b, T, contactSpotArg, behind), 'contact');
+  // ball at T.y + RELEASE_PAST: refused
+  assert.equal(canEngage(b, T, spot, past), null);
+  assert.equal(canEngage(b, T, contactSpotArg, past), null);
+  // shedFree: refused while it runs, today's result at zero
+  const shed = D('t', 0, 10, { shedFree: 0.2 });
+  assert.equal(canEngage(b, shed, spot), null);
+  assert.equal(canEngage(b, shed, contactSpotArg), null);
+  const free = D('t', 0, 10, { shedFree: 0 });
+  assert.equal(canEngage(b, free, spot), 'spot');
+  assert.equal(canEngage(b, free, contactSpotArg), 'contact');
+});
+
+test('stepBlocking: a shed frees the defender from every blocker for REENGAGE_DELAY', () => {
+  const DL = D('dl', 0, 10, { speed: 0 });
+  const a = O('a', -CONTACT_DIST, 10 - CONTACT_DIST, { block: blk('dl', { engaged: true, seq: 1 }) });
+  const b = O('b', CONTACT_DIST, 10 - CONTACT_DIST, { block: blk('dl', { engaged: true, seq: 2 }) });
+  const ps = [a, b, DL];
+  const ballPos = { x: 0, y: 10 - 3 };
+  a.block.winT = SHED_TIME;
+  // DL drove back against the push last tick, so this tick reads 'winning' and winT keeps running
+  DL.react = startReact(DL);
+  DL.react.py = DL.y + 2 * WIN_SPEED * DT;
+  stepBlocking(ps, ballPos, DT, { rule: null, seq: 2 });
+  assert.equal(a.block.released, 'shed');
+  assert.ok(DL.shedFree > 0);
+  assert.ok(DL.shedFree <= REENGAGE_DELAY + 1e-9);
+  assert.equal(canEngage(b, DL, contactSpot(ps, b), ballPos), null);
 });
 
 test('separateBodies: a free body wedged against an anchor is not pushed back by a free body behind him', () => {
