@@ -77,7 +77,7 @@ export function runLabel(run) {
 }
 
 export function initDotsView(container) {
-  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED });
+  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, accel: true });
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
   const resetBtn = document.getElementById('reset-btn');
