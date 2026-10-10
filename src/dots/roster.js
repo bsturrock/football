@@ -34,9 +34,11 @@ export const POSITIONS = Object.freeze([
   pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 1.2, 0.7, 6.5, 0.6),
   pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.2, 0.7, 6.5, 0.6),
   pos('RDE', 'Right Defensive End', 'defense', 'DE', -3.6, 0.7, 7.0, 0.5),
-  // LBs at 4.5 yd, an NFL off-ball depth.
+  // LBs at 4.5 yd, an NFL off-ball depth. MLB (Mike) at center-right of the box, WLB (Will) at -x,
+  // SLB (Sam) outside the Mike on the offense-right (+x) side. SLB stays after MLB: roleRating reads the first LB row.
   pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.6, 4.5, 7.5, 0.5, { read: 0.35 }),
   pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.6, 4.5, 7.5, 0.5, { read: 0.5 }),
+  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 4.4, 4.5, 7.5, 0.5, { read: 0.5 }),
 ]);
 
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
