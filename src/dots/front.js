@@ -94,5 +94,22 @@ export function readFront(players, numbers, los) {
   for (const l of line) covered[l.id] = [];
   for (const d of defenders) if (d.cover != null) covered[d.cover].push(d.id);
 
-  return { side, centerX, box: defenders.length, line, defenders, covered };
+  // The strong side is the side with the extra line player (the attached TE); null = balanced.
+  const playLine = line.filter((l) => l.u > HEAD_UP).length;
+  const backLine = line.filter((l) => l.u < -HEAD_UP).length;
+  const strong = playLine > backLine ? 'play' : backLine > playLine ? 'back' : null;
+
+  // The backside end man on the line (EMOL). Plain inside zone blocks him; a zone-read play
+  // would leave him for the QB.
+  let edge = null;
+  let edgeU = Infinity;
+  for (const d of defenders) {
+    if (d.level !== 'line' || !(d.u < -HEAD_UP)) continue;
+    if (d.u < edgeU || (d.u === edgeU && String(d.id) < String(edge))) {
+      edge = d.id;
+      edgeU = d.u;
+    }
+  }
+
+  return { side, centerX, box: defenders.length, line, defenders, covered, strong, edge };
 }

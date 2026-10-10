@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFront, shade, liveGaps, HEAD_UP } from '../src/dots/front.js';
+import { readFront, shade, liveGaps, HEAD_UP, LINE_DEPTH } from '../src/dots/front.js';
 import { frontPlayers, frontNumbers, LOS, FRONT_NAMES } from './fixtures/fronts.js';
 import { buildLineup } from '../src/dots/roster.js';
 import { numberPlay } from '../src/dots/numbering.js';
 
-const read = (name) => {
-  const players = frontPlayers(name);
+const read = (name, personnel = 'noTe') => {
+  const players = frontPlayers(name, personnel);
   return readFront(players, frontNumbers(players), LOS);
 };
 const def = (r, id) => r.defenders.find((d) => d.id === id);
@@ -15,7 +15,11 @@ test('base front', () => {
   const r = read('base');
   assert.equal(r.side, -1);
   assert.deepEqual(r.line.map((l) => l.id), ['LT', 'LG', 'C', 'RG', 'RT']);
-  assert.deepEqual(r.covered, { LT: ['RDE'], LG: [], C: ['RDT'], RG: ['LDT'], RT: [] });
+  assert.deepEqual(r.covered.LT, ['RDE']);
+  assert.deepEqual(r.covered.LG, []);
+  assert.deepEqual(r.covered.C, ['RDT']);
+  assert.deepEqual(r.covered.RG, ['LDT']);
+  assert.deepEqual(r.covered.RT, []);
   assert.equal(def(r, 'LDE').cover, null);
   assert.equal(def(r, 'MLB').level, 'second');
   assert.equal(def(r, 'WLB').level, 'second');
@@ -23,7 +27,11 @@ test('base front', () => {
 
 test('over43', () => {
   const r = read('over43');
-  assert.deepEqual(r.covered, { LT: ['PE'], LG: ['PT'], C: [], RG: ['BT'], RT: [] });
+  assert.deepEqual(r.covered.LT, ['PE']);
+  assert.deepEqual(r.covered.LG, ['PT']);
+  assert.deepEqual(r.covered.C, []);
+  assert.deepEqual(r.covered.RG, ['BT']);
+  assert.deepEqual(r.covered.RT, []);
   assert.equal(def(r, 'BE').cover, null);
   assert.deepEqual(def(r, 'PT').gap, { side: 'play', name: 'B' });
   assert.deepEqual(def(r, 'BT').gap, { side: 'back', name: 'A' });
@@ -65,11 +73,60 @@ test('order independence, purity, no center', () => {
     assert.deepEqual(players, copy);
     const shuffled = players.slice().reverse();
     assert.deepEqual(readFront(shuffled, numbers, LOS), a);
+    const b = readFront(shuffled, numbers, LOS);
+    assert.equal(b.strong, a.strong);
+    assert.equal(b.edge, a.edge);
     assert.equal(a.box, a.defenders.length);
   }
   const players = frontPlayers('base');
   const numbers = { ...frontNumbers(players), C: null };
   assert.throws(() => readFront(players, numbers, LOS), /no center/);
+});
+
+test('strong side is the TE side; null without a TE', () => {
+  for (const name of FRONT_NAMES) {
+    assert.equal(read(name, 'noTe').strong, null, name);
+    assert.equal(read(name, 'te').strong, 'back', name);
+  }
+});
+
+test('edge is the backside end man on the line, per the rule', () => {
+  for (const name of FRONT_NAMES) {
+    for (const p of ['noTe', 'te']) {
+      const r = read(name, p);
+      const cands = r.defenders.filter((d) => d.level === 'line' && d.u < -HEAD_UP);
+      let want = null;
+      let wantU = Infinity;
+      for (const d of cands) {
+        if (d.u < wantU || (d.u === wantU && String(d.id) < String(want))) { want = d.id; wantU = d.u; }
+      }
+      assert.equal(r.edge, want, `${name} ${p}`);
+      if (r.edge !== null) {
+        const d = def(r, r.edge);
+        assert.equal(d.level, 'line', `${name} ${p}`);
+        assert.ok(d.u < -HEAD_UP, `${name} ${p}`);
+      }
+    }
+    assert.notEqual(read('base', 'noTe').edge, null);
+    assert.notEqual(read('base', 'te').edge, null);
+  }
+});
+
+test('edge does not depend on the TE', () => {
+  for (const name of FRONT_NAMES) {
+    assert.equal(read(name, 'noTe').edge, read(name, 'te').edge, name);
+  }
+});
+
+test('edge is null when no defender is on the line', () => {
+  const players = frontPlayers('base');
+  const numbers = frontNumbers(players);
+  const cx = players.find((p) => p.id === 'C').x;
+  const moved = players.map((p) => (
+    p.team === 'defense' && p.y - LOS <= LINE_DEPTH ? { ...p, x: cx } : { ...p }
+  ));
+  const r = readFront(moved, numbers, LOS);
+  assert.equal(r.edge, null);
 });
 
 // Base insideZone lineup, numbered playside left, read as the defense would.
