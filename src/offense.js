@@ -210,7 +210,7 @@ export function offenseAI(p, dt, inp){
     if(S.runMode && c !== p){ runBlock(p, dt); return; }
     route(p, dt); return;
   }
-  if(S.runMode){ if(PLAYS[S.play].run) S.runSeen = true; runBlock(p, dt); return; }   // B-097: the line firing out to run block is what the defense reads (a Draw stays in its pass set until the handoff; a catch turns runMode on but the play is not a run)
+  if(S.runMode){ runBlock(p, dt); return; }
   if(drawHold()){ p.blk = null; p.ruled = false; p.dbl = null; p.rr = null; }   // Draw: no run target in the pass set; the handoff re-read picks the man on him
   const r = olAssign(p), qx = QB.x - r.x, qy = QB.y - r.y, ql = Math.hypot(qx, qy) || 1;
   if(dist(p, r) < ENGAGE_R) p.eng = 0.15;

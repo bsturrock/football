@@ -220,7 +220,7 @@ function runFit(d, c){
       if(bx*s > ALLEY_X || by > L + 1) return inside();               // ball committed to my side: fill the alley
       return [bx*0.5 + j.gx*0.5, L + 6];
     case 'deep':
-      if(dist(d, c) > 8 && !(S.runSeen && by > L + RUN_SUPPORT_Y)) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it, until a designed run is through the line (B-094: then every deep man is run support and fills at the runner, not 8 yd off him)
+      if(dist(d, c) > 8 && !(S.runSeen && by > L + RUN_SUPPORT_Y)) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it, until a seen run is through the line (B-094: then every deep man is run support and fills at the runner, not 8 yd off him)
       return inside();
     case 'support': {
       const f = DEF.find(o => o.job && o.job.role === 'force' && o.job.side === s);
@@ -377,7 +377,7 @@ export function defenseAI(d, dt){
   d.fireAcc = false;   // B-064 (dl-fire): set below, only while the ball is not in the air
   if(ball.state !== 'air'){   // B-060-2: situational speed
     const open = c && attack && S.runMode && (c.y > d.y + RUNNER_PAST_Y || c.y > S.los + OPEN_Y);
-    const reading = S.runMode && c && S.runSeen && d.role !== 'DL' && S.clock <= S.handoffAt + d.read + d.bite;   // run plays only: a catch sets runMode too
+    const reading = S.runMode && c && S.runSeen && d.role !== 'DL' && S.clock <= S.handoffAt + d.read + d.bite;   // a seen run only: a catch sets runMode too
     const rush = attack && !S.runMode && (d.role === 'DL' || d.mode === 'rush') && S.clock < RUSH_FULL_T;
     const fire = attack && d.role === 'DL' && d.job && d.job.role !== 'two' && S.clock < FIRE_T;   // B-064 (dl-fire): every one-gap DL fires on every snap, run or pass (he can't know the play yet); acceleration is x FIRE_ACC for the get-off, on top of movement.js p.fire x FIRE_K 1.3 for its first 0.35 s (about 2.3x then, FIRE_ACC alone after) (acceleration, not wanted speed, limits the first yards; offense.js:98 does the same for a blocker)
     d.fireAcc = fire;
