@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { POSITIONS, PLAYS, FRONTS, BALL_LENGTH, BALL_WIDTH, emptyAssignment, buildLineup } from '../src/dots/roster.js';
+import { POSITIONS, PERSONNEL, PLAYS, FRONTS, BALL_LENGTH, BALL_WIDTH, emptyAssignment, buildLineup } from '../src/dots/roster.js';
 import { BODY_RADIUS, CONTACT_DIST, SPREAD } from '../src/dots/blocking.js';
 import { DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { POSITION_COUNT, DEFENSE_IDS, ROLES, BASE_LB_IDS, LB_READ } from './fixtures/base-front.js';
@@ -334,12 +334,14 @@ test('OL out-strength every FRONTS defender at any angle', () => {
   }
 });
 
-test('buildLineup with odd34 front: 7 offense then odd34 defenders at x = dx, y = los + dy', () => {
+const nOff = POSITIONS.filter((p) => p.team === 'offense').length + PERSONNEL[PLAYS.insideZone.personnel ?? 'noTe'].rows.length;
+
+test('buildLineup with odd34 front: offense rows then odd34 defenders at x = dx, y = los + dy', () => {
   const lineup = buildLineup(25, 'insideZone', { front: 'odd34' });
-  assert.equal(lineup.length, 7 + FRONTS.odd34.defenders.length);
-  assert.ok(lineup.slice(0, 7).every((pl) => pl.team === 'offense'));
+  assert.equal(lineup.length, nOff + FRONTS.odd34.defenders.length);
+  assert.ok(lineup.slice(0, nOff).every((pl) => pl.team === 'offense'));
   FRONTS.odd34.defenders.forEach((d, i) => {
-    const pl = lineup[7 + i];
+    const pl = lineup[nOff + i];
     assert.equal(pl.id, d.id);
     assert.equal(pl.x, d.dx);
     assert.equal(pl.y, 25 + d.dy);
@@ -426,10 +428,49 @@ test('F-19 #2: buildLineup players carry their row def; non-LB players have def 
   const lineup = buildLineup(25, 'insideZone', { front: 'bear' });
   const defs = FRONTS.bear.defenders;
   defs.forEach((d, i) => {
-    const pl = lineup[7 + i];
+    const pl = lineup[nOff + i];
     assert.equal(pl.id, d.id);
     assert.deepEqual(pl.def, d.def, d.id);
     if (d.role !== 'LB') assert.equal(pl.def, null, d.id);
   });
-  assert.ok(lineup.slice(0, 7).every((pl) => pl.def === null));
+  assert.ok(lineup.slice(0, nOff).every((pl) => pl.def === null));
+});
+
+test('F-39 #1: PERSONNEL keys, frozen; noTe empty; te is one attached TE row', () => {
+  assert.deepEqual(Object.keys(PERSONNEL), ['noTe', 'te']);
+  assert.ok(Object.isFrozen(PERSONNEL));
+  assert.ok(Object.isFrozen(PERSONNEL.noTe));
+  assert.ok(Object.isFrozen(PERSONNEL.te));
+  assert.deepEqual(PERSONNEL.noTe.rows, []);
+  assert.equal(PERSONNEL.te.rows.length, 1);
+  const [te] = PERSONNEL.te.rows;
+  const RT = byId('RT');
+  const RG = byId('RG');
+  assert.equal(te.id, 'TE');
+  assert.equal(te.team, 'offense');
+  assert.equal(te.role, 'TE');
+  assert.equal(te.dx, RT.dx + (RT.dx - RG.dx));
+  assert.equal(te.dy, RT.dy);
+  assert.ok(te.dy + BODY_RADIUS <= 0, 'TE behind the line');
+  for (const f of Object.values(FRONTS)) {
+    for (const d of f.defenders) {
+      assert.ok(te.strength * Math.SQRT1_2 > d.strength, `TE vs ${d.id}`);
+    }
+  }
+});
+
+test('F-39 #7: buildLineup personnel option', () => {
+  const te = buildLineup(25, 'insideZone', { personnel: 'te' });
+  const off = te.filter((pl) => pl.team === 'offense');
+  assert.equal(off.length, 8);
+  const tePl = off[7];
+  assert.equal(tePl.id, 'TE');
+  assert.equal(tePl.x, PERSONNEL.te.rows[0].dx);
+  assert.equal(tePl.y, 25 + PERSONNEL.te.rows[0].dy);
+  assert.deepEqual(tePl.assignment, { goal: null, target: null });
+  assert.equal(tePl.def, null);
+  assert.deepEqual(buildLineup(25, 'insideZone', { personnel: 'noTe' }), buildLineup(25, 'insideZone'));
+  assert.throws(() => buildLineup(25, 'base', { personnel: 'nope' }), /nope/);
+  const shifted = buildLineup(25, 'insideZone', { personnel: 'te', dlShift: 1.2, lbShift: -2 });
+  assert.equal(shifted.find((pl) => pl.id === 'TE').x, tePl.x);
 });
