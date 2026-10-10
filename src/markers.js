@@ -1,4 +1,4 @@
-import { DEF, RECV } from './players.js';
+import { RECV } from './players.js';
 import { scene, toWorld } from './scene.js';
 
 // ---------- ball + markers ----------
@@ -25,14 +25,21 @@ function seg(a, b, w, material=routeMat, group=routeGroup){
   m.rotation.order = 'YXZ'; m.rotation.x = -Math.PI/2; m.rotation.y = Math.atan2(-dx, dy);
   m.position.copy(toWorld((a.x+b.x)/2, (a.y+b.y)/2, 0.04)); group.add(m);
 }
-// defensive call preview: red lines from each box defender to the gap he will attack
-const fitMat = new THREE.MeshBasicMaterial({color:0xff5a4a, transparent:true, opacity:.7, depthWrite:false});
-export const fitGroup = new THREE.Group();
-scene.add(fitGroup);
-export function drawFits(){
-  fitGroup.children.forEach(c => c.geometry.dispose()); fitGroup.clear();
-  for(const d of DEF) if(d.fit) seg(d, d.fit, d.mode === 'rush' && d.role === 'LB' ? 0.4 : 0.25, fitMat, fitGroup);
-  fitGroup.visible = true;
+// B-068 pre-snap blocking preview: a solid line from each blocker to the man he will block, a dotted one from a double's climber to his second-level target
+// three.js draws a uuid from Math.random for every object it makes: quiet() keeps these overlay objects off the seeded stream (?sim stays identical to a build without them)
+const quiet = fn => { const r = Math.random; Math.random = () => 0.5; try { return fn(); } finally { Math.random = r; } };
+const blockMat = new THREE.MeshBasicMaterial({color:0x4fd2ff, transparent:true, opacity:.8, depthWrite:false});   // one material and one group, like the fit lines before: the same two uuid draws at load
+export const blockGroup = new THREE.Group();
+scene.add(blockGroup);
+const BLOCK_W = 0.4, DASH = 0.5, GAP = 0.4;
+function dotted(a, b, w, material, group){
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+  for(let t = 0; t < len; t += DASH + GAP){ const e = Math.min(t + DASH, len); seg({x:a.x + dx*t/len, y:a.y + dy*t/len}, {x:a.x + dx*e/len, y:a.y + dy*e/len}, w, material, group); }
+}
+export function drawBlocks(pv){   // pv: blockrules.js previewBlocks {solid, dotted}, or null for a pass play
+  blockGroup.children.forEach(c => c.geometry.dispose()); blockGroup.clear();
+  if(pv) quiet(() => { for(const l of pv.solid) seg(l.p, l.d, BLOCK_W, blockMat, blockGroup); for(const l of pv.dotted) dotted(l.p, l.d, BLOCK_W, blockMat, blockGroup); });
+  blockGroup.visible = true;
 }
 export function drawRoutes(){
   routeGroup.children.forEach(c => c.geometry.dispose()); routeGroup.clear();

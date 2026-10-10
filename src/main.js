@@ -1,19 +1,24 @@
-import { syncScene } from './animation.js';
-import { separate } from './blocking.js';
-import { updateCamera } from './camera.js';
+import { endLoad, runSim } from './sim.js';   // first: seeds Math.random under ?sim before other modules load
+import { pairCheck, pairReport, setFrameClock, syncScene } from './animation.js';
+import { CARRY_T, separate, stepHz } from './blocking.js';
+import { setAutoCam, setAutoFocus, updateCamera } from './camera.js';
 import { cpuTick, setCam, setCpu } from './cpu.js';
 import { defenseAI } from './defense.js';
-import { toast, updateCallouts } from './hud.js';
+import { DEF_OFF_WHISTLE, defOffStep } from './defoff.js';
+import { drillCamera, drillError, drillStart, drillTick } from './drill.js';
+import { debugTick, toast, updateCallouts, warn } from './hud.js';
 import { aim, giveBall, ground, hit, inputVec, ndc, pitch, ray, resolvePass } from './input.js';
 import { routeGroup } from './markers.js';
 import { steer } from './movement.js';
-import { offenseAI } from './offense.js';
-import { physInit, physRender, physStep } from './physics.js';
-import { PLAYS } from './playbook.js';
-import { ALL, DEF, OFF, QB, RB } from './players.js';
-import { endPlay, nextPlay } from './rules.js';
+import { flushOlRecs, offenseAI } from './offense.js';
+import { pileUpdate } from './pile.js';
+import { physBall, physCount, physDown, physInit, physPose, physSpeed, physRender } from './physics.js';
+import { DEF_CALLS, PLAYS } from './playbook.js';
+import { ALL, DEF, OFF, QB, RB, rate } from './players.js';
+import { heldBallPos, endPlay, newGame, nextPlay, trackProgress } from './rules.js';
 import { camera, cvs, renderer, scene } from './scene.js';
 import { S, ball, selectPlay, setupPlay } from './state.js';
+import { perf, stepWith } from './step.js';
 import { tackleUpdate } from './tackling.js';
 import { $, HW, clamp, dist } from './util.js';
 
@@ -23,53 +28,131 @@ function liveUpdate(dt){
   if(S.charging) S.chargeT += dt;
   const inp = S.cpu ? {x:0, y:0, on:false} : inputVec();
   OFF.forEach(p => offenseAI(p, dt, inp));
-  DEF.forEach(d => defenseAI(d, dt));
+  DEF.forEach(d => S.defOff ? defOffStep(d, dt) : defenseAI(d, dt));   // B-066: ?def=off
   separate();
+  if(S.defOff && S.clock >= DEF_OFF_WHISTLE){ const h = ball.state === 'held' ? heldBallPos(ball.holder) : ball.state === 'pitch' ? heldBallPos(ball.pf) : null; if(h) endPlay('spot', h.y, 'WHISTLE'); else endPlay('inc'); return; }   // B-066: no tackles, so the whistle is the clock
 
   const run = PLAYS[S.play].run;
+  if(PLAYS[S.play].delay && S.handoffAt === Infinity) S.runMode = false;   // B-007-12 Draw: a pass until the handoff (the line pass-sets, the defense rushes and drops)
   if(ball.state === 'pitch'){
     ball.t += dt/ball.pdur;
     if(ball.t >= 1){
       giveBall(ball.pt);
-      if(run === 'toss' && ball.holder === QB) pitch(QB, RB, 0.35);
+      if(run === 'toss' && ball.holder === QB) { pitch(QB, RB, 0.35); S.runSeen = true; }
     }
   }
   else if(ball.state === 'air'){ ball.t += dt/ball.dur; if(ball.t >= 1){ resolvePass(); return; } }
 
   if(ball.state !== 'held') return;
-  if(run === 'hand' && ball.holder === QB && dist(QB, RB) < (PLAYS[S.play].mesh ? 1.9 : 1.3)) giveBall(RB);   // under center the QB extends the ball into the back's pocket
+  if(run === 'hand' && ball.holder === QB && S.clock >= (PLAYS[S.play].delay || 0) && dist(QB, RB) < (PLAYS[S.play].mesh ? 1.9 : 1.3)){ S.runMode = true; giveBall(RB); }   // under center the QB extends the ball into the back's pocket; B-007-12: a delayed handoff (Draw) waits for play.delay
   const c = ball.holder;
-  if(c === QB && !S.runMode && QB.y > S.los + 0.3){ S.runMode = true; S.handoffAt = S.clock; S.charging = false; routeGroup.visible = false; toast('Scramble!'); }
-  if(c.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
-  if(Math.abs(c.x) > HW){ endPlay('spot', c.y, 'OUT OF BOUNDS'); return; }
+  if(c === QB && !S.runMode && QB.y > S.los + 0.3){ S.runMode = true; S.handoffAt = S.clock; S.runSeen = true; S.charging = false; routeGroup.visible = false; toast('Scramble!'); }
+  trackProgress(c);
+  const bp = heldBallPos(c);   // a body runner scores and goes out by the ball, not his hips
+  if(bp.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
+  if(Math.abs(bp.x) > HW){ endPlay('spot', bp.y, 'OUT OF BOUNDS'); return; }
   const k = Math.min(1, dt*6); c.svx += (c.vx - c.svx)*k; c.svy += (c.vy - c.svy)*k;   // smoothed for pursuit
-  if(!(c === QB && run === 'hand')) tackleUpdate(c, dt, inp);   // the exchange happens: nobody tackles the QB at the mesh
+  if(!(c === QB && run === 'hand')){
+    if(!S.defOff) tackleUpdate(c, dt);   // the exchange happens: nobody tackles the QB at the mesh
+    if(S.phase === 'live'){ trackProgress(c); pileUpdate(c, dt); }   // progress again after the tackle (no first-frame spot lag), then the pile push and stall whistle
+  }
 }
-let last = performance.now();
-function frame(now){
-  const dt = clamp((now - last)/1000, 0, 0.05); last = now;
-  if(dt === 0){ requestAnimationFrame(frame); return; }
-  ray.setFromCamera(ndc, camera);
-  if(ray.ray.intersectPlane(ground, hit)){ aim.x = hit.x; aim.y = 50 - hit.z; }
+// the game's part of a step: the CPU, then the live or dead-ball phase
+function gameUpdate(dt){
   cpuTick(dt);
   if(S.phase === 'live') liveUpdate(dt);
   else if(S.phase === 'dead'){
-    ALL.forEach(p => steer(p, p.x, p.y, 0, dt, 4));
+    ALL.forEach(p => steer(p, p.x, p.y, 0, dt));
     S.deadT -= dt; if(S.deadT <= 0) nextPlay();
   }
-  physStep(dt);
-  updateCamera(dt); syncScene(dt); physRender(); updateCallouts(dt);
+}
+// one render-free simulation step (the sim runner calls this too); the shared tail (facing, physics) is step.js
+export const step = dt => stepWith(dt, gameUpdate);
+let last = performance.now(), tick = step, camStep = updateCamera;   // ?drill swaps both (src/drill.js)
+function frame(now){
+  const raw = now - last, dt = clamp(raw/1000, 0, 0.05); last = now;
+  if(dt === 0){ requestAnimationFrame(frame); return; }
+  ray.setFromCamera(ndc, camera);
+  if(ray.ray.intersectPlane(ground, hit)){ aim.x = hit.x; aim.y = 50 - hit.z; }
+  tick(dt);
+  camStep(dt); syncScene(dt); physRender(); updateCallouts(dt);
   renderer.render(scene, camera);
+  debugTick(raw, perf.phys, perf.bodies);
   requestAnimationFrame(frame);
+}
+// ---------- frame check (B-031) ----------
+// ?drill=1v1|line&frames=N&sim=1&seed=S: steps the drill and the scene sync N frames of 1/60 s synchronously (no rendering, no rAF: headless Chrome barely runs rAF under
+// virtual time), then writes one JSON line into <pre id="checkout">: animation.js pairReport (the overlap measures of the engaged pose; its header comment lists the fields).
+// `sim=1` only seeds Math.random (sim.js seeds when ?sim is present; frames wins in start()), so the same seed gives the same line. N=3600 (one minute of play) wants alarm 90 or so.
+// The fight wiggle runs on the frame index (setFrameClock) so the line repeats exactly. Without ?drill the line is {"error":"frames needs drill"}. A normal page load is unchanged.
+function runFrames(n){
+  for(let i = 0; i < n; i++){ setFrameClock(i*1000/60); tick(1/60); syncScene(1/60); pairCheck(); }
+  setFrameClock(null);
+  const show = () => { camStep(1/60); renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // B-042 (axis-glide): the canvas shows the pose at frame N (a screenshot reads it); render only, the sim is untouched
+  const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify(Object.assign({frames_run:n}, pairReport())); document.body.appendChild(el);
+}
+// ---------- autoplay (B-046) ----------
+// ?autoplay=<seconds>&sim=1&seed=S: the CPU calls and snaps a play with no input; the page steps 1/60 s synchronously (as runFrames does) until the play has run <seconds> after the snap
+// (or ended first), then keeps painting that frame with the game camera: a headless screenshot shows the play mid-action. `sim=1` only seeds Math.random, so the same seed gives the same
+// frame. Writes {"autoplay":s,"stoppedAt":clock,"phase":...,"digest":...,"offPlay":..,"defCall":..} into <pre id="autoout">. A normal load is unchanged.
+// B-089: &front=<defensive call name> forces the defense's call (DEF_CALLS, case-insensitive; an unknown name gives {"error":...}); merges with &play.
+// B-086: &stopon=cut|pull|shed[&after=N] stops on the first such event (see runAutoplay).
+// B-081: &play=<name> forces the offense's call (any play, case-insensitive; a pass play needs &pass=1; an unknown name gives {"error":...}); &cam=side|close frames the play, following the ball (a bad value gives {"error":...}).
+const TOW_FREE_T = 0.4;   // B-086: a copy of defense.js TOW_FREE_T (not exported; defense.js is another worker's): a tow sets freeT to this, a shed 0.9
+const AUTO_STOP_PLAYS = 30;   // B-086: &stopon runs at most this many plays' worth of steps
+const AUTO_MAX_STEPS = 60*60;   // a stuck pre-snap gives up after a minute of sim time
+const r3 = v => +Number(v).toFixed(3);
+function autoDigest(){   // state digest: same seed, same values (a PNG can differ by bytes)
+  const h = ball.holder, bp = h ? heldBallPos(h) : {x:ball.fx, y:ball.fy};
+  return {play:S.play, ballState:ball.state, holderX:h ? r3(h.x) : null, holderY:h ? r3(h.y) : null, ballX:r3(bp.x), ballY:r3(bp.y), clock:r3(S.clock), los:S.los, allSum:r3(ALL.reduce((a, p) => a + p.x*1.3 + p.y, 0))};
+}
+function runAutoplay(sec, q){
+  // B-081: &play=<name> forces the offense's call (any PLAYS entry, case-insensitive; a pass play needs &pass=1 in the URL, playbook.js loads pass plays only then, so without it a pass name reads as unknown, and the error says so); &cam=side|close frames it (camera.js setAutoCam). Neither given: as before
+  const out = o => { const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify(o); document.body.appendChild(el); };
+  if(q.has('play')){ const nm = q.get('play').trim().toLowerCase(), pl = PLAYS.find(p => p.name.toLowerCase() === nm); if(!pl){ out({error:'unknown play ' + q.get('play') + (q.has('pass') ? '' : ' (a pass play needs &pass=1)')}); return; } S.force = {play:pl.name}; }
+  if(q.has('front')){ const nm = q.get('front').trim().toLowerCase(), dc = DEF_CALLS.find(c => c.name.toLowerCase() === nm); if(!dc){ out({error:'unknown front ' + q.get('front')}); return; } S.force = Object.assign(S.force || {}, {front:dc.name}); setupPlay(); }   // B-089: forces the defense's call (the first setup already rolled a random one, so set up again)
+  if(q.has('cam')){ const c = q.get('cam').trim().toLowerCase(); if(c !== 'side' && c !== 'close'){ out({error:'unknown cam ' + q.get('cam')}); return; } setAutoCam(c); }
+  // B-086: &stopon=cut|pull|shed[&after=N]: plays run one after another (up to AUTO_STOP_PLAYS, no stop at the whistle or at <seconds>) until the event fires on live state, then N more steps (default 0) and stop;
+  // autoout always carries offPlay (PLAYS[S.play].name), defCall (S.defCall.name or null), on every run. Under &stopon it gains {event, play, frame, man}: man = {id, num, pos} of the man the cams frame (the first found if two fire on one step); the event, the play number (1 = the first snap), the step it fired on (event null: it never fired). Read-only, no game logic. cut: a man with p.cutPh set (B-072-4: 1 brake, 3 plant, 2 push);
+  // pull: a puller reached his target (p.pull.reach set); shed: a defender with freeFrom set and freeT above TOW_FREE_T (a real shed sets 0.9; a tow, a passing blocker, sets only 0.4). An unknown event gives {"error":...}
+  const EVENTS = {cut: () => ALL.find(p => p.cutPh), pull: () => (S.pulls || []).find(u => u.p.pull && u.p.pull.reach !== null)?.p, shed: () => DEF.find(d => d.freeFrom && d.freeT > TOW_FREE_T)};   // B-090: each returns the event's man (or a falsy value); the cams aim at him from the hit frame
+  const stopon = q.has('stopon') ? q.get('stopon').trim().toLowerCase() : null, after = Math.max(0, Math.floor(Number(q.get('after')) || 0));
+  if(stopon !== null && !EVENTS[stopon]){ out({error:'unknown stopon ' + q.get('stopon') + ' (cut|pull|shed)'}); return; }
+  setCpu(true);
+  let n = 0, plays = 0, prev = S.phase, hit = null, left = after;
+  if(stopon){
+    while(n++ < AUTO_MAX_STEPS*AUTO_STOP_PLAYS && S.phase !== 'over'){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60);
+      if(S.phase === 'live' && prev !== 'live') plays++; prev = S.phase;
+      if(plays > AUTO_STOP_PLAYS) break;   // the cap: no event is read in a play past it
+      if(hit){ if(left-- <= 0) break; } else if(S.phase === 'live'){ const man = EVENTS[stopon](); if(man){ hit = {event:stopon, play:plays, frame:n, man:{id:man.id, num:man.num, pos:man.pos}}; setAutoFocus(man); if(left-- <= 0) break; } } }
+  }
+  while(!stopon && n++ < AUTO_MAX_STEPS && !(S.phase === 'live' && S.clock >= sec) && !(S.phase === 'dead' || S.phase === 'over')){ setFrameClock(n*1000/60); step(1/60); camStep(1/60); syncScene(1/60); }   // the frame clock, as runFrames: animation's wiggle runs on the step index, not wall time
+  setFrameClock(null); physRender(); updateCallouts(0);
+  const show = () => { renderer.render(scene, camera); requestAnimationFrame(show); }; show();   // render only; the sim is paused
+  const el = document.createElement('pre'); el.id = 'autoout'; el.textContent = JSON.stringify({autoplay:sec, stoppedAt:+S.clock.toFixed(3), phase:S.phase, steps:n-1, digest:autoDigest(), offPlay:PLAYS[S.play].name, defCall:S.defCall ? S.defCall.name : null, ...(stopon ? hit || {event:null, play:plays, frame:null} : {})}); document.body.appendChild(el);
 }
 function start(data){
   $('cpuBtn').addEventListener('click', () => { setCpu(!S.cpu); cvs.focus(); });
   $('camBtn').addEventListener('click', () => { setCam(S.cam === 'tv' ? 'behind' : 'tv'); cvs.focus(); });
   setCam(S.cam);
   if(data && typeof data.score === 'number') Object.assign(S, {score:data.score, tds:data.tds||0, drive:data.drive||1, los:data.los||25, down:data.down||1, toGo:data.toGo||10});
-  selectPlay(0); setupPlay(); requestAnimationFrame(frame);
+  const q = new URLSearchParams(location.search);
+  selectPlay(0); setupPlay();
+  if(q.get('cpu') === '0') setCpu(false);   // B-068: start in user view (the C key off), so a shot sees the pre-snap block lines
+  if(q.has('frames') && !q.has('drill')){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:'frames needs drill'}); document.body.appendChild(el); return; }
+  if(q.has('autoplay') && !q.has('drill')){ runAutoplay(Math.max(0, Number(q.get('autoplay')) || 0), q); return; }
+  if(q.has('sim') && !q.has('frames')){ runSim(Math.max(1, Number(q.get('sim')) || 100), step, {CARRY_T, stepHz, flushOlRecs, physBall, physCount, physDown, physPose, physSpeed, perf, ALL, OFF, DEF, RB, PLAYS, DEF_CALLS, nextPlay, newGame, setupPlay, S, ball}); return; }   // headless: no frame loop
+  if(q.has('drill')){ document.body.classList.add('drill'); tick = drillTick; camStep = drillCamera; drillStart();
+    if(q.has('frames') && drillError){ const el = document.createElement('pre'); el.id = 'checkout'; el.textContent = JSON.stringify({error:drillError}); document.body.appendChild(el); return; }   // B-042 (axis-glide)
+    if(q.has('frames')){ runFrames(Number(q.get('frames')) || 600); return; } }   // B-019: the blocking drill, no game flow
+  requestAnimationFrame(frame);
 }
+endLoad();   // B-079: every import has run (three.js uuids drew from the private stream); the seeded stream starts here
+rate();   // B-078 (load-no-random): ratings draw Math.random, so they are rolled here, after every import (and sim.js's seedRandom), not at players.js load
 try { window.claude?.hot?.snapshot?.(() => ({score:S.score, tds:S.tds, drive:S.drive, los:S.los, down:S.down, toGo:S.toGo})); } catch(e){}
 const boot = () => window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
 (window.CANNON ? Promise.resolve(window.CANNON) : import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js'))
-  .then(m => { window.CANNON = m; physInit(); }, () => {}).then(boot);
+  .then(m => { window.CANNON = m; physInit(); }, err => {
+    console.error('physics failed to load', err);
+    warn('Physics failed to load: no ragdolls');
+  }).then(boot);

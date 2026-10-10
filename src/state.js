@@ -1,27 +1,51 @@
 import { resetCam } from './camera.js';
 import { assignFits } from './defense.js';
 import { clearCallouts, hideBanner, updateHUD } from './hud.js';
-import { drawFits, drawRoutes, routeGroup } from './markers.js';
+import { drawBlocks, drawRoutes, routeGroup } from './markers.js';
+import { previewBlocks } from './blockrules.js';
+import { pileReset } from './pile.js';
 import { physClear } from './physics.js';
-import { DEF_CALLS, PLAYS } from './playbook.js';
-import { CBs, DEF, DL, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
+import { chooseForm, formByName, lineUp } from './formations.js';
+import { FRONTS, GAP_X, SS_ROLL, alignDefense } from './fronts.js';
+import { DEF_CALLS, PLAYS, orient } from './playbook.js';
+import { CBs, DEF, DL, EXTRA, LBs, OFF, OL, QB, RB, RECV, ROUTE_KEYS, SFs, TE, WRs } from './players.js';
+import { persName, subIn } from './roster.js';
 import { fdLine, losLine } from './scene.js';
 import { $, HW, clamp, rand } from './util.js';
 
 // ---------- state ----------
-export const S = {score:0, tds:0, drive:1, los:25, down:1, toGo:10, play:0, phase:'presnap', runMode:false,
-           clock:0, deadT:0, charging:false, chargeT:0, over:false, ctrl:QB, cpu:true, preT:0, overT:0, cam:'tv'};
+export const S = {flip:1, form:null, score:0, tds:0, drive:1, los:25, down:1, toGo:10, play:0, phase:'presnap', runMode:false,
+           clock:0, deadT:0, charging:false, chargeT:0, over:false, ctrl:QB, cpu:true, preT:0, overT:0, cam:'tv', prog:-Infinity, offPers:null, speedRole:{}};   // speedRole: B-060-2 readout
 export const ball = {state:'pre', holder:null, fx:0, fy:0, tx:0, ty:0, t:0, dur:1, apex:1, thrownAt:0, target:null};
 export function selectPlay(i){
   S.play = i;
   PLAYS.forEach((_, j) => $('play'+j).setAttribute('aria-pressed', String(j===i)));
-  if(S.phase === 'presnap'){ formation(); assignRoutes(); }
+  if(S.phase !== 'presnap') return;
+  S.form = pickForm(PLAYS[i]);   // drawn once; formation() and setupPlay(keep) reuse it
+  if(S.offPers && S.form.pers !== S.offPers){ setupPlay(true); return; }   // the play's formation brings other personnel: the same defense and side, new offense
+  formation(); assignRoutes();
 }
-// backfield set for the called play: shotgun (back beside the QB) or under center with a singleback
+// the offense lines up in the formation (src/formations.js) for the called play, mirrored by S.flip; the play's own fields are
+// re-oriented to match (playbook.js orient)
 function formation(){
-  const L = S.los, under = PLAYS[S.play].under;
-  place(QB, 0, L - (under ? 1.2 : 4.5)); place(RB, under ? 0 : 1.8, L - (under ? 6.5 : 4.5));
+  const play = PLAYS[S.play], form = S.form;   // set by selectPlay / setupPlay
+  orient(play, form.under, S.flip); lineUp(form, S.los, S.flip, place, {OL, QB, RB, TE, WRs, EXTRA});
 }
+// the formation for a play, in this order: a forced ?form=, the forced personnel's formation in the play's list, the current formation when the
+// list has it (not on a fresh setup), else one at random from the list. A play without a list uses the personnel's. Drawn once per play call
+// (B-007-10). A forced personnel the list has no formation for falls back to the rest (the sim rejects that pair up front).
+function pickForm(play, fresh){
+  const named = formByName(forced('form')); if(named) return named;
+  const pers = persName('off', forced('pers'));
+  if(!play.forms) return chooseForm(false, null, pers);
+  const list = play.forms.map(formByName), byPers = pers ? list.find(f => f.pers === pers) : null;
+  const hint = S.formHint && list.find(f => f.name === S.formHint);   // B-007-13: the CPU's formation choice (after a forced form or personnel)
+  return byPers || hint || (!fresh && S.form && list.includes(S.form) ? S.form : null) || list[Math.floor(Math.random()*list.length)];
+}
+// personnel for the next play: forced by the sim (?pers=, ?dpers=), else the page URL, else 11 and nickel
+const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+S.defOff = URLQ.get('def') === 'off';   // B-066: defense-off mode, defenders stand and are pushed (src/defoff.js)
+const forced = key => (S.force && S.force[key]) || URLQ.get(key);
 function assignRoutes(){
   const play = PLAYS[S.play];
   RECV.forEach((w, i) => {
@@ -38,44 +62,58 @@ function assignRoutes(){
     const l = Math.hypot(b.x-a.x, b.y-a.y) || 1; w.goDir = {x:(b.x-a.x)/l, y:(b.y-a.y)/l};
   });
   drawRoutes(); routeGroup.visible = true;
+  drawBlocks(play.run ? previewBlocks(play, S.flip) : null);   // B-068: who each blocker will block, from the shown front
 }
 function place(p, x, y){
-  p.x = x; p.y = y; p.vx = p.vy = 0; p.stun = 0; p.latch = null; p.tkCool = 0; p.downP = 0; p.slow = 1; p.latAcc = 0; p.svx = 0; p.svy = 0; p.tripT = 0; p.reachCool = 0; p.bt = null; p.freeFrom = null; p.freeT = 0; p.beatT = 0; p.locked = false; p.accel = 0; p.falling = false;
-  p.act = null; p.actT = 0; p.eng = 0; p.faceAt = null; p.holeX = null; p.ofLane = null; p.ofT = 0; p.stam = 1; p.churn = false; p.rx = x; p.ry = y; p.face = p.team === 'O' ? Math.PI : 0;
+  p.x = x; p.y = y; p.vx = p.vy = 0; p.stun = 0; p.latch = null; p.tkCool = 0; p.downP = 0; p.slow = 1; p.latAcc = 0; p.svx = 0; p.svy = 0; p.tripT = 0; p.reachCool = 0; p.bt = null; p.freeFrom = null; p.freeT = 0; p.beatT = 0; p.locked = false; p.ruled = false; p.accel = 0; p.falling = false; p.slip = 0; p.grip = null; p.fire = 0; p.fireDelay = 0;
+  p.act = null; p.actT = 0; p.eng = 0; p.faceAt = null; p.faceHold = null; p.holeX = null; p.rd = null; p.ofLane = null; p.ofT = 0; p.stam = 1; p.churn = false; p.rx = x; p.ry = y; p.face = p.team === 'O' ? Math.PI : 0;
 }
-export function setupPlay(){
+// keep: a play change before the snap that needs other personnel (selectPlay) redoes the setup with the same defense (call, blitzer, box safety,
+// cushions, read delays), side and chosen formation
+export function setupPlay(keep = false){
   physClear();
+  const form0 = keep ? S.form : S.form = pickForm(PLAYS[S.play], true); S.offPers = form0.pers;
+  // the defensive call and its front first: the front brings its personnel (a ?dpers= only reshapes a nickel-front call)
+  const dp = forced('dpers') ? persName('def', forced('dpers')) : null;   // a forced ?dpers= limits the random call to fronts of that personnel and nickel-front calls (they reshape to it)
+  const pool = dp ? DEF_CALLS.filter(c => c.front === 'nickel' || FRONTS[c.front].pers === dp) : DEF_CALLS;
+  const call = S.defCall = keep ? S.defCall : (S.force && S.force.front && DEF_CALLS.find(c => c.name === S.force.front)) || pool[Math.floor(Math.random()*pool.length)], fr = FRONTS[call.front];   // feature (sim-force)
+  subIn(form0.pers, call.front === 'nickel' && dp ? dp : fr.pers);   // dead ball: the formation's personnel and the defense's take the field
   const L = S.los;
-  S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0;
-  OL.forEach((o, i) => { place(o, (i-2)*2.2, L-0.7); o.spd = 6.6; });
-  place(WRs[0], -20, L-0.8); place(WRs[1], 20, L-0.8); place(WRs[2], -11, L-1.0);
-  place(TE, 6.8, L-1.0); formation();
-  QB.spd = 7.0; WRs.forEach(w => w.spd = rand(7.5, 7.9)); TE.spd = 6.9; RB.spd = 7.6;
-  [-5, -1.2, 1.2, 5].forEach((x, i) => place(DL[i], x, L+1.1));
-  DL.forEach(d => { d.mode = 'rush'; d.spd = 6.0; });
+  S.phase = 'presnap'; S.runMode = false; S.charging = false; S.ctrl = QB; S.preT = 0; S.prog = -Infinity; S.read = null; pileReset();
+  const sd = String(forced('side') || '').toUpperCase();   // one side per play (a play change before the snap keeps it): ?side=L|R, else the coin
+  if(!keep) S.flip = sd === 'L' ? -1 : sd === 'R' ? 1 : Math.random() < 0.5 ? -1 : 1;
+  formation();
+  DL.forEach(d => { d.mode = 'rush'; });
+  // a corner lines up on the receiver of his number; the spare one (nickel against 12, 21 or 22: no third WR) takes the second tight end,
+  // else the fullback, from a weak slot nine yards out
+  const spare = [...EXTRA].sort((a, b) => (a.pos === 'TE' ? 0 : 1) - (b.pos === 'TE' ? 0 : 1))[0] || RB;
   CBs.forEach((c, i) => {
-    const w = WRs[i]; place(c, w.x - Math.sign(w.x)*0.6, L + (i===2 ? 5 : 6));
-    c.mode = 'cover'; c.assign = w; c.cushion = rand(1.0, 2.4); c.spd = rand(7.4, 7.8);
+    const w = WRs[i] || spare;
+    if(WRs[i]) place(c, w.x - Math.sign(w.x)*0.6, L + (i===2 ? 5 : 6)); else place(c, -S.flip*9, L + 5);
+    c.mode = 'cover'; c.assign = w; if(!keep) c.cushion = rand(1.0, 2.4);
   });
-  SFs.forEach((s, i) => { s.side = i ? 1 : -1; place(s, s.side*10, L+13); s.mode = 'deep'; s.spd = rand(7.3, 7.6); });
+  SFs.forEach((s, i) => { s.side = i ? 1 : -1; place(s, s.side*10, L+13); s.mode = 'deep'; });
   // react: delay before breaking on a thrown ball; read: delay after the handoff before chasing the runner
-  DEF.forEach(d => { d.fit = null; d.react = rand(0.15, 0.45); d.read = d.role === 'DL' ? rand(0.2, 0.35) : rand(0.25, 0.5); });
+  DEF.forEach(d => { d.fit = null; if(!keep){ d.react = rand(0.15, 0.45); d.read = d.role === 'DL' ? rand(0.2, 0.35) : rand(0.25, 0.5); } });
 
-  // defensive call -> run fits. Every defender gets a job (see RUN FITS below); placement is the alignment.
-  const call = S.defCall = DEF_CALLS[Math.floor(Math.random()*DEF_CALLS.length)];
-  const blitzer = call.blitz ? Math.floor(Math.random()*2) : -1;
+  // defensive call -> front -> run fits. Every defender gets a job (see RUN FITS in defense.js); placement is the alignment.
+  const blitzer = keep ? S.blitzer : S.blitzer = call.blitz ? Math.floor(Math.random()*2) : -1;
+  S.front = call.front;
+  const inBox = alignDefense(fr, call, S.flip, L, {DL, LBs}, place, blitzer);
   LBs.forEach((b, i) => {
-    const side = i ? 1 : -1, blitz = i === blitzer;
-    place(b, side*3.5, blitz ? L+3.5 : L+5);
-    b.assign = i ? RB : TE; b.mode = blitz ? 'rush' : 'cover'; b.cushion = 0.6; b.spd = rand(6.9, 7.2);
+    b.assign = i < 2 ? (i ? RB : TE) : (EXTRA[i-2] || RB); b.mode = i === blitzer ? 'rush' : 'cover'; b.cushion = 0.6;
   });
-  const boxS = call.box ? SFs[Math.floor(Math.random()*2)] : null;
-  if(boxS) place(boxS, boxS.side*4.5, L+6);
-  assignFits(call, blitzer, boxS);
-  S.handoffAt = Infinity;
-  drawFits();
+  DEF.forEach(d => { d.job = {role:'gap', gx:clamp(d.x, -GAP_X.C, GAP_X.C), side:Math.sign(d.x) || 1}; });   // a default job for a body the front has no slot for; assignFits overwrites the rest
+  const boxS = keep ? S.boxS : S.boxS = fr.roll ? SFs.find(s => s.side === S.flip) : call.box ? SFs[Math.floor(Math.random()*2)] : null;   // a safety who rolls into the box: the strong one in a bear
+  if(boxS) place(boxS, boxS.side*SS_ROLL.x, L + SS_ROLL.d);
+  S.box = inBox + (boxS ? 1 : 0);
+  assignFits(call, boxS);
+  S.handoffAt = Infinity; S.runSeen = false;   // B-097: set at a handoff, a pitch or a scramble (never a catch): what the defense can see of a run
   RB.auto = false;
-  OFF.forEach(o => { o.blk = null; o.scripted = false; o.lane = null; o.via = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o === TE ? 1.4 : o === RB ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  OFF.forEach(o => { o.blk = null; o.dbl = null; o.ruled = false; o.lane = null; o.via = null; o.pull = null; o.rr = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
+  S.bust = [];   // B-032-2 (bust-roll)
+  S.blkEv = []; S.blkStunt = false;   // B-007-9: stunt re-read events (blockrules.js)
+  S.pulls = [];   // feature (pulls): B-007-8, the pull log resets with the blockers
   ball.state = 'pre'; ball.holder = null; ball.target = null;
   losLine.position.z = 50 - L;
   fdLine.position.z = 50 - Math.min(100, L + S.toGo); fdLine.visible = L + S.toGo < 100;

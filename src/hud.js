@@ -1,4 +1,4 @@
-import { camera, toWorld, wrap } from './scene.js';
+import { camera, cvs, toWorld, wrap } from './scene.js';
 import { S } from './state.js';
 import { $, MAX_DRIVES } from './util.js';
 
@@ -10,8 +10,9 @@ export function updateHUD(){
   $('down').textContent = downText();
   $('spot').textContent = S.los > 50 ? `OPP ${100-S.los}` : S.los < 50 ? `OWN ${S.los}` : '50';
   $('drive').textContent = `${Math.min(S.drive, MAX_DRIVES)} / ${MAX_DRIVES}`;
-  if(S.defCall) $('defcall').textContent = S.defCall.name;
+  if(S.defCall) $('defcall').textContent = S.defCall.name + (S.box ? ' · ' + S.box : '');   // the call and the men in the box
 }
+export function warn(msg){ const el = $('warn'); el.textContent = msg; el.classList.add('on'); }   // persistent: stays until reload
 export function banner(h, p){ $('bannerH').textContent = h; $('bannerP').textContent = p || ''; $('banner').classList.add('on'); }
 export function hideBanner(){ $('banner').classList.remove('on'); }
 let toastTimer = 0;
@@ -36,3 +37,20 @@ export function updateCallouts(dt){
 }
 let lastHint = '';
 export function setHint(html){ if(html !== lastHint){ $('hint').innerHTML = html; lastHint = html; } }
+// ?debug line: frame ms (smoothed), physics ms of the last step (smoothed), live body count
+const DEBUG = new URLSearchParams(location.search).has('debug');
+let dbgFrame = 0, dbgPhys = 0, dbgT = 0;
+export function debugTick(rawMs, physMs, bodies){
+  if(!DEBUG) return;
+  dbgFrame += (rawMs - dbgFrame)*0.1; dbgPhys += (physMs - dbgPhys)*0.1;
+  if((dbgT += rawMs) < 250) return; dbgT = 0;
+  const el = $('dbg'); el.hidden = false;
+  el.textContent = `frame ${dbgFrame.toFixed(1)} ms · phys ${dbgPhys.toFixed(1)} ms · bodies ${bodies}`;
+}
+// B-019 blocking drill: the 1v1 / line switch and the what-to-watch note (index.html #drillbar); pick is wired once
+export function setDrillBar(mode, note, pick){
+  const bar = $('drillbar'); bar.hidden = false;
+  if(pick) bar.querySelectorAll('button[data-mode]').forEach(b => b.addEventListener('click', () => { pick(b.dataset.mode); cvs.focus(); }));
+  bar.querySelectorAll('button[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  $('drillnote').textContent = note;
+}

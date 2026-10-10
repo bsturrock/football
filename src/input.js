@@ -1,8 +1,9 @@
 import { setCam, setCpu } from './cpu.js';
 import { toast } from './hud.js';
-import { fitGroup, routeGroup } from './markers.js';
+import { blockGroup, routeGroup } from './markers.js';
+import { resolveBlocks } from './blockrules.js';
 import { PLAYS } from './playbook.js';
-import { C, CBs, DEF, DL, LBs, LG, LT, OFF, OL, QB, RB, RECV, RG, RT, SFs, TE, WRs } from './players.js';
+import { BODY_W, C, DEF, DL, EXTRA, LG, LT, OL, QB, RB, RECV, RG, RT, TE } from './players.js';
 import { endPlay, newGame } from './rules.js';
 import { cvs } from './scene.js';
 import { S, ball, selectPlay } from './state.js';
@@ -15,7 +16,7 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if(MOVE_KEYS.includes(k)) e.preventDefault();
   keys.add(k);
-  if(k === 'c') setCpu(!S.cpu);
+  if(k === 'c' && !S.drill) setCpu(!S.cpu);   // drill (B-019): the drill owns the snap and the CPU flag
   if(k === 'v') setCam(S.cam === 'tv' ? 'behind' : 'tv');
   if(S.phase === 'presnap' && !S.cpu && k >= '1' && k <= String(PLAYS.length)) selectPlay(+k - 1);
 });
@@ -40,6 +41,7 @@ cvs.addEventListener('contextmenu', e => e.preventDefault());
 cvs.addEventListener('pointerdown', e => {
   cvs.focus();
   if(e.button !== 0) return;
+  if(S.drill) return;   // drill (B-019): no click-to-snap or new game
   if(S.phase === 'over'){ newGame(); return; }
   if(S.cpu) return;
   if(S.phase === 'presnap'){ snap(); return; }
@@ -50,31 +52,25 @@ export const canThrow = () => S.phase === 'live' && ball.state === 'held' && bal
 export const charge = () => Math.min(1, S.chargeT/0.9);
 export function snap(){
   const run = PLAYS[S.play].run;
-  S.phase = 'live'; S.clock = 0; S.runMode = !!run;
+  S.phase = 'live'; S.clock = 0; S.runMode = !!run; S.runSeen = !!run && !PLAYS[S.play].delay;   // B-097: the line fires out at the snap on a run; a delayed run (Draw) shows a pass set until the handoff
   // linemen fire out on the snap; the defensive line reacts to the ball a beat later (better awareness, quicker)
-  [...OL, TE].forEach(o => o.fire = 0.35);
+  [...OL, TE, ...EXTRA.filter(e => e.pos === 'TE')].forEach(o => o.fire = 0.35);
   DL.forEach(d => { d.fire = 0.35; d.fireDelay = 0.15 - d.rAwr/1000; });
   S.ctrl = run ? RB : QB;
   pitch(C, QB, PLAYS[S.play].under ? 0.15 : 0.3);   // under center: hand-to-hand snap
-  fitGroup.visible = false;
+  blockGroup.visible = false;
   if(run){
     const play = PLAYS[S.play];
-    const OK = {LT, LG, C, RG, RT, TE, RB, WR0:WRs[0], WR1:WRs[1], WR2:WRs[2]};
-    const lbs = [...LBs].sort((a, b) => a.x - b.x), sfs = [...SFs].sort((a, b) => a.x - b.x);
-    const DK = {DL0:DL[0], DL1:DL[1], DL2:DL[2], DL3:DL[3], LB0:lbs[0], LB1:lbs[1], CB0:CBs[0], CB1:CBs[1], CB2:CBs[2], S0:sfs[0], S1:sfs[1]};
-    for(const [o, d] of Object.entries(play.blocks || {})){ OK[o].blk = DK[d]; OK[o].scripted = true; }
-    if(play.scheme === 'zone') [...OL, TE].forEach(o => { o.lane = o.x + play.shift; o.blk = null; });
-    // safety rolled down on the play side: the tight end climbs straight to him instead of zoning
-    const boxS = SFs.find(f => f.fit && Math.sign(f.x) === Math.sign(play.shift || 0));
-    if(play.scheme === 'zone' && boxS){ TE.blk = boxS; TE.locked = true; OFF.forEach(o => { if(o !== TE && o.blk === boxS) o.blk = null; }); }
-    for(const [o, pts] of Object.entries(play.pulls || {})) OK[o].via = pts.map(([x, dy]) => ({x, y:S.los + dy}));
+    if(play.scheme === 'zone') [...OL, TE].forEach(o => { o.lane = o.x + play.shift; });
+    resolveBlocks(play, S.flip);   // every blocker's target, read against the front (blockrules.js); a receiver slot empty in this personnel has no blocker
+    for(const [o, pts] of Object.entries(play.pulls || {})) if(!({LT, LG, C, RG, RT, TE})[o].via) ({LT, LG, C, RG, RT, TE})[o].via = pts.map(([x, dy]) => ({x, y:S.los + dy}));
   }
 }
 // short ball transfer between two players (snap, toss)
 export function pitch(from, to, dur){ Object.assign(ball, {state:'pitch', pf:from, pt:to, t:0, pdur:dur, holder:null}); }
 export function giveBall(p){
   ball.state = 'held'; ball.holder = p;
-  if(p === RB && S.runMode){ RB.auto = true; S.handoffAt = S.clock; }
+  if(p === RB && S.runMode){ RB.auto = true; S.handoffAt = S.clock; S.runSeen = true; resolveBlocks(PLAYS[S.play], S.flip, true); }   // the blockers read the defense once more after the exchange
 }
 export function throwArc(c, d){ return {speed: 30 - c*13, apex: 0.6 + c*5 + d*0.04}; }
 export function throwTarget(){
@@ -100,17 +96,17 @@ export function resolvePass(){
   const L = {x:ball.tx, y:ball.ty};
   const w = ball.target, dO = dist(w, L);
   let dd = null, dD = 1e9;
-  for(const d of DEF){ if(d.stun > 0) continue; const k = dist(d, L); if(k < dD){ dD = k; dd = d; } }
+  if(!S.defOff) for(const d of DEF){ if(d.stun > 0) continue; const k = dist(d, L); if(k < dD){ dD = k; dd = d; } }   // B-066 (def-off): nobody contests the pass
   const r = Math.random();
-  if(dO < 1.7){
-    if(dD < 1.3){
+  if(dO < 1.7*BODY_W){   // B-021: catch and contest radii are body size, x0.7 (1.7 -> 1.19, 1.3 -> 0.91)
+    if(dD < 1.3*BODY_W){
       if(r < (dO < dD ? 0.6 : 0.25)) return catchBall(w, 'Contested catch!');
       if(r < 0.85) return endPlay('inc', 0, 'Broken up');
       return endPlay('int');
     }
     return catchBall(w, 'Caught!');
   }
-  if(dD < 1.3) return r < 0.4 ? endPlay('int') : endPlay('inc', 0, 'Knocked down');
+  if(dD < 1.3*BODY_W) return r < 0.4 ? endPlay('int') : endPlay('inc', 0, 'Knocked down');
   endPlay('inc');
 }
 function catchBall(w, msg){

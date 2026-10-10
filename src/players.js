@@ -1,15 +1,21 @@
 import { scene } from './scene.js';
-import { rand } from './util.js';
+import { BODY_H, BODY_W } from './util.js';
+import { bindSlots, rateRosters, subIn } from './roster.js';
 
 // ---------- players ----------
 // boxy jointed figure; every limb geometry hangs down from its pivot
-export const box = (w, h, d, x=0, y=-h/2, z=0) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+// B-021: the rig is drawn at 1 unit = 1 yd but its numbers below are the old 2.3 yd figure; one scale pair turns them into an NFL body
+// (about 2.1 yd with helmet, 0.7 yd at the pads). BODY_H scales every vertical size and offset, BODY_W every width, depth and sideways offset.
+// physics.js applies the same pair to its boxes (PARTS) so mesh and collider stay one shape.
+export { BODY_H, BODY_W };   // the pair itself lives in util.js
+export const box = (w, h, d, x=0, y=-h/2, z=0) => new THREE.BoxGeometry(w*BODY_W, h*BODY_H, d*BODY_W).translate(x*BODY_W, y*BODY_H, z*BODY_W);
+export const bodyV = ([x, y, z]) => [x*BODY_W, y*BODY_H, z*BODY_W];   // a rig-unit offset or size (x, y, z) in yards
 export const G = {
   torso: box(0.75,0.7,0.42,0,0.37), pads: box(1.05,0.22,0.5,0,0.7), helmet: box(0.46,0.44,0.5,0,0.24),
   stripe: box(0.08,0.46,0.54,0,0.25), mask: box(0.36,0.14,0.08,0,0.18,0.27),
   upperArm: box(0.2,0.42,0.22), forearm: box(0.18,0.4,0.2),
   thigh: box(0.28,0.5,0.3), shin: box(0.24,0.45,0.26), cleat: box(0.24,0.1,0.38,0,-0.5,0.06),
-  shadow: new THREE.CircleGeometry(0.62,20)
+  shadow: new THREE.CircleGeometry(0.62*BODY_W,20)
 };
 const shadowMat = new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:.28, depthWrite:false});
 export const TEAM = {
@@ -17,16 +23,32 @@ export const TEAM = {
   D: {jersey:0x1f3c7a, pants:0xc9cfdc, helmet:0x15295a, stripe:0xffd21f, socks:0x1f3c7a}
 };
 const SKIN = [0x5c3a1e, 0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d];
+// jersey number on the back: one canvas texture per number, shared; a body swaps its map when a sub changes his number
+// three.js draws Math.random for object uuids; the number art does that on a private stream so a seeded ?sim line is the same with or without it
+const QK_SIM_SEED = 12345, LCG_M = 2147483647;   // the private stream's fixed seed under ?sim, and its Lehmer modulus
+let qk = new URLSearchParams(location.search).has('sim') ? QK_SIM_SEED : (Date.now() % (LCG_M - 1)) + 1;   // fixed under ?sim, varied on a normal load
+const quiet = f => { const r = Math.random; Math.random = () => (qk = qk*16807 % LCG_M)/LCG_M; try { return f(); } finally { Math.random = r; } };
+const numTex = {};
+const numTexture = n => numTex[n] || (numTex[n] = quiet(() => {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 48; const x = c.getContext('2d');
+  x.font = 'bold 42px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#fff'; x.fillText(String(n), 32, 26);
+  return new THREE.CanvasTexture(c);
+}));
+G.numPlane = quiet(() => new THREE.PlaneGeometry(0.5*BODY_W, 0.375*BODY_H));
 const mats = {};
 export const mat = c => mats[c] || (mats[c] = new THREE.MeshLambertMaterial({color:c}));
 export const JOINTS = ['lean','twist','hipL','hipR','kneeL','kneeR','shL','shR','elL','elR','drop','pitch','bob'];
-function makePlayer(team, role){
+// B-078: the skin and stride draws (and three.js's uuid draws) run on the private stream, so loading this module leaves Math.random untouched
+const makePlayer = (team, role) => quiet(() => makePlayerRaw(team, role));
+function makePlayerRaw(team, role){
   const t = TEAM[team], skin = SKIN[Math.floor(Math.random()*SKIN.length)];
   const g = new THREE.Group(), body = new THREE.Group();
-  const pivot = (parent, x, y, z=0) => { const p = new THREE.Group(); p.position.set(x, y, z); parent.add(p); return p; };
+  const pivot = (parent, x, y, z=0) => { const p = new THREE.Group(); p.position.set(...bodyV([x, y, z])); parent.add(p); return p; };
   const add = (parent, geo, c) => parent.add(new THREE.Mesh(geo, mat(c)));
   const torso = pivot(body, 0, 1.0);
   add(torso, G.torso, t.jersey); add(torso, G.pads, t.jersey);
+  const numMat = quiet(() => new THREE.MeshBasicMaterial({map:numTexture(0), transparent:true, depthWrite:false}));
+  quiet(() => { const m = new THREE.Mesh(G.numPlane, numMat); m.position.set(...bodyV([0, 0.4, -0.216])); m.rotation.y = Math.PI; torso.add(m); });
   const head = pivot(torso, 0, 0.8);
   add(head, G.helmet, t.helmet); add(head, G.stripe, t.stripe); add(head, G.mask, 0x222222);
   const arm = side => { // side: +1 left (+x), -1 right (-x)
@@ -43,40 +65,22 @@ function makePlayer(team, role){
   const sh = new THREE.Mesh(G.shadow, shadowMat); sh.rotation.x = -Math.PI/2; sh.position.y = 0.035;
   g.add(body, sh); scene.add(g);
   const pose = {}; JOINTS.forEach(j => pose[j] = 0);
-  return {team, role, skin, mesh:g, body, j:{torso, head, shL, elL, shR, elR, hipL, kneeL, hipR, kneeR}, pose,
-          x:0, y:0, vx:0, vy:0, spd:7, stun:0, acc:5, brake:7.5, turn:6, accel:0, stride:Math.random()*6, face:0, act:null, actT:0, eng:0};
+  return {team, role, skin, setNum:n => { numMat.map = numTexture(n); }, mesh:g, body, j:{torso, head, shL, elL, shR, elR, hipL, kneeL, hipR, kneeR}, pose,
+          x:0, y:0, vx:0, vy:0, spd:7, stun:0, acc:5, leg:5 /* B-034 (speed-scale) */, brake:7.5, turn:6, accel:0, stride:Math.random()*6, face:0, act:null, actT:0, eng:0};
 }
+// Twenty-two fixed bodies (every body shares one geometry, so a sub adds nothing to the scene). subIn (src/roster.js) copies roster
+// records onto them between plays and refills the group arrays in place: WRs, EXTRA (a fullback or second tight end), RECV and ROUTE_KEYS
+// on offense; DL, LBs, CBs and SFs on defense. QB, LT..RT, TE and RB stay named slots; OFF, DEF and ALL never change.
 export const QB = makePlayer('O','QB');
 export const LT = makePlayer('O','OL'), LG = makePlayer('O','OL'), C = makePlayer('O','OL'), RG = makePlayer('O','OL'), RT = makePlayer('O','OL');
-export const WRs = [makePlayer('O','WR'), makePlayer('O','WR'), makePlayer('O','WR')];
+const FLEX = [makePlayer('O','WR'), makePlayer('O','WR'), makePlayer('O','WR')];   // WR, WR, WR | WR, WR, TE2 | WR, WR, FB | WR, TE2, FB
 export const TE = makePlayer('O','WR'), RB = makePlayer('O','WR');
-export const OL = [LT, LG, C, RG, RT], RECV = [...WRs, TE, RB], ROUTE_KEYS = ['out','out','slot','te','rb'];
-export const OFF = [QB, ...OL, ...RECV];
-export const DL = [makePlayer('D','DL'), makePlayer('D','DL'), makePlayer('D','DL'), makePlayer('D','DL')];
-export const LBs = [makePlayer('D','LB'), makePlayer('D','LB')];
-export const CBs = [makePlayer('D','CB'), makePlayer('D','CB'), makePlayer('D','CB')];
-export const SFs = [makePlayer('D','S'), makePlayer('D','S')];
-export const DEF = [...DL, ...LBs, ...CBs, ...SFs], ALL = [...OFF, ...DEF];
-// ratings (kept for the whole game): blockers have strength / agility, defenders power / speed
-{
-  const R = (a, b) => Math.round(rand(a, b));
-  const rate = (p, a, b, c, e) => { if(p.team === 'O'){ p.rStr = R(a, b); p.rAgi = R(c, e); } else { p.rPow = R(a, b); p.rSpd = R(c, e); } };
-  OL.forEach(o => rate(o, 70, 90, 55, 80)); rate(TE, 60, 80, 60, 75); rate(RB, 55, 70, 60, 75);
-  WRs.forEach(w => rate(w, 40, 60, 60, 80)); rate(QB, 35, 45, 45, 55);
-  DL.forEach((d, i) => (i === 0 || i === 3) ? rate(d, 60, 80, 72, 90) : rate(d, 75, 92, 55, 70));   // ends: speed, tackles: power
-  LBs.forEach(b => rate(b, 60, 75, 60, 78)); CBs.forEach(c => rate(c, 40, 60, 65, 85)); SFs.forEach(s => rate(s, 50, 65, 60, 80));
-  // tackling: ball carriers have break-tackle (rBrk), defenders tackling (rTkl); mass in lb drives collisions
-  const MASS = {RB:215, WR:195, TE:250, QB:220, OL:310, DT:305, DE:270, LB:240, CB:195, S:205};
-  OFF.forEach(o => o.rBrk = o === RB ? R(65, 85) : o === TE ? R(65, 80) : o === QB ? R(40, 55) : R(50, 70));
-  DEF.forEach(d => d.rTkl = d.role === 'LB' ? R(75, 90) : d.role === 'S' ? R(70, 85) : d.role === 'CB' ? R(60, 78) : R(65, 80));
-  // awareness: how fast he reads the play and how cleanly he takes his angles
-  DEF.forEach(d => d.rAwr = d.role === 'LB' || d.role === 'S' ? R(65, 90) : R(55, 80));
-  // movement: [acceleration, cut/turn] in yd/s²; braking is 1.5x acceleration
-  const MOVE = {RB:[7.2,13], WR:[6.5,8.5], TE:[6,6.5], QB:[5,6.5], OL:[5.6,5.5], DT:[5.8,6], DE:[6.2,7], LB:[5.8,7.5], CB:[6.5,8.5], S:[6,8]};
-  ALL.forEach(p => {
-    const key = p === RB ? 'RB' : p === TE ? 'TE' : p.role === 'DL' ? (p === DL[0] || p === DL[3] ? 'DE' : 'DT') : p.role;
-    const [a, t] = MOVE[key];
-    p.acc = a*rand(0.92, 1.08); p.brake = p.acc*1.5; p.turn = t*rand(0.92, 1.08);
-    p.mass = MASS[key]*rand(0.95, 1.05);
-  });
-}
+export const OL = [LT, LG, C, RG, RT], WRs = [], EXTRA = [], RECV = [], ROUTE_KEYS = [];
+export const OFF = [QB, ...OL, ...FLEX, TE, RB];
+const DB = [...Array(4)].map(() => makePlayer('D','DL')).concat([...Array(2)].map(() => makePlayer('D','LB')), [...Array(3)].map(() => makePlayer('D','CB')), [...Array(2)].map(() => makePlayer('D','S')));
+export const DL = [], LBs = [], CBs = [], SFs = [];
+export const DEF = DB, ALL = [...OFF, ...DEF];
+// ratings: nine 0-99 per record from a position template (src/ratings.js), 46 records a team; newGame draws them again
+export const rate = () => rateRosters();
+bindSlots({QB, OL, TE, RB, flex:FLEX, WRs, EXTRA, RECV, ROUTE_KEYS, DEF:DB, DL, LBs, CBs, SFs});   // B-078: rate() runs from main.js, after seeding
+subIn();   // default 11 personnel and nickel: today's twenty-two
