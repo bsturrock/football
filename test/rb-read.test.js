@@ -58,13 +58,24 @@ test('F-35 #9: with the playside A, B, C filled he cuts back to the backside', (
   for (let i = 0; i < CAP && !run.locked && play.ball.phase !== 'dead'; i++) {
     park(play);
     const wins = laneWindows(play.players, run.line, run.side).filter((w) => w.side === 'play').slice(0, 3);
-    const ds = defenders(play);
+    // Fillers come only from FREE defenders: none engaged and none targeted by any blocker. A defender a
+    // blocker climbs to (a double team's watch linebacker) leaves the pool and another free one fills his window,
+    // so the windows stay filled by unblocked threats however the blockers retarget.
+    const isFree = (d) => engagedOn(play.players, d.id).length === 0
+      && !play.players.some((o) => o.team === 'offense' && o.block?.target === d.id);
+    const ds = defenders(play).filter(isFree);
     // The windows slide with the line during the step: aim each filler at where its window will be.
     wins.forEach((w, k) => {
       const mid = (w.lo + w.hi) / 2;
       ds[k].x = mid + (prevMid[k] === undefined ? 0 : mid - prevMid[k]);
       ds[k].y = LOS + BODY_RADIUS;
       prevMid[k] = mid;
+    });
+    // Guard against fixture drift: each playside window holds a free defender in the read band.
+    const after = laneWindows(play.players, run.line, run.side).filter((w) => w.side === 'play').slice(0, 3);
+    after.forEach((w, k) => {
+      assert.ok(defenders(play).some((d) => isFree(d) && d.x >= w.lo && d.x <= w.hi
+        && d.y >= LOS - GAP_BACK && d.y <= LOS + LANE_AHEAD), `tick ${i}: window ${k} has no free defender`);
     });
     play.step(DT);
   }

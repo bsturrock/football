@@ -1,10 +1,10 @@
 // Inside zone: a rule table run by the assignment engine, plus the runtime switch rule.
-import { readFront } from './front.js';
+import { readFront, HEAD_UP } from './front.js';
 import { runScheme } from './assign.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
-// the blocker who stays must have held the DL this long before his partner climbs; at 0.5 s on base the backside climber leaves after the Mike has filled the hole
+// the longer-held blocker on the DL must have held him this long before the climber leaves, and the stayer must be on him; a late-engaging stayer no longer delays a climber who has held since early
 export const COMBO_HOLD = 0.3;
 
 const row = (r) => Object.freeze(r);
@@ -34,29 +34,35 @@ export function zoneSwitch(players, ballPos, ctx) {
     if (!o || !p || !w) continue;
     if (o.block?.target === c.watch || p.block?.target === c.watch) continue;
     const dl = byId.get(c.target);
-    const holds = (x) =>
-      x.block?.target === c.target && x.block.engaged && (x.block.held ?? 0) >= COMBO_HOLD - 1e-9;
-    // The climber is fixed the first tick a trigger fires and kept (ctx.climbers) until the combo switches;
-    // positions drifting must not hand the climb to the other blocker.
-    const go = (pick) => {
-      const locked = ctx.climbers?.[c.owner];
-      const taker = locked === o.id ? o : locked === p.id ? p : pick;
-      if (dl && dl.react?.state !== 'winning' && holds(taker === o ? p : o)) out.push({ blocker: taker.id, target: w.id });
-      else if (!locked) ctx.climbers = { ...ctx.climbers, [c.owner]: taker.id };
+    const on = (x) => x.block?.target === c.target && x.block.engaged;
+    // The climber is re-judged every tick from where the linebacker fits; nothing is locked.
+    const go = () => {
+      if (!dl || dl.react?.state === 'winning') return;
+      const fitX = ctx.defGoals?.[c.watch]?.x ?? w.x;
+      const taker = pickClimber(o, p, dl, fitX, ctx.side);
+      const stayer = taker === o ? p : o;
+      if (!on(stayer)) return;
+      const held = Math.max(...[o, p].filter(on).map((x) => x.block.held ?? 0));
+      if (held >= COMBO_HOLD - 1e-9) out.push({ blocker: taker.id, target: w.id });
     };
-    const cm = ctx.committed?.[c.watch];
-    if (cm) {
-      const dxO = Math.abs(o.x - cm.x);
-      const dxP = Math.abs(p.x - cm.x);
-      go(dxP < dxO - 1e-9 ? p : o);
-      continue;
+    if (ctx.committed?.[c.watch]) go();
+    else {
+      const dO = Math.hypot(w.x - o.x, w.y - o.y);
+      const dP = Math.hypot(w.x - p.x, w.y - p.y);
+      if (Math.min(dO, dP) <= SWITCH_DIST) go();
     }
-    const dO = Math.hypot(w.x - o.x, w.y - o.y);
-    const dP = Math.hypot(w.x - p.x, w.y - p.y);
-    if (Math.min(dO, dP) > SWITCH_DIST) continue;
-    const lo = Math.abs(o.x - w.x);
-    const lp = Math.abs(p.x - w.x);
-    go(lp < lo - 1e-9 ? p : o);
   }
   return out;
+}
+
+// Who climbs: the blocker on the side of the DL where the linebacker fits comes off, the other overtakes.
+export function pickClimber(o, p, dl, fitX, side) {
+  const near = () => (Math.abs(p.x - fitX) < Math.abs(o.x - fitX) - 1e-9 ? p : o);
+  if (!dl || (side !== 1 && side !== -1)) return near();
+  const s = side * (fitX - dl.x);
+  const playsideP = side * p.x > side * o.x ? p : o;
+  const backsideP = playsideP === p ? o : p;
+  if (s > HEAD_UP) return playsideP;
+  if (s < -HEAD_UP) return backsideP;
+  return near();
 }

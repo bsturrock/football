@@ -6,7 +6,8 @@ import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
-import { zoneSwitch, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
+import { zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
+import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { readFront } from '../src/dots/front.js';
 import { FRONT_NAMES } from './fixtures/fronts.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
@@ -111,9 +112,17 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   assert.ok(!p2.defense.committed?.[W], 'watched LB has not committed');
   // Fixture for the gate precondition: RT cannot hold LDT naturally before the play dies on this lineup.
   Object.assign(RT.block, { engaged: true, held: COMBO_HOLD });
+  // T-152: the climber follows the gap the LB fits (his goal), not who he stands nearer; judge by pickClimber.
+  const orig = p2.retargetRule;
+  let want = null;
+  p2.retargetRule = (players, ballPos, ctx) => {
+    want = pickClimber(RT, RG, p2.player('LDT'), ctx.defGoals?.[W]?.x ?? lb.x, ctx.side).id;
+    return orig(players, ballPos, ctx);
+  };
   p2.step(DT);
-  assert.equal(RG.block.target, W);
-  assert.equal(RT.block.target, 'LDT');
+  const other = want === 'RG' ? RT : RG;
+  assert.equal(p2.player(want).block.target, W);
+  assert.equal(other.block.target, 'LDT');
 });
 
 test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blocked', () => {
@@ -445,6 +454,13 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
 });
 
 const HOLD_OK = (x, target) => x.block?.target === target && x.block.engaged && (x.block.held ?? 0) >= COMBO_HOLD - 1e-9;
+// T-152 gate: the stayer is engaged on the DL and one of the two had held him COMBO_HOLD. The climber's own
+// hold vanishes once he retargets, so `best` is the larger hold seen on the previous tick.
+const heldMax = (play, c) => Math.max(...[c.owner, c.partner].map((id) => {
+  const b = play.player(id).block;
+  return b?.target === c.target && b.engaged ? (b.held ?? 0) : 0;
+}));
+const stayerEngaged = (x, target) => x.block?.target === target && x.block.engaged;
 
 test('T-92 #5: every front, the double never leaves the DL unblocked; partner climbs after the hold', () => {
   let switches = 0;
@@ -453,6 +469,7 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
     play.snap();
     const engagedOnce = new Set();
     const switched = new Set();
+    const prevHeld = {};
     for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
       play.step(DT);
       for (const c of play.combos) {
@@ -469,8 +486,9 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
             switched.add(key);
             switches++;
             const other = play.player(climber === c.owner ? c.partner : c.owner);
-            assert.ok(HOLD_OK(other, c.target), `${front} ${c.watch} stayer holds`);
-          }
+            assert.ok(stayerEngaged(other, c.target), `${front} ${c.watch} stayer engaged`);
+            assert.ok((prevHeld[key] ?? 0) >= COMBO_HOLD - 1e-9, `${front} ${c.watch} held ${prevHeld[key]}`);
+          } else prevHeld[key] = heldMax(play, c);
         }
       }
     }
@@ -484,18 +502,23 @@ test('T-92 #6: base: RG climbs to MLB and C/LG to WLB only after the partner hel
   play.snap();
   let rg = false;
   let wlb = false;
+  const held = (a, b, target) => Math.max(...[a, b].map((id) => (stayerEngaged(play.player(id), target) ? play.player(id).block.held ?? 0 : 0)));
+  let prevL = 0;
+  let prevR = 0;
   for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
     play.step(DT);
     if (!rg && play.player('RG').block?.target === 'MLB') {
       rg = true;
-      assert.ok(HOLD_OK(play.player('RT'), 'LDT'));
-    }
+      assert.ok(stayerEngaged(play.player('RT'), 'LDT'));
+      assert.ok(prevL >= COMBO_HOLD - 1e-9, `LDT held ${prevL}`);
+    } else if (!rg) prevL = held('RG', 'RT', 'LDT');
     if (!wlb) {
       const climber = ['C', 'LG'].find((id) => play.player(id).block?.target === 'WLB');
       if (climber) {
         wlb = true;
-        assert.ok(HOLD_OK(play.player(climber === 'C' ? 'LG' : 'C'), 'RDT'));
-      }
+        assert.ok(stayerEngaged(play.player(climber === 'C' ? 'LG' : 'C'), 'RDT'));
+        assert.ok(prevR >= COMBO_HOLD - 1e-9, `RDT held ${prevR}`);
+      } else prevR = held('C', 'LG', 'RDT');
     }
   }
   assert.ok(rg && wlb);
@@ -615,6 +638,7 @@ test('F-45 #5: C and LG double the 2i; LT is alone on the end until the climb', 
   play.snap();
   const engaged = new Set();
   let switched = false;
+  let prev = 0;
   for (let t = 0; t < 4 && play.ball.phase !== 'dead'; t += DT) {
     play.step(DT);
     const C = play.player('C');
@@ -624,8 +648,10 @@ test('F-45 #5: C and LG double the 2i; LT is alone on the end until the climb', 
       if (C.block.target === 'WLB' || LG.block.target === 'WLB') {
         switched = true;
         const other = C.block.target === 'WLB' ? LG : C;
-        assert.ok(HOLD_OK(other, 'RDT'));
+        assert.ok(stayerEngaged(other, 'RDT'));
+        assert.ok(prev >= COMBO_HOLD - 1e-9, `RDT held ${prev}`);
       } else {
+        prev = Math.max(...[C, LG].map((o) => (stayerEngaged(o, 'RDT') ? o.block.held ?? 0 : 0)));
         const ids = play.blockersOf('RDE');
         assert.ok(ids.every((id) => id === 'LT'), `RDE blockers ${ids}`);
       }
@@ -684,4 +710,71 @@ test('F-45 #6: inside zone opens with a short, steep zone step', () => {
     rows.push(`${name.padEnd(9)} ${cells.join('  ')}`);
   }
   assert.equal(bad.length, 0, `${bad.join('\n')}\n(id tech tick lat/up angle, yd)\n${rows.join('\n')}`);
+});
+
+test('R-62: base and bear, every combo climber engages his watch before the watch reaches the line', () => {
+  for (const front of ['base', 'bear']) {
+    const probeOf = () => {
+      const p = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front });
+      p.snap();
+      return p;
+    };
+    for (const c of probeOf().combos) {
+      const probe = probeOf();
+      let found = null;
+      for (let i = 1; i <= Math.round(2.0 / DT) && !found; i++) {
+        probe.step(DT);
+        const hit = [c.owner, c.partner].some((id) => {
+          const b = probe.player(id).block;
+          return b && b.target === c.watch && b.engaged;
+        });
+        if (hit) found = { t: i * DT, y: probe.player(c.watch).y };
+      }
+      assert.ok(found, `${front} ${c.owner}/${c.partner} never engaged ${c.watch} within 2.0 s`);
+      assert.ok(found.y >= 25 + GAP_DEPTH, `${front} ${c.owner}/${c.partner} met ${c.watch} at ${found.t.toFixed(2)} s, y ${found.y}`);
+    }
+  }
+});
+
+test('R-64: every front, the climber on the switch tick is the blocker on the side of the fit', () => {
+  let checked = 0;
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front });
+    play.snap();
+    const orig = play.retargetRule;
+    let seen = null;
+    play.retargetRule = (players, ballPos, ctx) => {
+      const out = orig(players, ballPos, ctx);
+      seen = out.map((e) => {
+        const c = ctx.combos.find((k) => k.watch === e.target && (k.owner === e.blocker || k.partner === e.blocker));
+        const byId = (id) => players.find((q) => q.id === id);
+        const fit = ctx.defGoals?.[c.watch]?.x ?? byId(c.watch).x;
+        const want = pickClimber(byId(c.owner), byId(c.partner), byId(c.target), fit, ctx.side);
+        return { front, blocker: e.blocker, want: want.id };
+      });
+      return out;
+    };
+    for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+      seen = null;
+      const before = new Map(play.combos.map((c) => [c.watch, [c.owner, c.partner].some((id) => play.player(id).block?.target === c.watch)]));
+      play.step(DT);
+      for (const r of seen ?? []) {
+        assert.equal(r.blocker, r.want, `${front} climber`);
+        checked++;
+      }
+      void before;
+    }
+  }
+  assert.ok(checked > 0);
+});
+
+test('R-64: base, RG climbs to the MLB at or before 0.85 s', () => {
+  const play = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front: 'base' });
+  play.snap();
+  let t = null;
+  for (let i = 1; i <= 240 && t == null; i++) {
+    play.step(DT);
+    if (play.player('RG').block?.target === 'MLB') t = i * DT;
+  }
+  assert.ok(t != null && t <= 0.85 + 1e-9, `RG switched at ${t}`);
 });

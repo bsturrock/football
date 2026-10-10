@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { zonePlan, zoneSwitch, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
@@ -256,14 +256,16 @@ test('F-12 #4k: purity', () => {
 });
 
 const commit = (id, x) => (s) => { s.ctx.committed = { [id]: { x, t: 0.35 } }; };
-test('F-19 #8: committed, MLB out of range, commit past pair picks LG', () =>
-  assert.deepEqual(at(-1.6, 29.5, commit('MLB', -1.5)), [{ blocker: 'LG', target: 'MLB' }]));
-test('F-19 #8: committed toward near side picks C', () =>
-  assert.deepEqual(at(-1.6, 29.5, commit('MLB', 0.4)), [{ blocker: 'C', target: 'MLB' }]));
-test('F-19 #8: committed lateral tie goes to owner', () =>
-  assert.deepEqual(at(-1.6, 29.5, commit('MLB', -1.1)), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8: committed, MLB out of range, fit past pair picks LG', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.ctx.defGoals = { MLB: { x: -1.5 } }; }), [{ blocker: 'LG', target: 'MLB' }]));
+test('F-19 #8: the commit only triggers; the fit (defGoals) picks the climber', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8: commit with no goal falls back to the watch position', () =>
+  assert.deepEqual(at(-1.6, 29.5, commit('MLB', 0.4)), [{ blocker: 'LG', target: 'MLB' }]));
+test('F-19 #8: fit lateral tie goes to owner', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', 0)(s); s.ctx.defGoals = { MLB: { x: -1.1 } }; }), [{ blocker: 'C', target: 'MLB' }]));
 test('F-19 #8: commit beats range', () =>
-  assert.deepEqual(at(-1.3, 25.0, commit('MLB', 0.4)), [{ blocker: 'C', target: 'MLB' }]));
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', 0.4)(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]));
 test('F-19 #8: commit for another id does not trigger', () =>
   assert.deepEqual(at(-1.6, 29.5, (s) => { s.ctx.committed = { WLB: { x: -1.5, t: 0 } }; }), []));
 test('F-19 #8: null committed uses range rule', () => {
@@ -286,43 +288,67 @@ test('F-19 #8: purity with committed', () => {
   assert.deepEqual(ctx, c0);
 });
 
-test('T-92: stayer held just under COMBO_HOLD -> no switch', () =>
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = COMBO_HOLD - 0.01; }), []));
-test('T-92: stayer not engaged -> no switch', () =>
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.engaged = false; }), []));
-test('T-92: winning DL -> no switch', () =>
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('RDT').react = { state: 'winning' }; }), []));
-test('T-92: taker held is irrelevant', () =>
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('LG').block.held = 0; }), [{ blocker: 'LG', target: 'MLB' }]));
-test('T-92: commit trigger also gated by the stayer hold', () => {
-  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), []);
-});
 
-test('T-92: a gated wait records the climber on ctx and leaves players alone', () => {
-  const s = sw();
-  Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
-  s.g('C').block.held = 0;
-  const p0 = structuredClone(s.players);
-  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), []);
-  assert.deepEqual(s.ctx.climbers, { C: 'LG' });
-  assert.deepEqual(s.players, p0);
+const dl = (x) => ({ id: 'D', x });
+const blkAt = (x) => ({ id: 'B' + x, x });
+test('pickClimber: playside fit sends the playside blocker', () => {
+  const [a, b] = [blkAt(-1), blkAt(1)];
+  assert.equal(pickClimber(a, b, dl(0), 0.5, 1), b);
+  assert.equal(pickClimber(a, b, dl(0), -0.5, -1), a);
 });
-const lockSetup = () => {
+test('pickClimber: backside fit sends the backside blocker', () => {
+  const [a, b] = [blkAt(-1), blkAt(1)];
+  assert.equal(pickClimber(b, a, dl(0), -0.5, 1), a);
+  assert.equal(pickClimber(b, a, dl(0), 0.5, -1), b);
+});
+test('pickClimber: dead band goes to the nearer blocker, tie to the owner', () => {
+  const [a, b] = [blkAt(-1), blkAt(1)];
+  assert.equal(pickClimber(a, b, dl(0), 0.1, 1), b);
+  assert.equal(pickClimber(a, b, dl(0), -0.1, 1), a);
+  assert.equal(pickClimber(a, b, dl(0), 0, 1), a);
+  assert.equal(pickClimber(b, a, dl(0), 0, 1), b);
+});
+test('pickClimber: bad side or missing DL falls back to nearest', () => {
+  const [a, b] = [blkAt(-1), blkAt(1)];
+  assert.equal(pickClimber(a, b, dl(0), 0.8, 0), b);
+  assert.equal(pickClimber(a, b, null, 0.8, 1), b);
+});
+test('pickClimber: defGoals beats the watch position in zoneSwitch', () => {
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: 0.2 } }; }), [{ blocker: 'C', target: 'MLB' }]);
+  assert.deepEqual(at(0, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: -2 } }; }), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('zoneSwitch: playside sign picks by the DL, not the nearer blocker', () => {
+  // RDT sits at its lineup x; fit far playside (side +1) sends the more playside blocker even if the other is nearer
   const s = sw();
+  Object.assign(s.g('RDT'), { x: -1.0 });
   Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
-  s.g('C').block.held = 0;
-  zoneSwitch(s.players, null, s.ctx); // records LG
-  // C becomes laterally nearer the LB
-  Object.assign(s.g('MLB'), { x: -0.5, y: 25.0 });
-  s.g('C').block.held = COMBO_HOLD;
-  s.g('LG').block.held = COMBO_HOLD;
-  return s;
-};
-test('T-92: the climber chosen on the first trigger tick is kept', () => {
-  const s = lockSetup();
+  s.ctx.side = 1;
+  s.ctx.defGoals = { MLB: { x: -0.2 } };
+  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'C', target: 'MLB' }]);
+  s.ctx.side = -1;
+  s.ctx.defGoals = { MLB: { x: -1.8 } };
   assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'LG', target: 'MLB' }]);
 });
-test('T-92: without the lock the nearer blocker climbs', () => {
-  const s = lockSetup();
-  assert.deepEqual(zoneSwitch(s.players, null, { combos: s.ctx.combos }), [{ blocker: 'C', target: 'MLB' }]);
+
+test('gate: stayer just engaged, climber held COMBO_HOLD -> switch', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = 0; }), [{ blocker: 'LG', target: 'MLB' }]));
+test('gate: neither held long enough -> none', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = COMBO_HOLD - 0.01; s.g('LG').block.held = COMBO_HOLD - 0.01; }), []));
+test('gate: stayer not engaged -> none', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.engaged = false; }), []));
+test('gate: winning DL -> none', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('RDT').react = { state: 'winning' }; }), []));
+test('gate: commit trigger uses the same gate', () => {
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; s.g('LG').block.held = 0; }), []);
+});
+test('gate: zoneSwitch leaves ctx and players alone (no climber lock)', () => {
+  const s = sw();
+  Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
+  s.g('C').block.engaged = false;
+  const p0 = structuredClone(s.players);
+  const c0 = structuredClone(s.ctx);
+  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), []);
+  assert.deepEqual(s.players, p0);
+  assert.deepEqual(s.ctx, c0);
 });
