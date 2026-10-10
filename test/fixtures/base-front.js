@@ -13,9 +13,8 @@ export const BASE_LB_IDS = ['MLB', 'SLB', 'WLB'];
 export const LB_READ = { MLB: 0.35, WLB: 0.5, SLB: 0.5 };
 // inside-zone `free` per roster front (zonePlan / runScheme with IZ rules), in produced order
 export const IZ_FREE = { base: ['LDE', 'SLB'], dlPlus4: ['SLB', 'LDE'], dlMinus4: ['WLB', 'SLB'], lbMinus6: ['MLB', 'LDE'] };
-// insideZone after 6x shiftLB(-1): the LB the RT/RG combo watches, and the sim time (s) RG/RT first targets him
+// insideZone after 6x shiftLB(-1): the LB the RT/RG combo watches
 export const LB_MINUS6_RG_WATCH = 'SLB';
-export const LB_MINUS6_RG_TAKEN_AT = 0.500;
 // createPlay(25, 'insideZone').numbers: unshifted, after 6x shiftLB(-1), after 4x shiftDL(1)
 export const IZ_NUMBERS = {
   base: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, LDE: -3, LDT: -1, RDT: 0, RDE: 2, MLB: -2, WLB: 1, SLB: -4 },
