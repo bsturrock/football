@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
-import { FRONTS } from '../src/dots/roster.js';
+import { FRONTS, BALL_LENGTH } from '../src/dots/roster.js';
 
 test('frontOptions has one entry per FRONTS key, in order, with matching names', () => {
   const opts = frontOptions();
@@ -123,4 +123,19 @@ test('F-27 #2: speedStep steps, rounds and clamps', () => {
   let s = SIM_SPEED;
   for (let i = 0; i < 20; i++) s = speedStep(s, 1);
   assert.strictEqual(s, 1.35);
+});
+
+test('F-30 #9: field, ball and ring constants', () => {
+  assert.equal(HASH_HALF, 18.5 / 6);
+  assert.equal(HASH_LEN, 2 / 3);
+  assert.equal(YARD_LINE_W, 1 / 9);
+  assert.equal(GOAL_LINE_W, 2 / 9);
+  assert.equal(BORDER_W, 2);
+  assert.equal(UPRIGHTS_W, 18.5 / 3);
+  assert.equal(RING_INNER, 2.1 * BODY_RADIUS);
+  assert.equal(RING_OUTER, 2.7 * BODY_RADIUS);
+  assert.equal(BALL_DRAW_AHEAD, BODY_RADIUS + BALL_LENGTH / 2);
+  // Pre-snap the ball's rear tip sits on the LOS.
+  const play = createPlay(25, 'insideZone');
+  assert.ok(Math.abs(play.ballPosition().y + BALL_DRAW_AHEAD - BALL_LENGTH / 2 - 25) < 1e-9);
 });

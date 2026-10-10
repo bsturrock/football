@@ -6,6 +6,11 @@
 // dy = yards from the line of scrimmage (negative = offense backfield,
 // positive = defense side).
 
+// Ball and neutral zone, yd. The ball's rear tip is on the LOS (y = los), its front tip at
+// los + BALL_LENGTH; the offense lines up behind the rear tip, the defense beyond the front tip.
+export const BALL_LENGTH = 11 / 36; // 11 in ball = neutral zone width
+export const BALL_WIDTH = 6.7 / 36;
+
 // def is an optional per-defender behaviour object. def.read = seconds after the snap
 // before this defender can recognise run (per-player tunable, 0.3-0.6); a missing
 // def.read falls back to READ_TIME in defense.js.
@@ -13,32 +18,34 @@ const pos = (id, name, team, role, dx, dy, speed, strength, def) =>
   Object.freeze({ id, name, team, role, dx, dy, speed, strength, def: def ? Object.freeze({ ...def }) : null });
 
 // Ratings per position. speed is yd/s of short-area play speed (about 80% of the
-// 40-yard-dash average; no acceleration model). strength is unitless force used by
-// blocking: OL must stay above every defender's strength / 0.7071 so the OL win at
-// any block angle.
+// 40-yard-dash average); steering.js's ACCEL_TAU ramp models the start from rest.
+// strength is unitless force used by blocking: OL must stay above every defender's
+// strength / 0.7071 so the OL win at any block angle.
 export const POSITIONS = Object.freeze([
-  // OL: linemen 1.5 yd center to center (0.8 yd = 2.4 ft body-to-body, NFL 2-3 ft).
-  // C just behind the ball, guards about 1 ft deeper, tackles 0.15 yd deeper than guards.
-  pos('LT', 'Left Tackle', 'offense', 'OL', -3.0, -0.9, 6.0, 1.0),
-  pos('LG', 'Left Guard', 'offense', 'OL', -1.5, -0.75, 6.0, 1.0),
-  pos('C', 'Center', 'offense', 'OL', 0, -0.4, 6.0, 1.0),
-  pos('RG', 'Right Guard', 'offense', 'OL', 1.5, -0.75, 6.0, 1.0),
-  pos('RT', 'Right Tackle', 'offense', 'OL', 3.0, -0.9, 6.0, 1.0),
-  // QB at NFL shotgun depth (5 yd behind the LOS); RB offset level with him, 1.8 yd to +x.
-  pos('QB', 'Quarterback', 'offense', 'QB', 0, -5.0, 7.0, 0.3),
-  pos('RB', 'Running Back', 'offense', 'RB', 1.8, -5.0, 8.0, 0.5),
+  // OL: linemen 1.2 yd center to center (body-to-body split 0.64 yd, about 1.9 ft, inside
+  // the standard 1-2 ft). C's front edge sits on the ball's rear tip (dy = -BODY_RADIUS);
+  // guards about 1 ft deeper, tackles 0.15 yd deeper still.
+  pos('LT', 'Left Tackle', 'offense', 'OL', -2.4, -0.75, 6.0, 1.0),
+  pos('LG', 'Left Guard', 'offense', 'OL', -1.2, -0.6, 6.0, 1.0),
+  pos('C', 'Center', 'offense', 'OL', 0, -0.28, 6.0, 1.0),
+  pos('RG', 'Right Guard', 'offense', 'OL', 1.2, -0.6, 6.0, 1.0),
+  pos('RT', 'Right Tackle', 'offense', 'OL', 2.4, -0.75, 6.0, 1.0),
+  // QB 5 yd behind the center (shotgun 5-7 yd); RB level with him, about 3 ft of daylight to his side.
+  pos('QB', 'Quarterback', 'offense', 'QB', 0, -5.3, 7.0, 0.3),
+  pos('RB', 'Running Back', 'offense', 'RB', 1.6, -5.3, 8.0, 0.5),
   // Defense faces -y, so its left is +x.
-  // DL just across a ball-length neutral zone (0.7 yd): DTs in an inside shade of the
-  // guards, DEs in an outside shade of the tackles.
-  pos('LDE', 'Left Defensive End', 'defense', 'DE', 3.6, 0.7, 7.0, 0.5),
-  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 1.2, 0.7, 6.5, 0.6),
-  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -1.2, 0.7, 6.5, 0.6),
-  pos('RDE', 'Right Defensive End', 'defense', 'DE', -3.6, 0.7, 7.0, 0.5),
-  // LBs at 4.5 yd, an NFL off-ball depth. MLB (Mike) at center-right of the box, WLB (Will) at -x,
+  // DL at dy 0.6: the body front sits just past the ball's front tip. Techniques use a
+  // 0.25 yd (9 in) shade: 0 = 0, 1 = 0.25, 2i = 0.95, 3 = 1.45, 5 = 2.65, 7 = 3.35
+  // (inside shoulder of a ghost TE at 3.6).
+  pos('LDE', 'Left Defensive End', 'defense', 'DE', 2.65, 0.6, 7.0, 0.5),
+  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 0.95, 0.6, 6.5, 0.6),
+  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -0.95, 0.6, 6.5, 0.6),
+  pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5),
+  // LBs at 4.5 yd, inside the 3-5 yd range. MLB (Mike) at center-right of the box, WLB (Will) at -x,
   // SLB (Sam) outside the Mike on the offense-right (+x) side. SLB stays after MLB: roleRating reads the first LB row.
-  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.6, 4.5, 7.5, 0.5, { read: 0.35 }),
-  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.6, 4.5, 7.5, 0.5, { read: 0.5 }),
-  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 4.4, 4.5, 7.5, 0.5, { read: 0.5 }),
+  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, 4.5, 7.5, 0.5, { read: 0.35 }),
+  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, 4.5, 7.5, 0.5, { read: 0.5 }),
+  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, 4.5, 7.5, 0.5, { read: 0.5 }),
 ]);
 
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
@@ -63,12 +70,12 @@ const defenders = (rows) => Object.freeze(rows.map(([id, role, dx, dy]) => {
 const swap = (rows, id, dx, dy) => rows.map((r) => (r[0] === id ? [r[0], r[1], dx, dy] : r));
 
 const OVER43 = [
-  ['PE', 'DE', -3.6, 0.7], ['PT', 'DT', -1.9, 0.7], ['BT', 'DT', 0.5, 0.7], ['BE', 'DE', 3.6, 0.7],
-  ['SAM', 'LB', -3.0, 4.5], ['MIK', 'LB', -0.5, 4.5], ['WIL', 'LB', 2.0, 4.5],
+  ['PE', 'DE', -2.65, 0.6], ['PT', 'DT', -1.45, 0.6], ['BT', 'DT', 0.25, 0.6], ['BE', 'DE', 2.65, 0.6],
+  ['SAM', 'LB', -2.4, 4.5], ['MIK', 'LB', -0.4, 4.5], ['WIL', 'LB', 1.6, 4.5],
 ];
 const UNDER43 = [
-  ['PE', 'DE', -3.6, 0.7], ['PN', 'DT', -0.5, 0.7], ['BT', 'DT', 1.9, 0.7], ['BE', 'DE', 3.6, 0.7],
-  ['L1', 'LB', -2.4, 4.5], ['L2', 'LB', 0.6, 4.5], ['L3', 'LB', 3.0, 4.5],
+  ['PE', 'DE', -2.65, 0.6], ['PN', 'DT', -0.25, 0.6], ['BT', 'DT', 1.45, 0.6], ['BE', 'DE', 2.65, 0.6],
+  ['L1', 'LB', -1.92, 4.5], ['L2', 'LB', 0.48, 4.5], ['L3', 'LB', 2.4, 4.5],
 ];
 
 export const FRONTS = Object.freeze({
@@ -81,24 +88,24 @@ export const FRONTS = Object.freeze({
   odd34: Object.freeze({
     name: '3-4',
     defenders: defenders([
-      ['PO', 'LB', -5.0, 1.0], ['PE', 'DE', -3.6, 0.7], ['N', 'DT', 0, 0.7], ['BE', 'DE', 3.6, 0.7],
-      ['BO', 'LB', 5.0, 1.0], ['PI', 'LB', -1.4, 4.5], ['BI', 'LB', 1.4, 4.5],
+      ['PO', 'LB', -4.0, 1.0], ['PE', 'DE', -2.65, 0.6], ['N', 'DT', 0, 0.6], ['BE', 'DE', 2.65, 0.6],
+      ['BO', 'LB', 4.0, 1.0], ['PI', 'LB', -1.12, 4.5], ['BI', 'LB', 1.12, 4.5],
     ]),
   }),
   bear: Object.freeze({
     name: 'Bear',
     defenders: defenders([
-      ['PE', 'DE', -4.4, 0.7], ['P3', 'DT', -1.9, 0.7], ['N', 'DT', 0, 0.7], ['B3', 'DT', 1.9, 0.7],
-      ['BE', 'DE', 4.4, 0.7], ['L1', 'LB', -1.4, 4.5], ['L2', 'LB', 2.0, 4.5],
+      ['PE', 'DE', -3.35, 0.6], ['P3', 'DT', -1.45, 0.6], ['N', 'DT', 0, 0.6], ['B3', 'DT', 1.45, 0.6],
+      ['BE', 'DE', 3.35, 0.6], ['L1', 'LB', -1.12, 4.5], ['L2', 'LB', 1.6, 4.5],
     ]),
   }),
   walkedUp: Object.freeze({
     name: '4-3 Over, Sam Walked Up',
-    defenders: defenders(swap(OVER43, 'SAM', -4.6, 1.5)),
+    defenders: defenders(swap(OVER43, 'SAM', -3.68, 1.5)),
   }),
   backedOff: Object.freeze({
     name: '4-3 Under, 3-Tech Backed Off',
-    defenders: defenders(swap(UNDER43, 'BT', 1.9, 2.5)),
+    defenders: defenders(swap(UNDER43, 'BT', 1.45, 2.5)),
   }),
 });
 

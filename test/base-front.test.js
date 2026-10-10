@@ -8,8 +8,9 @@ test('F-22 #1/#2: SLB row and base front', () => {
   assert.equal(slb.name, 'Strongside Linebacker');
   assert.equal(slb.team, 'defense');
   assert.equal(slb.role, 'LB');
-  assert.equal(slb.dx, 4.4);
-  assert.equal(slb.dy, 4.5);
+  const mlb = POSITIONS.find((p) => p.id === 'MLB');
+  assert.ok(slb.dx > mlb.dx);
+  assert.equal(slb.dy, mlb.dy);
   assert.equal(slb.speed, 7.5);
   assert.equal(slb.strength, 0.5);
   assert.deepEqual(slb.def, { read: 0.5 });
