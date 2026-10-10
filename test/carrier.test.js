@@ -4,7 +4,7 @@ import {
   laneWindows, freeLane, scoreLanes, chooseLane, startRun, stepCarrier,
   LANES, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, LOCK_DEPTH, GOAL_LINE_Y,
   GAP_DEPTH, LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
-  PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, CLEAR_ROOM, CLEAR_HOLD, BEND_MAX,
+  PHASE_PACE, CLOSE_HOLD, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, CLEAR_ROOM, CLEAR_HOLD, BEND_MAX,
   AVOID_SIGHT_MIN, AVOID_SIGHT_MAX, AVOID_FAN, AVOID_CONTACT, AVOID_CLOSE, AVOID_SIDELINE, AVOID_HOLD, AVOID_SWITCH, AVOID_AIM_DIST, visionOf,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS, engagedOn } from '../src/dots/blocking.js';
@@ -944,4 +944,60 @@ test('F-48 #12 (b): a held cut is not changed or restarted while a man is inside
     assert.ok(run.aim.y > rb.y);
     assert.ok(Math.abs(bearing(line, run.aim) - line.th) < 1e-6 || Math.abs(run.aim.x - (line.x + (run.aim.y - line.y) * Math.tan(line.th))) < 1e-6);
   }
+});
+
+// CLOSE_HOLD: a carried, unlocked RB keeps his lane through a closure shorter than CLOSE_HOLD.
+const holdRig = () => {
+  const { pl, run, rb } = pinned([]);
+  run.patience = 10;
+  const ws = laneWindows(pl, run.line, run.side);
+  const w = get(ws, 'play', 'A');
+  const d = pl.find((p) => p.team === 'defense');
+  const close = (on) => { d.x = on ? (w.lo + w.hi) / 2 : 15; d.y = on ? LOS + BODY_RADIUS : 45; };
+  const tick = () => { go(pl, run); rb.x = run.mesh.x; rb.y = run.mesh.y; return run.lanes.find((l) => l.side === 'play' && l.name === 'A'); };
+  return { run, close, tick };
+};
+const HOLD_TICKS = Math.ceil(CLOSE_HOLD * 60 - 1e-9);
+
+test('CLOSE_HOLD (a): a closure shorter than CLOSE_HOLD keeps the lane and the last aim', () => {
+  const { run, close, tick } = holdRig();
+  assert.equal(tick().open, true);
+  assert.equal(run.closedFor, 0);
+  assert.deepEqual(run.lane, { side: 'play', name: 'A' });
+  const aim = { ...run.aim };
+  close(true);
+  for (let i = 0; i < HOLD_TICKS - 1; i++) {
+    assert.equal(tick().open, false);
+    assert.deepEqual(run.lane, { side: 'play', name: 'A' }, 'tick ' + i);
+    assert.deepEqual(run.aim, aim, 'tick ' + i);
+  }
+  close(false);
+  assert.equal(tick().open, true);
+  assert.deepEqual(run.lane, { side: 'play', name: 'A' });
+  assert.equal(run.closedFor, 0);
+});
+
+test('CLOSE_HOLD (b): a lane closed for CLOSE_HOLD switches to the chooseLane pick on the first tick the hold runs out', () => {
+  const { run, close, tick } = holdRig();
+  tick();
+  close(true);
+  for (let i = 0; i < HOLD_TICKS - 1; i++) { tick(); assert.equal(run.lane.name, 'A'); }
+  tick();
+  const expect = chooseLane(run.lanes, { side: 'play', name: 'A' });
+  assert.equal(expect.name, 'B');
+  assert.deepEqual(run.lane, { side: expect.side, name: expect.name });
+});
+
+test('CLOSE_HOLD (c): a lane that has not read open since it was picked is not held', () => {
+  const { run, close, tick } = holdRig();
+  close(true);
+  run.closedFor = null;
+  tick();
+  assert.equal(run.lane.name, 'B');
+  assert.equal(run.closedFor, 0);
+  const r2 = holdRig();
+  r2.close(true);
+  r2.run.closedFor = null;
+  r2.tick();
+  assert.deepEqual(r2.run.lane, { side: 'play', name: 'B' });
 });
