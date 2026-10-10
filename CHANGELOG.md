@@ -39,3 +39,4 @@
 - 2026-10-10 F-41 TE-side line holds and the double climbs in time (R-56) 434a6ba
 - 2026-10-10 F-38 Backside edge reads and keeps contain (R-52) dab02e0
 - 2026-10-10 F-42 Free movers drop a lane that a blocker is closing on his target (R-50) 3767bb9
+- 2026-10-10 F-43 DL pursue with the shared lead goal and lead their moving gap (R-48) 84b03d1
