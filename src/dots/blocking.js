@@ -481,12 +481,14 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       const g = ctx?.defGoals?.[d.id];
       if (g) {
         const gd = Math.hypot(g.x - d.x, g.y - d.y);
-        if (gd > 1e-9) {
+        // A free defender never steps inside contact of the ball; the tackle rule takes over at TACKLE_DIST.
+        const bd = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
+        if (gd > 1e-9 && bd > CONTACT_DIST) {
           steerStep(
             d,
             { x: g.x, y: g.y, key: g.key, ignore: holderId },
             players,
-            Math.min(g.rate * dt, gd),
+            Math.min(g.rate * dt, gd, bd - CONTACT_DIST),
             dt,
             BODY_RADIUS,
           );

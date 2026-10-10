@@ -193,6 +193,42 @@ test('stepBlocking engaged defender leans to his goal, else the ball', () => {
   assert.equal(noGoal[1].react.side, -1);
 });
 
+test('T-118: a free defender with a goal stops at CONTACT_DIST from the ball', () => {
+  const ballAt = (p) => ({ x: p.x, y: p.y });
+  const holder = O('rb', 0, 10 - CONTACT_DIST - 0.05);
+  const ps = [D('d', 0, 10), holder];
+  const ball = ballAt(holder);
+  const ctx = { rule: null, seq: 0, defGoals: { d: { x: holder.x, y: holder.y, key: 'def:pursue', rate: 7 } } };
+  const before = Math.hypot(ball.x - ps[0].x, ball.y - ps[0].y);
+  stepBlocking(ps, ball, DT, ctx);
+  const after = Math.hypot(ball.x - ps[0].x, ball.y - ps[0].y);
+  assert.ok(after >= CONTACT_DIST - 1e-9, `distance ${after} below CONTACT_DIST`);
+  assert.ok(after < before, 'defender moved toward the ball');
+});
+
+test('T-118: a free defender already at CONTACT_DIST holds still', () => {
+  const d = D('d', 0, CONTACT_DIST - 0.01);
+  const ps = [d];
+  const ball = { x: 0, y: 0 };
+  const ctx = { rule: null, seq: 0, defGoals: { d: { x: 0, y: 0, key: 'def:pursue', rate: 7 } } };
+  stepBlocking(ps, ball, DT, ctx);
+  near(ps[0].x, 0, 1e-9);
+  near(ps[0].y, CONTACT_DIST - 0.01, 1e-9);
+});
+
+test('T-118: a goal far from the ball still moves a free defender g.rate * DT', () => {
+  const holder = O('rb', -10, 0);
+  const d = D('d', 0, 0);
+  const ps = [d, holder];
+  const ball = { x: -10, y: 0 };
+  const g = { x: 10, y: 10, key: 'def:gap', rate: 6 };
+  const start = Math.hypot(g.x - d.x, g.y - d.y);
+  stepBlocking(ps, ball, DT, { rule: null, seq: 0, defGoals: { d: g } });
+  const moved = Math.hypot(d.x, d.y);
+  near(moved, 6 * DT, 1e-6);
+  assert.ok(Math.hypot(g.x - ps[0].x, g.y - ps[0].y) < start);
+});
+
 test('resolveBlock adds react.hold', () => {
   const goal = { x: 0, y: 0 };
   const held = D('d', 0, 10, { react: { dir: { x: 0, y: -1 }, hold: { x: 0, y: -0.4 } } });
