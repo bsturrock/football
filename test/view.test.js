@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
+import { angleDiff } from '../src/dots/facing.js';
 import { FRONTS, BALL_LENGTH } from '../src/dots/roster.js';
 
 test('frontOptions has one entry per FRONTS key, in order, with matching names', () => {
@@ -167,6 +168,28 @@ test('T-89: drawPos on a real play lies on the prev-to-current segment', () => {
     assert.ok(Math.abs(d.y - (prev.y + (p.y - prev.y) * a)) < 1e-9, p.id);
     assert.ok(a >= 0 && a < 1);
   }
+});
+
+test('T-111: drawFacing interpolates the shortest arc from prev facing by alpha', () => {
+  const p = { id: 'A', facing: 0.5 };
+  assert.equal(drawFacing({ prev: {} , alpha: 0.5 }, p), 0.5);
+  assert.equal(drawFacing({ prev: { B: { facing: 1 } }, alpha: 0.5 }, p), 0.5);
+  assert.ok(Math.abs(drawFacing({ prev: { A: { facing: 0.2 } }, alpha: 0 }, p) - 0.2) < 1e-9);
+  assert.ok(Math.abs(drawFacing({ prev: { A: { facing: 0.2 } }, alpha: 1 }, p) - 0.5) < 1e-9);
+  const wrapped = drawFacing({ prev: { A: { facing: 3.0 } }, alpha: 0.5 }, { id: 'A', facing: -3.0 });
+  assert.ok(Math.abs(angleDiff(wrapped, Math.PI)) < 1e-9);
+});
+
+test('T-111: noseTriangle points along facing with the base across it', () => {
+  const tri = noseTriangle({ x: 0, y: 25 }, 0);
+  assert.ok(Math.abs(tri[0].x - 0) < 1e-9 && Math.abs(tri[0].y - (25 + BODY_RADIUS)) < 1e-9);
+  const corners = [tri[1], tri[2]];
+  const want = [{ x: NOSE_HALF_W, y: 25 }, { x: -NOSE_HALF_W, y: 25 }];
+  for (const w of want) {
+    assert.ok(corners.some((c) => Math.abs(c.x - w.x) < 1e-9 && Math.abs(c.y - w.y) < 1e-9), JSON.stringify(w));
+  }
+  const side = noseTriangle({ x: 0, y: 25 }, Math.PI / 2);
+  assert.ok(Math.abs(side[0].x - BODY_RADIUS) < 1e-9 && Math.abs(side[0].y - 25) < 1e-9);
 });
 
 test('T-89: resultLabel', () => {

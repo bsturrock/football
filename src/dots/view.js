@@ -4,6 +4,7 @@
 import { createPlay, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
 import { FRONTS, BALL_LENGTH, BALL_WIDTH } from './roster.js';
 import { BODY_RADIUS } from './blocking.js';
+import { wrapAngle, angleDiff, facingDir } from './facing.js';
 import { HW } from '../util.js';
 
 // Number label square covers the dot.
@@ -109,6 +110,28 @@ export function drawPos(play, p) {
   if (!prev) return { x: p.x, y: p.y };
   const a = play.alpha ?? 0;
   return { x: prev.x + (p.x - prev.x) * a, y: prev.y + (p.y - prev.y) * a };
+}
+
+// Nose mark half-width (yards): a thin triangle on the dot's facing edge.
+export const NOSE_HALF_W = BODY_RADIUS / 3;
+
+// Draw facing of a player: the shortest arc from the prev facing to the current one by play.alpha.
+export function drawFacing(play, p) {
+  const prevF = play.prev?.[p.id]?.facing;
+  if (!Number.isFinite(prevF)) return p.facing;
+  const a = play.alpha ?? 0;
+  return wrapAngle(prevF + angleDiff(prevF, p.facing) * a);
+}
+
+// Nose triangle [tip, left, right] in field coords: tip ahead of pos along facing, base across it.
+export function noseTriangle(pos, facing) {
+  const d = facingDir(facing);
+  const n = { x: d.y, y: -d.x };
+  return [
+    { x: pos.x + d.x * BODY_RADIUS, y: pos.y + d.y * BODY_RADIUS },
+    { x: pos.x + n.x * NOSE_HALF_W, y: pos.y + n.y * NOSE_HALF_W },
+    { x: pos.x - n.x * NOSE_HALF_W, y: pos.y - n.y * NOSE_HALF_W },
+  ];
 }
 
 // Panel text for how the play ended ('' while the play is live).
@@ -222,6 +245,34 @@ export function initDotsView(container) {
       dotMeshes.set(p.id, m);
     }
     return m;
+  }
+
+  // ---- Nose marks (facing triangle on each dot) ----
+  const noseMeshes = new Map();
+  function noseFor(id) {
+    let m = noseMeshes.get(id);
+    if (!m) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+      m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+      scene.add(m);
+      noseMeshes.set(id, m);
+    }
+    return m;
+  }
+  function syncNoses() {
+    for (const p of play.players) {
+      const m = noseFor(p.id);
+      const tri = noseTriangle(drawPos(play, p), drawFacing(play, p));
+      const pos = m.geometry.attributes.position;
+      tri.forEach((pt, i) => {
+        const w = fieldToWorld(pt.x, pt.y);
+        pos.setXYZ(i, w.x, 0.11, w.z);
+      });
+      pos.needsUpdate = true;
+      m.geometry.computeBoundingSphere();
+      m.visible = true;
+    }
   }
 
   // ---- Zone number labels ----
@@ -385,7 +436,9 @@ export function initDotsView(container) {
     for (const [id, m] of dotMeshes) if (!current.has(id)) m.visible = false;
     for (const [id, m] of labels) if (!current.has(id)) m.visible = false;
     for (const [id, line] of blockLines) if (!current.has(id)) line.visible = false;
+    for (const [id, m] of noseMeshes) if (!current.has(id)) m.visible = false;
     syncBlockLines();
+    syncNoses();
     syncLabels();
     const holder = play.ball.holder && play.player(play.ball.holder);
     let bw;
