@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE } from '../src/dots/view.js';
-import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, numberLabel, runLabel, formatYards, frontOptions, LABEL_SIZE, speedStep, SPEED_STEP } from '../src/dots/view.js';
+import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { FRONTS } from '../src/dots/roster.js';
 
@@ -112,4 +112,15 @@ test('F-20 #7: reactLabel', () => {
   assert.equal(reactLabel({ id: 'C', team: 'offense', react: { state: 'anchored', lean: 0.5 } }), '');
   assert.equal(reactLabel({ id: 'LDT', team: 'defense', react: null }), 'Reaction: none');
   assert.equal(reactLabel({ team: 'defense', react: { state: 'anchored', lean: 0.5 } }), 'Reaction: anchored · lean 0.50');
+});
+
+test('F-27 #2: speedStep steps, rounds and clamps', () => {
+  assert.equal(speedStep(SIM_SPEED, 1), 0.4);
+  assert.equal(speedStep(SIM_SPEED, -1), 0.3);
+  assert.equal(speedStep(SIM_SPEED_MAX, 1), SIM_SPEED_MAX);
+  assert.equal(speedStep(SIM_SPEED_MIN, -1), SIM_SPEED_MIN);
+  assert.equal(SPEED_STEP, 0.05);
+  let s = SIM_SPEED;
+  for (let i = 0; i < 20; i++) s = speedStep(s, 1);
+  assert.strictEqual(s, 1.35);
 });
