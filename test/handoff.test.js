@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { LANES, MESH_AHEAD, HANDOFF_DIST, CUT_ALLOW } from '../src/dots/carrier.js';
+import { LANES, MESH_AHEAD, HANDOFF_DIST, CUT_ALLOW, BEND_MAX } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
 const near = (a, b, m = '') => assert.ok(Math.abs(a - b) < 1e-9, `${m} ${a} !~ ${b}`);
@@ -62,6 +62,7 @@ test('F-13 #5: lane read invariants hold across alignments', () => {
     const run = play.run;
     let lockedLane = null;
     let lockedX = null;
+    let bends = 0;
     for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
       play.step(DT);
       const label = JSON.stringify(al.length) + ' step ' + i;
@@ -72,7 +73,15 @@ test('F-13 #5: lane read invariants hold across alignments', () => {
         near(run.aim.x, l.x, label);
       }
       if (run.locked) {
-        if (lockedLane === null) { lockedLane = { ...run.lane }; lockedX = run.x; }
+        if (lockedLane === null) { lockedLane = { ...run.lane }; lockedX = run.x; bends = run.bends; }
+        if (run.bends > bends) {
+          // a bend: only while the RB was behind the los at the start of the tick
+          assert.ok(play.prev.RB.y < 25, label + ' bend at/past the los');
+          lockedLane = { ...run.lane };
+          lockedX = run.x;
+          bends = run.bends;
+        }
+        assert.ok(run.bends <= BEND_MAX, label);
         assert.deepEqual(run.lane, lockedLane, label);
         assert.equal(run.x, lockedX, label);
         assert.ok(Math.abs(run.aim.x - run.x) <= CUT_ALLOW + 1e-9, label);

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {
   laneWindows, freeLane, scoreLanes, chooseLane, startRun, stepCarrier,
   LANES, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, LOCK_DEPTH, GOAL_LINE_Y,
-  LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, CLEAR_LANE, PRESSURE_DIST, CUT_ALLOW,
-  PHASE_PACE, patienceWindow,
+  LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
+  PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, CLEAR_ROOM, CLEAR_HOLD, BEND_MAX,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { hardCore, PACES } from '../src/dots/steering.js';
@@ -134,8 +134,50 @@ test('freeLane: x is the middle of the widest remaining segment', () => {
   const pl = parked(mk());
   const f = freeLane([...pl, defAt('Z', -1.9, LOS + 0.3)], { lo: -4, hi: 0 }, 'RB', LOS);
   assert.equal(f.open, true);
-  near(f.x, (-4 + H + -1.9 - H) / 2);
-  near(f.width, -1.9 - H - (-4 + H));
+  const m = H + THREAT_MARGIN;
+  near(f.x, (-4 + H + -1.9 - m) / 2);
+  near(f.width, -1.9 - m - (-4 + H));
+});
+
+test('freeLane: an engaged defender removes only H, a free one H + THREAT_MARGIN', () => {
+  const win = { lo: -3, hi: -1 };
+  const withZ = (x, engaged) => {
+    const pl = parked(mk());
+    by(pl, 'LT').block = engaged ? { target: 'Z', engaged: true } : undefined;
+    return freeLane([...pl, defAt('Z', x, LOS + 0.3)], win, 'RB', LOS);
+  };
+  const eng = withZ(-2, true);
+  assert.equal(eng.open, true);
+  assert.ok(Math.abs(eng.x + 2) >= H + MIN_LANE / 2 - 1e-9);
+  assert.equal(withZ(-2, false).open, false);
+  const e2 = withZ(-2.2, true);
+  const f2 = withZ(-2.2, false);
+  assert.equal(f2.open, true);
+  assert.ok(Math.abs(f2.x + 2.2) >= H + THREAT_MARGIN + MIN_LANE / 2 - 1e-9, `free x ${f2.x}`);
+  assert.ok(Math.abs(e2.x + 2.2) >= H + MIN_LANE / 2 - 1e-9);
+  near(e2.width - f2.width, THREAT_MARGIN);
+});
+
+test('freeLane room: a free defender between the RB and the line counts; engaged, offensive and passed ones do not', () => {
+  const win = { lo: -4, hi: -2 };
+  const base = () => {
+    const pl = parked(mk());
+    const rb = by(pl, 'RB');
+    rb.x = -3; rb.y = LOS - 3;
+    return pl;
+  };
+  assert.equal(freeLane(base(), win, 'RB', LOS).room, Infinity);
+  const free = freeLane([...base(), defAt('Z', -1.5, LOS - 1.5)], win, 'RB', LOS);
+  near(free.room, 1.5 - H);
+  const behind = freeLane([...base(), defAt('Z', -1.5, LOS - 3.5)], win, 'RB', LOS);
+  assert.equal(behind.room, Infinity);
+  const pl = [...base(), defAt('Z', -1.5, LOS - 1.5)];
+  by(pl, 'LT').block = { target: 'Z', engaged: true };
+  assert.equal(freeLane(pl, win, 'RB', LOS).room, Infinity);
+  const off = freeLane([...base(), { id: 'O', team: 'offense', x: -1.5, y: LOS - 1.5 }], win, 'RB', LOS);
+  assert.equal(off.room, Infinity);
+  const nearest = freeLane([...base(), defAt('Z', -1.5, LOS - 1.5), defAt('Y', -4.6, LOS + 0.5)], win, 'RB', LOS);
+  near(nearest.room, 1.5 - H);
 });
 
 // RB at the mesh; defenders pinned at lane middles at y = LOS + BODY_RADIUS.
@@ -157,6 +199,31 @@ test('scoreLanes: LANES order, with the documented score', () => {
   const { lanes } = pinned([]);
   assert.deepEqual(lanes.map((l) => [l.side, l.name]), LANES.map((l) => [l.side, l.name]));
   assert.ok(lanes.every((l) => l.open));
+  assert.ok(lanes.every((l) => l.room === Infinity));
+  const e = pinned([['play', 'A']]);
+  const trackX = by(e.pl, 'LG').x;
+  for (const l of e.lanes) {
+    assert.equal(typeof l.room, 'number');
+    near(l.score, Math.min(l.room, ROOM_CAP) - TRACK_COST * Math.abs(l.x - trackX) - CUT_COST * Math.abs(l.x - e.rb.x));
+  }
+  assert.ok(e.lanes.some((l) => Number.isFinite(l.room)));
+});
+
+test('geometry: guard and center 0.99 apart, LT-LG 1.38 apart -> playside A is open and beats B', () => {
+  const pl = parked(mk());
+  by(pl, 'LG').x = -0.99;
+  by(pl, 'LT').x = -0.99 - 1.38;
+  const rb = by(pl, 'RB');
+  rb.x = 0; rb.y = LOS - 4.7;
+  const run = startRun(pl, { carrier: 'RB' }, { snapToId: 'QB', playside: 'left', numbers: num(pl, 'left') });
+  const lanes = scoreLanes(pl, run, rb, LOS);
+  const A = get(lanes, 'play', 'A');
+  const B = get(lanes, 'play', 'B');
+  assert.equal(A.open, true);
+  assert.equal(B.open, true);
+  assert.ok(A.score > B.score, `A ${A.score} B ${B.score}`);
+  const pick = chooseLane(lanes, null);
+  assert.equal(pick.side + pick.name, 'playA');
 });
 
 test('chooseLane: play A open -> A; closing lanes in turn walks B, back A, C', () => {
@@ -253,7 +320,7 @@ test('F-13 stepCarrier: lock freezes lane and x, then runs to the goal line', ()
   const { pl, run, rb } = setup(PATIENCE_MAX);
   run.carried = true;
   rb.x = -0.6;
-  rb.y = LOS - LOCK_DEPTH + 0.05;
+  rb.y = LOS + 0.05; // at the los: a closing lane no longer bends
   go(pl, run);
   assert.equal(run.locked, true);
   const { gap, x, lane } = run;
@@ -374,15 +441,51 @@ test('press: no commit before the window, re-reads lanes, commits at the window,
   assert.ok(y0 < LOS);
 });
 
-test('clear lane: a widened lane with an empty band commits at once, before the window', () => {
+test('clear hold: a lane with room Infinity commits clear on the tick clearTime reaches CLEAR_HOLD, not before', () => {
   const { pl, run } = atMesh(PATIENCE_MAX);
-  by(pl, 'LG').x -= 0.6;
+  const n = Math.ceil(CLEAR_HOLD * 60 - 1e-9);
+  assert.ok(CLEAR_HOLD < 0.5 && n > 1);
+  for (let i = 1; i < n; i++) {
+    go(pl, run);
+    assert.equal(run.locked, false, 'tick ' + i);
+    near(run.clearTime, i / 60);
+  }
   go(pl, run);
   assert.equal(run.locked, true);
   assert.equal(run.commitBy, 'clear');
-  assert.ok(run.pressTime < PATIENCE_MAX);
-  const l = get(run.lanes, run.lane.side, run.lane.name);
-  assert.ok(l.width >= CLEAR_LANE);
+  assert.ok(run.clearTime >= CLEAR_HOLD - 1e-9);
+  assert.ok(run.pressTime < run.patience);
+});
+
+test('clear hold: a lane clear for less than CLEAR_HOLD then given a free defender within CLEAR_ROOM restarts its hold', () => {
+  const { pl, run } = atMesh(PATIENCE_MAX);
+  for (let i = 0; i < 8; i++) go(pl, run);
+  assert.equal(run.locked, false);
+  assert.ok(run.clearTime > 0 && run.clearTime < CLEAR_HOLD);
+  const lane0 = { ...run.clearLane };
+  const d = pl.find((p) => p.team === 'defense');
+  d.x = run.aim.x + 1.0; d.y = LOS + LANE_AHEAD - 0.1;
+  go(pl, run);
+  assert.equal(run.locked, false);
+  // the hold restarted: at most one tick, and on another lane if it is clear at all
+  assert.ok(run.clearTime <= 1 / 60 + 1e-9, 'clearTime ' + run.clearTime);
+  if (run.clearLane) assert.notDeepEqual(run.clearLane, lane0);
+  d.x = 15; d.y = 45;
+  go(pl, run);
+  assert.equal(run.locked, false);
+});
+
+test('clear room: a picked open lane needs CLEAR_ROOM to every free defender to count as clear', () => {
+  const { pl, run } = atMesh(PATIENCE_MAX);
+  go(pl, run);
+  const x = run.aim.x;
+  const d = pl.find((p) => p.team === 'defense');
+  d.x = x + H + CLEAR_ROOM + 0.05; d.y = LOS + LANE_AHEAD - 0.1;
+  go(pl, run);
+  assert.ok(run.clearTime > 0);
+  d.x = x + H + CLEAR_ROOM - 0.05;
+  go(pl, run);
+  assert.equal(run.clearTime, 0);
 });
 
 test('pressure: unblocked defender within PRESSURE_DIST ends the patience', () => {
@@ -422,6 +525,7 @@ test('commit: lane and x are fixed; aim moves at most CUT_ALLOW from run.x', () 
   const { pl, run, rb } = atMesh(0);
   go(pl, run);
   assert.equal(run.locked, true);
+  run.bends = BEND_MAX; // lane changes after the commit are the bend; covered below
   const lane = { ...run.lane };
   const x = run.x;
   const ds = pl.filter((p) => p.team === 'defense');
@@ -439,4 +543,87 @@ test('commit: lane and x are fixed; aim moves at most CUT_ALLOW from run.x', () 
 
 test('data: insideZone declares patience 0.5', () => {
   assert.equal(PLAYS.insideZone.run.patience, 0.5);
+});
+
+// Bend: a locked RB behind the los whose committed lane closes re-picks once.
+const lockedAtMesh = () => {
+  const e = atMesh(0);
+  go(e.pl, e.run);
+  assert.equal(e.run.locked, true);
+  assert.equal(e.run.bends, 0);
+  return e;
+};
+const plugCommitted = (e) => {
+  const d = e.pl.find((p) => p.team === 'defense');
+  d.x = e.run.x; d.y = LOS + 0.3;
+  return d;
+};
+
+test('bend: committed lane closed behind the los with another lane open -> moves to the picked lane', () => {
+  const e = lockedAtMesh();
+  const { run, pl } = e;
+  const before = { ...run.lane };
+  const by0 = run.commitBy;
+  plugCommitted(e);
+  assert.ok(e.rb.y < LOS);
+  go(pl, run);
+  const pick = chooseLane(run.lanes, null);
+  assert.ok(pick.open);
+  assert.notDeepEqual({ side: pick.side, name: pick.name }, before);
+  assert.deepEqual(run.lane, { side: pick.side, name: pick.name });
+  assert.equal(run.gap, pick.name);
+  assert.equal(run.x, pick.x);
+  assert.equal(run.bends, 1);
+  assert.equal(run.locked, true);
+  assert.equal(run.commitBy, by0);
+  assert.ok(Math.abs(run.aim.x - run.x) <= CUT_ALLOW + 1e-9);
+});
+
+test('bend: none while the committed lane is open', () => {
+  const e = lockedAtMesh();
+  const lane = { ...e.run.lane };
+  for (let i = 0; i < 5; i++) go(e.pl, e.run);
+  assert.equal(e.run.bends, 0);
+  assert.deepEqual(e.run.lane, lane);
+});
+
+test('bend: none at or past the los', () => {
+  const e = lockedAtMesh();
+  const lane = { ...e.run.lane };
+  const x = e.run.x;
+  plugCommitted(e);
+  e.rb.y = LOS;
+  go(e.pl, e.run);
+  assert.equal(e.run.bends, 0);
+  assert.deepEqual(e.run.lane, lane);
+  assert.equal(e.run.x, x);
+});
+
+test('bend: none when no other lane is open', () => {
+  const e = lockedAtMesh();
+  const lane = { ...e.run.lane };
+  const x = e.run.x;
+  pinAll(e.pl, e.run);
+  go(e.pl, e.run);
+  assert.ok(e.run.lanes.every((l) => !l.open));
+  assert.equal(e.run.bends, 0);
+  assert.deepEqual(e.run.lane, lane);
+  assert.equal(e.run.x, x);
+});
+
+test('bend: none once run.bends reaches BEND_MAX', () => {
+  const e = lockedAtMesh();
+  assert.ok(Number.isInteger(BEND_MAX) && BEND_MAX >= 1 && BEND_MAX <= 2);
+  const lane = { ...e.run.lane };
+  const x = e.run.x;
+  e.run.bends = BEND_MAX;
+  plugCommitted(e);
+  go(e.pl, e.run);
+  assert.equal(e.run.bends, BEND_MAX);
+  assert.deepEqual(e.run.lane, lane);
+  assert.equal(e.run.x, x);
+});
+
+test('startRun: bends starts at 0', () => {
+  assert.equal(setup().run.bends, 0);
 });

@@ -413,6 +413,25 @@ test('F-34 #7: intercept leads a crossing carrier, returns a still ball, caps at
   near(eq.y, ball.y + 7.5 * LEAD_MAX);
 });
 
+test('T-135: intercept leads a close pursuer no longer than his time to the ball', () => {
+  const ball = { x: 0, y: 30 };
+  const pursuer = { x: 1, y: 30 };
+  const speed = 7.5;
+  const dist = 1;
+  const a = intercept(pursuer, ball, { x: 0, y: 7.4 }, speed);
+  const b = intercept(pursuer, ball, { x: 0, y: 7.6 }, speed);
+  const reachA = Math.hypot(a.x - ball.x, a.y - ball.y);
+  const reachB = Math.hypot(b.x - ball.x, b.y - ball.y);
+  assert.ok(reachA <= 7.4 * (dist / speed) + 1e-9);
+  assert.ok(reachB <= 7.6 * (dist / speed) + 1e-9);
+  assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < 0.1);
+  const far = intercept({ x: 0, y: 20 }, ball, { x: 0, y: 9 }, speed);
+  near(far.y, ball.y + 9 * LEAD_MAX);
+  near(far.x, 0);
+  const still = intercept(pursuer, ball, { x: 0, y: 7.6 }, 0);
+  assert.ok(Number.isFinite(still.x) && Number.isFinite(still.y));
+});
+
 test('F-34 #7: a chase from the side reaches TACKLE_DIST in fewer ticks with intercept than with the carrier spot', () => {
   const run = (lead) => {
     const dt = 1 / 60;

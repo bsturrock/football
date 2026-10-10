@@ -376,9 +376,7 @@ test('F-19 #5: LB states run drop, flow, fill, pursue in order; fill goal lies i
     }
     for (const [id, q] of Object.entries(seq)) {
       assert.equal(q[0], 'drop', `${k} ${id}`);
-      // on walkedUp the RB stalls behind the doubled DL, so the SAM stays in 'fill'; the RB stall is owned by
-      // F-35 (lane read / patience), which restores this check (see .work/maps/F-35-refresh-notes.md).
-      if (k !== 'walkedUp') assert.equal(q[q.length - 1], 'pursue', `${k} ${id} ${q}`);
+      assert.equal(q[q.length - 1], 'pursue', `${k} ${id} ${q}`);
       const idx = q.map((s) => ORDER.indexOf(s));
       for (let i = 1; i < idx.length; i++) assert.ok(idx[i] > idx[i - 1], `${k} ${id} ${q}`);
     }

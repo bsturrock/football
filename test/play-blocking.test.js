@@ -421,17 +421,15 @@ test('F10-10. null rule: LBs reach the QB', () => {
 });
 
 test('F-15 #8: RB slips the lane', () => {
-  // tackles off: the lane crossing is a running rule; a tackle before the crossing must not hide it.
-  // The 2.7 s cap was measured on the no-TE look; with the attached TE (F-39) the RB stalls in the same A-gap
-  // pile and crosses at about 3.0 s. Re-measure with the TE when F-36 (zone rules with the TE) and R-55
-  // (lane-read retune) land.
+  // tackles off because the crossing is a running rule; a tackle before the crossing must not hide it.
+  // Pinned to the no-TE look; measured with the F-40 read (threat-aware lanes, clear hold, one bend):
+  // no-TE 1.92 s, slip 0.30 yd. The cap is 1.25x that (2.4 s). The TE look crosses at 3.68 s, slip 1.53 yd,
+  // because the TE-side line is driven back about 1.2 yd and the MLB/SLB reach the los unblocked (blocking,
+  // not the read); tracked by the todo test below.
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe' });
   play.snap();
   let crossed = false;
-  // measured crossing about 2.5 s with tackles off, with the insideZone patience press (F-35: after the handoff
-  // the RB presses behind the line for a 0.5 s window while re-reading lanes). On base he commits early by the
-  // clear-lane trigger. The 2.7 s cap is a 1.25x margin on the measured crossing.
-  for (let t = 0; t < 2.7; t += DT) {
+  for (let t = 0; t < 2.4; t += DT) {
     play.step(DT);
     const rb = play.player('RB');
     if (rb.y >= 25 + GAP_DEPTH) {
@@ -441,7 +439,26 @@ test('F-15 #8: RB slips the lane', () => {
       break;
     }
   }
-  assert.ok(crossed, 'RB crossed within 2.7 s');
+  assert.ok(crossed, 'RB crossed within 2.4 s');
+});
+
+test('F-40 #7: RB slips the A-gap lane on the TE look', { todo: 'TE-side line driven back and the MLB unblocked at the los (blocking); TE crossing measured 3.68 s, slip 1.53 yd' }, () => {
+  // tackles off because the crossing is a running rule. Attached TE (default personnel). Keeps the original
+  // 2.5 s cap and A-gap thresholds; the TE look does not meet them yet.
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
+  play.snap();
+  let crossed = false;
+  for (let t = 0; t < 2.5; t += DT) {
+    play.step(DT);
+    const rb = play.player('RB');
+    if (rb.y >= 25 + GAP_DEPTH) {
+      assert.ok(play.run.locked, `RB crossed unlocked (gap ${play.run.gap})`);
+      assert.ok(Math.abs(rb.x - play.run.x) <= A_GAP_HALF + BODY_RADIUS, `rb.x ${rb.x} run.x ${play.run.x}`);
+      crossed = true;
+      break;
+    }
+  }
+  assert.ok(crossed, 'RB crossed within 2.5 s');
 });
 
 // ---- F-32: smooth engage, engage clock, release ----
