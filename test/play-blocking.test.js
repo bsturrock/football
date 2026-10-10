@@ -424,8 +424,9 @@ test('F-15 #8: RB slips the lane', () => {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false });
   play.snap();
   let crossed = false;
-  // accel: RB crosses GAP_DEPTH at 1.70 s measured; 1.70 * 1.25 = 2.125, rounded up to 0.05 s
-  for (let t = 0; t < 2.15; t += DT) {
+  // measured 2.15 s with tackles off since F-33 #6 (engaged DL lean to their gap goal, the RB takes the A gap
+  // and is held at the line about 0.5 s); 1.25x margin; F-35 (RB live gap read) is expected to bring it back down.
+  for (let t = 0; t < 2.7; t += DT) {
     play.step(DT);
     const rb = play.player('RB');
     if (rb.y >= 25 + GAP_DEPTH) {
@@ -435,7 +436,7 @@ test('F-15 #8: RB slips the lane', () => {
       break;
     }
   }
-  assert.ok(crossed, 'RB crossed within 2.15 s');
+  assert.ok(crossed, 'RB crossed within 2.7 s');
 });
 
 // ---- F-32: smooth engage, engage clock, release ----
