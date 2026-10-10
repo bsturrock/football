@@ -24,8 +24,9 @@ export const POSITIONS = Object.freeze([
   pos('C', 'Center', 'offense', 'OL', 0, -0.4, 6.0, 1.0),
   pos('RG', 'Right Guard', 'offense', 'OL', 1.5, -0.75, 6.0, 1.0),
   pos('RT', 'Right Tackle', 'offense', 'OL', 3.0, -0.9, 6.0, 1.0),
-  pos('QB', 'Quarterback', 'offense', 'QB', 0, -4.5, 7.0, 0.3),
-  pos('RB', 'Running Back', 'offense', 'RB', 1.8, -4.5, 8.0, 0.5),
+  // QB at NFL shotgun depth (5 yd behind the LOS); RB offset level with him, 1.8 yd to +x.
+  pos('QB', 'Quarterback', 'offense', 'QB', 0, -5.0, 7.0, 0.3),
+  pos('RB', 'Running Back', 'offense', 'RB', 1.8, -5.0, 8.0, 0.5),
   // Defense faces -y, so its left is +x.
   // DL just across a ball-length neutral zone (0.7 yd): DTs in an inside shade of the
   // guards, DEs in an outside shade of the tackles.
