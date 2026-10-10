@@ -462,7 +462,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const eng = engagedOn(players, d.id);
     if (eng.length) {
       d.steer = null;
-      d.react = stepReact(d.react ?? null, d, blockPush(eng), ballPos, dt);
+      d.react = stepReact(d.react ?? null, d, blockPush(eng), ctx?.defGoals?.[d.id] ?? ballPos, dt);
       const v = resolveBlock(d, eng, ballPos);
       d.x = Math.min(HW, Math.max(-HW, d.x + v.vx * dt));
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));

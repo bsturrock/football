@@ -167,6 +167,17 @@ test('stepBlocking engaged defender, clamp, blocker follows', () => {
   near(ps2[0].x, s.x, 1e-9); near(ps2[0].y, s.y, 1e-9);
 });
 
+test('stepBlocking engaged defender leans to his goal, else the ball', () => {
+  const mkPs = () => [O('a', 0, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, 10)];
+  const ball = { x: -10, y: 0 };
+  const withGoal = mkPs();
+  stepBlocking(withGoal, ball, DT, { rule: null, seq: 1, defGoals: { d: { x: 10, y: 10, key: 'gap', rate: 6 } } });
+  assert.equal(withGoal[1].react.side, 1);
+  const noGoal = mkPs();
+  stepBlocking(noGoal, ball, DT, { rule: null, seq: 1, defGoals: {} });
+  assert.equal(noGoal[1].react.side, -1);
+});
+
 test('resolveBlock adds react.hold', () => {
   const goal = { x: 0, y: 0 };
   const held = D('d', 0, 10, { react: { dir: { x: 0, y: -1 }, hold: { x: 0, y: -0.4 } } });
