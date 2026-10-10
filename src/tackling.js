@@ -31,6 +31,14 @@ export const PLANT_A = 7;
 const THRU_EDGE = 6, BOUNCE_EDGE = 4.5, EDGE_NOISE = 0.5, THRU_KEEP = 0.9, BOUNCE_KEEP = 0.8;
 // S.tkLog: contact outcomes for the sim readout (sim.js reads it through S, so it imports nothing from here): {o: 'big'|'thru'|'bounce'|'evade'|'grab', edge, t (S.clock, s), cm, dm} (cm, dm: weight x speed into the hit)
 const logTk = (o, edge, c, d) => { const L = S.tkLog || (S.tkLog = []); if(L.length < 20000) L.push({o, tech:d.tech, edge, t:+S.clock.toFixed(2), cm:c.mass*Math.hypot(c.vx, c.vy), dm:d.mass*Math.hypot(d.vx, d.vy)}); };
+// B-095: a blocked man (d.bt) reaches an arm's length past his blocker, once per reachCool. Centre to centre: his body width plus an arm (about 1.4 yd).
+// The chance is scaled by sealFree: 1 when the blocker has no hold on him (he is working free in his move), less in his set, least when the blocker
+// has the upper hand (recover), and less again the stronger the blocker is against his power (the same rStr - rPow matchup blocking.js uses for the drive).
+const BLOCKED_REACH = 2*BODY_W, SEAL_SET = 0.7, SEAL_RECOVER = 0.4, SEAL_STR_SPAN = 80, SEAL_MIN = 0.15;
+const sealFree = d => { const b = d.bt, o = b && b.o, ph = b && b.phase, base = ph === 'recover' ? SEAL_RECOVER : ph === 'set' ? SEAL_SET : 1;
+  return clamp(base*(1 - (o ? clamp((o.rStr - d.rPow)/SEAL_STR_SPAN, -0.5, 0.5) : 0)), SEAL_MIN, 1); };
+// blocked-grab tries and hits go in S.tkLog as 'blkTry' / 'blkHit' (sim.js counts them apart from attemptTackle's outcomes)
+const logBlk = (o, c, d) => { const L = S.tkLog || (S.tkLog = []); if(L.length < 20000) L.push({o, edge:0, t:+S.clock.toFixed(2), bp:d.bt && d.bt.phase}); };
 const PILE_HOLD_K = 3, PILE_HOLD_MIN = 0.2;   // feature (pile-push): teammates' surge keeps him up: downP rate x max(PILE_HOLD_MIN, 1/(1 + K*offensive pushers)); the floor 0.2 bounds the slowdown at 5x, and pile.js whistles (STALL_T 1.0 s stalled, PUSH_MAX_T 1.5 s of pushing) so the hold is never open-ended
 // B-069 (tackle-technique): how the tackler makes the hit. 'diveBehind' / 'diveStretch' = last-ditch (chasing from behind; or a non-big hit at the far end of the lunge band), 'shoulder' = the speed edge (BOOM), else 'wrap' (square: breaks down, chest to chest, arms around, legs drive).
 // d.tech is set at contact and logged (S.tkLog tech). Launch: forward kick (yd/s), up (m/s) and spin (forward lean rate, rad/s-ish, physOn spin); lower than before so he hits from his feet.
@@ -139,13 +147,14 @@ export function tackleUpdate(c, dt){
     const dd = dist(d, c);
     if(d.bt){
       // blocked: can't tackle, but can reach out and grab a piece of him as he goes by
-      if(dd < 1.6*BODY_W && !(d.reachCool > 0)){
+      if(dd < BLOCKED_REACH && !(d.reachCool > 0)){
         d.reachCool = 1.0;
         const juke = clamp((c.latAcc - 4)/6, 0, 1);
-        if(Math.random() < 0.6*(d.rTkl/80)*(1 - juke*0.5)*(70/c.rBrk)){
+        if(Math.random() < 0.6*(d.rTkl/80)*sealFree(d)*(1 - juke*0.5)*(70/c.rBrk)){
           c.vx *= 0.6; c.vy *= 0.6; c.tripT = 0.4;
+          logBlk('blkHit', c, d);
           physTouch(c); callout(d, 'Got a hand on him', 'bad');
-        }
+        } else logBlk('blkTry', c, d);
       }
       continue;
     }
