@@ -537,11 +537,13 @@ test('F-33 #8: every front, an OL block released as shed frees the DL, who then 
         }
         if (!e.done && i >= e.i + Math.round(0.5 / DT) && play.ball.phase !== 'dead') {
           e.done = true;
-          e.far = e.close >= BAR;
           const d = play.player(e.id);
           const b = play.ballPosition();
+          // F-34 contact hold: a free defender never steps inside CONTACT_DIST of the ball, so at it he is as close as allowed.
+          const held = Math.hypot(b.x - d.x, b.y - d.y) <= CONTACT_DIST + 1e-6;
+          e.far = e.close >= BAR || held;
           t.diagnostic(`${front} ${e.id} shed ${(e.i * DT).toFixed(2)} s max ${e.max.toFixed(2)} ` +
-            `close ${e.close.toFixed(3)} ball ${e.b0.toFixed(2)} -> ${Math.hypot(b.x - d.x, b.y - d.y).toFixed(2)}`);
+            `close ${e.close.toFixed(3)} held ${held} ball ${e.b0.toFixed(2)} -> ${Math.hypot(b.x - d.x, b.y - d.y).toFixed(2)}`);
         }
       }
     }

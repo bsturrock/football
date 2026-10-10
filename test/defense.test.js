@@ -586,7 +586,7 @@ test('F-38: edge pursues from read and squeeze on the listed triggers, else stay
   assert.equal(edgeOf(s).state, 'squeeze', 'carried far');
 });
 
-test('F-43 #2: penetrate leads a moving gap, and equals the middle when the gap is still', () => {
+test('F-43 #2: the get-off aim is the live gap middle, also while the gap moves', () => {
   const s = setup();
   const dlId = Object.keys(s.defense.agents).find((id) => s.defense.agents[id].behavior === 'attack');
   const e = s.defense.agents[dlId];
@@ -594,16 +594,16 @@ test('F-43 #2: penetrate leads a moving gap, and equals the middle when the gap 
   const env = () => ({ players: s.players, defense: s.defense, run: s.run, ballPos: s.ball, los: LOS });
   const mid = () => { const sp = gapSpan(s.players, s.defense, e.fit); return (sp.lo + sp.hi) / 2; };
   s.defense.t = 1;
-  near(GOALS.penetrate(d, e, env()).x, mid());
+  let g = GOALS.penetrate(d, e, env());
+  near(g.x, mid());
+  near(g.y, LOS - PENETRATE_DEPTH);
   s.defense.t = 1.05;
-  near(GOALS.penetrate(d, e, env()).x, mid());
+  g = GOALS.penetrate(d, e, env());
+  near(g.x, mid());
+  near(g.y, LOS - PENETRATE_DEPTH);
   for (const { id } of s.defense.lineIds) by(s.players, id).x += 0.2;
   s.defense.t = 1.1;
-  const m = mid();
-  const gx = GOALS.penetrate(d, e, env()).x;
-  assert.ok(gx > m + 1e-6, `${gx} past ${m}`);
-  for (const { id } of s.defense.lineIds) by(s.players, id).x -= 0.4;
-  s.defense.t = 1.15;
-  const m2 = mid();
-  assert.ok(GOALS.penetrate(d, e, env()).x < m2 - 1e-6);
+  g = GOALS.penetrate(d, e, env());
+  near(g.x, mid());
+  near(g.y, LOS - PENETRATE_DEPTH);
 });
