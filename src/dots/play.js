@@ -29,6 +29,7 @@ export const DL_SHIFT_MAX = 4; // steps allowed each way
 export const LB_SHIFT_STEP = BODY_RADIUS; // yards per pre-snap linebacker shift step
 export const LB_SHIFT_MAX = 6; // steps allowed each way
 
+// A scheme's plan returns {side, blocks, techs, combos, free, front}.
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
 export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', accel = false } = {}) {
@@ -124,8 +125,9 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       t: 0,
     });
     if (play.accel) for (const p of play.players) p.v = 0;
+    let plan = null;
     if (scheme) {
-      const plan = scheme.plan(play.players, play.numbers, los);
+      plan = scheme.plan(play.players, play.numbers, los);
       play.combos = plan.combos;
       ctx.combos = plan.combos;
       ctx.side = plan.side;
@@ -136,7 +138,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     const def = PLAYS[playKey];
     if (def.run) {
       play.run = startRun(play.players, def.run, { snapToId: def.ball.snapTo, playside: def.playside, numbers: play.numbers });
-      play.defense = startDefense(play.players, readFront(play.players, play.numbers, los), {
+      play.defense = startDefense(play.players, plan?.front ?? readFront(play.players, play.numbers, los), {
         los,
         carrierId: play.run.carrier,
       });

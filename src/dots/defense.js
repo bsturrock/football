@@ -3,8 +3,7 @@
 // Pure: reads players, never moves them; blocking.js steers toward the goals.
 // A blitz or drop is a new GOALS entry plus a state row; linebackers do not blitz today.
 import { BODY_RADIUS } from './blocking.js';
-import { A_GAP_HALF } from './numbering.js';
-import { GAP_NAMES } from './front.js';
+import { GAP_NAMES, liveGaps } from './front.js';
 
 export const LB_READ_TIME = 0.45; // s, fallback when a player has no def.read
 export const SHUFFLE = 0.3; // fraction of speed while reading
@@ -14,27 +13,11 @@ export const FILL_DEPTH = 3 * BODY_RADIUS; // yd past the los where he fills
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+// The live span of the fit's gap, or null when there is no center to walk from.
 export function gapSpan(players, defense, fit) {
-  const s = fit.side === 'play' ? 1 : -1;
   const i = GAP_NAMES.indexOf(fit.name);
-  const lineX = (n) => {
-    const entry = defense.lineIds.find((l) => l.n === n);
-    const p = entry && players.find((q) => q.id === entry.id);
-    return p ? p.x : null;
-  };
-  let prevWidth = 2 * A_GAP_HALF;
-  let prevOuter = 0;
-  let lo = 0;
-  let hi = 0;
-  for (let j = 0; j <= i; j++) {
-    const innerX = lineX(s * j) ?? prevOuter;
-    const outerX = lineX(s * (j + 1)) ?? innerX + s * defense.side * prevWidth;
-    lo = Math.min(innerX, outerX);
-    hi = Math.max(innerX, outerX);
-    prevWidth = hi - lo;
-    prevOuter = outerX;
-  }
-  return { lo, hi };
+  const g = liveGaps(players, defense.lineIds, defense.side, fit.side === 'play' ? 1 : -1, i + 1)[i];
+  return g ? { lo: g.lo, hi: g.hi } : null;
 }
 
 const aimX = (env) => (env.run ? env.run.aim.x : env.ballPos.x);
@@ -56,6 +39,7 @@ export const GOALS = Object.freeze({
   flow: (d, e, env) => ({ x: aimX(env), y: e.y0 }),
   fill: (d, e, env) => {
     const span = gapSpan(env.players, env.defense, e.fit);
+    if (!span) return { x: aimX(env), y: env.los + FILL_DEPTH };
     const lo = span.lo + BODY_RADIUS;
     const hi = span.hi - BODY_RADIUS;
     const x = lo <= hi ? clamp(aimX(env), lo, hi) : (span.lo + span.hi) / 2;

@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFront, shade } from '../src/dots/front.js';
+import { readFront, shade, liveGaps } from '../src/dots/front.js';
 import { frontPlayers, frontNumbers, LOS, FRONT_NAMES } from './fixtures/fronts.js';
+import { buildLineup } from '../src/dots/roster.js';
+import { numberPlay } from '../src/dots/numbering.js';
 
 const read = (name) => {
   const players = frontPlayers(name);
@@ -68,4 +70,73 @@ test('order independence, purity, no center', () => {
   const players = frontPlayers('base');
   const numbers = { ...frontNumbers(players), C: null };
   assert.throws(() => readFront(players, numbers, LOS), /no center/);
+});
+
+// Base insideZone lineup, numbered playside left, read as the defense would.
+const liveSetup = () => {
+  const players = buildLineup(LOS, 'insideZone');
+  const numbers = numberPlay(players, { los: LOS, centerId: 'C', playside: 'left' });
+  const f = readFront(players, numbers, LOS);
+  return { players, f };
+};
+const xById = (players, id) => players.find((p) => p.id === id).x;
+const span = (a, b) => ({ lo: Math.min(a, b), hi: Math.max(a, b) });
+
+test('liveGaps playside walks A, B, C off the base line', () => {
+  const { players, f } = liveSetup();
+  const x = (id) => xById(players, id);
+  const gaps = liveGaps(players, f.line, f.side, 1, 3);
+  assert.equal(f.side, -1);
+  assert.equal(gaps.length, 3);
+  assert.deepEqual(gaps[0], { ...span(x('LG'), x('C')), outer: true });
+  assert.deepEqual(gaps[1], { ...span(x('LT'), x('LG')), outer: true });
+  const bWidth = x('LG') - x('LT');
+  assert.deepEqual(gaps[2], { ...span(x('LT') - bWidth, x('LT')), outer: false });
+});
+
+test('liveGaps backside walks the backside gaps with dir -1', () => {
+  const { players, f } = liveSetup();
+  const x = (id) => xById(players, id);
+  const gaps = liveGaps(players, f.line, f.side, -1, 1);
+  assert.deepEqual(gaps, [{ ...span(x('C'), x('RG')), outer: true }]);
+});
+
+test('liveGaps follows live player x, not the snapshot in line', () => {
+  const { players, f } = liveSetup();
+  const before = liveGaps(players, f.line, f.side, 1, 3);
+  const moved = players.map((p) => (p.id === 'LT' ? { ...p, x: p.x - 0.3 } : { ...p }));
+  const after = liveGaps(moved, f.line, f.side, 1, 3);
+  assert.ok(Math.abs((after[1].lo - before[1].lo) - -0.3) < 1e-9);
+  assert.ok(Math.abs((after[2].lo - before[2].lo) - -0.6) < 1e-9);
+  assert.equal(after[0].lo, before[0].lo);
+});
+
+test('liveGaps with a missing outer lineman: B as wide as A, C continues from B', () => {
+  const { players, f } = liveSetup();
+  const x = (id) => xById(players, id);
+  const without = players.filter((p) => p.id !== 'LT');
+  const gaps = liveGaps(without, f.line, f.side, 1, 3);
+  const aWidth = x('C') - x('LG');
+  const bOuter = x('LG') - aWidth;
+  assert.deepEqual(gaps[0], { ...span(x('LG'), x('C')), outer: true });
+  assert.deepEqual(gaps[1], { ...span(bOuter, x('LG')), outer: false });
+  assert.ok(Math.abs((gaps[1].hi - gaps[1].lo) - aWidth) < 1e-9);
+  const bWidth = gaps[1].hi - gaps[1].lo;
+  assert.deepEqual(gaps[2], { ...span(bOuter - bWidth, bOuter), outer: false });
+});
+
+test('liveGaps with no center returns []', () => {
+  const { players, f } = liveSetup();
+  const without = players.filter((p) => p.id !== 'C');
+  assert.deepEqual(liveGaps(without, f.line, f.side, 1, 3), []);
+});
+
+test('liveGaps does not mutate its arguments', () => {
+  const { players, f } = liveSetup();
+  const copyPlayers = structuredClone(players);
+  const copyLine = structuredClone(f.line);
+  liveGaps(players, f.line, f.side, 1, 3);
+  liveGaps(players, f.line, f.side, -1, 2);
+  assert.deepEqual(players, copyPlayers);
+  assert.deepEqual(f.line, copyLine);
 });

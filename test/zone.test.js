@@ -111,7 +111,8 @@ EXPECTED.backedOff = {
   free: ['BT', 'BE'],
 };
 
-const planOf = (name, players = frontPlayers(name)) => zonePlan(players, frontNumbers(players), LOS);
+const withoutFront = ({ front, ...rest }) => rest;
+const planOf = (name, players = frontPlayers(name)) => withoutFront(zonePlan(players, frontNumbers(players), LOS));
 
 test('every front gets the agreed plan', () => {
   assert.deepEqual([...FRONT_NAMES].sort(), Object.keys(EXPECTED).sort());
@@ -129,7 +130,9 @@ test('invariants over all fronts', () => {
     const players = frontPlayers(name);
     const numbers = frontNumbers(players);
     const front = readFront(players, numbers, LOS);
-    const r = zonePlan(players, numbers, LOS);
+    const full = zonePlan(players, numbers, LOS);
+    assert.deepEqual(full.front, readFront(players, numbers, LOS), `${name} front`);
+    const r = withoutFront(full);
     const lineDef = front.defenders.filter((d) => d.level === 'line');
     const uBack = front.line[front.line.length - 1].u;
     const vals = Object.values(r.blocks);
@@ -164,9 +167,9 @@ test('invariants over all fronts', () => {
     // (e) stability, order independence, purity
     for (const nudge of [0.02, -0.02]) {
       const moved = players.map((p) => (p.team === 'defense' ? { ...p, x: p.x + nudge } : p));
-      assert.deepEqual(zonePlan(moved, numbers, LOS), r, `${name} nudge ${nudge}`);
+      assert.deepEqual(withoutFront(zonePlan(moved, numbers, LOS)), r, `${name} nudge ${nudge}`);
     }
-    assert.deepEqual(zonePlan([...players].reverse(), numbers, LOS), r, `${name} reversed`);
+    assert.deepEqual(withoutFront(zonePlan([...players].reverse(), numbers, LOS)), r, `${name} reversed`);
     const p0 = structuredClone(players);
     const n0 = structuredClone(numbers);
     zonePlan(players, numbers, LOS);
