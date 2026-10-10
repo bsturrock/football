@@ -216,6 +216,34 @@ test('F-15 #10: full width toward goal.ignore', () => {
   }
 });
 
+test('F-42 #1 a blocker and his target do not hold a lane', () => {
+  const r = 0.35, H = S.hardCore(r);
+  const freshRun = () => {
+    const a = { id: 'a', x: -0.6, y: 0 }, b = { id: 'b', x: 0.6, y: 0 };
+    const p = { id: 'p', x: 0, y: -3 };
+    const goal = { x: 0, y: 5, key: 'k', ignore: null };
+    steerStep(p, goal, [p, a, b], 7 / 60, DT, r);
+    return { p, a, b, goal };
+  };
+  // Case 1: unrelated pair, narrowed below 2H, is still held.
+  {
+    const { p, a, b, goal } = freshRun();
+    assert.deepEqual(p.steer.lane, ['a', 'b']);
+    b.x = a.x + 2 * H - 0.25;
+    steerStep(p, goal, [p, a, b], 7 / 60, DT, r);
+    assert.deepEqual(p.steer.lane, ['a', 'b']);
+  }
+  // Case 2: a block pair is not held once it narrows.
+  {
+    const { p, a, b, goal } = freshRun();
+    assert.deepEqual(p.steer.lane, ['a', 'b']);
+    b.x = a.x + 2 * H - 0.25;
+    a.block = { target: 'b', engaged: false };
+    steerStep(p, goal, [p, a, b], 7 / 60, DT, r);
+    assert.equal(p.steer.lane, null);
+  }
+});
+
 function slideRun(accel) {
   const H = S.hardCore(RAD), maxStep = 6 * DT;
   const o = { id: 'o', x: 0, y: 2 };

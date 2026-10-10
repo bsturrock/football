@@ -497,12 +497,14 @@ test('T-92 #6: base: RG climbs to MLB and LG/LT to WLB only after the partner he
 });
 
 test('F-33 #8: every front, an OL block released as shed frees the DL, who then moves toward the ball', (t) => {
+  // Tackles off so the line has time to shed (since F-41 no DL sheds before the tackle with tackles on).
+  // Only the first shed per front is judged: later sheds happen in the pile around an untackleable carrier.
   // Farthest reach from the shed spot is logged, not judged: a cutting carrier can leave a shed DL near his spot.
   // The check is movement toward the ball: his own displacement, projected on the line to the ball, over 0.5 s.
   const BAR = 1e-6;
   let sheds = 0;
   for (const front of Object.keys(FRONTS)) {
-    const play = createPlay(25, 'insideZone', { front });
+    const play = createPlay(25, 'insideZone', { front, tackles: false });
     play.snap();
     let lastI = -1;
     const prev = new Set();
@@ -516,7 +518,7 @@ test('F-33 #8: every front, an OL block released as shed frees the DL, who then 
         const key = o.id + '>' + o.block.target;
         now.add(key);
         const d = play.player(o.block.target);
-        if (!prev.has(key) && DL_ROLES.includes(d.role)) {
+        if (!prev.has(key) && DL_ROLES.includes(d.role) && events.length === 0) {
           const b = play.ballPosition();
           events.push({ i, id: d.id, x: d.x, y: d.y, px: d.x, py: d.y, close: 0, b0: Math.hypot(b.x - d.x, b.y - d.y) });
         }
