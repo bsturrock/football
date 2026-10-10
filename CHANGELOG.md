@@ -36,3 +36,4 @@
 - 2026-10-10 F-39 Attached tight end: 6 blockers for inside zone, no-TE look kept (R-54) 16f5773
 - 2026-10-10 F-36 Inside zone assignments from general blocking rules (R-47) fccd3da
 - 2026-10-10 F-40 RB reads threats, waits, and bends out of a closed lane (TE retune) (R-55) 29ffc4e
+- 2026-10-10 F-41 TE-side line holds and the double climbs in time (R-56) 434a6ba
