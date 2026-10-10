@@ -2,13 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { FRONTS } from '../src/dots/roster.js';
-import { CONTACT_DIST, RELEASE_PAST } from '../src/dots/blocking.js';
+import { BODY_RADIUS, CONTACT_DIST, RELEASE_PAST } from '../src/dots/blocking.js';
 
 const DT = 1 / 60;
 const CAP = 8;
 const ORBIT_MAX = 1.5; // yd, outer edge of the orbit band
 const ORBIT_TIME = 0.5; // s of consecutive ticks
-const MOVE_MIN = 0.01; // yd a tick must move to count for heading
+// yd a tick must move to count for heading. The jitter check targets visible heading flips (R-39: an SLB
+// flipping 5+ times stuck in traffic). A 0.01 yd sample also counts sub-inch corrections: an LB mirrors a
+// gap edge set by an engaged DL's x, and that edge wobbles 1-2 cm, so measured reversals there are noise.
+const MOVE_MIN = BODY_RADIUS / 8;
 const MAX_FLIPS = 3;
 
 for (const front of Object.keys(FRONTS)) {
