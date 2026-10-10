@@ -9,7 +9,8 @@ import {
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { hardCore, PACES } from '../src/dots/steering.js';
 import { numberPlay, A_GAP_HALF } from '../src/dots/numbering.js';
-import { buildLineup, PLAYS } from '../src/dots/roster.js';
+import { buildLineup, PLAYS, FRONTS } from '../src/dots/roster.js';
+import { createPlay } from '../src/dots/play.js';
 
 const LOS = 25;
 const H = hardCore(BODY_RADIUS);
@@ -670,4 +671,37 @@ test('bend: none once run.bends reaches BEND_MAX', () => {
 
 test('startRun: bends starts at 0', () => {
   assert.equal(setup().run.bends, 0);
+});
+
+test('F-48 #11b: once past the los the committed aim never returns to the hole', () => {
+  const DT = 1 / 60;
+  for (const front of Object.keys(FRONTS)) {
+    for (const personnel of ['noTe', 'te']) {
+      const tag = `front ${front}, personnel ${personnel}`;
+      const play = createPlay(25, 'insideZone', { front, personnel });
+      play.snap();
+      const rb = play.player(play.run.carrier);
+      let latched = false, bends = 0, px = rb.x, lastSign = 0, lastRev = -2;
+      for (let i = 0; i < 300 && !play.result; i++) {
+        play.step(DT);
+        if (latched) {
+          assert.equal(play.run.aim.y, GOAL_LINE_Y, `${tag}: tick ${i} aim left the goal line`);
+          assert.ok(play.run.bends <= bends, `${tag}: tick ${i} bent after the line`);
+        }
+        if (play.run.pastLos) { latched = true; bends = play.run.bends; }
+        if (front === 'walkedUp' && personnel === 'noTe' && play.run.locked) {
+          const dx = rb.x - px;
+          if (Math.abs(dx) > 0.5 * DT) {
+            const sign = Math.sign(dx);
+            if (lastSign && sign !== lastSign) {
+              assert.ok(lastRev !== i - 1, `walkedUp/noTe: tick ${i} lateral motion reversed on two consecutive ticks`);
+              lastRev = i;
+            }
+            lastSign = sign;
+          } else lastSign = 0;
+        } else lastSign = 0;
+        px = rb.x;
+      }
+    }
+  }
 });

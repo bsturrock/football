@@ -189,6 +189,7 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     clearTime: 0,
     clearLane: null,
     bends: 0,
+    pastLos: false,
     cut: 0,
     press: null,
     commitBy: null,
@@ -285,11 +286,12 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
       ignore: null,
     };
   } else {
+    if (rb.y >= los) run.pastLos = true;
     if (!justCommitted && rb.y < los + LANE_AHEAD) {
       const w = laneWindows(players, run.line, run.side).find((e) => e.side === run.lane.side && e.name === run.lane.name);
       const free = w && freeLane(players, w, rb.id, los, proj);
       if (free && free.open) run.cut = clamp(free.x - run.x, -CUT_ALLOW, CUT_ALLOW);
-      else if (rb.y < los && (run.bends ?? 0) < BEND_MAX) {
+      else if (!run.pastLos && (run.bends ?? 0) < BEND_MAX) {
         // Committed lane closed before the line: bend once into the best open lane.
         run.lanes = scoreLanes(players, run, rb, los, proj);
         const pick = run.lanes.length ? chooseLane(run.lanes, null) : null;
@@ -303,7 +305,8 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
       }
     }
     // Behind the line, run to the hole in his lane; turn vertical once at the line.
-    run.aim = { x: run.x + run.cut, y: rb.y < los ? los + GAP_DEPTH : GOAL_LINE_Y };
+    // The turn is latched (pastLos): contact pushing him back behind the line must not flip the aim back.
+    run.aim = { x: run.x + run.cut, y: !run.pastLos ? los + GAP_DEPTH : GOAL_LINE_Y };
     goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null };
   }
   steerStep(rb, goal, players, rb.speed * dt, dt, BODY_RADIUS);
