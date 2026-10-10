@@ -13,7 +13,7 @@
 // (2) play.step gives p.v inertia: measured speed may fall no faster than
 // exp(-dt / ACCEL_TAU) per substep (the ramp's own time constant), so a clipped
 // substep no longer collapses the cap. Measured: RB crosses y >= 25 + GAP_DEPTH
-// at about 1.7 s; MLB and WLB reach the QB within CONTACT_DIST + 0.05.
+// at about 1.7 s; MLB and WLB reach the QB (or crowd up behind a defender who has) within CONTACT_DIST + 0.05.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
@@ -57,16 +57,33 @@ test('F-25 #4: MLB and WLB reach the QB without wedging with accel on', () => {
   const ids = ['MLB', 'WLB'];
   const samples = { MLB: [], WLB: [] };
   const dist = (p) => Math.hypot(p.x - qb.x, p.y - qb.y);
+  // Arrived: within contact of the QB, or of another defender who is (crowding at the QB).
+  const arrived = (p) => {
+    const seen = new Set([p.id]);
+    const queue = [p];
+    while (queue.length) {
+      const q = queue.pop();
+      if (dist(q) <= CONTACT_DIST + 0.05) return true;
+      for (const o of play.players) {
+        if (o.team !== 'defense' || seen.has(o.id)) continue;
+        if (Math.hypot(o.x - q.x, o.y - q.y) <= CONTACT_DIST + 0.05) {
+          seen.add(o.id);
+          queue.push(o);
+        }
+      }
+    }
+    return false;
+  };
   for (let i = 0; i < 300; i++) {
     play.step(DT);
     for (const id of ids) {
       const p = play.player(id);
-      samples[id].push(p.v < 1 && p.react === null && dist(p) > CONTACT_DIST + 0.05);
+      samples[id].push(p.v < 1 && p.react === null && !arrived(p));
     }
   }
   for (const id of ids) {
     const stall = stallTime(samples[id]);
     assert.ok(stall <= 0.5, `${id} stalled for ${stall.toFixed(2)}s`);
-    assert.ok(dist(play.player(id)) <= CONTACT_DIST + 0.05, `${id} at ${dist(play.player(id)).toFixed(2)} from QB at 5s`);
+    assert.ok(arrived(play.player(id)), `${id} at ${dist(play.player(id)).toFixed(2)} from QB at 5s`);
   }
 });

@@ -20,6 +20,17 @@ export const PEEL_DIST = 2.0;
 export const Y_MIN = -10;
 export const Y_MAX = 110;
 export const SEPARATION_ITERS = 30;
+// Per-tick allowance over speed * dt for an engaging blocker (separation push).
+// Engage only this close to the target (inside canRelease's 'lost' range of ENGAGE_TOL), so a
+// fresh block is not dropped on the next tick when the target steps away.
+const ENGAGE_NEAR = 0.75 * ENGAGE_TOL;
+export const ENGAGE_SLACK = BODY_RADIUS / 10;
+// Tunable: seconds the target must be 'winning' before the block is shed.
+export const SHED_TIME = 0.3;
+// Tunable: yards the ball must be upfield of the target for the blocker to let go.
+export const RELEASE_PAST = 4 * BODY_RADIUS;
+// Tunable: seconds after a shed or lost block before the blocker may engage again.
+export const REENGAGE_DELAY = 0.5;
 
 export const BLOCK_ANGLES = Object.freeze({
   straight: Object.freeze({ x: 0, y: 1 }),
@@ -241,12 +252,26 @@ function moveToward(p, tx, ty, maxStep) {
   p.y += (dy / d) * s;
 }
 
-// Single engage predicate: 'spot' (snap onto spot), 'contact' (touching the target in front), or null.
+// Single release predicate for an engaged block. First match wins: 'shed' (the target has won
+// for SHED_TIME), 'past' (the ball is well upfield of the target), 'lost' (contact broken), or null.
+// Later shed decisions (R-42 DL AI) go here.
+export function canRelease(b, T, ballPos) {
+  if ((b.block.winT ?? 0) >= SHED_TIME) return 'shed';
+  if (ballPos.y >= T.y + RELEASE_PAST) return 'past';
+  if (Math.hypot(T.x - b.x, T.y - b.y) > CONTACT_DIST + ENGAGE_TOL) return 'lost';
+  return null;
+}
+
+// Single engage predicate: 'spot' (within ENGAGE_TOL of the spot), 'contact' (touching the target
+// in front), or null (also null while the re-engage cooldown runs).
 export function canEngage(b, T, spot) {
-  if (Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL) return 'spot';
+  if ((b.block.cool ?? 0) > 0) return null;
+  // Engage only well inside canRelease's 'lost' range, or the block would drop on the next tick.
+  const near = Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_NEAR;
+  if (near && Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL) return 'spot';
   const d = BLOCK_ANGLES[b.block.angle];
   const touching =
-    Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_TOL &&
+    near &&
     (T.x - b.x) * d.x + (T.y - b.y) * d.y >= 0;
   return touching ? 'contact' : null;
 }
@@ -368,8 +393,11 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
   }
 
+  const before = new Set(players.filter((p) => p.block?.engaged).map((p) => p.id));
+  const justEngaged = new Set();
+
   for (const b of players) {
-    if (!b.block || b.block.engaged) continue;
+    if (!b.block || b.block.engaged || b.block.released === 'past') continue;
     const spot = contactSpot(players, b);
     const foot = b.block.foot;
     if (foot && (ctx?.side === 1 || ctx?.side === -1)) {
@@ -396,14 +424,16 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const T = byId(players, b.block.target);
     const hit = canEngage(b, T, spot);
     if (hit) {
-      if (hit === 'spot') {
-        b.x = spot.x;
-        b.y = spot.y;
-      }
       b.block.engaged = true;
+      b.block.held = 0;
+      b.block.winT = 0;
+      if ('released' in b.block) b.block.released = null;
+      justEngaged.add(b.id);
       if (foot) foot.tx = T.x;
       b.steer = null;
       b.block.seq = ++ctx.seq;
+    } else if (b.block.cool > 0) {
+      b.block.cool = Math.max(0, b.block.cool - dt);
     }
   }
 
@@ -461,8 +491,27 @@ export function stepBlocking(players, ballPos, dt, ctx) {
   }
 
   for (const b of players) {
+    if (!b.block || !before.has(b.id)) continue;
+    const T = byId(players, b.block.target);
+    b.block.held += dt;
+    b.block.winT = T.react?.state === 'winning' ? b.block.winT + dt : 0;
+  }
+
+  for (const b of players) {
+    if (!b.block || !b.block.engaged || justEngaged.has(b.id)) continue;
+    const reason = canRelease(b, byId(players, b.block.target), ballPos);
+    if (!reason) continue;
+    b.block.engaged = false;
+    b.block.seq = null;
+    b.block.released = reason;
+    if (b.block.foot) b.block.foot.push = null;
+    if (reason !== 'past') b.block.cool = REENGAGE_DELAY;
+  }
+
+  for (const b of players) {
     if (!b.block || !b.block.engaged) continue;
     b.steer = null;
+    if (justEngaged.has(b.id)) continue;
     const spot = contactSpot(players, b);
     moveToward(b, spot.x, spot.y, b.speed * dt);
   }

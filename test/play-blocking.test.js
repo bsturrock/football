@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { POSITIONS } from '../src/dots/roster.js';
-import { BODY_RADIUS, CONTACT_DIST, ENGAGED_MAX_SPEED, contactSpot } from '../src/dots/blocking.js';
+import { POSITIONS, FRONTS } from '../src/dots/roster.js';
+import {
+  BODY_RADIUS, CONTACT_DIST, ENGAGED_MAX_SPEED, ENGAGE_TOL, ENGAGE_SLACK, SHED_TIME, RELEASE_PAST, REENGAGE_DELAY,
+  contactSpot, canEngage, canRelease, assignBlocks, setBlock,
+} from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
 
@@ -400,9 +403,19 @@ test('F10-10. null rule: LBs reach the QB', () => {
   play.retargetRule = null;
   run(play, 5);
   const qb = play.player('QB');
+  const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) <= CONTACT_DIST + 0.05;
+  // Arrived: touching the QB, or touching another defender who is (crowding; the line is no wedge).
+  const arrived = (p, seen = new Set([p.id])) =>
+    near(p, qb) ||
+    play.players.some((o) => {
+      if (o.team !== 'defense' || seen.has(o.id) || !near(p, o)) return false;
+      seen.add(o.id);
+      return arrived(o, seen);
+    });
   for (const id of ['WLB', 'MLB']) {
     const p = play.player(id);
-    assert.ok(Math.hypot(p.x - qb.x, p.y - qb.y) <= CONTACT_DIST + 0.05, `${id} dist ${Math.hypot(p.x - qb.x, p.y - qb.y)}`);
+    assert.ok(arrived(p), `${id} dist ${Math.hypot(p.x - qb.x, p.y - qb.y)}`);
+    assert.ok(p.y < 25, `${id} stuck at the line (y ${p.y})`);
   }
 });
 
@@ -422,4 +435,138 @@ test('F-15 #8: RB slips the lane', () => {
     }
   }
   assert.ok(crossed, 'RB crossed within 2.15 s');
+});
+
+// ---- F-32: smooth engage, engage clock, release ----
+const mkPair = (over = {}) => {
+  const T = { id: 'D', team: 'defense', x: 0, y: 10, react: null };
+  const b = {
+    id: 'B', team: 'offense', role: 'OL', x: 0, y: 10 - CONTACT_DIST, speed: 4, strength: 3,
+    block: { target: 'D', angle: 'straight', engaged: true, seq: 1, held: 0, winT: 0, ...over },
+  };
+  return { T, b };
+};
+const BALL = { x: 0, y: 5 };
+
+test('F-32 canRelease: shed, past, lost, null (first match in that order)', () => {
+  const { T, b } = mkPair();
+  assert.equal(canRelease(b, T, BALL), null);
+  b.block.winT = SHED_TIME;
+  assert.equal(canRelease(b, T, BALL), 'shed');
+  b.block.winT = SHED_TIME - 0.01;
+  assert.equal(canRelease(b, T, BALL), null);
+  assert.equal(canRelease(b, T, { x: 0, y: T.y + RELEASE_PAST }), 'past');
+  assert.equal(canRelease(b, T, { x: 0, y: T.y + RELEASE_PAST - 0.01 }), null);
+  b.y = T.y - (CONTACT_DIST + ENGAGE_TOL) - 0.01;
+  assert.equal(canRelease(b, T, BALL), 'lost');
+  b.y = T.y - (CONTACT_DIST + ENGAGE_TOL) + 0.01;
+  assert.equal(canRelease(b, T, BALL), null);
+  b.y = T.y - (CONTACT_DIST + ENGAGE_TOL) - 0.01;
+  assert.equal(canRelease(b, T, { x: 0, y: T.y + RELEASE_PAST }), 'past');
+  b.block.winT = SHED_TIME;
+  assert.equal(canRelease(b, T, { x: 0, y: T.y + RELEASE_PAST }), 'shed');
+});
+
+test('F-32 canEngage returns null while cool > 0', () => {
+  const { T, b } = mkPair({ engaged: false });
+  const spot = { x: 0, y: T.y - CONTACT_DIST };
+  assert.equal(canEngage(b, T, spot), 'spot');
+  b.block.cool = 0.1;
+  assert.equal(canEngage(b, T, spot), null);
+  b.block.cool = 0;
+  assert.equal(canEngage(b, T, spot), 'spot');
+});
+
+test('F-32 held is 0 on the engage tick and grows by dt after', () => {
+  const play = started();
+  play.retargetRule = null;
+  const held = new Map();
+  let checked = 0;
+  for (let i = 0; i < 90; i++) {
+    play.step(DT);
+    for (const id of OL) {
+      const b = play.player(id).block;
+      if (!b.engaged) continue;
+      if (!held.has(id)) {
+        assert.equal(b.held, 0, `${id} held on engage tick`);
+      } else {
+        assert.ok(Math.abs(b.held - (held.get(id) + DT)) < EPS, `${id} held ${b.held}`);
+        checked++;
+      }
+      held.set(id, b.held);
+    }
+  }
+  assert.ok(held.size === OL.length && checked > 50);
+});
+
+test('F-32 assignBlocks/setBlock keep the plain block shape', () => {
+  const play = createPlay(25);
+  play.snap();
+  for (const id of OL) assert.deepEqual(Object.keys(play.player(id).block).sort(), ['angle', 'engaged', 'seq', 'target']);
+  assignBlocks(play.players, null, null);
+  for (const id of OL) assert.deepEqual(Object.keys(play.player(id).block).sort(), ['angle', 'engaged', 'seq', 'target']);
+  setBlock(play.players, 'C', 'MLB', 'left');
+  assert.deepEqual(play.player('C').block, { target: 'MLB', angle: 'left', engaged: false, seq: null });
+});
+
+test('F-32 smooth engage: no OL jumps more than speed * dt + ENGAGE_SLACK in a tick', () => {
+  const plays = [createPlay(25, 'base')];
+  for (const front of Object.keys(FRONTS)) plays.push(createPlay(25, 'insideZone', { front }));
+  for (const play of plays) {
+    play.snap();
+    let prev = snapshot(play);
+    for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+      play.step(DT);
+      for (const id of OL) {
+        const p = play.player(id);
+        assert.ok(moved(p, prev.get(id)) <= p.speed * DT + ENGAGE_SLACK + EPS, `${id} moved ${moved(p, prev.get(id))} at tick ${i}`);
+      }
+      prev = snapshot(play);
+    }
+  }
+});
+
+test('F-32 shed: a defender who wins for SHED_TIME is released, then reacts as free', () => {
+  const play = started();
+  play.retargetRule = null;
+  const d = play.player('RDT');
+  d.strength *= 3;
+  let winStart = null;
+  let shedAt = null;
+  let nextReact;
+  for (let i = 0; i < 300 && nextReact === undefined; i++) {
+    play.step(DT);
+    if (shedAt !== null) {
+      nextReact = d.react;
+      break;
+    }
+    if (winStart === null && d.react?.state === 'winning') winStart = i;
+    const blk = play.player('LG').block;
+    if (blk.released === 'shed') {
+      shedAt = i;
+      assert.equal(blk.engaged, false);
+      assert.equal(blk.seq, null);
+      assert.equal(blk.cool, REENGAGE_DELAY);
+    }
+  }
+  assert.ok(winStart !== null, 'RDT never winning');
+  assert.ok(shedAt !== null, 'block never shed');
+  assert.ok(shedAt - winStart <= Math.round(SHED_TIME / DT) + 2, `shed ${shedAt - winStart} ticks after winning`);
+  assert.equal(nextReact, null);
+});
+
+test('F-32 past: once the ball is RELEASE_PAST upfield of a defender, nobody is engaged on him', () => {
+  const play = createPlay(25, 'insideZone');
+  play.snap();
+  let seen = 0;
+  for (let i = 0; i < 360 && play.ball.phase !== 'dead'; i++) {
+    play.step(DT);
+    const ball = play.ballPosition();
+    for (const d of play.players) {
+      if (d.team !== 'defense' || ball.y < d.y + RELEASE_PAST) continue;
+      seen++;
+      assert.equal(play.blockersOf(d.id).length, 0, `${d.id} still blocked at tick ${i}`);
+    }
+  }
+  assert.ok(seen > 0, 'ball never passed a defender');
 });
