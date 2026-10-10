@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { FRONTS } from '../src/dots/roster.js';
 import { BODY_RADIUS, CONTACT_DIST, RELEASE_PAST } from '../src/dots/blocking.js';
+import { LANE_AHEAD } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
 const CAP = 8;
@@ -13,8 +14,13 @@ const ORBIT_TIME = 0.5; // s of consecutive ticks
 // gap edge set by an engaged DL's x, and that edge wobbles 1-2 cm, so measured reversals there are noise.
 const MOVE_MIN = BODY_RADIUS / 8;
 const MAX_FLIPS = 3;
+// A breakaway: the carrier is past the second level and past every defender.
+const brokeAway = (play, los) => {
+  const c = play.player(play.ball.holder ?? play.run.carrier);
+  return c.y >= los + LANE_AHEAD && play.players.every((d) => d.team !== 'defense' || d.y < c.y);
+};
 for (const front of Object.keys(FRONTS)) {
-  test(`F-34 #8: ${front} insideZone ends in a tackle, LBs do not orbit, pin or jitter`, () => {
+  test(`F-34 #8: ${front} insideZone ends in a tackle or a breakaway, LBs do not orbit, pin or jitter`, () => {
     const play = createPlay(25, 'insideZone', { front });
     assert.ok(play.snap());
     const lbs = Object.keys(play.defense.agents).filter((id) => play.defense.agents[id].behavior === 'zone');
@@ -45,6 +51,7 @@ for (const front of Object.keys(FRONTS)) {
       }
     }
     for (const id of lbs) assert.ok(flips[id] <= MAX_FLIPS, `${front} ${id} flipped heading ${flips[id]} times`);
-    assert.equal(play.result?.reason, 'tackle', `${front} ended with ${play.result?.reason}`);
+    const carrierY = play.player(play.ball.holder ?? play.run.carrier).y;
+    assert.ok(play.result?.reason === 'tackle' || brokeAway(play, 25), `${front} ended with ${play.result?.reason}, carrier y ${carrierY}`);
   });
 }

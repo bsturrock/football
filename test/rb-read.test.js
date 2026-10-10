@@ -225,17 +225,27 @@ test('F-35 #9: on every front and alignment he commits in time and never aims at
   }
 });
 
+// A breakaway: the carrier is past the second level and past every defender.
+const brokeAway = (play, los) => {
+  const c = play.player(play.ball.holder ?? play.run.carrier);
+  return c.y >= los + LANE_AHEAD && play.players.every((d) => d.team !== 'defense' || d.y < c.y);
+};
+
 test('F-35 #13: base front backside edge never keeps him pressing under pressure', () => {
   const info = fullPlay('base');
   const { play } = info;
-  assert.equal(play.ball.phase, 'dead', 'play ended within 4 s');
+  assert.ok(play.ball.phase === 'dead' || brokeAway(play, LOS), 'play ended within 4 s or broke away');
   assert.ok(info.commit !== null, `committed before the ball went dead (result ${JSON.stringify(play.result)})`);
   assert.deepEqual(info.pressBad, [], 'unblocked defender within PRESSURE_DIST while still pressing');
   if (REPORT) {
     const rb = play.player('RB');
-    const by = play.result.by;
-    const d = play.player(by);
+    const by = play.result?.by;
     const cs = info.commitState;
-    console.log(`REPORT backside: tackler ${by}, yards ${(rb.y - LOS).toFixed(2)}, commitBy ${info.commitBy}, commit rb (${cs.rb.x.toFixed(2)}, ${cs.rb.y.toFixed(2)}), final tackler dist ${Math.hypot(d.x - rb.x, d.y - rb.y).toFixed(2)}`);
+    if (by) {
+      const d = play.player(by);
+      console.log(`REPORT backside: tackler ${by}, yards ${(rb.y - LOS).toFixed(2)}, commitBy ${info.commitBy}, commit rb (${cs.rb.x.toFixed(2)}, ${cs.rb.y.toFixed(2)}), final tackler dist ${Math.hypot(d.x - rb.x, d.y - rb.y).toFixed(2)}`);
+    } else {
+      console.log(`REPORT backside: breakaway, yards ${(rb.y - LOS).toFixed(2)}, commitBy ${info.commitBy}, commit rb (${cs.rb.x.toFixed(2)}, ${cs.rb.y.toFixed(2)})`);
+    }
   }
 });

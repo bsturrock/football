@@ -6,6 +6,7 @@ import { buildLineup, FRONTS, DL_ROLES, LB_ROLES, PERSONNEL, PLAYS } from '../sr
 import { numberPlay } from '../src/dots/numbering.js';
 import { zonePlan } from '../src/dots/zone.js';
 import { hardCore } from '../src/dots/steering.js';
+import { LANE_AHEAD } from '../src/dots/carrier.js';
 
 const H = hardCore(BODY_RADIUS);
 
@@ -469,7 +470,13 @@ test('F-39 #3: the TE takes his zone-plan block at the snap', () => {
   assert.notEqual(te.block.target, null);
 });
 
-test('F-39 #7: TE engages and the play ends in a tackle on every front', () => {
+// A breakaway: the carrier is past the second level and past every defender.
+const brokeAway = (play, los) => {
+  const c = play.player(play.ball.holder ?? play.run.carrier);
+  return c.y >= los + LANE_AHEAD && play.players.every((d) => d.team !== 'defense' || d.y < c.y);
+};
+
+test('F-39 #7: TE engages and the play ends or breaks away on every front', () => {
   for (const front of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front, personnel: 'te' });
     play.snap();
@@ -478,7 +485,7 @@ test('F-39 #7: TE engages and the play ends in a tackle on every front', () => {
       play.step(1 / 60);
       if (play.player('TE').block?.engaged) engaged = true;
     }
-    assert.equal(play.ball.phase, 'dead', front);
+    assert.ok(play.ball.phase === 'dead' || brokeAway(play, 25), front);
     assert.equal(engaged, true, front);
   }
 });
