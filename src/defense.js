@@ -24,7 +24,7 @@ import { DBL_R, bearing, dist, rand } from './util.js';
 //             outside (leverage side) always fights through, whatever the roll: he never gives up the edge
 //   squeezing B-084: a force man with the ball clearly inside him (d.sqzL, latched; d.sqz is set only the frames contain() runs) takes the blocker on at the line and always fights through, never stepping wide around him
 //   held      engaged (d.bt): the line battle owns him; avoid state cleared
-// Backside (ball away from his side, not past los+BACK_L): stays home near his gap unless the runner closes within BACK_D. Designed runs only (PLAYS[S.play].run),
+// Backside (ball away from his side, not past los+BACK_L): stays home near his gap unless the runner closes within BACK_D. Once a run is seen (S.runSeen: handoff, pitch or scramble),
 //   gap and force roles only, and only men who passed the d.home roll (a poor pursuer abandons the backside early)
 const AVOID_CONE = 30, AVOID_DIST = 2.5, AVOID_EVERY = 0.1, AVOID_T = 0.5, AVOID_STEP = 1.6, BACK_D = 3, BACK_L = 3, HOME_P = 0.5, FIGHT_QUICK = 0.15;
 const COS_CONE = Math.cos(AVOID_CONE*Math.PI/180);
@@ -183,7 +183,7 @@ function runFit(d, c){
     if(j.role === 'deep') return [flow*0.4, L + 12];
     return coverTarget(d);
   }
-  if(d.role === 'S' && (j.role === 'alley' || j.role === 'deep') && PLAYS[S.play].run && !S.boxS){   // B-094: two-high safeties (no safety rolled into the box: a one-high shell keeps its post man deep and its rolled man down) fill by the run side, not by a fixed role: once the ball commits (past ALLEY_X of the middle, or through the line) the safety on its side is the alley man, the other the deep man; latched for the play
+  if(d.role === 'S' && (j.role === 'alley' || j.role === 'deep') && S.runSeen && !S.boxS){   // B-094: two-high safeties (no safety rolled into the box: a one-high shell keeps its post man deep and its rolled man down) fill by the run side, not by a fixed role: once the ball commits (past ALLEY_X of the middle, or through the line) the safety on its side is the alley man, the other the deep man; latched for the play
     if(d.altN !== snapN && (Math.abs(bx) > ALLEY_X || by > L + RUN_SUPPORT_Y)){ const rs = Math.sign(bx) || 1; d.altN = snapN; d.alt = d.x*rs >= 0 ? {role:'alley', gx:bx, side:rs} : {role:'deep', side:0}; }
     if(d.altN === snapN) j = d.alt;
   }
@@ -207,11 +207,11 @@ function runFit(d, c){
     return [bx + side*CONTAIN_X + e, Math.max(L + 1, by + 1.5)];                                     // get outside and in front of him
   };
   // backside: ball went away from my side and hasn't cleared los+BACK_L: stay home on the cutback unless he closes on me
-  if(d.home && PLAYS[S.play].run && (j.role === 'force' || (j.role === 'gap' && d.role !== 'DL')) && bx*s < -BACK_HOME_X && by < L + BACK_L && dist(d, c) > BACK_D) return [j.gx + (bx - j.gx)*0.25, L + 0.5];
+  if(d.home && S.runSeen && (j.role === 'force' || (j.role === 'gap' && d.role !== 'DL')) && bx*s < -BACK_HOME_X && by < L + BACK_L && dist(d, c) > BACK_D) return [j.gx + (bx - j.gx)*0.25, L + 0.5];
   switch(j.role){
     case 'gap':
       if(by < L + 1.5 && Math.abs(bx - j.gx) < FILL_DX && !(d.role === 'DL' && (d.fillL = dist(d, c) <= (d.fillL ? FILL_CLOSE + FILL_BAND : FILL_CLOSE)))) return [j.gx + (bx - j.gx)*0.5, L + 0.5];   // he's coming at my gap: fill and squeeze, then close on him (B-085)
-      if(d.role === 'DL' && PLAYS[S.play].run && backsideOf(j, bx) && by < L + BACK_L){ const [ix, iy] = inside(); return [ix, Math.min(iy, Math.max(L + FLAT_Y, by))]; }   // B-085: backside interior man runs the line at the runner
+      if(d.role === 'DL' && S.runSeen && backsideOf(j, bx) && by < L + BACK_L){ const [ix, iy] = inside(); return [ix, Math.min(iy, Math.max(L + FLAT_Y, by))]; }   // B-085: backside interior man runs the line at the runner
       return inside();
     case 'force':
       if(bx*s < -CHASE_X) return [px - dir*1 + e, Math.max(py, by)];  // ball is CHASE_X to my backside: chase (any depth)
@@ -220,7 +220,7 @@ function runFit(d, c){
       if(bx*s > ALLEY_X || by > L + 1) return inside();               // ball committed to my side: fill the alley
       return [bx*0.5 + j.gx*0.5, L + 6];
     case 'deep':
-      if(dist(d, c) > 8 && !(PLAYS[S.play].run && by > L + RUN_SUPPORT_Y)) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it, until a designed run is through the line (B-094: then every deep man is run support and fills at the runner, not 8 yd off him)
+      if(dist(d, c) > 8 && !(S.runSeen && by > L + RUN_SUPPORT_Y)) return [bx, Math.max(by + 5, L + 8)];  // stay over the top of it, until a designed run is through the line (B-094: then every deep man is run support and fills at the runner, not 8 yd off him)
       return inside();
     case 'support': {
       const f = DEF.find(o => o.job && o.job.role === 'force' && o.job.side === s);
@@ -312,7 +312,7 @@ function holdFacing(d, c, runRead, dt){
 // B-065: the gap an engaged defender fights for: his own gap (job.gx); a two-gapper holds square (null) until his read, then takes the ball-side gap
 function engagedGap(d, c){
   const j = d.job;
-  if(!j || !S.runMode || !PLAYS[S.play].run) return undefined;   // run plays only: a pass rusher keeps the old leverage
+  if(!j || !S.runMode || !S.runSeen) return undefined;   // a run the defense has seen only: a pass rusher keeps the old leverage
   if(j.role !== 'two'){
     if(j.role === 'gap' && d.role === 'DL' && backsideOf(j, c.x) && c.y < S.los + BACK_L) return c.x;   // B-085: a backside interior man fights toward the ball, not back to his own gap
     return j.gx;
@@ -377,7 +377,7 @@ export function defenseAI(d, dt){
   d.fireAcc = false;   // B-064 (dl-fire): set below, only while the ball is not in the air
   if(ball.state !== 'air'){   // B-060-2: situational speed
     const open = c && attack && S.runMode && (c.y > d.y + RUNNER_PAST_Y || c.y > S.los + OPEN_Y);
-    const reading = S.runMode && c && PLAYS[S.play].run && d.role !== 'DL' && S.clock <= S.handoffAt + d.read + d.bite;   // run plays only: a catch sets runMode too
+    const reading = S.runMode && c && S.runSeen && d.role !== 'DL' && S.clock <= S.handoffAt + d.read + d.bite;   // run plays only: a catch sets runMode too
     const rush = attack && !S.runMode && (d.role === 'DL' || d.mode === 'rush') && S.clock < RUSH_FULL_T;
     const fire = attack && d.role === 'DL' && d.job && d.job.role !== 'two' && S.clock < FIRE_T;   // B-064 (dl-fire): every one-gap DL fires on every snap, run or pass (he can't know the play yet); acceleration is x FIRE_ACC for the get-off, on top of movement.js p.fire x FIRE_K 1.3 for its first 0.35 s (about 2.3x then, FIRE_ACC alone after) (acceleration, not wanted speed, limits the first yards; offense.js:98 does the same for a blocker)
     d.fireAcc = fire;

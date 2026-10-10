@@ -70,7 +70,7 @@ export function snap(){
 export function pitch(from, to, dur){ Object.assign(ball, {state:'pitch', pf:from, pt:to, t:0, pdur:dur, holder:null}); }
 export function giveBall(p){
   ball.state = 'held'; ball.holder = p;
-  if(p === RB && S.runMode){ RB.auto = true; S.handoffAt = S.clock; resolveBlocks(PLAYS[S.play], S.flip, true); }   // the blockers read the defense once more after the exchange
+  if(p === RB && S.runMode){ RB.auto = true; S.handoffAt = S.clock; S.runSeen = true; resolveBlocks(PLAYS[S.play], S.flip, true); }   // the blockers read the defense once more after the exchange
 }
 export function throwArc(c, d){ return {speed: 30 - c*13, apex: 0.6 + c*5 + d*0.04}; }
 export function throwTarget(){

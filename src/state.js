@@ -108,7 +108,7 @@ export function setupPlay(keep = false){
   if(boxS) place(boxS, boxS.side*SS_ROLL.x, L + SS_ROLL.d);
   S.box = inBox + (boxS ? 1 : 0);
   assignFits(call, boxS);
-  S.handoffAt = Infinity;
+  S.handoffAt = Infinity; S.runSeen = false;   // B-097: set at a handoff, a pitch or a scramble (never a catch): what the defense can see of a run
   RB.auto = false;
   OFF.forEach(o => { o.blk = null; o.dbl = null; o.ruled = false; o.lane = null; o.via = null; o.pull = null; o.rr = null; o.climbing = false; o.push = o.role === 'OL' ? 2.5 : o.pos === 'TE' ? 1.4 : o.pos === 'RB' || o.pos === 'FB' ? 0.8 : o.role === 'WR' ? 0.5 : 0; });
   S.bust = [];   // B-032-2 (bust-roll)

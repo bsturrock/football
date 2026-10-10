@@ -38,7 +38,7 @@ function liveUpdate(dt){
     ball.t += dt/ball.pdur;
     if(ball.t >= 1){
       giveBall(ball.pt);
-      if(run === 'toss' && ball.holder === QB) pitch(QB, RB, 0.35);
+      if(run === 'toss' && ball.holder === QB) { pitch(QB, RB, 0.35); S.runSeen = true; }
     }
   }
   else if(ball.state === 'air'){ ball.t += dt/ball.dur; if(ball.t >= 1){ resolvePass(); return; } }
@@ -46,7 +46,7 @@ function liveUpdate(dt){
   if(ball.state !== 'held') return;
   if(run === 'hand' && ball.holder === QB && S.clock >= (PLAYS[S.play].delay || 0) && dist(QB, RB) < (PLAYS[S.play].mesh ? 1.9 : 1.3)){ S.runMode = true; giveBall(RB); }   // under center the QB extends the ball into the back's pocket; B-007-12: a delayed handoff (Draw) waits for play.delay
   const c = ball.holder;
-  if(c === QB && !S.runMode && QB.y > S.los + 0.3){ S.runMode = true; S.handoffAt = S.clock; S.charging = false; routeGroup.visible = false; toast('Scramble!'); }
+  if(c === QB && !S.runMode && QB.y > S.los + 0.3){ S.runMode = true; S.handoffAt = S.clock; S.runSeen = true; S.charging = false; routeGroup.visible = false; toast('Scramble!'); }
   trackProgress(c);
   const bp = heldBallPos(c);   // a body runner scores and goes out by the ball, not his hips
   if(bp.y >= 100){ c.act = 'celebrate'; c.actT = 99; endPlay('td'); return; }
