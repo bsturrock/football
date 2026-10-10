@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dots</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #10200f; font-family: sans-serif; }
@@ -13,6 +14,13 @@
   #reset-btn { cursor: pointer; }
   #hint { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 20px); box-sizing: border-box; }
   #hint button { touch-action: manipulation; min-width: 36px; min-height: 36px; }
+  @media (pointer: coarse), (max-width: 700px) {
+    #hint { font-size: 16px; gap: 8px; padding: 8px 10px; }
+    #hint button, #hint select { font-size: 16px; min-height: 44px; }
+    #hint button { min-width: 44px; }
+    #info-panel { font-size: 15px; }
+    #tooltip { font-size: 15px; }
+  }
 </style>
 </head>
 <body>
