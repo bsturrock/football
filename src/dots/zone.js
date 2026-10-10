@@ -17,8 +17,9 @@ export const INSIDE_ZONE = Object.freeze({
 });
 
 export function zonePlan(players, numbers, los) {
-  const { side, blocks, techs, combos, free } = runScheme(readFront(players, numbers, los), INSIDE_ZONE);
-  return { side, blocks, techs, combos, free };
+  const front = readFront(players, numbers, los);
+  const { side, blocks, techs, combos, free } = runScheme(front, INSIDE_ZONE);
+  return { side, blocks, techs, combos, free, front };
 }
 
 export function zoneSwitch(players, ballPos, ctx) {
