@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { POSITIONS, PLAYS, FRONTS, emptyAssignment, buildLineup } from '../src/dots/roster.js';
 import { BODY_RADIUS, CONTACT_DIST, SPREAD } from '../src/dots/blocking.js';
 import { DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
+import { POSITION_COUNT, DEFENSE_IDS, ROLES, BASE_LB_IDS, LB_READ } from './fixtures/base-front.js';
 
 const byId = (id) => POSITIONS.find((p) => p.id === id);
 const idsFor = (team) => POSITIONS.filter((p) => p.team === team).map((p) => p.id).sort();
 
-test('13 positions with unique ids and all fields present', () => {
-  assert.equal(POSITIONS.length, 13);
-  assert.equal(new Set(POSITIONS.map((p) => p.id)).size, 13);
+test(`${POSITION_COUNT} positions with unique ids and all fields present`, () => {
+  assert.equal(POSITIONS.length, POSITION_COUNT);
+  assert.equal(new Set(POSITIONS.map((p) => p.id)).size, POSITION_COUNT);
   for (const p of POSITIONS) {
     for (const k of ['id', 'name', 'team', 'role', 'dx', 'dy', 'speed', 'strength']) {
       assert.ok(k in p, `${p.id} missing ${k}`);
@@ -20,17 +21,14 @@ test('13 positions with unique ids and all fields present', () => {
 
 test('exact id sets per team', () => {
   assert.deepEqual(idsFor('offense'), ['C', 'LG', 'LT', 'QB', 'RB', 'RG', 'RT']);
-  assert.deepEqual(idsFor('defense'), ['LDE', 'LDT', 'MLB', 'RDE', 'RDT', 'WLB']);
+  assert.deepEqual(idsFor('defense'), DEFENSE_IDS);
 });
 
 test('roles as listed', () => {
-  const expected = {
-    LT: 'OL', LG: 'OL', C: 'OL', RG: 'OL', RT: 'OL', QB: 'QB', RB: 'RB',
-    LDE: 'DE', LDT: 'DT', RDT: 'DT', RDE: 'DE', MLB: 'LB', WLB: 'LB',
-  };
-  for (const [id, role] of Object.entries(expected)) {
+  for (const [id, role] of Object.entries(ROLES)) {
     assert.equal(byId(id).role, role, id);
   }
+  assert.deepEqual(POSITIONS.filter((p) => p.role === 'LB').map((p) => p.id).sort(), BASE_LB_IDS);
 });
 
 test('offense is behind the line, defense is past it', () => {
@@ -89,7 +87,7 @@ test('QB/RB shotgun spacing measured from C', () => {
 
 test('buildLineup(25) positions players from the line of scrimmage', () => {
   const lineup = buildLineup(25);
-  assert.equal(lineup.length, 13);
+  assert.equal(lineup.length, POSITION_COUNT);
   lineup.forEach((pl, i) => {
     const p = POSITIONS[i];
     assert.equal(pl.id, p.id);
@@ -327,19 +325,18 @@ test('F-19 #2: pos rows frozen with def frozen or null', () => {
   }
 });
 
-test('F-19 #2: MLB def.read is 0.35 and WLB def.read is 0.5', () => {
-  assert.equal(byId('MLB').def.read, 0.35);
-  assert.equal(byId('WLB').def.read, 0.5);
+test('F-19 #2: base LB def.read per row', () => {
+  for (const [id, r] of Object.entries(LB_READ)) assert.equal(byId(id).def.read, r, id);
+  assert.deepEqual(Object.keys(LB_READ).sort(), BASE_LB_IDS);
 });
 
-test('F-19 #2: every LB-role defender in every FRONTS entry has the base MLB def, except base WLB', () => {
+test('F-19 #2: every LB-role defender in every FRONTS entry has the base MLB def, except the other base LBs', () => {
   const mlbDef = byId('MLB').def;
-  const wlb = byId('WLB');
   for (const [key, f] of Object.entries(FRONTS)) {
     for (const d of f.defenders) {
       if (d.role !== 'LB') continue;
-      if (key === 'base' && d.id === 'WLB') {
-        assert.deepEqual(d.def, wlb.def, 'base WLB');
+      if (key === 'base' && d.id !== 'MLB') {
+        assert.deepEqual(d.def, byId(d.id).def, `base ${d.id}`);
         continue;
       }
       assert.deepEqual(d.def, mlbDef, `${key} ${d.id}`);
