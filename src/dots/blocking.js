@@ -472,7 +472,11 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const eng = engagedOn(players, d.id);
     if (eng.length) {
       d.steer = null;
-      d.react = stepReact(d.react ?? null, d, blockPush(eng), ctx?.defGoals?.[d.id] ?? ballPos, dt, { leverage: fight });
+      const mx = eng.reduce((s, p) => s + p.x, 0) / eng.length;
+      const my = eng.reduce((s, p) => s + p.y, 0) / eng.length;
+      const ld = Math.hypot(d.x - mx, d.y - my);
+      const line = ld < 1e-9 ? null : { x: (d.x - mx) / ld, y: (d.y - my) / ld };
+      d.react = stepReact(d.react ?? null, d, blockPush(eng), ctx?.defGoals?.[d.id] ?? ballPos, dt, { leverage: fight, line });
       const v = resolveBlock(d, eng, ballPos);
       d.x = Math.min(HW, Math.max(-HW, d.x + v.vx * dt));
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
@@ -517,6 +521,14 @@ export function stepBlocking(players, ballPos, dt, ctx) {
   }
 
   for (const b of players) {
+    if (!b.block || !b.block.engaged) continue;
+    b.steer = null;
+    if (justEngaged.has(b.id)) continue;
+    const spot = contactSpot(players, b);
+    moveToward(b, spot.x, spot.y, b.speed * dt);
+  }
+
+  for (const b of players) {
     if (!b.block || !b.block.engaged || justEngaged.has(b.id)) continue;
     const reason = canRelease(b, byId(players, b.block.target), ballPos, fight);
     if (!reason) continue;
@@ -526,14 +538,6 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (b.block.foot) b.block.foot.push = null;
     if (reason !== 'past') b.block.cool = REENGAGE_DELAY;
     if (reason === 'shed') byId(players, b.block.target).shedFree = REENGAGE_DELAY;
-  }
-
-  for (const b of players) {
-    if (!b.block || !b.block.engaged) continue;
-    b.steer = null;
-    if (justEngaged.has(b.id)) continue;
-    const spot = contactSpot(players, b);
-    moveToward(b, spot.x, spot.y, b.speed * dt);
   }
 
   const leaving = engagedAtStart.filter((id) => !byId(players, id).block?.engaged);
