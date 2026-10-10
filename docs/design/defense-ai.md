@@ -5,12 +5,12 @@ Each defender plays from what he can see: his keys at the snap (a lineman's helm
 ## Map
 
 - **Keys and reads** Each position reads a small set of keys after the snap and decides run or pass, and which way, from them; read speed and accuracy by rating (recog). Replaces the play-call peek at the snap (input.js:55, defense.js:331-333) and the ball-drift read (defense.js:179).
-  ? Scope: run defense first, pass coverage shaped now but built after B-083, or both now? (asked 2026-10-10)
-  ? Keys that can be fooled: guards pulling, backs' flow, so counter, trap and play-action fool a defender who reads them (asked 2026-10-10)
+  - ? Scope: run defense first, pass coverage shaped now but built after B-083, or both now? (asked 2026-10-10)
+  - ? Keys that can be fooled: guards pulling, backs' flow, so counter, trap and play-action fool a defender who reads them (asked 2026-10-10)
 - **Position identities** Mike, Will and Sam with jobs of their own (Mike calls the front's strength, Will chases the backside, Sam takes the tight end side), instead of linebackers as slots by x (fronts.js:62).
-  ? Name the linebackers and give each his own job, or keep slots? (asked 2026-10-10)
+  - ? Name the linebackers and give each his own job, or keep slots? (asked 2026-10-10)
 - **Decisions from the read** Fight through or go around a blocker by where the blocker has him (his leverage side) and his rating, not a coin (defense.js:255 FIGHT_P); fill, spill or squeeze by job; pursuit as today (intercept with rated error).
-  ? Shed by leverage and rating instead of a dice roll (asked 2026-10-10)
+  - ? Shed by leverage and rating instead of a dice roll (asked 2026-10-10)
 - **Pass coverage** Today man only plus deep halves (defense.js:70-75); zones (hook, curl, flat, thirds), breaking on the QB's arm, and pass-rush lanes come later with B-083.
 - **Defensive call** Today random each play from DEF_CALLS (state.js:79); a call picked by formation, down and distance comes later.
 
