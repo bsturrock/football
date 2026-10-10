@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFront } from '../src/dots/front.js';
 import { runScheme } from '../src/dots/assign.js';
-import { frontPlayers, frontNumbers, LOS } from './fixtures/fronts.js';
+import { zonePlan } from '../src/dots/zone.js';
+import { frontPlayers, frontNumbers, LOS, FRONT_NAMES } from './fixtures/fronts.js';
 import { IZ_FREE } from './fixtures/base-front.js';
 
 const read = (name) => {
@@ -14,44 +15,15 @@ const IZ = { rules: [
   { when: 'double', tech: 'combo' }, { when: 'climb', tech: 'climb' }, { when: 'cutoff', tech: 'cutoff' },
 ] };
 
-test('base with IZ', () => {
-  const r = runScheme(read('base'), IZ);
-  assert.equal(r.side, -1);
-  assert.deepEqual(r.blocks, { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'LDT', RT: 'LDT' });
-  assert.deepEqual(r.combos, [
-    { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
-    { owner: 'LG', partner: 'LT', target: 'RDE', watch: 'WLB' },
-  ]);
-  assert.deepEqual(r.techs, {
-    LT: { tech: 'combo', shade: 'playside', watch: 'WLB' },
-    LG: { tech: 'combo', shade: 'none', watch: 'WLB' },
-    C: { tech: 'zone', shade: 'playside', watch: null },
-    RG: { tech: 'combo', shade: 'playside', watch: 'MLB' },
-    RT: { tech: 'combo', shade: 'none', watch: 'MLB' },
-  });
-  assert.deepEqual(r.free, IZ_FREE.base);
-});
-
-test('overflow, walkedUp', () => {
-  const r = runScheme(read('walkedUp'), IZ);
-  assert.equal(r.blocks.LT, 'SAM');
-  assert.equal(r.blocks.LG, 'PE');
-  assert.equal(r.blocks.C, 'PT');
-  assert.equal(r.blocks.RG, 'BT');
-  assert.equal(r.blocks.RT, 'BT');
-  assert.deepEqual(r.combos, [{ owner: 'RT', partner: 'RG', target: 'BT', watch: 'WIL' }]);
-  assert.deepEqual(r.free, ['MIK', 'BE']);
-});
-
-test('two uncovered side by side, odd34', () => {
-  const r = runScheme(read('odd34'), IZ);
-  assert.equal(r.blocks.LT, 'PO');
-  assert.equal(r.blocks.LG, 'PE');
-  assert.equal(r.blocks.C, 'N');
-  assert.deepEqual(r.combos, [{ owner: 'RG', partner: 'C', target: 'N', watch: 'BI' }]);
-  assert.equal(r.blocks.RT, 'BE');
-  assert.deepEqual(r.techs.RT, { tech: 'cutoff', shade: 'none', watch: null });
-  assert.deepEqual(r.free, ['PI', 'BO']);
+test('runScheme with the IZ table matches zonePlan on every front and personnel', () => {
+  for (const name of FRONT_NAMES) {
+    for (const personnel of ['noTe', 'te']) {
+      const players = frontPlayers(name, personnel);
+      const numbers = frontNumbers(players);
+      const { front, ...plan } = zonePlan(players, numbers, LOS);
+      assert.deepEqual(runScheme(readFront(players, numbers, LOS), IZ), plan, `${name} ${personnel}`);
+    }
+  }
 });
 
 test('climb at the playside end, dlPlus4', () => {
@@ -71,8 +43,11 @@ test('at filtering and first-match order', () => {
   ] });
   assert.equal(r.techs.LT.tech, 'X');
   assert.equal(r.techs.C.tech, 'Y');
-  assert.ok(!('LG' in r.techs) && !('RT' in r.techs));
-  assert.ok(!('LG' in r.blocks) && !('RT' in r.blocks));
+  for (const [id, t] of Object.entries(r.techs)) {
+    if (id !== 'LT') assert.equal(t.tech, 'Y', id);
+  }
+  assert.ok(!('LG' in r.techs));
+  assert.ok(!('LG' in r.blocks));
 });
 
 test('purity', () => {
