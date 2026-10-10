@@ -4,10 +4,12 @@ import { createPlay } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { FIRST_STEP_LEN, RIDE_MIN } from '../src/dots/technique.js';
+import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
 import { readFront } from '../src/dots/front.js';
+import { FRONT_NAMES } from './fixtures/fronts.js';
+import { A_GAP_HALF } from '../src/dots/numbering.js';
 import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
@@ -137,7 +139,7 @@ test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blo
 const deg = (r) => (r * 180) / Math.PI;
 
 test('F-17 #2: first step angles', () => {
-  const want = { LT: 30, LG: 60, C: 60, RG: 30, RT: 60, TE: 10 };
+  const want = { LT: 45, LG: 60, C: 60, RG: 45, RT: 60, TE: 10 };
   const play = createPlay(25, 'insideZone');
   const pre = Object.fromEntries([...OL, 'TE'].map((id) => [id, { x: play.player(id).x, y: play.player(id).y }]));
   play.snap();
@@ -149,13 +151,13 @@ test('F-17 #2: first step angles', () => {
     assert.ok(Math.abs(a - want[id]) <= 2, `${id} ${a}`);
   }
   // With the DL shifted out, RT is no longer the backside end lineman: he zone-blocks the end man in his
-  // playside gap (30 degrees), and the uncovered TE combos with him (60 degrees).
+  // playside gap (45 degrees), and the uncovered TE combos with him (60 degrees).
   const p2 = createPlay(25, 'insideZone');
   for (let i = 0; i < 4; i++) p2.shiftDL(-1);
   const r0 = Object.fromEntries(['RT', 'TE'].map((id) => [id, { x: p2.player(id).x, y: p2.player(id).y }]));
   p2.snap();
   p2.step(DT);
-  for (const [id, w] of [['RT', 30], ['TE', 60]]) {
+  for (const [id, w] of [['RT', 45], ['TE', 60]]) {
     const p = p2.player(id);
     const a = deg(Math.atan2(p.y - r0[id].y, side * (p.x - r0[id].x)));
     assert.ok(Math.abs(a - w) <= 2, `${id} ${a}`);
@@ -178,7 +180,7 @@ test('F-17 #3: phases step then aim', () => {
         seenAim.add(id);
         const f = b.foot;
         const p = play.player(id);
-        assert.ok(Math.hypot(p.x - f.ox, p.y - f.oy) >= FIRST_STEP_LEN - 0.05, id);
+        assert.ok(Math.hypot(p.x - f.ox, p.y - f.oy) >= (TECHNIQUES[f.tech].stepLen ?? FIRST_STEP_LEN) - 0.05, id);
       }
       if (seenAim.has(id)) assert.notEqual(b.foot.phase, 'step', id);
     }
@@ -631,4 +633,36 @@ test('F-45 #5: C and LG double the 2i; LT is alone on the end until the climb', 
   }
   assert.deepEqual([...engaged].sort(), ['C', 'LG']);
   assert.ok(switched);
+});
+
+test('F-45 #6: inside zone moves downhill', () => {
+  const shifts = { dlPlus4: ['shiftDL', 1, 4], dlMinus4: ['shiftDL', -1, 4], lbPlus6: ['shiftLB', 1, 6], lbMinus6: ['shiftLB', -1, 6] };
+  const rows = [];
+  const bad = [];
+  for (const name of FRONT_NAMES) {
+    const play = createPlay(25, 'insideZone', { tackles: false });
+    if (name in shifts) {
+      const [fn, dir, n] = shifts[name];
+      for (let i = 0; i < n; i++) play[fn](dir);
+    } else if (name !== 'base') play.setFront(name);
+    play.snap();
+    const start = Object.fromEntries(OL.map((id) => [id, { x: play.player(id).x, y: play.player(id).y, tech: play.player(id).block?.foot?.tech }]));
+    for (let i = 0; i < 30; i++) play.step(DT);
+    let up = 0;
+    let lat = 0;
+    const cells = [];
+    for (const id of OL) {
+      const p = play.player(id);
+      const l = -(p.x - start[id].x);
+      const u = p.y - start[id].y;
+      up += u;
+      lat += Math.abs(l);
+      cells.push(`${id} ${l.toFixed(2)}/${u.toFixed(2)}`);
+      const zoneLike = start[id].tech === 'zone' || start[id].tech === 'combo';
+      if (zoneLike && Math.abs(l) > A_GAP_HALF) bad.push(`${name} ${id} lateral ${l.toFixed(2)} > ${A_GAP_HALF.toFixed(2)}`);
+    }
+    if (up < lat) bad.push(`${name} mean up ${(up / 5).toFixed(2)} < mean lateral ${(lat / 5).toFixed(2)}`);
+    rows.push(`${name.padEnd(9)} ${cells.join('  ')}`);
+  }
+  assert.equal(bad.length, 0, `${bad.join('\n')}\n(lateral/up, yd)\n${rows.join('\n')}`);
 });
