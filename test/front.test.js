@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFront, shade, liveGaps } from '../src/dots/front.js';
+import { readFront, shade, liveGaps, HEAD_UP } from '../src/dots/front.js';
 import { frontPlayers, frontNumbers, LOS, FRONT_NAMES } from './fixtures/fronts.js';
 import { buildLineup } from '../src/dots/roster.js';
 import { numberPlay } from '../src/dots/numbering.js';
@@ -51,9 +51,9 @@ test('odd34', () => {
 });
 
 test('shade', () => {
-  assert.equal(shade(0, 0.25), 'head');
-  assert.equal(shade(0, 0.26), 'playside');
-  assert.equal(shade(0, -0.26), 'backside');
+  assert.equal(shade(0, HEAD_UP), 'head');
+  assert.equal(shade(0, HEAD_UP + 0.01), 'playside');
+  assert.equal(shade(0, -(HEAD_UP + 0.01)), 'backside');
 });
 
 test('order independence, purity, no center', () => {

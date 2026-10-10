@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFront, GAP_NAMES } from '../src/dots/front.js';
 import { frontPlayers, frontNumbers, LOS, FRONT_NAMES } from './fixtures/fronts.js';
+import { POSITIONS } from '../src/dots/roster.js';
+import { BOX_MARGIN } from '../src/dots/numbering.js';
+
+const dxOf = (id) => POSITIONS.find((p) => p.id === id).dx;
 
 const base = () => {
   const players = frontPlayers('base');
@@ -35,31 +39,31 @@ test('F-19 #1: base read keeps level, cover, gap and u for WLB', () => {
   assert.equal(wlb.level, 'second');
   assert.equal(wlb.cover, null);
   assert.equal(wlb.gap, null);
-  assert.equal(wlb.u, 1.6);
+  assert.equal(wlb.u, -dxOf('WLB'));
 });
 
 test('F-19 #1: head-up on the center is play A', () => {
   assert.deepEqual(def(withWlbAt(0), 'WLB').fit, { side: 'play', name: 'A' });
 });
 
-test('F-19 #1: x = -0.5 is play A', () => {
-  assert.deepEqual(def(withWlbAt(-0.5), 'WLB').fit, { side: 'play', name: 'A' });
+test('F-19 #1: a third of the way to LG is play A', () => {
+  assert.deepEqual(def(withWlbAt(dxOf('LG') / 3), 'WLB').fit, { side: 'play', name: 'A' });
 });
 
 test('F-19 #1: head-up on LG is play B', () => {
-  assert.deepEqual(def(withWlbAt(-1.5), 'WLB').fit, { side: 'play', name: 'B' });
+  assert.deepEqual(def(withWlbAt(dxOf('LG')), 'WLB').fit, { side: 'play', name: 'B' });
 });
 
 test('F-19 #1: head-up on RG is back A', () => {
-  assert.deepEqual(def(withWlbAt(1.5), 'WLB').fit, { side: 'back', name: 'A' });
+  assert.deepEqual(def(withWlbAt(dxOf('RG')), 'WLB').fit, { side: 'back', name: 'A' });
 });
 
-test('F-19 #1: x = 2.2 between RG and RT is back B', () => {
-  assert.deepEqual(def(withWlbAt(2.2), 'WLB').fit, { side: 'back', name: 'B' });
+test('F-19 #1: between RG and RT is back B', () => {
+  assert.deepEqual(def(withWlbAt((dxOf('RG') + dxOf('RT')) / 2), 'WLB').fit, { side: 'back', name: 'B' });
 });
 
 test('F-19 #1: far outside playside, inside the box, is play C', () => {
-  assert.deepEqual(def(withWlbAt(-6), 'WLB').fit, { side: 'play', name: 'C' });
+  assert.deepEqual(def(withWlbAt(dxOf('LT') - BOX_MARGIN + 1), 'WLB').fit, { side: 'play', name: 'C' });
 });
 
 test('F-19 #1: every defender in every front has a valid fit', () => {
