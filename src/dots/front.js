@@ -13,6 +13,35 @@ export function shade(uBlocker, uDefender) {
 
 const byUThenId = (a, b) => (b.u - a.u) || (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
 
+// Live gap x spans walked out from the center. dir +1 = playside gaps (n = 0,1,..),
+// -1 = backside gaps (n = 0,-1,..). A missing outer lineman makes that gap as wide as
+// the previous one, extended away from the center; `outer` says whether he is really there.
+export function liveGaps(players, line, side, dir, count) {
+  const xOfId = (id) => {
+    const p = players.find((q) => q.id === id);
+    return p ? p.x : null;
+  };
+  const xOf = (n) => {
+    const entry = line.find((l) => l.n === n);
+    return entry ? xOfId(entry.id) : null;
+  };
+  if (xOf(0) == null) return [];
+  const gaps = [];
+  let prevWidth = 2 * A_GAP_HALF;
+  let prevOuter = null;
+  for (let j = 0; j < count; j++) {
+    const innerX = xOf(dir * j) ?? prevOuter;
+    const o = xOf(dir * (j + 1));
+    const outerX = o ?? innerX + dir * side * prevWidth;
+    const lo = Math.min(innerX, outerX);
+    const hi = Math.max(innerX, outerX);
+    gaps.push({ lo, hi, outer: o != null });
+    prevWidth = hi - lo;
+    prevOuter = outerX;
+  }
+  return gaps;
+}
+
 export function readFront(players, numbers, los) {
   const numbered = players.filter((p) => numbers[p.id] != null);
   const offense = numbered.filter((p) => p.team === 'offense');
