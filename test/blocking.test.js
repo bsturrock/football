@@ -4,7 +4,7 @@ import { HW } from '../src/util.js';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
   doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
-  SHED_TIME, REENGAGE_DELAY, RELEASE_PAST,
+  SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
 import { startReact, WIN_SPEED } from '../src/dots/react.js';
@@ -33,6 +33,19 @@ test('resolveBlock exact values', () => {
   near(v3.vx, 0); near(v3.vy, 2.5);
   const v0 = resolveBlock({ x: 0, y: 0, strength: 0.6 }, [mk('straight')], goal);
   near(v0.vx, 0); near(v0.vy, 1.5);
+});
+
+test('blockPush sums the blockers and counts them (n)', () => {
+  assert.deepEqual(blockPush([]), { x: 0, y: 0, n: 0 });
+  const o = O('a', 0, 0, { block: blk('d', { engaged: true }) });
+  const one = blockPush([o]);
+  assert.equal(one.n, 1);
+  near(one.x, blockForce(o) * BLOCK_ANGLES.straight.x);
+  near(one.y, blockForce(o) * BLOCK_ANGLES.straight.y);
+  const two = blockPush([o, O('b', 1, 0, { block: blk('d', { engaged: true }) })]);
+  assert.equal(two.n, 2);
+  near(two.x, 2 * one.x);
+  near(two.y, 2 * one.y);
 });
 
 test('OL win at every angle', () => {

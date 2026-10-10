@@ -159,8 +159,8 @@ export const driveForce = (p) => p.strength;
 // Single place where future factors (skills, leverage, fatigue) multiply in.
 export const blockForce = (p) => p.strength;
 
-// Summed blocker push vector. Single source of the push sum.
-function blockPush(blockers) {
+// Summed blocker push vector and the number of blockers summed (n). Single source of the push sum; stepReact reads n to tell a double team.
+export function blockPush(blockers) {
   let x = 0;
   let y = 0;
   for (const b of blockers) {
@@ -169,7 +169,7 @@ function blockPush(blockers) {
     x += bf * d.x;
     y += bf * d.y;
   }
-  return { x, y };
+  return { x, y, n: blockers.length };
 }
 
 // The one function that decides who wins an engaged block. Pure.
