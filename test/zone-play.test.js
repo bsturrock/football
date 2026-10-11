@@ -4,7 +4,7 @@ import { createPlay } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
+import { RIDE_MIN, TECHNIQUES, stepDir, stepLenOf, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
@@ -114,12 +114,17 @@ test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blo
 
 const deg = (r) => (r * 180) / Math.PI;
 
+// F-55 #4: a lineman's first-step angle is the row's angle for the plan's tech and shade, not a literal.
+const rowAngle = (plan, id) => {
+  const d = stepDir(plan.techs[id].tech, plan.techs[id].shade ?? 'none', 1);
+  return deg(Math.atan2(d.y, d.x));
+};
+
 test('F-17 #2: first step angles', () => {
-  const want = { LT: 45, LG: 60, C: 45, RG: 45, RT: 60, TE: 10 }; // F-54 #1: the RDT covers C, so C is the shaded partner at 45
+  // F-55 #4: expected angles come from the plan's tech and shade through the TECHNIQUES rows.
   const play = createPlay(25, 'insideZone');
   const plan = zonePlan(play.players, play.numbers, 25);
-  // F-50 #2: the TE spares the end man and climbs when a backside LB would be free
-  want.TE = plan.techs.TE.tech === 'climb' ? 60 : 10;
+  const want = Object.fromEntries([...OL, 'TE'].map((id) => [id, rowAngle(plan, id)]));
   const pre = Object.fromEntries([...OL, 'TE'].map((id) => [id, { x: play.player(id).x, y: play.player(id).y }]));
   play.snap();
   play.step(DT);
@@ -129,14 +134,15 @@ test('F-17 #2: first step angles', () => {
     const a = deg(Math.atan2(p.y - pre[id].y, side * (p.x - pre[id].x)));
     assert.ok(Math.abs(a - want[id]) <= 2, `${id} ${a}`);
   }
-  // With the DL shifted out, RT is no longer the backside end lineman: he zone-blocks the end man in his
-  // playside gap (45 degrees), and the uncovered TE combos with him (60 degrees).
+  // With the DL shifted out, RT is no longer the backside end lineman: he zone-blocks the end man, and the
+  // uncovered TE combos with him; their angles follow the rows too (F-55 #4).
   const p2 = createPlay(25, 'insideZone');
   for (let i = 0; i < 4; i++) p2.shiftDL(-1);
+  const plan2 = zonePlan(p2.players, p2.numbers, 25);
   const r0 = Object.fromEntries(['RT', 'TE'].map((id) => [id, { x: p2.player(id).x, y: p2.player(id).y }]));
   p2.snap();
   p2.step(DT);
-  for (const [id, w] of [['RT', 45], ['TE', 60]]) {
+  for (const [id, w] of [['RT', rowAngle(plan2, 'RT')], ['TE', rowAngle(plan2, 'TE')]]) {
     const p = p2.player(id);
     const a = deg(Math.atan2(p.y - r0[id].y, side * (p.x - r0[id].x)));
     assert.ok(Math.abs(a - w) <= 2, `${id} ${a}`);
@@ -144,6 +150,8 @@ test('F-17 #2: first step angles', () => {
 });
 
 test('F-17 #3: phases step then aim', () => {
+  // F-55 #5: a cutoff man's second phase is 'hinge', every other row's is 'aim'.
+  const second = (b) => (b.foot.tech === 'cutoff' ? 'hinge' : 'aim');
   // LT and RT reach aim unengaged at about 0.37 s with accel; C and RG engage at about 0.28 s; LG engages the 2i in front of him at about 0.37 s, before he is seen in aim.
   const play = createPlay(25, 'insideZone', { accel: true });
   play.snap();
@@ -155,11 +163,11 @@ test('F-17 #3: phases step then aim', () => {
     for (const id of OL) {
       const b = play.player(id).block;
       // a zone-switch retarget (retargetFoot) starts a new foot directly in 'aim' with its origin reset, so it is not a first step (RG under accel, about 0.33 s)
-      if (!b.engaged && !seenAim.has(id) && b.foot.phase === 'aim' && b.foot === firstFoot.get(id)) {
+      if (!b.engaged && !seenAim.has(id) && b.foot.phase === second(b) && b.foot === firstFoot.get(id)) {
         seenAim.add(id);
         const f = b.foot;
         const p = play.player(id);
-        assert.ok(Math.hypot(p.x - f.ox, p.y - f.oy) >= (TECHNIQUES[f.tech].stepLen ?? FIRST_STEP_LEN) - 0.05, id);
+        assert.ok(Math.hypot(p.x - f.ox, p.y - f.oy) >= stepLenOf(f.tech, f.shade) - 0.05, id);
       }
       if (seenAim.has(id)) assert.notEqual(b.foot.phase, 'step', id);
     }
@@ -167,7 +175,7 @@ test('F-17 #3: phases step then aim', () => {
   for (const id of ['LT', 'RT']) assert.ok(seenAim.has(id), id);
   for (const id of OL) {
     const b = play.player(id).block;
-    assert.ok(b.engaged || b.foot.phase === 'aim', id);
+    assert.ok(b.engaged || b.foot.phase === second(b), id);
   }
 });
 
@@ -704,6 +712,8 @@ test('F-45 #5: C and LG double the 2i; LT is alone on the end until the climb', 
   assert.ok(switched);
 });
 
+// F-55 #4: the human asked for a short, steep step in F-45; the playside-shade covered man now reaches (flatter and
+// longer) per the spec. Head, backside and helper steps stay short and steep.
 test('F-45 #6: inside zone opens with a short, steep zone step', () => {
   const shifts = { dlPlus4: ['shiftDL', 1, 4], dlMinus4: ['shiftDL', -1, 4], lbPlus6: ['shiftLB', 1, 6], lbMinus6: ['shiftLB', -1, 6] };
   const rows = [];
@@ -715,7 +725,7 @@ test('F-45 #6: inside zone opens with a short, steep zone step', () => {
       for (let i = 0; i < n; i++) play[fn](dir);
     } else if (name !== 'base') play.setFront(name);
     play.snap();
-    const start = Object.fromEntries(OL.map((id) => [id, { x: play.player(id).x, y: play.player(id).y, tech: play.player(id).block?.foot?.tech }]));
+    const start = Object.fromEntries(OL.map((id) => [id, { x: play.player(id).x, y: play.player(id).y, tech: play.player(id).block?.foot?.tech, shade: play.player(id).block?.foot?.shade }]));
     // Each zone/combo OL's first step ends when its foot leaves 'step' or he engages, within 0.5 s.
     const ends = {};
     const todo = OL.filter((id) => start[id].tech === 'zone' || start[id].tech === 'combo');
@@ -745,9 +755,12 @@ test('F-45 #6: inside zone opens with a short, steep zone step', () => {
         cells.push(`${id} ${tech} none`);
         continue;
       }
-      const cap = TECHNIQUES[tech].stepLen + e.speed * DT;
+      const shade = start[id].shade;
+      const cap = stepLenOf(tech, shade) + e.speed * DT;
       if (e.reach > cap) bad.push(`${name} ${id} ${tech} reach ${e.reach.toFixed(2)} > ${cap.toFixed(2)}`);
-      if (e.ang < 38) bad.push(`${name} ${id} ${tech} angle ${e.ang.toFixed(1)} < 38`); // F-54 #1: base C (playside-shaded ace partner) steps at 39.7
+      if (shade === 'playside') {
+        if (e.ang >= 40) bad.push(`${name} ${id} ${tech} playside reach angle ${e.ang.toFixed(1)} not flatter than 40`);
+      } else if (e.ang < 40) bad.push(`${name} ${id} ${tech} ${shade} angle ${e.ang.toFixed(1)} < 40`);
       cells.push(`${id} ${tech} t${e.tick} ${e.lat.toFixed(2)}/${e.up.toFixed(2)} ${e.ang.toFixed(1)}deg`);
     }
     rows.push(`${name.padEnd(9)} ${cells.join('  ')}`);
@@ -1196,4 +1209,52 @@ test('F-54 #1: covered/uncovered matches the spec: every front, both directions'
       }
     }
   }
+});
+
+// F-55 #4: each zone/combo lineman's first step follows his role and shade: the move from the snap spot to the end
+// of his step phase points along stepDir(tech, shade, side) and is no longer than stepLenOf plus one tick of speed.
+test('F-55 #4: first steps by role and shade', () => {
+  const bad = [];
+  let checked = 0;
+  for (const front of Object.keys(FRONTS)) {
+    for (const personnel of ['noTe', 'te']) {
+      for (const [playside, side] of [['left', -1], ['right', 1]]) {
+        const play = createPlay(25, 'insideZone', { front, personnel, playside, tackles: false });
+        play.snap();
+        const start = {};
+        for (const id of OL) {
+          const p = play.player(id);
+          const f = p.block?.foot;
+          if (f && (f.tech === 'zone' || f.tech === 'combo')) start[id] = { x: p.x, y: p.y, tech: f.tech, shade: f.shade };
+        }
+        const done = new Set();
+        for (let i = 1; i <= 30 && done.size < Object.keys(start).length; i++) {
+          play.step(DT);
+          for (const id of Object.keys(start)) {
+            if (done.has(id)) continue;
+            const p = play.player(id);
+            const b = p.block;
+            if (b?.foot?.phase === 'step' && !b.engaged) continue;
+            done.add(id);
+            const s0 = start[id];
+            const mx = p.x - s0.x;
+            const my = p.y - s0.y;
+            const len = Math.hypot(mx, my);
+            const want = stepDir(s0.tech, s0.shade, side);
+            const cos = (mx * want.x + my * want.y) / (len * 1);
+            const off = deg(Math.acos(Math.max(-1, Math.min(1, cos))));
+            const cap = stepLenOf(s0.tech, s0.shade) + p.speed * DT;
+            const who = `${front} ${personnel} ${playside} ${id} ${s0.tech}/${s0.shade}`;
+            checked++;
+            if (!(len > 0)) bad.push(`${who} did not move`);
+            else if (off > 10) bad.push(`${who} direction ${off.toFixed(1)} deg off`);
+            if (len > cap) bad.push(`${who} length ${len.toFixed(2)} > ${cap.toFixed(2)}`);
+          }
+        }
+        for (const id of Object.keys(start)) if (!done.has(id)) bad.push(`${front} ${personnel} ${playside} ${id} step never ended`);
+      }
+    }
+  }
+  assert.ok(checked > 0);
+  assert.equal(bad.length, 0, bad.join('\n'));
 });

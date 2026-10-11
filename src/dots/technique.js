@@ -9,13 +9,15 @@
 // Row fields:
 //   step     first-step angle in degrees from the line of scrimmage toward playside
 //            (0 = flat, 90 = upfield), keyed by shade (head/playside/backside/none)
-//   stepLen  optional first-step length in yards (default FIRST_STEP_LEN)
+//   stepLen  optional first-step length in yards (default FIRST_STEP_LEN): a number, or an
+//            object keyed by shade (read through stepLenOf)
 //   aim      fraction of the radius the aim point sits playside of the target spot
 //   drive    push mode once engaged: 'vertical', 'watch' (lean toward watched player) or
 //            'playside' (lean back and toward the play (side) by COMBO_LEAN; every blocker on the
-//            man shares the base (no blindside bend))
+//            man shares the base (no blindside bend)) or 'wall' (lean toward the backside by
+//            WALL_LEAN from straight upfield, to wall the man away from the play)
 //   next     technique entered after coming off onto a new target
-//   phases   pre-contact phases, in order
+//   phases   pre-contact phases, in order ('step', 'aim', or 'hinge' for the cutoff wall spot)
 //   retarget phase entered after coming off onto a new target
 //
 // Extending: add reach/down/kick/pull as new rows; a new drive mode is a new branch
@@ -34,17 +36,52 @@ export const BLIND_FULL = 75; // degrees, contact-vs-drive angle where the base 
 export const COMBO_MAX_LEAN = 30; // degrees from vertical, max combo drive lean (tunable)
 export const COMBO_LEAN = 40; // degrees from vertical toward the play, lean of a 'playside' drive; 40 so a held double moves even a DL with no playside goal 1 yd sideways before the anchor spring levels him off (F-3 #3) (tunable)
 
-const freezeRow = (r) => Object.freeze({ ...r, step: Object.freeze(r.step), phases: Object.freeze(r.phases) });
+export const HINGE_GIVE = 0.05; // yd, how far back toward the offense the hinge wall spot sits (tunable)
+export const WALL_LEAN = 30; // degrees from straight upfield toward the backside, lean of a 'wall' drive (tunable)
+
+const freezeRow = (r) => Object.freeze({
+  ...r,
+  step: Object.freeze(r.step),
+  phases: Object.freeze(r.phases),
+  ...(r.stepLen !== null && typeof r.stepLen === 'object' ? { stepLen: Object.freeze(r.stepLen) } : {}),
+});
 
 export const TECHNIQUES = Object.freeze({
-  zone: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
-  combo: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'playside', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  // F-55 #4. playside = reach step (bigger, flatter, helmet across to the playside); head = normal short
+  // zone step (about 6 in) playside that gains a little ground; backside = nearly a straight drive step;
+  // none = short zone step.
+  zone: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 55 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
+  // Same as zone for the covered member; none = the uncovered helper's short step playside, shoulders square.
+  combo: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 45 }, aim: 0.5, drive: 'playside', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
-  cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'vertical', next: 'cutoff', phases: ['step', 'aim'], retarget: 'aim' }),
+  // F-55 #5. Step inside and flat to protect the inside gap, then hinge out to wall the end man off.
+  cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'wall', next: 'cutoff', phases: ['step', 'hinge'], retarget: 'hinge' }),
 });
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const rad = (deg) => (deg * Math.PI) / 180;
+
+export function stepLenOf(tech, shade) {
+  if (!has(TECHNIQUES, tech)) return FIRST_STEP_LEN;
+  const len = TECHNIQUES[tech].stepLen;
+  if (typeof len === 'number') return len;
+  if (len != null && typeof len === 'object' && has(len, shade)) return len[shade];
+  return FIRST_STEP_LEN;
+}
+
+// Name of the technique a blocker uses for a tech/shade pair, or null when unknown.
+export function techniqueLabel(tech, shade) {
+  if (tech === 'zone' || tech === 'combo') {
+    if (shade === 'playside') return 'reach';
+    if (shade === 'head') return 'zone step';
+    if (shade === 'backside') return 'drive';
+    if (shade === 'none') return tech === 'zone' ? 'zone step' : 'square step';
+    return null;
+  }
+  if (tech === 'climb') return 'climb';
+  if (tech === 'cutoff') return 'hinge';
+  return null;
+}
 
 export function stepDir(tech, shade, side) {
   if (!has(TECHNIQUES, tech)) return null;
@@ -62,12 +99,22 @@ export const PHASES = Object.freeze({
   step: Object.freeze({
     goal(foot, spot, side, radius) {
       const d = stepDir(foot.tech, foot.shade, side) ?? { x: 0, y: 1 };
-      const len = TECHNIQUES[foot.tech].stepLen ?? FIRST_STEP_LEN;
+      const len = stepLenOf(foot.tech, foot.shade);
       return { x: foot.ox + d.x * len, y: foot.oy + d.y * len };
     },
     done(foot, blocker) {
-      const len = TECHNIQUES[foot.tech].stepLen ?? FIRST_STEP_LEN;
+      const len = stepLenOf(foot.tech, foot.shade);
       return Math.hypot(blocker.x - foot.ox, blocker.y - foot.oy) >= len - 1e-9;
+    },
+  }),
+  // Wall spot: the contact spot shifted aim radii playside and HINGE_GIVE back toward the offense.
+  hinge: Object.freeze({
+    goal(foot, spot, side, radius) {
+      const p = aimPoint(spot, foot.tech, side, radius);
+      return { x: p.x, y: p.y - HINGE_GIVE };
+    },
+    done() {
+      return false;
     },
   }),
   aim: Object.freeze({
@@ -97,12 +144,16 @@ export function leanDir(mode, target, watch, side) {
     const lean = (side === 1 || side === -1 ? side * rad(COMBO_LEAN) : 0);
     return { x: Math.sin(lean), y: Math.cos(lean) };
   }
+  if (mode === 'wall') {
+    const lean = (side === 1 || side === -1 ? -side * rad(WALL_LEAN) : 0);
+    return { x: Math.sin(lean), y: Math.cos(lean) };
+  }
   return { x: 0, y: 1 };
 }
 
 export function driveDir(tech, target, watch, side) {
   const row = TECHNIQUES[tech];
-  if (row && (row.drive === 'watch' || row.drive === 'playside')) return leanDir(row.drive, target, watch, side);
+  if (row && (row.drive === 'watch' || row.drive === 'playside' || row.drive === 'wall')) return leanDir(row.drive, target, watch, side);
   return { x: 0, y: 1 };
 }
 

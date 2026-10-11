@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  TECHNIQUES, PHASES, stepDir, aimPoint, driveDir, leanDir, rotate, signedAngle, rotateToward, nextTech,
+  TECHNIQUES, PHASES, stepDir, stepLenOf, techniqueLabel, HINGE_GIVE, WALL_LEAN, aimPoint, driveDir, leanDir, rotate, signedAngle, rotateToward, nextTech,
   RIDE_MAX, RIDE_FULL, RIDE_MIN, PUSH_TURN,
   startFoot, retargetFoot, footGoal, footPush, COMBO_LEAN,
 } from '../src/dots/technique.js';
@@ -16,7 +16,7 @@ test('stepDir every tech/shade', () => {
       for (const side of [-1, 1]) nearPt(stepDir(t, s, side), side * Math.cos(rad(a)), Math.sin(rad(a)));
     }
   }
-  nearPt(stepDir('zone', 'head', -1), -Math.cos(rad(60)), Math.sin(rad(60)));
+  nearPt(stepDir('zone', 'head', -1), -Math.cos(rad(TECHNIQUES.zone.step.head)), Math.sin(rad(TECHNIQUES.zone.step.head)));
   nearPt(stepDir('cutoff', 'none', 1), Math.cos(rad(10)), Math.sin(rad(10)));
   assert.equal(stepDir('nope', 'head', 1), null);
   assert.equal(stepDir('zone', 'nope', 1), null);
@@ -95,9 +95,11 @@ test('footGoal', () => {
   let foot = mk();
   let r = footGoal(foot, { x: 0, y: 0 }, spot, -1, 0.35);
   assert.equal(r.phase, 'step');
-  nearPt(r.goal, -0.25 * Math.cos(rad(45)), 0.25 * Math.sin(rad(45)));
+  const len = stepLenOf('zone', 'playside');
+  const a = TECHNIQUES.zone.step.playside;
+  nearPt(r.goal, -len * Math.cos(rad(a)), len * Math.sin(rad(a)));
   assert.ok(!('squeeze' in r.goal));
-  r = footGoal(foot, { x: 0, y: 0.25 - 1e-10 }, spot, -1, 0.35);
+  r = footGoal(foot, { x: 0, y: len - 1e-10 }, spot, -1, 0.35);
   assert.equal(r.phase, 'aim');
   nearPt(r.goal, 2.825, 1);
   r = footGoal(foot, { x: 0, y: 0.1 }, spot, -1, 0.35);
@@ -110,19 +112,25 @@ test('footGoal', () => {
   assert.throws(() => footGoal(mk({ phase: 'bogus' }), { x: 0, y: 0 }, spot, -1, 0.35), /bogus/);
 });
 
-test('zone and combo take a short step at >= 45 degrees', () => {
+test('F-55 #4: zone and combo take a short step at >= 45 degrees, except the playside reach', () => {
   for (const tech of ['zone', 'combo']) {
     const row = TECHNIQUES[tech];
-    assert.ok(row.stepLen <= 0.25, tech);
     for (const shade of Object.keys(row.step)) {
-      assert.ok(row.step[shade] >= 45, `${tech} ${shade}`);
+      // F-55 #4: head, backside and none steps are short and steep; the playside reach is flatter and longer.
+      if (shade === 'playside') {
+        assert.ok(row.step[shade] < 45, `${tech} ${shade}`);
+        assert.ok(stepLenOf(tech, shade) > stepLenOf(tech, 'head'), `${tech} ${shade} longer`);
+      } else {
+        assert.ok(row.step[shade] >= 45, `${tech} ${shade}`);
+        assert.ok(stepLenOf(tech, shade) <= 0.25, `${tech} ${shade} short`);
+      }
       for (const side of [-1, 1]) {
         const foot = startFoot(tech, shade, null, { x: 2, y: 3 }, { x: 0, y: 0 });
         const g = footGoal(foot, { x: 2, y: 3 }, { x: 0, y: 5 }, side, 0.35).goal;
         const dx = side * (g.x - 2);
         const dy = g.y - 3;
-        assert.ok(Math.hypot(dx, dy) <= row.stepLen + 1e-9, `${tech} ${shade} len`);
-        assert.ok(Math.atan2(dy, dx) >= rad(45) - 1e-9, `${tech} ${shade} angle`);
+        assert.ok(Math.hypot(dx, dy) <= stepLenOf(tech, shade) + 1e-9, `${tech} ${shade} len`);
+        if (shade !== 'playside') assert.ok(Math.atan2(dy, dx) >= rad(45) - 1e-9, `${tech} ${shade} angle`);
       }
     }
   }
@@ -224,4 +232,58 @@ test('frozen and consistent', () => {
     assert.ok(row.phases.includes(row.retarget));
   }
   for (const p of Object.values(PHASES)) assert.ok(Object.isFrozen(p));
+});
+
+test('F-55 #4 techniqueLabel', () => {
+  for (const tech of ['zone', 'combo']) {
+    assert.equal(techniqueLabel(tech, 'playside'), 'reach');
+    assert.equal(techniqueLabel(tech, 'head'), 'zone step');
+    assert.equal(techniqueLabel(tech, 'backside'), 'drive');
+  }
+  assert.equal(techniqueLabel('zone', 'none'), 'zone step');
+  assert.equal(techniqueLabel('combo', 'none'), 'square step');
+  assert.equal(techniqueLabel('climb', 'head'), 'climb');
+  assert.equal(techniqueLabel('cutoff', 'backside'), 'hinge');
+  assert.equal(techniqueLabel('nope', 'head'), null);
+  assert.equal(techniqueLabel('zone', 'nope'), null);
+});
+
+test('F-55 #4 stepLenOf', () => {
+  assert.equal(stepLenOf('zone', 'head'), TECHNIQUES.zone.stepLen.head);
+  assert.equal(stepLenOf('combo', 'none'), TECHNIQUES.combo.stepLen.none);
+  assert.ok(stepLenOf('zone', 'playside') > stepLenOf('zone', 'head'));
+  // Rows with no stepLen use the default; unknown tech falls back to it too.
+  assert.equal(stepLenOf('climb', 'head'), 0.5);
+  assert.equal(stepLenOf('cutoff', 'none'), 0.5);
+  assert.equal(stepLenOf('nope', 'head'), 0.5);
+  // The step phase reads it.
+  const foot = startFoot('zone', 'head', null, { x: 0, y: 0 }, { x: 0, y: 3 });
+  const g = footGoal(foot, { x: 0, y: 0 }, { x: 0, y: 3 }, 1, 0.35).goal;
+  near(Math.hypot(g.x, g.y), stepLenOf('zone', 'head'));
+});
+
+test('F-55 #5 hinge: the cutoff row steps then hinges, wall spot playside of and behind the target, wall drive leans backside', () => {
+  const row = TECHNIQUES.cutoff;
+  assert.deepEqual([...row.phases], ['step', 'hinge']);
+  assert.equal(row.retarget, 'hinge');
+  assert.equal(row.drive, 'wall');
+  // first step unchanged: inside/playside and flat
+  nearPt(stepDir('cutoff', 'backside', 1), Math.cos(rad(10)), Math.sin(rad(10)));
+  const spot = { x: 3, y: 1 };
+  for (const side of [-1, 1]) {
+    const foot = startFoot('cutoff', 'backside', null, { x: 0, y: 0 }, spot);
+    const first = footGoal(foot, { x: 0, y: 0 }, spot, side, 0.35);
+    assert.equal(first.phase, 'step');
+    const after = footGoal(foot, { x: 0, y: 5 }, spot, side, 0.35);
+    assert.equal(after.phase, 'hinge');
+    nearPt(after.goal, spot.x + side * row.aim * 0.35, spot.y - HINGE_GIVE);
+    assert.ok(side * (after.goal.x - spot.x) > 0, 'playside of the target');
+    assert.ok(after.goal.y < spot.y, 'behind the target');
+    const d = leanDir('wall', { x: 0, y: 0 }, null, side);
+    nearPt(d, -side * Math.sin(rad(WALL_LEAN)), Math.cos(rad(WALL_LEAN)));
+    nearPt(driveDir('cutoff', { x: 0, y: 0 }, null, side), d.x, d.y);
+  }
+  nearPt(leanDir('wall', { x: 0, y: 0 }, null, undefined), 0, 1);
+  const re = retargetFoot(startFoot('cutoff', 'backside', null, { x: 0, y: 0 }, spot), { x: 1, y: 1 }, spot);
+  assert.equal(re.phase, 'hinge');
 });
