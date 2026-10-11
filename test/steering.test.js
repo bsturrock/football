@@ -461,11 +461,12 @@ for (const front of FRONT_NAMES) {
         if (!(free[i][id] && free[i - 1][id] && free[i - 2][id])) continue;
         const a = vel(id, i - 1), b = vel(id, i);
         const os = others(id);
-        const hard = os.some((o) => [i - 2, i - 1, i].some((k) => distAt(id, o, k) < HE || crossAt(id, o, k) < HE));
+        // A body stopped at the hard core and relaxed one full soft step sits at HE to float precision; that is contact (F-55, like T-38).
+        const hard = os.some((o) => [i - 2, i - 1, i].some((k) => distAt(id, o, k) < HE + 1e-6 || crossAt(id, o, k) < HE + 1e-6));
         if (hard) {
           for (const o of os) {
             const d = distAt(id, o, i);
-            if (!(d < HE) || d === 0) continue;
+            if (!(d < HE + 1e-6) || d === 0) continue;
             const n = { x: (pos[i][id].x - pos[i][o].x) / d, y: (pos[i][id].y - pos[i][o].y) / d };
             const vo = vel(o, i);
             const reb = (b.x - vo.x) * n.x + (b.y - vo.y) * n.y;

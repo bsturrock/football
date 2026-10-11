@@ -14,7 +14,7 @@ const FRONTS = ['base', 'odd34', 'over43'];
 const MAX_JUMP = 1.5; // yd/s per tick
 const HIT_JUMP = 1.75; // yd/s per tick inside the IMPACT_TIME window after the engage (F-49 #7a)
 const HEAD_UP = 0.05; // yd; a blocker this close to the LB's x is head-up, not crossed (F-49 #7b)
-const WOBBLE_MIN = 0.2; // degrees; smaller per-tick changes are ignored when counting reversals
+const WOBBLE_AMP = 1.0; // degrees; a swing back smaller than this from the last extreme is not a reversal (F-55)
 const MAX_REVERSALS = 1;
 const WINDOW_BEFORE = 3;
 const WINDOW_AFTER = 30;
@@ -72,15 +72,25 @@ function record(front) {
 
 const deg = (r) => (r * 180) / Math.PI;
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-// Direction reversals in a series of angles, ignoring per-tick changes under WOBBLE_MIN degrees.
+// Direction reversals in a series of angles: a reversal counts only when the angle has swung back by at least
+// WOBBLE_AMP degrees from the last extreme in the current direction (a visible swing, F-55). Per-tick twitches and
+// a small swing back are not reversals.
 function reversals(angles) {
-  let last = 0;
+  let dir = 0;
+  let ext = angles[0];
   let n = 0;
   for (let i = 1; i < angles.length; i++) {
-    const d = deg(wrap(angles[i] - angles[i - 1]));
-    if (Math.abs(d) < WOBBLE_MIN) continue;
-    if (last !== 0 && Math.sign(d) !== last) n++;
-    last = Math.sign(d);
+    const a = angles[i];
+    const d = deg(wrap(a - ext));
+    if (dir === 0) {
+      if (Math.abs(d) >= WOBBLE_AMP) { dir = Math.sign(d); ext = a; }
+    } else if (Math.sign(d) === dir || d === 0) {
+      ext = a;
+    } else if (Math.abs(d) >= WOBBLE_AMP) {
+      n++;
+      dir = -dir;
+      ext = a;
+    }
   }
   return n;
 }
