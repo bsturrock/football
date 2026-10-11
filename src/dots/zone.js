@@ -10,6 +10,7 @@ export const COMBO_HOLD = 0.3;
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
   rules: Object.freeze([
+    row({ when: 'spare', at: 'backEnd', tech: 'climb' }), // man short: leave the backside end man, climb to the free linebacker
     row({ when: 'covered', at: 'backEnd', tech: 'cutoff' }), // backside tackle covered: cut him off
     row({ when: 'covered', tech: 'zone' }), // covered: block the man over you
     row({ when: 'double', tech: 'combo' }), // uncovered: double the playside neighbour's man, watch the LB

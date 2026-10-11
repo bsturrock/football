@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createPlay } from '../src/dots/play.js';
+import { TACKLE_DIST } from '../src/dots/tackle.js';
 import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE } from '../src/dots/zone.js';
-import { RULES, CLIMB_REACH } from '../src/dots/assign.js';
+import { RULES, CLIMB_REACH, runScheme } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
 import { buildLineup, PLAYS, FRONTS } from '../src/dots/roster.js';
@@ -43,7 +45,7 @@ test('invariants over all fronts', () => {
     const vals = Object.values(r.blocks);
     // (a) every line defender with a cover is a block target
     for (const d of lineDef) {
-      if (d.cover != null) assert.ok(vals.includes(d.id), `${name} (a) ${d.id}`);
+      if (d.cover != null && !(d.id === front.edge && sparedEdge(front, r))) assert.ok(vals.includes(d.id), `${name} (a) ${d.id}`);
     }
     // (b) at most twice, only as a combo's target with its owner and partner
     for (const d of front.defenders) {
@@ -83,6 +85,13 @@ test('invariants over all fronts', () => {
     }
   }
 });
+
+// The backside end lineman climbed to a second-level man, leaving the edge man for the free list.
+const sparedEdge = (front, plan) => {
+  const end = front.line[front.line.length - 1];
+  const t = front.defenders.find((d) => d.id === plan.blocks[end.id]);
+  return plan.techs[end.id]?.tech === 'climb' && t?.level === 'second' && plan.free.includes(front.edge);
+};
 
 const eachFront = (fn) => {
   for (const personnel of PERSONNELS) {
@@ -132,8 +141,22 @@ test('F-36 #3: the backside end man is blocked, and every covered line man is a 
   eachFront(({ label, personnel, front, plan }) => {
     const targets = Object.values(plan.blocks);
     const edge = front.defenders.find((d) => d.id === front.edge);
-    if (edge && edge.cover != null) assert.ok(targets.includes(edge.id), `${label} edge`);
-    if (personnel === 'te') assert.ok(targets.includes(front.edge), `${label} edge blocked`);
+    const spared = sparedEdge(front, plan);
+    if (edge && edge.cover != null && !spared) assert.ok(targets.includes(edge.id), `${label} edge`);
+    if (personnel === 'te' && !spared) assert.ok(targets.includes(front.edge), `${label} edge blocked`);
+  });
+});
+
+test('F-50 #2: the spare climb fires only when a second-level man would otherwise be free', () => {
+  eachFront(({ label, front, plan }) => {
+    const end = front.line[front.line.length - 1];
+    if (!sparedEdge(front, plan)) return;
+    const old = runScheme(front, { rules: INSIDE_ZONE.rules.slice(1) });
+    const hit = old.free.some((id) => {
+      const d = front.defenders.find((x) => x.id === id);
+      return d.level === 'second' && Math.abs(d.x - end.x) <= CLIMB_REACH;
+    });
+    assert.ok(hit, `${label} spared with no free second-level man in reach`);
   });
 });
 
@@ -175,7 +198,7 @@ test('F-36 #6: box count and free men', () => {
     assert.equal(new Set([...Object.values(plan.blocks), ...watches]).size, Math.min(front.line.length, front.box), label);
     for (const id of plan.free) {
       const d = front.defenders.find((x) => x.id === id);
-      assert.ok(d.level === 'second' || d.cover == null, `${label} free ${id}`);
+      assert.ok(d.level === 'second' || d.cover == null || (id === front.edge && sparedEdge(front, plan)), `${label} free ${id}`);
     }
     if (personnel === 'te') assert.equal(plan.free.length, 1, label);
   });
@@ -193,7 +216,11 @@ test('F-36 #3/#4: shifted lineups, edge blocked, no reach past a teammate, no ta
           const label = `${front} ${k} ${j} ${personnel}`;
           const dOf = (id) => f.defenders.find((d) => d.id === id);
           const edge = dOf(f.edge);
-          if (edge && edge.cover != null) assert.ok(Object.values(plan.blocks).includes(edge.id), `${label} edge`);
+          const spared = sparedEdge(f, plan);
+          if (edge && edge.cover != null) {
+            if (spared) assert.ok(plan.free.includes(edge.id), `${label} edge spared`);
+            else assert.ok(Object.values(plan.blocks).includes(edge.id), `${label} edge`);
+          }
           const comboMembers = new Set(plan.combos.flatMap((c) => [c.owner, c.partner]));
           f.line.forEach((l, i) => {
             const t = dOf(plan.blocks[l.id]);
@@ -351,4 +378,26 @@ test('gate: zoneSwitch leaves ctx and players alone (no climber lock)', () => {
   assert.deepEqual(zoneSwitch(s.players, null, s.ctx), []);
   assert.deepEqual(s.players, p0);
   assert.deepEqual(s.ctx, c0);
+});
+
+test('F-50 #4: man-short zone, the TE climbs to the backside linebacker and he is blocked before he can tackle', () => {
+  for (const front of ['under43', 'backedOff']) {
+    const play = createPlay(25, 'insideZone', { front, personnel: 'te', tackles: false });
+    assert.ok(play.snap(), front);
+    const f = readFront(play.players, play.numbers, 25);
+    const id = play.player('TE').block.target;
+    assert.equal(f.defenders.find((d) => d.id === id)?.level, 'second', `${front} TE target`);
+    assert.equal(play.defense.agents[f.edge].assign.type, 'contain', `${front} edge contains`);
+    const lb = play.player(id);
+    let engagedAt = null;
+    for (let t = 0; t <= 2.0 + 1e-9 && engagedAt == null; t += 1 / 60) {
+      play.step(1 / 60);
+      if (play.blockersOf(id).length > 0) engagedAt = t;
+      else if (play.ball.phase === 'carried') {
+        const b = play.ballPosition();
+        assert.ok(Math.hypot(lb.x - b.x, lb.y - b.y) > TACKLE_DIST, `${front} ${id} reached the ball unblocked at ${t.toFixed(2)}`);
+      }
+    }
+    assert.notEqual(engagedAt, null, `${front} ${id} never blocked within 2.0 s`);
+  }
 });
