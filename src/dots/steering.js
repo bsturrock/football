@@ -174,11 +174,27 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       const rx = pick.x - p.x, ry = pick.y - p.y;
       // lane side: the side of the line to the body on which the midpoint lies
       const cr = rx * (my - p.y) - ry * (mx - p.x);
-      const sgn = cr >= 0 ? 1 : -1;
-      const ang = sgn * Math.asin(rc / pd), c = Math.cos(ang), sn = Math.sin(ang);
       const nx = rx / pd, ny = ry / pd;
-      dx = nx * c - ny * sn;
-      dy = nx * sn + ny * c;
+      const tang = (sg) => {
+        const ang = sg * Math.asin(rc / pd), c = Math.cos(ang), sn = Math.sin(ang);
+        return { x: nx * c - ny * sn, y: nx * sn + ny * c };
+      };
+      // a side is plugged when a body closer to the edge body than a mover can squeeze between (an engagement) sits in the way before the lane midpoint
+      const plugged = (v) => {
+        const tl = Math.hypot(mx - p.x, my - p.y);
+        for (const q of players) {
+          if (q === p || q === la || q === lb || q.id === p.id || (goal.ignore != null && q.id === goal.ignore)) continue;
+          if (Math.hypot(q.x - pick.x, q.y - pick.y) >= 2 * H) continue;
+          const qx = q.x - p.x, qy = q.y - p.y;
+          const t = qx * v.x + qy * v.y;
+          if (t > 0 && t < tl && Math.abs(v.x * qy - v.y * qx) < H) return true;
+        }
+        return false;
+      };
+      const sgn = cr >= 0 ? 1 : -1;
+      let v = tang(sgn);
+      if (plugged(v)) { const alt = tang(-sgn); if (!plugged(alt)) v = alt; }
+      dx = v.x; dy = v.y;
     }
   }
   if (!laneMid && !threading && hit) {
