@@ -3,7 +3,9 @@
 // Time advances only through step(dt); there are no timers or clocks here.
 
 import { DEF_PERSONNEL, FORMATIONS, FRONTS, PERSONNEL, PLAYS, buildLineup } from './roster.js';
-import { numberPlay } from './numbering.js';
+import { PLAYSIDE_SIGN, numberPlay } from './numbering.js';
+import { boxCount, createPerception, observe, worldSnapshot } from './perceive.js';
+import { createTrace, entriesOf, recordTick } from './trace.js';
 import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
 import { readFront } from './front.js';
@@ -39,7 +41,7 @@ const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zone
 
 // formation: a FORMATIONS key (full-11 offense), or null. defPersonnel: a DEF_PERSONNEL key, or null
 // for the FRONTS defense. Left undefined, it takes the formation's default defense, unless the caller passed front.
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined, script = null } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined, script = null, trace = false } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const defP = defPersonnel !== undefined ? defPersonnel : (front === undefined ? FORMATIONS[formation]?.defense ?? null : null);
   const play = {
@@ -65,6 +67,9 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     run: null,
     defense: null,
     ticks: 0,
+    trace: null,
+    perception: null,
+    box: null,
     result: null,
     alpha: 0,
     prev: {},
@@ -152,6 +157,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     return play.timeScale;
   };
 
+  const baseSide = () => PLAYSIDE_SIGN[PLAYS[playKey].playside] ?? 1;
+
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
     play.players = buildLineup(los, playKey, {
@@ -182,6 +189,9 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
       to: null,
     });
     play.ticks = 0;
+    play.trace = null;
+    play.perception = null;
+    play.box = boxCount(worldSnapshot(play.players, { t: 0, los, side: baseSide(), carrierId: null }));
     play.result = null;
     play.alpha = 0;
     acc = 0;
@@ -218,6 +228,13 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
         carrierId: play.run.carrier,
         script: play.script,
       });
+    }
+    if (trace) {
+      play.perception = createPerception(
+        worldSnapshot(play.players, { t: 0, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null }),
+        { centerId: PLAYS[playKey].ball.start },
+      );
+      play.trace = createTrace();
     }
     return true;
   };
@@ -304,15 +321,23 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     let n = 0;
     while (acc >= FIXED_DT - 1e-9 && n < MAX_TICKS_PER_STEP) {
       snapshotPrev();
+      const wasDead = play.ball.phase === 'dead';
       advance(FIXED_DT);
       acc -= FIXED_DT;
       play.ticks += 1;
+      if (play.trace && !wasDead) {
+        const t = play.ticks * FIXED_DT;
+        observe(play.perception, worldSnapshot(play.players, { t, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null }));
+        recordTick(play.trace, play.perception, play.players, { t, defense: play.defense, run: play.run });
+      }
       n++;
     }
     if (acc >= FIXED_DT - 1e-9) acc = 0; // runaway frame: drop the excess
     if (acc < 0) acc = 0;
     play.alpha = Math.min(acc / FIXED_DT, 1 - 1e-12);
   };
+
+  play.traceOf = (id) => (play.trace ? entriesOf(play.trace, id) : []);
 
   play.ballPosition = () => {
     const { holder, from, to, t } = play.ball;
