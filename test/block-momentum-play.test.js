@@ -3,12 +3,17 @@ import assert from 'node:assert/strict';
 import { createPlay, FIXED_DT } from '../src/dots/play.js';
 import { LB_ROLES } from '../src/dots/roster.js';
 import { RIDE_MIN } from '../src/dots/technique.js';
+import { IMPACT_TIME } from '../src/dots/blocking.js';
 
 // F-49 #7: both bodies keep their momentum through a block. A climbing OL meets a moving linebacker;
 // neither velocity jumps, the blocker rides the side opposite the LB's lateral travel, his push turns
 // with the LB, the block holds, and nothing wobbles (PRINCIPLES #11).
+// Velocity rule (7a): 1.75 yd/s per tick inside the IMPACT_TIME window after the engage, 1.5 elsewhere.
+// Lateral rule (7b): a blocker within 0.05 yd of the LB's x is head-up, not crossed.
 const FRONTS = ['base', 'odd34', 'over43'];
 const MAX_JUMP = 1.5; // yd/s per tick
+const HIT_JUMP = 1.75; // yd/s per tick inside the IMPACT_TIME window after the engage (F-49 #7a)
+const HEAD_UP = 0.05; // yd; a blocker this close to the LB's x is head-up, not crossed (F-49 #7b)
 const WOBBLE_MIN = 0.2; // degrees; smaller per-tick changes are ignored when counting reversals
 const MAX_REVERSALS = 1;
 const WINDOW_BEFORE = 3;
@@ -88,12 +93,14 @@ for (const front of FRONTS) {
   };
 
   test(`F-49 #7 ${front}: neither body's velocity jumps in one tick through the block`, () => {
+    const impactTicks = Math.ceil(IMPACT_TIME / FIXED_DT);
     for (const i of win().slice(1)) { // changes between ticks inside the window
+      const limit = r.hit.i <= i && i <= r.hit.i + impactTicks ? HIT_JUMP : MAX_JUMP;
       for (const id of [r.hit.blocker, r.hit.lb]) {
         const a = r.vel(id, i - 1);
         const b = r.vel(id, i);
         const dv = Math.hypot(b.x - a.x, b.y - a.y);
-        assert.ok(dv <= MAX_JUMP, `${front} ${id} tick ${i}: velocity change ${dv.toFixed(2)} yd/s`);
+        assert.ok(dv <= limit, `${front} ${id} tick ${i}: velocity change ${dv.toFixed(2)} yd/s (limit ${limit})`);
       }
     }
   });
@@ -103,6 +110,7 @@ for (const front of FRONTS) {
       const v = r.vel(r.hit.lb, i);
       if (Math.abs(v.x) < RIDE_MIN) continue;
       const dx = r.ticks[i].pos[r.hit.blocker].x - r.ticks[i].pos[r.hit.lb].x;
+      if (Math.abs(dx) < HEAD_UP) continue; // head-up, not crossed
       assert.equal(Math.sign(dx), -Math.sign(v.x), `${front} tick ${i}: blocker dx ${dx.toFixed(2)}, LB vx ${v.x.toFixed(2)}`);
     }
   });
