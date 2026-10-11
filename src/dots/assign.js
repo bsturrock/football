@@ -5,6 +5,10 @@
 // - the backside end lineman blocks the backside end man (lowest u); the lineman just inside him
 //   takes the end lineman's other covered men (hand-in);
 // - nobody reaches past a teammate: a pending man outside the playside neighbour is dropped;
+// - a lineman never doubles across his neighbour: a line man at or past the middle of the gap beyond the
+//   neighbour (A_GAP_HALF playside of him) is the neighbour's alone, the lineman climbs instead;
+// - a man-short line leaves the backside end man (plays contain): `spare` lets the end lineman, whose
+//   covered man would be that end man, climb to a free second-level defender instead;
 // - second-level defenders are taken in zone count order (n = 0, 1, ..., then -1, -2, ...);
 // - whoever is left unblocked and unwatched falls out of the box count.
 import { shade, HEAD_UP } from './front.js';
@@ -70,6 +74,7 @@ function double(state, i) {
   if (!tgt || tgt.level !== 'line') return null;
   const b = state.front.line[i];
   const nb = state.front.line[i - 1];
+  if (tgt.u - nb.u >= A_GAP_HALF) return null;
   const w = pickSecond(state, (b.x + nb.x) / 2);
   if (w) state.watched.add(w.id);
   return { target: prev.target, partner: nb.id, watch: w ? w.id : null };
@@ -89,7 +94,17 @@ function cutoff(state, i) {
   return d && Math.abs(d.x - b.x) <= CLIMB_REACH ? { target: d.id } : null;
 }
 
-export const RULES = { covered, double, climb, cutoff };
+function spare(state, i) {
+  const { front } = state;
+  if (i !== front.line.length - 1) return null;
+  if (front.edge == null || state.targeted.has(front.edge)) return null;
+  const probe = covered({ ...state, pending: [...state.pending] }, i);
+  if (!probe || probe.target !== front.edge) return null;
+  const lb = pickSecond(state, front.line[i].x);
+  return lb ? { target: lb.id } : null;
+}
+
+export const RULES = { covered, double, climb, cutoff, spare };
 
 export function runScheme(front, scheme) {
   for (const row of scheme.rules) {

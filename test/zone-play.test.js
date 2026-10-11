@@ -6,7 +6,7 @@ import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
-import { zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
+import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { readFront } from '../src/dots/front.js';
 import { FRONT_NAMES } from './fixtures/fronts.js';
@@ -125,10 +125,12 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   assert.equal(other.block.target, 'LDT');
 });
 
-test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blocked', () => {
+test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blocked unless spared', () => {
   // tackles off: the combo switch is a blocking rule; a tackle before COMBO_HOLD must not hide it.
   const play = createPlay(25, 'insideZone', { tackles: false });
-  const edge = readFront(play.players, play.numbers, 25).edge;
+  const plan = zonePlan(play.players, play.numbers, 25);
+  const edge = plan.front.edge;
+  const end = plan.front.line.at(-1).id;
   play.snap();
   const seen = new Set([...OL, 'TE'].map((id) => play.player(id).block.target));
   const switched = () => play.combos.every((c) => [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
@@ -142,7 +144,9 @@ test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blo
   // Which of LG/LT takes the WLB follows zoneSwitch's laterally-closer rule and moved with F-15 soft contact.
   assert.deepEqual(new Set([play.player('LG').block.target, play.player('LT').block.target]), new Set(['WLB', 'RDE']));
   assert.ok(edge);
-  assert.ok(seen.has(edge));
+  const endTgt = plan.front.defenders.find((d) => d.id === plan.blocks[end]);
+  if (plan.techs[end].tech === 'climb' && endTgt && endTgt.level === 'second') assert.ok(plan.free.includes(edge));
+  else assert.ok(seen.has(edge));
 });
 
 const deg = (r) => (r * 180) / Math.PI;
@@ -646,8 +650,8 @@ test('F-45 #1-#4: interior doubles on the 4-3 base', () => {
     under43: [{ owner: 'RG', partner: 'C', target: 'PN', watch: 'L2' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'L1' }],
     backedOff: [{ owner: 'RG', partner: 'C', target: 'PN', watch: 'L2' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'L1' }],
     odd34: [{ owner: 'RG', partner: 'C', target: 'N', watch: 'BI' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'PI' }],
-    over43: [{ owner: 'RT', partner: 'RG', target: 'BT', watch: 'WIL' }, { owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' }],
-    walkedUp: [{ owner: 'RT', partner: 'RG', target: 'BT', watch: 'WIL' }, { owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' }],
+    over43: [{ owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' }],
+    walkedUp: [{ owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' }],
     bear: [{ owner: 'RG', partner: 'C', target: 'N', watch: 'L1' }],
   };
   for (const [front, combos] of Object.entries(expected)) {
