@@ -1,5 +1,5 @@
 // Inside zone: a rule table run by the assignment engine, plus the runtime switch rule.
-import { readFront, HEAD_UP } from './front.js';
+import { readFront, HEAD_UP, LINE_DEPTH } from './front.js';
 import { runScheme, CLIMB_REACH } from './assign.js';
 import { LB_ROLES } from './roster.js';
 
@@ -135,6 +135,80 @@ export function zoneSwitch(players, ballPos, ctx) {
       if (ok) out.push({ blocker: taker.id, target: w.id });
     };
     go();
+  }
+  trackPickup(players, ballPos, ctx, out, claimed);
+  return out;
+}
+
+// F-55 #3, the human's track rule: a lineman blocks a track (a runway), not a man; whoever enters it is his.
+// Line-level defenders are those within LINE_DEPTH of the LOS when the rule first runs (the snap), kept per play in ctx.
+const lineLevel = new WeakMap();
+function lineIds(players, ctx) {
+  let ids = lineLevel.get(ctx);
+  if (!ids) {
+    ids = new Set(players.filter((p) => p.team === 'defense' && ctx.los != null && p.y - ctx.los <= LINE_DEPTH).map((p) => p.id));
+    lineLevel.set(ctx, ids);
+  }
+  return ids;
+}
+
+// A line defender who left his blocker's track into another blocker's becomes that blocker's man; the vacated blocker
+// takes the line defender now in his own track, else climbs (his track's LB, else the nearest unclaimed in reach).
+// Appends retargets to `out`; nobody retargets twice per tick, a defender gets one new blocker per tick.
+export function trackPickup(players, ballPos, ctx, out, claimed = claimedSet(players)) {
+  if (!ctx?.cues || ctx.los == null) return out;
+  const line = lineIds(players, ctx);
+  const side = ctx.side === -1 ? -1 : 1;
+  const done = new Set(out.map((e) => e.blocker)); // retargeted this tick
+  const tracks = new Map(); // blocker id -> track ids
+  const blockers = players.filter((p) => p.block && p.block.target != null && !p.block.released).filter((p) => {
+    const t = ctx.cues(p.id)?.track;
+    if (t) tracks.set(p.id, t.ids);
+    return !!t;
+  });
+  const target = new Map(blockers.map((b) => [b.id, b.block.target])); // live targets as retargets are decided
+  for (const e of out) if (target.has(e.blocker)) target.set(e.blocker, e.target);
+  const holders = (id) => blockers.filter((b) => target.get(b.id) === id);
+  const inTrack = (b, id) => tracks.get(b.id).includes(id);
+  const order = (a, b) => side * b.x - side * a.x || (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
+  const fresh = new Set(); // defenders who got a new blocker this tick
+  const vacated = [];
+  const cands = players.filter((d) => d.team === 'defense' && line.has(d.id)).sort(order);
+  for (const d of cands) {
+    const cur = holders(d.id);
+    if (!cur.length || cur.some((b) => inTrack(b, d.id))) continue; // free, or still in his blocker's track
+    const takers = blockers.filter((b) => !done.has(b.id) && !cur.includes(b) && inTrack(b, d.id) && !(() => {
+      const e = target.get(b.id);
+      const eng = b.block.engaged && e !== d.id && inTrack(b, e) && line.has(e);
+      return eng && holders(e).length === 1; // two men in one track: the nearer stays his, unless he is double-teamed
+    })());
+    if (!takers.length) continue;
+    takers.sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x) || order(a, b));
+    const x = takers[0];
+    out.push({ blocker: x.id, target: d.id });
+    done.add(x.id);
+    fresh.add(d.id);
+    target.set(x.id, d.id);
+    for (const b of cur) if (!done.has(b.id)) vacated.push(b);
+  }
+  vacated.sort(order);
+  for (const v of vacated) {
+    if (done.has(v.id)) continue;
+    const mine = tracks.get(v.id);
+    const taken = (id) => holders(id).some((b) => b !== v);
+    let pick = mine.map((id) => players.find((p) => p.id === id)).find((d) => d && line.has(d.id) && !fresh.has(d.id) && d.id !== v.block.target && !taken(d.id));
+    if (!pick) {
+      const was = new Set(blockers.map((b) => b.block.target)); // claims this rule just rewrote are read from `target` instead
+      const live = new Set([...claimed].filter((id) => !was.has(id)));
+      for (const [b, t] of target) if (b !== v.id) live.add(t);
+      const cu = ctx.cues(v.id);
+      const lb = mine.find((id) => Object.hasOwn(cu.lbs ?? {}, id) && !live.has(id));
+      pick = lb ? players.find((p) => p.id === lb) : unclaimedInReach(players, ballPos, ctx, live, v.x)[0];
+    }
+    if (!pick) continue;
+    out.push({ blocker: v.id, target: pick.id });
+    done.add(v.id);
+    target.set(v.id, pick.id);
   }
   return out;
 }

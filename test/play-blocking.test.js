@@ -514,6 +514,23 @@ test('F-41 #3: TE look line holds through 1.5 s', () => {
       }
     }
   }
+  // R-2 / F-55 #3, restated to the track rule: this used to pass only because the RT happened to re-engage B3 on Bear after B3 slanted
+  // across his face. Now a lineman blocks a track, not a man: once B3 is out of the RT's perceived track the RT is not chasing him
+  // for more than 0.5 s (zone-track.test.js judges that the lineman whose track B3 is in has him).
+  for (const script of [null, [{ who: 'backDT', behavior: 'slant', slant: 'play' }]]) {
+    const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'bear', personnel: 'te', playside: 'left', script });
+    play.snap();
+    const track = (id) => play.cuesOf(id)?.track?.ids ?? [];
+    let across = 0;
+    for (let i = 1; i <= Math.round(2 / DT); i++) {
+      play.step(DT);
+      const rt = play.player('RT');
+      const chasing = !!rt.block && !rt.block.released && rt.block.target === 'B3' && !track('RT').includes('B3');
+      across = chasing ? across + 1 : 0;
+      const t = (i * DT).toFixed(2);
+      assert.ok(across <= Math.round(0.5 / DT), `RT chases B3 across his face for ${across} ticks at ${t} s`);
+    }
+  }
 });
 
 // Since F-50 the climber goes to a live linebacker, not always the plan watch: judge the member's target that is not the combo's (as R-62 in zone-play.test.js does).
