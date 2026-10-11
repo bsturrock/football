@@ -6,7 +6,7 @@ import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
-import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_HOLD, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_HOLD, COMBO_TOUCH, LB_FILL_V, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { readFront } from '../src/dots/front.js';
 import { FRONT_NAMES } from './fixtures/fronts.js';
@@ -115,7 +115,7 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   // The range trigger only applies while the watched LB has not committed (a commit takes precedence).
   assert.ok(!p2.defense.committed?.[W], 'watched LB has not committed');
   // Fixture for the gate precondition: RT cannot hold LDT naturally before the play dies on this lineup.
-  // T-9 (F-3 #1/#3): the joint gate needs both members held and the DL driven COMBO_MOVE playside; the fixture supplies both (RG's engage is real, the rest is forced).
+  // T-9 (F-3 #1/#3): the stayer must be engaged and the joint hold reached; the fixture supplies both (RG's engage is real, the rest is forced).
   Object.assign(RT.block, { engaged: true, held: COMBO_HOLD });
   RG.block.held = COMBO_HOLD;
   const ldt = p2.player('LDT');
@@ -882,7 +882,7 @@ test('R-64: every front, the climber on the switch tick is the blocker on the si
   assert.ok(checked > 0);
 });
 
-// Restated by T-9 (F-3 #1/#3): was 0.85 s. The climber now leaves only off a real double (both on 0.3 s, DL driven 1 yd playside), measured 1.12 s on this lineup (both on at 0.82 s).
+// Restated by T-9 (F-3 #1, round 3): was 0.85 s. The climber now leaves when his committed LB is in a member's track and the stayer has held 0.3 s (or at once if the LB is on top of the double); measured 0.92 s on this lineup. Bound kept at 1.15 s as headroom.
 test('R-64: base, RG climbs to the MLB at or before 1.15 s', () => {
   const play = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front: 'base' });
   play.snap();
@@ -971,13 +971,12 @@ test('F-3 #2: combo partners lean together', () => {
   }
 });
 
-// F-3 #1/#3 (T-9): a climb happens only off a real double. The wrapper reads the players exactly as the rule saw them on the tick it released a climber.
-const COMBO_MOVE_T = 1.0;
-const doubleRun = (front, opts, check) => {
+// F-3 #1/#3b/#4 (T-9, round 3): a climb answers the LB. The wrapper reads the players exactly as the rule saw them on the tick it released a climber.
+const doubleRun = (front, opts, { check, tick, setup, secs = 2.0 } = {}) => {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front, ...opts });
   const orig = play.retargetRule;
-  const both = new Map(); // combo -> { t, y, snapX }
-  const climbed = new Map();
+  const both = new Map(); // combo -> { t, x, y } the DL on the first tick both were on
+  const climbed = new Map(); // combo -> { t, w, climber }
   let t = 0;
   play.retargetRule = (pl, b, ctx) => {
     const out = orig(pl, b, ctx);
@@ -985,41 +984,93 @@ const doubleRun = (front, opts, check) => {
       const ps = [c.owner, c.partner].map((id) => pl.find((q) => q.id === id));
       const dl = pl.find((q) => q.id === c.target);
       const on = ps.every((q) => q.block?.target === c.target && q.block.engaged);
-      if (on && !both.has(c)) both.set(c, { t, y: dl.y });
-      if (!climbed.has(c) && out.some((o) => o.blocker === c.owner || o.blocker === c.partner)) {
-        climbed.set(c, t);
-        check({ c, t, side: ctx.side, dl, on, ps, first: both.get(c), x0: snap.get(c) });
-      }
+      if (on && !both.has(c)) both.set(c, { t, x: dl.x, y: dl.y });
+      const e = out.find((o) => o.blocker === c.owner || o.blocker === c.partner);
+      if (!climbed.has(c) && e) {
+        const w = pl.find((q) => q.id === e.target);
+        climbed.set(c, { t, w: w.id, climber: e.blocker });
+        check?.({ c, t, side: ctx.side, dl, on, ps, first: both.get(c), w, ctx });
+      } else if (!climbed.has(c) && on && tick) tick({ c, t, side: ctx.side, dl, ps, first: both.get(c) });
     }
     return out;
   };
-  const snap = new Map();
   play.snap();
-  for (const c of play.combos) snap.set(c, play.player(c.target).x);
-  for (let i = 1; i <= Math.round(2.0 / DT); i++) { t = i * DT; play.step(DT); }
-  play.combos.forEach((c) => assert.ok(climbed.has(c), `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} never climbed within 2.0 s`));
+  setup?.(play);
+  const eng = new Map(); // combo -> { t, lbY } the climber's engage tick on his LB
+  for (let i = 1; i <= Math.round(secs / DT); i++) {
+    t = i * DT;
+    play.step(DT);
+    for (const [c, k] of climbed) {
+      if (eng.has(c)) continue;
+      const cl = play.player(k.climber);
+      if (cl.block?.target === k.w && cl.block.engaged) eng.set(c, { t, lbY: play.player(k.w).y });
+    }
+  }
+  return { play, climbed, eng };
 };
 
-test('F-3 #1: no combo climbs before both men have been on the DL together for COMBO_HOLD', () => {
+test('F-3 #1: a climb is forced, off an attacking LB, or off a controlled double', (t) => {
+  const paths = { forced: 0, attacking: 0, controlled: 0 };
   for (const front of Object.keys(FRONTS)) {
     for (const opts of [{}, { personnel: 'te' }]) {
-      doubleRun(front, opts, ({ c, t, on, first }) => {
-        const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${t.toFixed(2)}`;
-        assert.ok(on && first, `${tag} climbed without both engaged`);
-        assert.ok(t - first.t >= COMBO_HOLD - 2 * DT, `${tag} both on only ${(t - first.t).toFixed(2)} s`);
+      doubleRun(front, opts, {
+        check: ({ c, t: tt, ps, w, ctx }) => {
+          const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${tt.toFixed(2)}`;
+          const near = Math.min(...ps.map((q) => Math.hypot(w.x - q.x, w.y - q.y)));
+          // a climber not yet on the DL counts the stayer's hold alone (as the rule does)
+          const onDl = ps.filter((q) => q.block?.target === c.target && q.block.engaged);
+          const bothOn = onDl.length >= 1;
+          const joint = Math.min(...(onDl.length === 2 ? onDl : onDl.slice(0, 1)).map((q) => q.block.held ?? 0));
+          const committed = !!ctx.committed?.[w.id];
+          const inTrack = ps.some((q) => Math.abs(w.x - q.x) <= TRACK_HALF);
+          const vy = -((w.selfVel ?? w.vel ?? { y: 0 }).y ?? 0);
+          if (near <= SWITCH_DIST) paths.forced++;
+          else if (bothOn && committed && inTrack && joint >= COMBO_TOUCH - 1e-6 && vy >= LB_FILL_V - 1e-6) paths.attacking++;
+          else if (bothOn && committed && inTrack && joint >= COMBO_HOLD - 1e-6) paths.controlled++;
+          else assert.fail(`${tag} climbed with no cause: near ${near.toFixed(2)} joint ${joint.toFixed(2)} committed ${committed} inTrack ${inTrack} vy ${vy.toFixed(2)}`);
+        },
       });
     }
   }
+  t.diagnostic(`climbs by path: ${JSON.stringify(paths)}`);
+  assert.ok(paths.forced + paths.attacking + paths.controlled > 0);
 });
 
-test('F-3 #3: the double drives the DL at least 1 yd playside and back before the climb', () => {
+test('F-3 #3b: while both are on, the double never gives ground or drifts backside', (t) => {
+  let minDy = Infinity;
+  let minDx = Infinity;
+  // Measured from COMBO_TOUCH of joint hold: the impact lets the DL gain up to 0.03 yd for three ticks (measured -0.027 on base C/LG), then the double drives him.
+  const look = ({ side, dl, first, ps }) => {
+    if (!first || Math.min(...ps.map((q) => q.block?.held ?? 0)) < COMBO_TOUCH) return;
+    const dy = dl.y - first.y, dx = side * (dl.x - first.x);
+    minDy = Math.min(minDy, dy);
+    minDx = Math.min(minDx, dx);
+    assert.ok(dy >= -0.02, `DL y moved ${dy.toFixed(3)} toward the offense's goal`);
+    assert.ok(dx >= -0.02, `DL drifted backside ${dx.toFixed(3)}`);
+  };
   for (const front of Object.keys(FRONTS)) {
-    for (const opts of [{}, { personnel: 'te' }]) {
-      doubleRun(front, opts, ({ c, t, side, dl, first, x0 }) => {
-        const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${t.toFixed(2)}`;
-        assert.ok(side * (dl.x - x0) >= COMBO_MOVE_T - 1e-6, `${tag} DL playside ${(side * (dl.x - x0)).toFixed(2)}`);
-        assert.ok(dl.y - first.y >= 0.2 - 1e-6, `${tag} DL back ${(dl.y - first.y).toFixed(2)}`);
-      });
+    for (const opts of [{}, { personnel: 'te' }]) doubleRun(front, opts, { tick: look, check: look });
+  }
+  t.diagnostic(`min dy ${minDy.toFixed(3)}, min side*dx ${minDx.toFixed(3)}`);
+});
+
+test('F-3 #4: an LB who reads run early gets the climb no later and no deeper than one who reads late', (t) => {
+  const diag = [];
+  for (const front of ['base', 'bear']) {
+    const run = (read) => {
+      const watch = createPlay(25, 'insideZone', { front }).combos.map((c) => c.watch);
+      return doubleRun(front, {}, { setup: (play) => { for (const id of new Set(watch)) if (play.defense.agents[id]) play.defense.agents[id].read = read; } });
+    };
+    const early = run(0.1), late = run(1.0);
+    for (const c of early.play.combos) {
+      const lc = late.play.combos.find((m) => m.owner === c.owner && m.partner === c.partner);
+      const e = early.climbed.get(c), l = late.climbed.get(lc);
+      if (!e || !l || e.w !== c.watch || l.w !== lc.watch) continue;
+      diag.push(`${front} ${c.owner}/${c.partner} climb early ${e.t.toFixed(2)} late ${l.t.toFixed(2)}`);
+      assert.ok(e.t <= l.t + 1e-9, `${front} ${c.owner} early climb ${e.t} after late ${l.t}`);
+      const ee = early.eng.get(c), le = late.eng.get(lc);
+      if (ee && le && ee.t <= 2.0 && le.t <= 2.0) assert.ok(ee.lbY <= le.lbY + 0.05, `${front} ${c.owner} early LB y ${ee.lbY.toFixed(2)} deeper than late ${le.lbY.toFixed(2)}`);
     }
   }
+  t.diagnostic(diag.join('; '));
 });
