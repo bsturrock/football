@@ -5,13 +5,11 @@ import { LB_ROLES } from './roster.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
-// the longer-held blocker on the DL must have held him this long before the climber leaves, and the stayer must be on him; a late-engaging stayer no longer delays a climber who has held since early
-export const COMBO_HOLD = 0.3;
-// F-3: a climb off a double that has been on together at least this long while the LB attacks downhill (the LB's own commit and speed decide, no fixed meet depth)
+// F-55: a combo comes off its DL only when the watched LB declares (see zoneSwitch), and then only after the pair has been on the DL together this long
 export const COMBO_TOUCH = 0.1;
-// F-3: the LB counts as attacking downhill (a fill) at this speed toward the line, yd/s; a filling LB runs about 3.5, a flowing one mostly sideways
-export const LB_FILL_V = 1.5;
-// Human track rule: a blocker owns the vertical runway this far either side of him; a committed LB in a member's track (or across his face) is what releases the climber. A passive LB never does.
+// F-55: while the LB sits the pair rides the DL; this many yd past the LOS the LB is forced to choose and the man on his side comes off
+export const RIDE_DEPTH = 5.0;
+// Human track rule: a blocker owns the vertical runway this far either side of him; an LB who declares in a member's track (or across his face) is what releases the climber. A sitting LB never does.
 export const TRACK_HALF = 1.5;
 
 const row = (r) => Object.freeze(r);
@@ -120,14 +118,17 @@ export function zoneSwitch(players, ballPos, ctx) {
       const dO = Math.hypot(w.x - o.x, w.y - o.y);
       const dP = Math.hypot(w.x - p.x, w.y - p.y);
       const forced = Math.min(dO, dP) <= SWITCH_DIST; // a blitzing or fast-filling LB is on top of the double
-      let ok = forced;
-      if (!ok && ctx.committed?.[w.id]) {
-        const inTrack = Math.abs(w.x - o.x) <= TRACK_HALF || Math.abs(w.x - p.x) <= TRACK_HALF;
-        // a climber who has not yet reached the DL has nothing to leave: the hold is the stayer's alone
-        const joint = on(o) && on(p) ? Math.min(o.block.held ?? 0, p.block.held ?? 0) : stayer.block.held ?? 0;
-        const vy = -((w.selfVel ?? w.vel ?? { y: 0 }).y ?? 0);
-        ok = inTrack && ((joint >= COMBO_TOUCH - 1e-9 && vy >= LB_FILL_V - 1e-9) || joint >= COMBO_HOLD - 1e-9); // the committed LB is in a member's track: attacking, or the DL is controlled
-      }
+      // F-55: declared = either member sees the LB crossing his face, or filling/crossing inside his track (cues only)
+      const declared = [o, p].some((m) => {
+        const c = ctx.cues?.(m.id);
+        const st = c?.lbs?.[w.id];
+        return st === 'crossing' || ((st === 'filling') && !!c.track?.ids?.includes(w.id));
+      });
+      const bothOn = on(o) && on(p);
+      // a climber who has not yet reached the DL has nothing to leave: the hold is the stayer's alone
+      const joint = bothOn ? Math.min(o.block.held ?? 0, p.block.held ?? 0) : stayer.block.held ?? 0;
+      const ride = bothOn && !declared && ctx.los != null && dl.y >= ctx.los + RIDE_DEPTH - 1e-9; // the LB sat as long as the pair could ride
+      const ok = forced || (declared && joint >= COMBO_TOUCH - 1e-9) || ride;
       if (ok) out.push({ blocker: taker.id, target: w.id });
     };
     go();
