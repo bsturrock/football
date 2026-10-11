@@ -106,6 +106,14 @@ export function zoneSwitch(players, ballPos, ctx) {
       const best = free.find((d) => d !== w);
       if (best && dangerOf(w, ballPos, ctx) - dangerOf(best, ballPos, ctx) > DANGER_MARGIN) w = best;
     } else w = free[0] ?? null;
+    // F-55: an LB declares when either member sees him crossing his face, or filling/crossing inside his track (cues only)
+    const declaredBy = (d) => !!d && [o, p].some((m) => {
+      const cu = ctx.cues?.(m.id);
+      const st = cu?.lbs?.[d.id];
+      return st === 'crossing' || (st === 'filling' && !!cu.track?.ids?.includes(d.id));
+    });
+    // an LB who fills into my track is mine, whoever the plan watched
+    if (!declaredBy(w)) w = [plan, ...free].find((d) => d && !claimed.has(d.id) && declaredBy(d)) ?? w;
     if (!w) continue;
     claimed.add(w.id);
     // The climber is re-judged every tick from where the linebacker fits; nothing is locked.
@@ -118,12 +126,7 @@ export function zoneSwitch(players, ballPos, ctx) {
       const dO = Math.hypot(w.x - o.x, w.y - o.y);
       const dP = Math.hypot(w.x - p.x, w.y - p.y);
       const forced = Math.min(dO, dP) <= SWITCH_DIST; // a blitzing or fast-filling LB is on top of the double
-      // F-55: declared = either member sees the LB crossing his face, or filling/crossing inside his track (cues only)
-      const declared = [o, p].some((m) => {
-        const c = ctx.cues?.(m.id);
-        const st = c?.lbs?.[w.id];
-        return st === 'crossing' || ((st === 'filling') && !!c.track?.ids?.includes(w.id));
-      });
+      const declared = declaredBy(w);
       const bothOn = on(o) && on(p);
       // a climber who has not yet reached the DL has nothing to leave: the hold is the stayer's alone
       const joint = bothOn ? Math.min(o.block.held ?? 0, p.block.held ?? 0) : stayer.block.held ?? 0;

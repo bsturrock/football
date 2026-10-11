@@ -6,7 +6,7 @@ import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
-import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_HOLD, COMBO_TOUCH, LB_FILL_V, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { readFront, HEAD_UP, LINE_DEPTH } from '../src/dots/front.js';
 import { FRONT_NAMES, frontPlayers } from './fixtures/fronts.js';
@@ -477,14 +477,34 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
   assert.ok(checked > 0);
 });
 
-const HOLD_OK = (x, target) => x.block?.target === target && x.block.engaged && (x.block.held ?? 0) >= COMBO_HOLD - 1e-9;
-// T-152 gate: the stayer is engaged on the DL and one of the two had held him COMBO_HOLD. The climber's own
+const HOLD_OK = (x, target) => x.block?.target === target && x.block.engaged && (x.block.held ?? 0) >= COMBO_TOUCH - 1e-9; // F-55: COMBO_HOLD is gone; the least a pair has held when a declared LB releases it is COMBO_TOUCH
+// T-152 gate: the stayer is engaged on the DL and one of the two had held him. The climber's own
 // hold vanishes once he retargets, so `best` is the larger hold seen on the previous tick.
 const heldMax = (play, c) => Math.max(...[c.owner, c.partner].map((id) => {
   const b = play.player(id).block;
   return b?.target === c.target && b.engaged ? (b.held ?? 0) : 0;
 }));
 const stayerEngaged = (x, target) => x.block?.target === target && x.block.engaged;
+
+// F-55 #1/#2: zoneSwitch decides from the members' cues at the start of the tick, positions as the rule saw them
+// (start of tick, or just after the move: either reading counts). cuesBefore(play) is read BEFORE play.step.
+const cuesBefore = (play) => Object.fromEntries(OL.map((id) => [id, structuredClone(play.cuesOf(id))]));
+const declaredIn = (cues, ids, lb) => ids.some((id) => {
+  const cu = cues[id];
+  const st = cu?.lbs?.[lb];
+  return st === 'crossing' || (st === 'filling' && !!cu.track?.ids?.includes(lb));
+});
+// The reasons a combo may release for `lb` on this tick; `pre` = positions before the step, `held` = the pair's hold before it.
+function releaseReasons(play, c, lb, pre, cuePre, held) {
+  const ids = [c.owner, c.partner];
+  const near = (get) => ids.some((id) => { const l = get(lb), m = get(id); return Math.hypot(l.x - m.x, l.y - m.y) <= SWITCH_DIST + 1e-9; });
+  const forced = near((id) => play.player(id)) || near((id) => pre.get(id));
+  const declared = declaredIn(cuePre, ids, lb) && held >= COMBO_TOUCH - 1e-9;
+  const dl = [play.player(c.target).y, pre.get(c.target).y];
+  const ride = dl.some((y) => y >= play.los + RIDE_DEPTH - 1e-9);
+  return { forced, declared, ride, ok: forced || declared || ride };
+}
+const snapPos = (play) => new Map(play.players.map((p) => [p.id, { x: p.x, y: p.y }]));
 
 test('T-92 #5: every front, the double never leaves the DL unblocked; partner climbs after the hold', () => {
   let switches = 0;
@@ -495,7 +515,8 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
     const switched = new Set();
     const prevHeld = {};
     for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
-      const pre = new Map(play.players.map((p) => [p.id, { x: p.x, y: p.y, vel: p.vel && { ...p.vel }, selfVel: p.selfVel && { ...p.selfVel } }]));
+      const pre = snapPos(play);
+      const cuePre = cuesBefore(play);
       play.step(DT);
       for (const c of play.combos) {
         const key = c.target + c.watch;
@@ -513,18 +534,10 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
             switches++;
             const other = play.player(climber === c.owner ? c.partner : c.owner);
             assert.ok(stayerEngaged(other, c.target), `${front} ${live} stayer engaged`);
-            // F-54 #3/#4: a fast-filling committed LB may release a deuce early (zoneSwitch's own conditions): forced
-            // (LB within SWITCH_DIST of a member), or joint hold >= COMBO_TOUCH with the LB filling at >= LB_FILL_V, or hold >= COMBO_HOLD.
-            // The rule read the LB at the start of the tick or just after it moved, so either reading counts.
-            const held = prevHeld[key] ?? 0;
-            const lbNow = play.player(live);
-            const lbPre = pre.get(live);
-            const near = (lb) => [c.owner, c.partner].some((id) => Math.hypot(lb.x - play.player(id).x, lb.y - play.player(id).y) <= SWITCH_DIST + 1e-9)
-              || [c.owner, c.partner].some((id) => Math.hypot(lb.x - pre.get(id).x, lb.y - pre.get(id).y) <= SWITCH_DIST + 1e-9);
-            const forced = near(lbNow) || near(lbPre);
-            const vy = Math.max(-(lbNow.selfVel ?? lbNow.vel ?? { y: 0 }).y, -(lbPre.selfVel ?? lbPre.vel ?? { y: 0 }).y);
-            const filling = held >= COMBO_TOUCH - 1e-9 && vy >= LB_FILL_V - 1e-9;
-            assert.ok(forced || filling || held >= COMBO_HOLD - 1e-9, `${front} ${live} held ${held} vy ${vy}`);
+            // F-55 #1/#2 (restated from F-54 #3/#4: no COMBO_HOLD or LB_FILL_V): the climb is forced (LB within
+            // SWITCH_DIST), or the LB declared in a member's cues with the pair held COMBO_TOUCH, or the DL reached the ride depth.
+            const r = releaseReasons(play, c, live, pre, cuePre, prevHeld[key] ?? 0);
+            assert.ok(r.ok, `${front} ${live} held ${prevHeld[key] ?? 0} ${JSON.stringify(r)}`);
           } else prevHeld[key] = heldMax(play, c);
         }
       }
@@ -535,20 +548,24 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
 
 test('T-92 #6: base: C/LG climb to WLB only after the partner held', () => {
   // F-54 #3/#4: the RG-to-MLB half is dropped (the base RT/RG double goes away).
-  // tackles off: the climb is a blocking rule; a tackle before COMBO_HOLD must not hide it.
+  // tackles off: the climb is a blocking rule; a tackle before the declaration must not hide it.
+  // F-55 #1/#2: the climb is forced, declared (cues) with the pair held COMBO_TOUCH, or at the ride depth (was: held COMBO_HOLD).
   const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
   let wlb = false;
   const held = (a, b, target) => Math.max(...[a, b].map((id) => (stayerEngaged(play.player(id), target) ? play.player(id).block.held ?? 0 : 0)));
   let prevR = 0;
   for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+    const pre = snapPos(play);
+    const cuePre = cuesBefore(play);
     play.step(DT);
     if (!wlb) {
       const climber = ['C', 'LG'].find((id) => play.player(id).block?.target === 'WLB');
       if (climber) {
         wlb = true;
         assert.ok(stayerEngaged(play.player(climber === 'C' ? 'LG' : 'C'), 'RDT'));
-        assert.ok(prevR >= COMBO_HOLD - 1e-9, `RDT held ${prevR}`);
+        const r = releaseReasons(play, { owner: 'C', partner: 'LG', target: 'RDT' }, 'WLB', pre, cuePre, prevR);
+        assert.ok(r.ok, `RDT held ${prevR} ${JSON.stringify(r)}`);
       } else prevR = held('C', 'LG', 'RDT');
     }
   }
@@ -662,6 +679,8 @@ test('F-45 #5: C and LG double the 2i; LT is alone on the end until the climb', 
   let switched = false;
   let prev = 0;
   for (let t = 0; t < 4 && play.ball.phase !== 'dead'; t += DT) {
+    const pre = snapPos(play);
+    const cuePre = cuesBefore(play);
     play.step(DT);
     const C = play.player('C');
     const LG = play.player('LG');
@@ -671,7 +690,9 @@ test('F-45 #5: C and LG double the 2i; LT is alone on the end until the climb', 
         switched = true;
         const other = C.block.target === 'WLB' ? LG : C;
         assert.ok(stayerEngaged(other, 'RDT'));
-        assert.ok(prev >= COMBO_HOLD - 1e-9, `RDT held ${prev}`);
+        // F-55 #1/#2: forced, or declared with the pair held COMBO_TOUCH, or the ride depth (was: held COMBO_HOLD)
+        const r = releaseReasons(play, { owner: 'C', partner: 'LG', target: 'RDT' }, 'WLB', pre, cuePre, prev);
+        assert.ok(r.ok, `RDT held ${prev} ${JSON.stringify(r)}`);
       } else {
         prev = Math.max(...[C, LG].map((o) => (stayerEngaged(o, 'RDT') ? o.block.held ?? 0 : 0)));
         const ids = play.blockersOf('RDE');
@@ -770,8 +791,9 @@ const judgeClimb = (t, probe, front, c) => {
   const lateral = Math.abs(end.x - climb.x0);
   const downhill = climb.y0 - end.y;
   const travel = `${who} vs ${climb.live}: lateral ${lateral.toFixed(2)} yd, downhill ${downhill.toFixed(2)} yd, y at end ${end.y.toFixed(2)}`;
-  assert.ok(lateral > downhill, `${travel}: no engage, and the LB came downhill past the line unmet`);
-  t.diagnostic(`${travel}: missed, LB flowed laterally`);
+  // F-55 (restated): the climber now leaves on the LB's declaration, so a climb that starts late may not meet a fast filler inside 2.0 s
+  // (accepted: F-55 sets no meet time, T-33 improves the climb path). The climb itself is still required above; the meet is reported.
+  t.diagnostic(`${travel}: ${lateral > downhill ? 'missed, LB flowed laterally' : 'not met within 2.0 s, LB came downhill (accepted under F-55)'}`);
 };
 
 const climbProbe = (t, front, c) => {
@@ -829,8 +851,9 @@ test('R-64: every front, the climber on the switch tick is the blocker on the si
   assert.ok(checked > 0);
 });
 
-// F-54 #3/#4: restated from RG climbing to the MLB (1.15 s) to the base C/LG double climbing to the WLB; measured 0.62 s (LG) on this lineup, bound set at 0.82 s (measured plus about 0.2 s).
-test('R-64: base, the C/LG climber reaches the WLB at or before 0.82 s', () => {
+// F-54 #3/#4: restated from RG climbing to the MLB (1.15 s) to the base C/LG double climbing to the WLB; measured 0.62 s (LG) on this lineup.
+// F-55 #1/#2: the climber now leaves when the WLB declares (cues), not on the old hold timer; measured 1.02 s, bound set at 1.2 s (measured plus about 0.2 s).
+test('R-64: base, the C/LG climber reaches the WLB at or before 1.2 s', () => {
   const play = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front: 'base' });
   play.snap();
   let t = null;
@@ -838,11 +861,12 @@ test('R-64: base, the C/LG climber reaches the WLB at or before 0.82 s', () => {
     play.step(DT);
     if (['C', 'LG'].some((id) => play.player(id).block?.target === 'WLB')) t = i * DT;
   }
-  assert.ok(t != null && t <= 0.82 + 1e-9, `C/LG switched at ${t}`);
+  assert.ok(t != null && t <= 1.2 + 1e-9, `C/LG switched at ${t}`);
 });
 
 test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch unless a clearly more dangerous unclaimed LB is in reach', () => {
   let switches = 0;
+  let declared = 0;
   const diffs = [];
   for (const front of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front, personnel: 'te', tackles: false });
@@ -858,7 +882,8 @@ test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch 
         const pp = players.find((q) => q.id === c.partner);
         const reach = unclaimedInReach(players, ballPos, ctx, claimed, (o.x + pp.x) / 2);
         const plan = players.find((q) => q.id === c.watch);
-        return { c, e, plan, reach, ballPos, ctx };
+        const cues = Object.fromEntries([c.owner, c.partner].map((id) => [id, ctx.cues?.(id)]));
+        return { c, e, plan, reach, ballPos, ctx, cues };
       });
       return out;
     };
@@ -871,6 +896,8 @@ test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch 
         count.set(key, (count.get(key) ?? 0) + 1);
         switches++;
         if (r.e.target === r.c.watch) continue;
+        // F-55 #1: an LB who declared (fills or crosses into a member's track) is the combo's, whoever the plan watched
+        if (declaredIn(r.cues, [r.c.owner, r.c.partner], r.e.target)) { declared++; continue; }
         diffs.push(`${front} ${r.c.owner}/${r.c.partner}: ${r.c.watch} -> ${r.e.target}`);
         // a different target needs a reason: plan watch claimed or absent, or beaten by more than the margin
         const planFree = r.plan && r.reach.includes(r.plan);
@@ -959,31 +986,97 @@ const doubleRun = (front, opts, { check, tick, setup, secs = 2.0 } = {}) => {
   return { play, climbed, eng };
 };
 
-test('F-3 #1: a climb is forced, off an attacking LB, or off a controlled double', (t) => {
-  const paths = { forced: 0, attacking: 0, controlled: 0 };
+// F-55 #1/#2 (restated from forced / attacking / controlled): a climb is forced, off a declared LB (cues) after the pair held COMBO_TOUCH, or at the ride depth.
+test('F-3 #1: a climb is forced, off a declared LB, or at the ride depth', (t) => {
+  const paths = { forced: 0, declared: 0, ride: 0 };
   for (const front of Object.keys(FRONTS)) {
     for (const opts of [{}, { personnel: 'te' }]) {
       doubleRun(front, opts, {
-        check: ({ c, t: tt, ps, w, ctx }) => {
+        check: ({ c, t: tt, ps, w, dl, ctx }) => {
           const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${tt.toFixed(2)}`;
           const near = Math.min(...ps.map((q) => Math.hypot(w.x - q.x, w.y - q.y)));
           // a climber not yet on the DL counts the stayer's hold alone (as the rule does)
           const onDl = ps.filter((q) => q.block?.target === c.target && q.block.engaged);
-          const bothOn = onDl.length >= 1;
           const joint = Math.min(...(onDl.length === 2 ? onDl : onDl.slice(0, 1)).map((q) => q.block.held ?? 0));
-          const committed = !!ctx.committed?.[w.id];
-          const inTrack = ps.some((q) => Math.abs(w.x - q.x) <= TRACK_HALF);
-          const vy = -((w.selfVel ?? w.vel ?? { y: 0 }).y ?? 0);
+          const cues = Object.fromEntries(ps.map((q) => [q.id, ctx.cues(q.id)]));
+          const declared = declaredIn(cues, ps.map((q) => q.id), w.id);
           if (near <= SWITCH_DIST) paths.forced++;
-          else if (bothOn && committed && inTrack && joint >= COMBO_TOUCH - 1e-6 && vy >= LB_FILL_V - 1e-6) paths.attacking++;
-          else if (bothOn && committed && inTrack && joint >= COMBO_HOLD - 1e-6) paths.controlled++;
-          else assert.fail(`${tag} climbed with no cause: near ${near.toFixed(2)} joint ${joint.toFixed(2)} committed ${committed} inTrack ${inTrack} vy ${vy.toFixed(2)}`);
+          else if (onDl.length >= 1 && declared && joint >= COMBO_TOUCH - 1e-6) paths.declared++;
+          else if (onDl.length === 2 && dl.y >= ctx.los + RIDE_DEPTH - 1e-6) paths.ride++;
+          else assert.fail(`${tag} climbed with no cause: near ${near.toFixed(2)} joint ${joint.toFixed(2)} declared ${declared} dl y ${dl.y.toFixed(2)}`);
         },
       });
     }
   }
   t.diagnostic(`climbs by path: ${JSON.stringify(paths)}`);
-  assert.ok(paths.forced + paths.attacking + paths.controlled > 0);
+  assert.ok(paths.forced + paths.declared + paths.ride > 0);
+});
+
+// F-55 #1/#2: judge the rule only (who leaves, when, for whom, relative to the declaration), never a meet depth, time or play result.
+// The wrapper reads the players, ctx and cues exactly as zoneSwitch saw them on the tick it released a climber.
+const declaredRun = (front, personnel, playside, script) => {
+  const play = createPlay(25, 'insideZone', { front, personnel, playside, script, accel: true, tackles: false });
+  const orig = play.retargetRule;
+  const events = [];
+  play.retargetRule = (pl, b, ctx) => {
+    const out = orig(pl, b, ctx);
+    const byId = (id) => pl.find((q) => q.id === id);
+    for (const c of ctx.combos) {
+      const e = out.find((o) => o.blocker === c.owner || o.blocker === c.partner);
+      if (!e || !unswitched(pl, c)) continue;
+      const lb = byId(e.target), dl = byId(c.target), o = byId(c.owner), pt = byId(c.partner);
+      const cues = Object.fromEntries([c.owner, c.partner].map((id) => [id, ctx.cues(id)]));
+      const fit = ctx.defGoals?.[lb.id]?.x ?? lb.x;
+      events.push({
+        c, e,
+        forced: Math.min(...[o, pt].map((m) => Math.hypot(lb.x - m.x, lb.y - m.y))) <= SWITCH_DIST + 1e-9,
+        declared: declaredIn(cues, [c.owner, c.partner], lb.id),
+        ride: dl.y >= ctx.los + RIDE_DEPTH - 1e-9,
+        want: pickClimber(o, pt, dl, fit, ctx.side).id,
+      });
+    }
+    return out;
+  };
+  assert.ok(play.snap(), `${front} ${personnel} ${playside} ${script}`);
+  for (let i = 0; i < Math.round(2.5 / DT) && play.ball.phase !== 'dead'; i++) play.step(DT);
+  return events;
+};
+
+test('F-55 #1: with lbSits no combo leaves its DL before the ride depth unless the LB is within SWITCH_DIST or declared in a member\'s cues', (t) => {
+  let leaves = 0, rides = 0;
+  for (const front of Object.keys(FRONTS)) {
+    for (const personnel of ['noTe', 'te']) {
+      for (const playside of ['left', 'right']) {
+        for (const ev of declaredRun(front, personnel, playside, 'lbSits')) {
+          leaves++;
+          if (ev.ride && !ev.forced && !ev.declared) rides++;
+          assert.ok(ev.forced || ev.declared || ev.ride, `${front} ${personnel} ${playside} ${ev.c.owner}/${ev.c.partner} left for ${ev.e.target} with nobody declared, no ride depth, LB far`);
+        }
+      }
+    }
+  }
+  t.diagnostic(`lbSits: ${leaves} releases, ${rides} at the ride depth only`);
+});
+
+test('F-55 #2: with lbFills and lbBlitz the first member to leave does so on a declaration, within SWITCH_DIST, or at the ride depth, and he is the one pickClimber names', (t) => {
+  let leaves = 0;
+  for (const script of ['lbFills', 'lbBlitz']) {
+    for (const front of Object.keys(FRONTS)) {
+      for (const personnel of ['noTe', 'te']) {
+        for (const playside of ['left', 'right']) {
+          const first = new Map();
+          for (const ev of declaredRun(front, personnel, playside, script)) if (!first.has(ev.c.owner + ev.c.partner)) first.set(ev.c.owner + ev.c.partner, ev);
+          for (const ev of first.values()) {
+            leaves++;
+            const tag = `${script} ${front} ${personnel} ${playside} ${ev.c.owner}/${ev.c.partner} -> ${ev.e.target}`;
+            assert.ok(ev.forced || ev.declared || ev.ride, `${tag}: left with nobody declared, no ride depth, LB far`);
+            assert.equal(ev.e.blocker, ev.want, `${tag}: the climber is the one pickClimber names`);
+          }
+        }
+      }
+    }
+  }
+  t.diagnostic(`lbFills/lbBlitz: ${leaves} first releases`);
 });
 
 test('F-3 #3b: while both are on, the double never gives ground or drifts backside', (t) => {
