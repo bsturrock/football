@@ -35,11 +35,15 @@ const NO_TE_BASE = {
   },
   free: ['LDE', 'SLB'],
 };
+// F-54 #3: RDE sits outside LG, toward the uncovered LT, so LT + LG deuce him (LT used to climb); RG + C ace the RDT
 const NO_TE_DL_PLUS4 = {
-  blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' },
-  combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
+  blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT' },
+  combos: [
+    { owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' },
+    { owner: 'LT', partner: 'LG', target: 'RDE', watch: 'WLB' },
+  ],
   techs: {
-    LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
+    LT: T('combo', 'none', 'WLB'), LG: T('combo', 'playside', 'WLB'), C: T('combo', 'head', 'MLB'),
     RG: T('combo', 'none', 'MLB'), RT: T('cutoff', 'playside'),
   },
   free: ['SLB', 'LDE'],
@@ -56,11 +60,15 @@ const TE_BASE = {
   },
   free: ['LDE'],
 };
+// F-54 #3: same LT + LG deuce on the RDE as the noTe plan
 const TE_DL_PLUS4 = {
-  blocks: { LT: 'WLB', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT', TE: 'SLB' },
-  combos: [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }],
+  blocks: { LT: 'RDE', LG: 'RDE', C: 'RDT', RG: 'RDT', RT: 'LDT', TE: 'SLB' },
+  combos: [
+    { owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' },
+    { owner: 'LT', partner: 'LG', target: 'RDE', watch: 'WLB' },
+  ],
   techs: {
-    LT: T('climb', 'none'), LG: T('zone', 'playside'), C: T('combo', 'head', 'MLB'),
+    LT: T('combo', 'none', 'WLB'), LG: T('combo', 'playside', 'WLB'), C: T('combo', 'head', 'MLB'),
     RG: T('combo', 'none', 'MLB'), RT: T('zone', 'playside'), TE: T('climb', 'none'),
   },
   free: ['LDE'],

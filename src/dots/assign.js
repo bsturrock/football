@@ -124,7 +124,7 @@ function mikeCount(front) {
 // head-up; head-up: the playside helper first). The playside neighbour is looked at first. Not the last man.
 function double(state, i) {
   const { front } = state;
-  if (i === 0 || i === front.line.length - 1) return null;
+  if (i === front.line.length - 1) return null;
   const b = front.line[i];
   const prev = state.results[i - 1];
   const nb = front.line[i - 1];

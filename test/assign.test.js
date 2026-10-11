@@ -31,14 +31,18 @@ test('runScheme with the IZ table matches zonePlan on every front and personnel'
   }
 });
 
-test('climb at the playside end, dlPlus4', () => {
+// F-54 #3: the RDE sits outside LG, toward the uncovered LT, so LT helps LG instead of climbing
+test('playside end helps when the DL shades toward him, dlPlus4', () => {
   const r = runScheme(read('dlPlus4'), IZ);
-  assert.equal(r.blocks.LT, 'WLB');
-  assert.deepEqual(r.techs.LT, { tech: 'climb', shade: 'none', watch: null });
+  assert.equal(r.blocks.LT, 'RDE');
+  assert.deepEqual(r.techs.LT, { tech: 'combo', shade: 'none', watch: 'WLB' });
   assert.equal(r.blocks.RT, 'LDT');
   assert.deepEqual(r.techs.RT, { tech: 'cutoff', shade: 'playside', watch: null });
   assert.equal(r.blocks.RG, 'RDT');
-  assert.deepEqual(r.combos, [{ owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' }]);
+  assert.deepEqual(r.combos, [
+    { owner: 'RG', partner: 'C', target: 'RDT', watch: 'MLB' },
+    { owner: 'LT', partner: 'LG', target: 'RDE', watch: 'WLB' },
+  ]);
   assert.deepEqual(r.free, IZ_FREE.dlPlus4);
 });
 
@@ -216,6 +220,43 @@ test('F-54 #3 pair names', () => {
     const ids = [p.owner, p.partner].sort().join('+');
     const expect = { 'C+LG': 'ace', 'C+RG': 'ace', 'LG+LT': 'deuce', 'RG+RT': 'deuce', 'RT+TE': 'tag' }[ids] || 'combo';
     assert.equal(p.name, expect, ids);
+  }
+});
+
+test('F-54 #3 every front pairs, playside left', () => {
+  const E = (owner, partner, target) => `${owner}+${partner}>${target}`;
+  const want = {
+    // RDT sits between LG and C, shaded toward C: C helps LG (playside first); RG's LDT is also toward C but C is taken
+    base: { noTe: [E('C', 'LG', 'RDT')], te: [E('C', 'LG', 'RDT')] },
+    // RDE is outside LG, toward the uncovered LT: LT helps LG; RDT is head-up on C, LG is covered, so RG (backside) helps C
+    dlPlus4: { both: [E('LT', 'LG', 'RDE'), E('RG', 'C', 'RDT')] },
+    // RDT is outside LG, toward the uncovered LT: LT helps LG; LDT is head-up on C, so RG helps C; the TE (last man) never combos
+    dlMinus4: { both: [E('LT', 'LG', 'RDT'), E('RG', 'C', 'LDT')] },
+    // same alignment as base
+    lbPlus6: { both: [E('C', 'LG', 'RDT')] },
+    lbMinus6: { both: [E('C', 'LG', 'RDT')] },
+    // BT is on the C's backside shoulder, toward the C: C helps RG; PT is outside LG, away from the C, and LT is covered
+    over43: { both: [E('C', 'RG', 'BT')] },
+    // PN is between LG and C: LG helps C (ace); BT is toward RG so RG helps RT (deuce) when RT is not the last man (te)
+    under43: { noTe: [E('LG', 'C', 'PN')], te: [E('LG', 'C', 'PN'), E('RG', 'RT', 'BT')] },
+    // nose head-up on C: LG (playside) helps; RT/RG have no covered neighbour to help
+    odd34: { both: [E('LG', 'C', 'N')] },
+    // nose head-up on C, LG is covered; noTe: RG is handed RT's inner man B3 (hand-in) so C blocks alone; te: RG helps C
+    bear: { noTe: [], te: [E('RG', 'C', 'N')] },
+    // same as over43 (SAM is second level)
+    walkedUp: { both: [E('C', 'RG', 'BT')] },
+    // PN is between LG and C: LG helps C
+    backedOff: { both: [E('LG', 'C', 'PN')] },
+  };
+  for (const name of FRONT_NAMES) {
+    for (const personnel of ['noTe', 'te']) {
+      const players = frontPlayers(name, personnel);
+      const numbers = numberPlay(players, { los: LOS, centerId: 'C', playside: 'left' });
+      const r = runScheme(readFront(players, numbers, LOS), INSIDE_ZONE);
+      const exp = want[name][personnel] || want[name].both;
+      const got = r.combos.map((c) => `${c.owner}+${c.partner}>${c.target}`).sort();
+      assert.deepEqual(got, [...exp].sort(), `${name} ${personnel}`);
+    }
   }
 });
 
