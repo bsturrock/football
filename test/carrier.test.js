@@ -848,6 +848,41 @@ test('F-48 #9: a static defender gives a stable heading, no alternating sign', (
   assert.equal(heads.size, 1);
 });
 
+test('F-48 #5 (T-175): when every heading is caught at about the same short distance he still does not aim at the man dead ahead', () => {
+  for (const sgn of [1, -1]) {
+    const { pl, run, rb, ds } = past(1);
+    place(ds[0], rb.x, rb.y + 3);
+    place(ds[1], rb.x + sgn * 3.2 * Math.sin(0.4), rb.y + 3.2 * Math.cos(0.4));
+    place(ds[2], rb.x - sgn * 1.7, rb.y - 0.3);
+    ds[0].speed = ds[1].speed = 7.5;
+    ds[2].speed = 6.5;
+    const at = { x: rb.x, y: rb.y };
+    go(pl, run);
+    const dist = Math.hypot(ds[0].x - at.x, ds[0].y - at.y);
+    const diff = Math.abs(bearing(at, run.aim) - bearing(at, ds[0]));
+    assert.ok(diff > Math.asin(AVOID_CONTACT / dist), `aim bearing differs by only ${diff}`);
+  }
+});
+
+test('F-48 #5 (T-175): a held heading that a free defender moves onto is released at once', () => {
+  const { pl, run, rb, ds } = past(1);
+  place(ds[0], rb.x + 0.4, rb.y + 3); // he bends to the left and holds that heading
+  ds[0].speed = 0.01;
+  go(pl, run);
+  assert.notEqual(run.avoid, 0);
+  assert.notEqual(run.avoid, null);
+  run.avoidAt = run.avoidClock; // just chosen, so AVOID_HOLD would keep it
+  run.avoidForced = false;
+  const th = run.avoidLine.th;
+  // a free defender 2.5 yd out on the held line
+  place(ds[0], rb.x + 2.5 * Math.sin(th), rb.y + 2.5 * Math.cos(th));
+  const at = { x: rb.x, y: rb.y };
+  go(pl, run);
+  const dist = Math.hypot(ds[0].x - at.x, ds[0].y - at.y);
+  assert.ok(Math.abs(bearing(at, run.aim) - bearing(at, ds[0])) > Math.asin(AVOID_CONTACT / dist));
+  assert.equal(run.avoidForced, true);
+});
+
 test('F-48 #5/#9 play level: past the los every front gains ground and never aims at a close free defender', () => {
   const DT = 1 / 60;
   for (const front of Object.keys(FRONTS)) {

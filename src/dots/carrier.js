@@ -328,23 +328,38 @@ function openFieldAim(players, run, rb, dt) {
   const score = (off) => {
     const th = absOf(off);
     const S = safeRun(rb, th, threats, sight);
-    return { off, S, score: S * Math.cos(th) - AVOID_TURN_COST * Math.abs(th - thV) };
+    // miss: the smallest lateral distance by which the heading line passes a threat ahead of him (Infinity: none ahead).
+    // A heading is "at" a threat when it passes closer than AVOID_CONTACT, however short every safe run is.
+    let miss = Infinity;
+    for (const d of threats) {
+      const dx = d.x - rb.x, dy = d.y - rb.y;
+      if (dx * Math.sin(th) + dy * Math.cos(th) <= 0) continue;
+      miss = Math.min(miss, Math.abs(dx * Math.cos(th) - dy * Math.sin(th)));
+    }
+    return { off, S, miss, at: miss < AVOID_CONTACT, score: S * Math.cos(th) - AVOID_TURN_COST * Math.abs(th - thV) };
   };
   const n = Math.round(2 * AVOID_FAN / AVOID_STEP);
-  let best = null;
+  const better = (c, b) => !b || c.score > b.score + 1e-9 || (Math.abs(c.score - b.score) <= 1e-9 && Math.abs(c.off) < Math.abs(b.off));
+  let best = null; // best heading that is not at a man
+  let widest = null; // fallback when every heading is at one: the largest miss
   for (let k = -n; k <= n; k++) {
     const off = k * AVOID_STEP;
     if (k !== 0 && Math.abs(thV + off) > AVOID_FAN) continue;
     const ax = rb.x + AVOID_AIM_DIST * Math.sin(absOf(off));
     if (Math.abs(ax) > HW - AVOID_SIDELINE && Math.abs(ax) > Math.abs(rb.x)) continue; // never aim toward the sideline
     const c = score(off);
-    if (!best || c.score > best.score + 1e-9 || (Math.abs(c.score - best.score) <= 1e-9 && Math.abs(c.off) < Math.abs(best.off))) best = c;
+    if (!c.at && better(c, best)) best = c;
+    if (!widest || c.miss > widest.miss + 1e-9 || (Math.abs(c.miss - widest.miss) <= 1e-9 && Math.abs(c.off) < Math.abs(widest.off))) widest = c;
   }
+  if (!best) best = widest;
   let off = best.off;
   if (run.avoid !== null) {
     const held = score(run.avoid);
     const free = run.avoidClock - run.avoidAt >= AVOID_HOLD - 1e-9 || held.S < AVOID_CONTACT;
-    if (!(free && best.score > held.score + AVOID_SWITCH)) off = run.avoid;
+    if (held.at && !best.at) {
+      // The held line now runs at a free defender (none inside AVOID_CLOSE): release it at once.
+      run.avoidForced = true;
+    } else if (!(free && best.score > held.score + AVOID_SWITCH)) off = run.avoid;
     else run.avoidForced = held.S < AVOID_CONTACT;
   }
   if (off !== run.avoid) {
