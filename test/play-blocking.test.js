@@ -516,9 +516,6 @@ test('F-41 #3: TE look line holds through 1.5 s', () => {
   }
 });
 
-// The base MLB combos (the RT/RG climbers on the MLB) get their own test, split out by name.
-const BASE_MLB = (front, c) => front === 'base' && c.watch === 'MLB';
-
 // Since F-50 the climber goes to a live linebacker, not always the plan watch: judge the member's target that is not the combo's (as R-62 in zone-play.test.js does).
 const liveClimb = (play, c) => [c.owner, c.partner].map((id) => play.player(id).block?.target).find((t) => t != null && t !== c.target) ?? null;
 
@@ -579,12 +576,10 @@ const combosClimb = (t, fronts, only = () => true) => {
 };
 
 test('F-41 #4: combos climb before the watch reaches the line', (t) => {
-  combosClimb(t, Object.keys(FRONTS), (f, c) => !BASE_MLB(f, c));
+  combosClimb(t, Object.keys(FRONTS));
 });
 
-test('F-41 #4 (base RT/RG on the MLB): combo climbs before the watch reaches the line', (t) => {
-  combosClimb(t, ['base'], BASE_MLB);
-});
+// F-54 #3: the base RT/RG double on the MLB is gone (RG blocks alone, RT climbs straight to the MLB), so its dedicated test was removed.
 
 // ---- F-32: smooth engage, engage clock, release ----
 const mkPair = (over = {}) => {

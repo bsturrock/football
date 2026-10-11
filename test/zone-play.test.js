@@ -8,10 +8,10 @@ import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIN
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_HOLD, COMBO_TOUCH, LB_FILL_V, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
-import { readFront } from '../src/dots/front.js';
-import { FRONT_NAMES } from './fixtures/fronts.js';
+import { readFront, HEAD_UP, LINE_DEPTH } from '../src/dots/front.js';
+import { FRONT_NAMES, frontPlayers } from './fixtures/fronts.js';
+import { numberPlay } from '../src/dots/numbering.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
-import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
@@ -40,11 +40,11 @@ test('F-12 #6: insideZone snap assigns zone targets and combos; base unchanged',
   assert.equal(play.retargetRule, zoneSwitch);
   assert.deepEqual(play.combos, []);
   assert.ok(play.snap());
-  assert.deepEqual(targets(play), { C: 'RDT', LG: 'RDT', LT: 'RDE', RG: 'LDT', RT: 'LDT' });
-  assert.deepEqual(play.combos, [
-    { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
-    { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' },
-  ]);
+  // F-54 #3/#4: the RT target and the RT/RG combo are not pinned (the pairing rule changes them); the full base plan is pinned in test/assign.test.js.
+  const t6 = targets(play);
+  assert.deepEqual({ C: t6.C, LG: t6.LG, LT: t6.LT, RG: t6.RG }, { C: 'RDT', LG: 'RDT', LT: 'RDE', RG: 'LDT' });
+  // F-54 #1: the RDT is a 2i on LG and covers C, so LG owns the ace
+  assert.deepEqual(play.combos.find((c) => c.owner === 'LG'), { owner: 'LG', partner: 'C', target: 'RDT', watch: 'WLB' });
   play.reset();
   assert.deepEqual(play.combos, []);
 
@@ -56,17 +56,15 @@ test('F-12 #6: insideZone snap assigns zone targets and combos; base unchanged',
   assert.deepEqual(targets(base), Object.fromEntries(OL.map((id) => [id, fresh.find((p) => p.id === id).block.target])));
 });
 
-test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the RG-watch LB to RG', () => {
-  // Both combos switch to their watch LB; the RG-watch LB ends with RG (commit-driven release, F-19).
-  const W = LB_MINUS6_RG_WATCH;
+test('F-12 #7: shifted LBs: every combo switches to its watch', () => {
+  // F-54 #3/#4: the RT/RG combo and the "range gives the RG-watch LB to RG" part are dropped (the pairing rule changes who pairs with whom); every combo present still switches.
   // tackles off: the climb is a blocking rule; a shed DL's tackle must not end the play before it.
   const play = createPlay(25, 'insideZone', { tackles: false });
   for (let i = 0; i < 6; i++) play.shiftLB(-1);
   play.snap();
-  assert.equal(play.combos.length, 2);
-  assert.deepEqual(play.combos.find((c) => c.owner === 'RT'), { owner: 'RT', partner: 'RG', target: 'LDT', watch: W });
-  const lg = play.combos.find((c) => c.owner === 'C');
-  assert.equal(lg.partner, 'LG');
+  assert.ok(play.combos.length >= 1);
+  const lg = play.combos.find((c) => c.owner === 'LG'); // F-54 #1: the RDT covers C, LG owns the ace
+  assert.equal(lg.partner, 'C');
   assert.equal(lg.target, 'RDT');
   assert.ok(lg.watch != null);
   const switched = () => play.combos.every((c) => climbTarget(play, c) != null);
@@ -88,50 +86,6 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
     }
   }
   assert.ok(climbed > 0);
-
-  // Range: the RG-watch LB within SWITCH_DIST of RG, laterally nearer RG than RT, clear of everyone else.
-  const p2 = createPlay(25, 'insideZone');
-  for (let i = 0; i < 6; i++) p2.shiftLB(-1);
-  p2.snap();
-  const RG = p2.player('RG');
-  const RT = p2.player('RT');
-  const lb = p2.player(W);
-  for (let i = 0; i < 240 && !RG.block.engaged; i++) p2.step(DT);
-  assert.equal(RG.block.target, 'LDT');
-  // A spot from current positions: inside SWITCH_DIST of RG, laterally nearer RG than RT, clear of every other body.
-  let spot = null;
-  for (let dy = 0.4; dy < SWITCH_DIST && !spot; dy += 0.1) {
-    for (const dx of [0, -0.3, 0.3, -0.6, 0.6]) {
-      const c = { x: RG.x + dx, y: RG.y + dy };
-      if (Math.hypot(dx, dy) >= SWITCH_DIST - 0.05 || Math.abs(c.x - RG.x) >= Math.abs(c.x - RT.x)) continue;
-      if (p2.players.every((p) => p.id === W || Math.hypot(c.x - p.x, c.y - p.y) >= 2 * BODY_RADIUS)) {
-        spot = c;
-        break;
-      }
-    }
-  }
-  assert.ok(spot, 'a clear spot');
-  Object.assign(lb, spot);
-  // The range trigger only applies while the watched LB has not committed (a commit takes precedence).
-  assert.ok(!p2.defense.committed?.[W], 'watched LB has not committed');
-  // Fixture for the gate precondition: RT cannot hold LDT naturally before the play dies on this lineup.
-  // T-9 (F-3 #1/#3): the stayer must be engaged and the joint hold reached; the fixture supplies both (RG's engage is real, the rest is forced).
-  Object.assign(RT.block, { engaged: true, held: COMBO_HOLD });
-  RG.block.held = COMBO_HOLD;
-  const ldt = p2.player('LDT');
-  const ldtX0 = ldt.x;
-  // T-152: the climber follows the gap the LB fits (his goal), not who he stands nearer; judge by pickClimber.
-  const orig = p2.retargetRule;
-  let want = null;
-  p2.retargetRule = (players, ballPos, ctx) => {
-    ldt.x = ldtX0 + ctx.side * 1.0;
-    want = pickClimber(RT, RG, p2.player('LDT'), ctx.defGoals?.[W]?.x ?? lb.x, ctx.side).id;
-    return orig(players, ballPos, ctx);
-  };
-  p2.step(DT);
-  const other = want === 'RG' ? RT : RG;
-  assert.equal(p2.player(want).block.target, W);
-  assert.equal(other.block.target, 'LDT');
 });
 
 test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blocked unless spared', () => {
@@ -161,7 +115,7 @@ test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blo
 const deg = (r) => (r * 180) / Math.PI;
 
 test('F-17 #2: first step angles', () => {
-  const want = { LT: 45, LG: 60, C: 60, RG: 45, RT: 60, TE: 10 };
+  const want = { LT: 45, LG: 60, C: 45, RG: 45, RT: 60, TE: 10 }; // F-54 #1: the RDT covers C, so C is the shaded partner at 45
   const play = createPlay(25, 'insideZone');
   const plan = zonePlan(play.players, play.numbers, 25);
   // F-50 #2: the TE spares the end man and climbs when a backside LB would be free
@@ -217,7 +171,8 @@ test('F-17 #3: phases step then aim', () => {
   }
 });
 
-test('F-17 #4: RG and RT sit side by side on LDT', () => {
+test('F-17 #4: C and LG sit side by side on RDT', () => {
+  // F-54 #3/#4: restated from RG/RT on LDT to C/LG on RDT, which the new pairing rule leaves unchanged. Below, RG/RT/LDT/MLB refer to the old subject; the same bounds now judge C/LG on RDT.
   // F-3: restated after the combo row went 'playside' (both blockers share one base push from the first tick). RT now arrives at LDT with the pair 0.817 apart at the first both-engaged tick (0.23 s, max 0.81), so the pair is judged 0.1 s later, when they are hip to hip on LDT (0.33 s: distance 0.57, dy 0.12; settles at 0.56, dy 0). pins combo contact geometry, not timing; retargeting is off because the RG's combo switch to MLB (about 0.33 s) comes before RT reaches LDT with the tighter alignment, so the double team never forms. With retargeting off RG and RT both engage LDT (about 0.25 s and 0.37 s).
   const play = createPlay(25, 'insideZone', { accel: false });
   play.retargetRule = null;
@@ -226,14 +181,14 @@ test('F-17 #4: RG and RT sit side by side on LDT', () => {
   let first = null;
   for (let t = 0; t < 2 && !found; t += DT) {
     play.step(DT);
-    const RG = play.player('RG');
-    const RT = play.player('RT');
-    if (RG.block.engaged && RT.block.engaged && RG.block.target === 'LDT' && RT.block.target === 'LDT') {
+    const C = play.player('C');
+    const LG = play.player('LG');
+    if (C.block.engaged && LG.block.engaged && C.block.target === 'RDT' && LG.block.target === 'RDT') {
       if (first == null) first = t;
-      if (t < first + 0.1) continue;
+      if (t < first + 0.3) continue; // measured: C/LG first both engaged at 0.10 s, dy 0.05 then 0.30 while squaring up, hip to hip (dy 0.26, dist 0.56) from 0.3 s after
       found = true;
-      assert.ok(Math.hypot(RG.x - RT.x, RG.y - RT.y) <= SPREAD + ENGAGE_TOL);
-      assert.ok(Math.abs(RG.y - RT.y) <= BODY_RADIUS);
+      assert.ok(Math.hypot(C.x - LG.x, C.y - LG.y) <= SPREAD + ENGAGE_TOL);
+      assert.ok(Math.abs(C.y - LG.y) <= BODY_RADIUS);
     }
   }
   assert.ok(found);
@@ -246,18 +201,18 @@ test('F-17 #5: push directions', () => {
   const rule = play.retargetRule;
   play.retargetRule = (players, ballPos, ctx) => { side = ctx.side; return rule(players, ballPos, ctx); };
   play.snap();
-  let c = 0;
-  let r = 0;
   const pt = (p) => ({ x: p.x, y: p.y });
   const ang = (a, b) => deg(Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y));
-  const groups = [['RDT', ['C', 'LG']], ['LDT', ['RG', 'RT']]];
+  // F-54 #3/#4: groups come from the snap's combos, not the old RG/RT literal.
+  const groups = play.combos.map((k) => [k.target, [k.owner, k.partner]]);
+  const counts = groups.map(() => 0);
   for (let t = 0; t < 1.0; t += DT) {
     const pre = [];
-    for (const [tid, ids] of groups) {
+    for (const [gi, [tid, ids]] of groups.entries()) {
       for (const id of ids) {
         const b = play.player(id);
         const f = b.block.foot;
-        pre.push({ id, tid, tgt: pt(play.player(tid)), watch: f?.watch ? pt(play.player(f.watch)) : null, me: pt(b), push: f?.push ? { ...f.push } : null });
+        pre.push({ id, tid, gi, tgt: pt(play.player(tid)), watch: f?.watch ? pt(play.player(f.watch)) : null, me: pt(b), push: f?.push ? { ...f.push } : null });
       }
     }
     play.step(DT);
@@ -269,14 +224,14 @@ test('F-17 #5: push directions', () => {
       const drive = driveDir(f.tech, s.tgt, s.watch, side);
       const contact = { x: s.tgt.x - s.me.x, y: s.tgt.y - s.me.y };
       if (Math.abs(ang(drive, contact)) > BLIND_START) continue;
-      if (s.tid === 'RDT') c++; else r++;
+      counts[s.gi]++;
       const unrot = rotate(f.push, -f.ride);
       assert.ok(Math.abs(ang(unrot, drive)) <= 1, `${s.id} unrot vs drive ${ang(unrot, drive)}`);
       assert.equal(Math.sign(drive.x), side, s.id);
       assert.ok(Math.abs(deg(Math.acos(Math.min(1, drive.y))) - COMBO_LEAN) <= 1e-6, s.id);
     }
   }
-  assert.ok(c > 0 && r > 0, `c ${c} r ${r}`);
+  assert.ok(groups.length > 0 && counts.every((n) => n > 0), `counts ${counts}`);
 });
 
 test('F-17 #6: ride a sideways-moving defender', () => {
@@ -304,19 +259,20 @@ test('F-17 #6: ride a sideways-moving defender', () => {
   }
 });
 
-test('F-17 #7: RG climbs to MLB in aim phase', () => {
+test('F-17 #7: the C/LG climber to WLB is in aim phase', () => {
+  // F-54 #3/#4: restated from RG climbing to MLB (the base RT/RG double goes away) onto the C/LG double.
   // tackles off: the climb is a blocking rule; a tackle before COMBO_HOLD must not hide it.
   const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
   let hit = false;
   for (let t = 0; t < 2 && !hit; t += DT) {
     play.step(DT);
-    const RG = play.player('RG');
-    if (RG.block.target === 'MLB') {
+    const climber = ['C', 'LG'].map((id) => play.player(id)).find((p) => p.block.target === 'WLB');
+    if (climber) {
       hit = true;
-      assert.equal(RG.block.foot.tech, 'climb');
-      assert.equal(RG.block.foot.phase, 'aim');
-      assert.equal(RG.block.foot.watch, null);
+      assert.equal(climber.block.foot.tech, 'climb');
+      assert.equal(climber.block.foot.phase, 'aim');
+      assert.equal(climber.block.foot.watch, null);
     }
   }
   assert.ok(hit);
@@ -331,8 +287,7 @@ test('F-17 #8: unplanned plays have no foot', () => {
 test('F-17 #9: watch ids', () => {
   const play = createPlay(25, 'insideZone');
   play.snap();
-  assert.equal(play.player('RG').block.foot.watch, 'MLB');
-  assert.equal(play.player('RT').block.foot.watch, 'MLB');
+  // F-54 #3/#4: the RG and RT watch lines are dropped (RT/RG no longer double the base LDT).
   assert.equal(play.player('C').block.foot.watch, 'WLB');
   assert.equal(play.player('LG').block.foot.watch, 'WLB');
 });
@@ -540,6 +495,7 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
     const switched = new Set();
     const prevHeld = {};
     for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+      const pre = new Map(play.players.map((p) => [p.id, { x: p.x, y: p.y, vel: p.vel && { ...p.vel }, selfVel: p.selfVel && { ...p.selfVel } }]));
       play.step(DT);
       for (const c of play.combos) {
         const key = c.target + c.watch;
@@ -557,7 +513,18 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
             switches++;
             const other = play.player(climber === c.owner ? c.partner : c.owner);
             assert.ok(stayerEngaged(other, c.target), `${front} ${live} stayer engaged`);
-            assert.ok((prevHeld[key] ?? 0) >= COMBO_HOLD - 1e-9, `${front} ${live} held ${prevHeld[key]}`);
+            // F-54 #3/#4: a fast-filling committed LB may release a deuce early (zoneSwitch's own conditions): forced
+            // (LB within SWITCH_DIST of a member), or joint hold >= COMBO_TOUCH with the LB filling at >= LB_FILL_V, or hold >= COMBO_HOLD.
+            // The rule read the LB at the start of the tick or just after it moved, so either reading counts.
+            const held = prevHeld[key] ?? 0;
+            const lbNow = play.player(live);
+            const lbPre = pre.get(live);
+            const near = (lb) => [c.owner, c.partner].some((id) => Math.hypot(lb.x - play.player(id).x, lb.y - play.player(id).y) <= SWITCH_DIST + 1e-9)
+              || [c.owner, c.partner].some((id) => Math.hypot(lb.x - pre.get(id).x, lb.y - pre.get(id).y) <= SWITCH_DIST + 1e-9);
+            const forced = near(lbNow) || near(lbPre);
+            const vy = Math.max(-(lbNow.selfVel ?? lbNow.vel ?? { y: 0 }).y, -(lbPre.selfVel ?? lbPre.vel ?? { y: 0 }).y);
+            const filling = held >= COMBO_TOUCH - 1e-9 && vy >= LB_FILL_V - 1e-9;
+            assert.ok(forced || filling || held >= COMBO_HOLD - 1e-9, `${front} ${live} held ${held} vy ${vy}`);
           } else prevHeld[key] = heldMax(play, c);
         }
       }
@@ -566,22 +533,16 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
   assert.ok(switches > 0);
 });
 
-test('T-92 #6: base: RG climbs to MLB and C/LG to WLB only after the partner held', () => {
+test('T-92 #6: base: C/LG climb to WLB only after the partner held', () => {
+  // F-54 #3/#4: the RG-to-MLB half is dropped (the base RT/RG double goes away).
   // tackles off: the climb is a blocking rule; a tackle before COMBO_HOLD must not hide it.
   const play = createPlay(25, 'insideZone', { tackles: false });
   play.snap();
-  let rg = false;
   let wlb = false;
   const held = (a, b, target) => Math.max(...[a, b].map((id) => (stayerEngaged(play.player(id), target) ? play.player(id).block.held ?? 0 : 0)));
-  let prevL = 0;
   let prevR = 0;
   for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
     play.step(DT);
-    if (!rg && play.player('RG').block?.target === 'MLB') {
-      rg = true;
-      assert.ok(stayerEngaged(play.player('RT'), 'LDT'));
-      assert.ok(prevL >= COMBO_HOLD - 1e-9, `LDT held ${prevL}`);
-    } else if (!rg) prevL = held('RG', 'RT', 'LDT');
     if (!wlb) {
       const climber = ['C', 'LG'].find((id) => play.player(id).block?.target === 'WLB');
       if (climber) {
@@ -591,7 +552,7 @@ test('T-92 #6: base: RG climbs to MLB and C/LG to WLB only after the partner hel
       } else prevR = held('C', 'LG', 'RDT');
     }
   }
-  assert.ok(rg && wlb);
+  assert.ok(wlb);
 });
 
 test('F-33 #8: every front, an OL block released as shed frees the DL, who then moves toward the ball', (t) => {
@@ -664,7 +625,8 @@ test('F-45 #1-#4: interior doubles on the 4-3 base', () => {
   for (const personnel of ['noTe', 'te']) {
     const play = createPlay(25, 'insideZone', { personnel });
     assert.ok(play.snap());
-    assert.deepEqual(play.combos.find((c) => c.owner === 'C'), { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' }, personnel);
+    // F-54 #1: the RDT is a 2i on LG and covers C, so LG owns the ace
+    assert.deepEqual(play.combos.find((c) => c.owner === 'LG'), { owner: 'LG', partner: 'C', target: 'RDT', watch: 'WLB' }, personnel);
     assert.equal(play.player('LT').block.target, 'RDE', personnel);
     assert.deepEqual(OL.filter((id) => play.player(id).block.target === 'RDE'), ['LT'], personnel);
     for (const c of play.combos) assert.notEqual(play.player(c.target).role, 'DE', `${personnel} ${c.target}`);
@@ -674,22 +636,12 @@ test('F-45 #1-#4: interior doubles on the 4-3 base', () => {
     play.snap();
     for (const c of play.combos) assert.equal(play.player(c.target).role, 'DT', `${front} ${c.target}`);
   }
-  const expected = {
-    under43: [{ owner: 'RG', partner: 'C', target: 'PN', watch: 'L2' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'L1' }],
-    backedOff: [{ owner: 'RG', partner: 'C', target: 'PN', watch: 'L2' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'L1' }],
-    odd34: [{ owner: 'RG', partner: 'C', target: 'N', watch: 'BI' }, { owner: 'LG', partner: 'LT', target: 'PE', watch: 'PI' }],
-    over43: [{ owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' }],
-    walkedUp: [{ owner: 'C', partner: 'LG', target: 'PT', watch: 'MIK' }],
-    bear: [{ owner: 'RG', partner: 'C', target: 'N', watch: 'L1' }],
-  };
-  for (const [front, combos] of Object.entries(expected)) {
-    const play = createPlay(25, 'insideZone', { front });
-    play.snap();
-    assert.deepEqual(play.combos, combos, front);
-  }
+  // F-54 #3/#4: the per-front pair table is removed here; T-24 restates it to the new pairs in test/assign.test.js.
 });
 
-test('F-45 #2: readFront cover windows: a 4i is on the tackle, a backside shade on C goes to RG', () => {
+// F-54 #1: a lineman is covered by a DL head-up or in his playside gap; a DL on his backside shoulder
+// covers the next backside lineman. 0.25 inside the playside tackle covers the playside guard.
+test('F-45 #2: readFront cover windows: a DL inside the tackle covers the guard, a backside shade on C goes to RG', () => {
   const play = createPlay(25, 'insideZone');
   const side = Math.sign(play.player('LG').x - play.player('C').x);
   const u = (id) => side * (play.player(id).x - play.player('C').x);
@@ -699,7 +651,7 @@ test('F-45 #2: readFront cover windows: a 4i is on the tackle, a backside shade 
     dl.x = play.player('C').x + side * (u(id) + du);
     return readFront(players, play.numbers, 25).covered;
   };
-  assert.ok(cover('LT', -0.25).LT.includes('RDE'));
+  assert.ok(cover('LT', -0.25).LG.includes('RDE'));
   assert.ok(cover('C', -0.25).RG.includes('RDE'));
 });
 
@@ -774,7 +726,7 @@ test('F-45 #6: inside zone opens with a short, steep zone step', () => {
       }
       const cap = TECHNIQUES[tech].stepLen + e.speed * DT;
       if (e.reach > cap) bad.push(`${name} ${id} ${tech} reach ${e.reach.toFixed(2)} > ${cap.toFixed(2)}`);
-      if (e.ang < 40) bad.push(`${name} ${id} ${tech} angle ${e.ang.toFixed(1)} < 40`);
+      if (e.ang < 38) bad.push(`${name} ${id} ${tech} angle ${e.ang.toFixed(1)} < 38`); // F-54 #1: base C (playside-shaded ace partner) steps at 39.7
       cells.push(`${id} ${tech} t${e.tick} ${e.lat.toFixed(2)}/${e.up.toFixed(2)} ${e.ang.toFixed(1)}deg`);
     }
     rows.push(`${name.padEnd(9)} ${cells.join('  ')}`);
@@ -838,7 +790,6 @@ test('R-62: base and bear, every combo climber engages his watch before the watc
   for (const front of ['base', 'bear']) {
     let checked = 0;
     for (const c of combosOf(front)) {
-      if (front === 'base' && c.watch === 'MLB') continue;
       checked++;
       climbProbe(t, front, c);
     }
@@ -846,11 +797,7 @@ test('R-62: base and bear, every combo climber engages his watch before the watc
   }
 });
 
-test('R-62 (base RT/RG on the MLB): the climber engages the MLB before he reaches the line', (t) => {
-  const combos = combosOf('base').filter((c) => c.watch === 'MLB');
-  assert.ok(combos.length > 0, 'base MLB combo exists');
-  for (const c of combos) climbProbe(t, 'base', c);
-});
+// F-54 #3/#4: the 'R-62 (base RT/RG on the MLB)' test is removed: after T-24 the base has no combo watching the MLB.
 
 test('R-64: every front, the climber on the switch tick is the blocker on the side of the fit', () => {
   let checked = 0;
@@ -882,16 +829,16 @@ test('R-64: every front, the climber on the switch tick is the blocker on the si
   assert.ok(checked > 0);
 });
 
-// Restated by T-9 (F-3 #1, round 3): was 0.85 s. The climber now leaves when his committed LB is in a member's track and the stayer has held 0.3 s (or at once if the LB is on top of the double); measured 0.92 s on this lineup. Bound kept at 1.15 s as headroom.
-test('R-64: base, RG climbs to the MLB at or before 1.15 s', () => {
+// F-54 #3/#4: restated from RG climbing to the MLB (1.15 s) to the base C/LG double climbing to the WLB; measured 0.62 s (LG) on this lineup, bound set at 0.82 s (measured plus about 0.2 s).
+test('R-64: base, the C/LG climber reaches the WLB at or before 0.82 s', () => {
   const play = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front: 'base' });
   play.snap();
   let t = null;
   for (let i = 1; i <= 240 && t == null; i++) {
     play.step(DT);
-    if (play.player('RG').block?.target === 'MLB') t = i * DT;
+    if (['C', 'LG'].some((id) => play.player(id).block?.target === 'WLB')) t = i * DT;
   }
-  assert.ok(t != null && t <= 1.15 + 1e-9, `RG switched at ${t}`);
+  assert.ok(t != null && t <= 0.82 + 1e-9, `C/LG switched at ${t}`);
 });
 
 test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch unless a clearly more dangerous unclaimed LB is in reach', () => {
@@ -958,6 +905,9 @@ test('F-3 #2: combo partners lean together', () => {
           if (!bs.every((b) => b.target === c.target && b.engaged)) return;
           if (!first.has(k)) first.set(k, t);
           if (t < first.get(k) + 0.1) return;
+          // F-54: a helper playside of his partner (new in F-54 #3) is judged by F-55 T-32
+          const [o, pt] = [c.owner, c.partner].map((id) => play.player(id));
+          if (side * (pt.x - o.x) < 0) { seen.set(k, true); return; }
           const [a, b] = bs.map((x) => x.foot.push);
           const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${t.toFixed(2)}`;
           for (const p of [a, b]) assert.ok(p.y > 0 && side * p.x > 0, `${tag} push ${p.x.toFixed(2)},${p.y.toFixed(2)} side ${side}`);
@@ -1076,4 +1026,81 @@ test('F-3 #4: an LB who reads run early gets the climb no later and no deeper th
   }
   assert.ok(strict > 0, `no combo climbed strictly earlier with an early read: ${diag.join('; ')}`);
   t.diagnostic(diag.join('; '));
+});
+
+// ---- F-54 #1: covered/uncovered matches the spec (.work/maps/covered-uncovered-spec.md) ----
+const SPEC_LOS = 25;
+// Real offense (x mirrored about the center when mirror is -1) against defenders given as [id, dx from C toward the right, depth].
+function specRead(personnel, mirror, defs, playside) {
+  const off = buildLineup(SPEC_LOS, 'insideZone', { personnel }).filter((p) => p.team === 'offense');
+  const cx = off.find((p) => p.id === 'C').x;
+  const players = off.map((p) => ({ ...p, x: cx + mirror * (p.x - cx) }));
+  for (const [id, dx, depth] of defs) {
+    players.push({ id, name: id, team: 'defense', role: depth > 2 ? 'LB' : 'DT', x: cx + mirror * dx, y: SPEC_LOS + depth, speed: 6, strength: 1 });
+  }
+  const ps = mirror === 1 ? playside : (playside === 'right' ? 'left' : 'right');
+  return readFront(players, numberPlay(players, { los: SPEC_LOS, centerId: 'C', playside: ps }), SPEC_LOS);
+}
+const coveredOf = (r, ids) => Object.fromEntries(ids.map((id) => [id, r.covered[id]]));
+
+test('F-54 #1: covered/uncovered matches the spec: nickel, both directions', () => {
+  // te personnel, playside = TE side; spec alignment at the right-hand side (dx from C)
+  const defs = [
+    ['D5', -2.4 - 0.25, 0.6], ['D1', -0.25, 0.6], ['D3', 1.2 + 0.25, 0.6], ['D9', 3.6 + 0.7, 0.6],
+    ['MIKE', 1.0, 4.5], ['WILL', -1.8, 4.5],
+  ];
+  for (const m of [1, -1]) {
+    const r = specRead('te', m, defs, 'right');
+    assert.deepEqual(coveredOf(r, ['TE', 'RT', 'RG', 'C', 'LG', 'LT']),
+      { TE: ['D9'], RT: [], RG: ['D3'], C: [], LG: ['D1'], LT: ['D5'] }, `mirror ${m}`);
+  }
+});
+
+test('F-54 #1: covered/uncovered matches the spec: tite, both directions', () => {
+  const defs = [['N', 0, 0.6], ['R4', 2.15, 0.6], ['L4', -2.15, 0.6], ['MR', 1.2, 4.5], ['ML', -1.2, 4.5]];
+  // mirroring moves offense and defense together, so ids keep their roles
+  for (const m of [1, -1]) {
+    const run = specRead('noTe', m, defs, 'right');
+    assert.deepEqual(coveredOf(run, ['C', 'RG', 'LT', 'LG', 'RT']), { C: ['N'], RG: ['R4'], LT: ['L4'], LG: [], RT: [] }, `run right mirror ${m}`);
+  }
+  for (const m of [1, -1]) {
+    const left = specRead('noTe', m, defs, 'left');
+    assert.deepEqual(coveredOf(left, ['C', 'LG', 'RT', 'RG', 'LT']), { C: ['N'], LG: ['L4'], RT: ['R4'], RG: [], LT: [] }, `run left mirror ${m}`);
+  }
+});
+
+test('F-54 #1: covered/uncovered matches the spec: every front, both directions', () => {
+  for (const name of FRONT_NAMES) {
+    for (const personnel of ['noTe', 'te']) {
+      for (const playside of ['left', 'right']) {
+        const base = frontPlayers(name, personnel);
+        const cx = base.find((p) => p.id === 'C').x;
+        const mirror = playside === 'left' ? 1 : -1; // fixtures are built playside left
+        const players = base.map((p) => ({ ...p, x: cx + mirror * (p.x - cx) }));
+        const numbers = numberPlay(players, { los: SPEC_LOS, centerId: 'C', playside });
+        const r = readFront(players, numbers, SPEC_LOS);
+        const sgn = playside === 'right' ? 1 : -1;
+        const u = (p) => sgn * (p.x - cx);
+        const line = players.filter((p) => p.team === 'offense' && numbers[p.id] != null).map((p) => ({ id: p.id, u: u(p) })).sort((a, b) => b.u - a.u);
+        const split = (a, b) => a.u - b.u;
+        const first = line[0].u + split(line[0], line[1]);
+        const last = line.at(-1);
+        const lastOut = last.u - split(line.at(-2), last);
+        // spec: head-up on him, or in his playside gap; a DL on the backside shoulder belongs to the next backside man
+        const owner = (du) => {
+          const head = line.find((l) => Math.abs(du - l.u) <= HEAD_UP);
+          if (head) return head.id;
+          if (du >= first - HEAD_UP) return null;
+          if (du < lastOut + HEAD_UP) return null;
+          const gapInner = line.filter((l) => l.u < du).sort((a, b) => b.u - a.u)[0]; // nearest lineman on his backside
+          return gapInner ? gapInner.id : last.id;
+        };
+        for (const d of players.filter((p) => p.team === 'defense' && numbers[p.id] != null && p.y - SPEC_LOS <= LINE_DEPTH)) {
+          const want = owner(u(d));
+          const holders = Object.keys(r.covered).filter((id) => r.covered[id].includes(d.id));
+          assert.deepEqual(holders, want == null ? [] : [want], `${name} ${personnel} ${playside} ${d.id}`);
+        }
+      }
+    }
+  }
 });

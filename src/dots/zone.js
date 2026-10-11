@@ -17,8 +17,7 @@ export const TRACK_HALF = 1.5;
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
   rules: Object.freeze([
-    row({ when: 'spare', at: 'backEnd', tech: 'climb' }), // man short: leave the backside end man, climb to the free linebacker
-    row({ when: 'covered', at: 'backEnd', tech: 'cutoff' }), // backside tackle covered: cut him off
+    row({ when: 'covered', at: 'backEnd', tech: 'cutoff' }), // backside end lineman: block the end man (F-54 #5 / R-5: plain inside zone never leaves him)
     row({ when: 'covered', tech: 'zone' }), // covered: block the man over you
     row({ when: 'double', tech: 'combo' }), // uncovered: double the playside neighbour's man, watch the LB
     row({ when: 'climb', tech: 'climb' }), // two uncovered: climb to the linebacker
@@ -26,10 +25,36 @@ export const INSIDE_ZONE = Object.freeze({
   ]),
 });
 
-export function zonePlan(players, numbers, los) {
+// Zone read: the quarterback reads the backside end man, so a man-short line leaves him and the end lineman climbs. Not used by any play yet.
+export const ZONE_READ = Object.freeze({
+  rules: Object.freeze([
+    row({ when: 'spare', at: 'backEnd', tech: 'climb' }), // man short: leave the backside end man, climb to the free linebacker
+    ...INSIDE_ZONE.rules,
+  ]),
+});
+
+// How each box defender is accounted for, by what the offense does about him (box = ids from boxCount, else every numbered defender):
+// - block: a lineman's block target is he (by = those linemen);
+// - watch: nobody blocks him and a combo's watch is he (by = the combo's owner and partner);
+// - read: under a scheme with the spare row, the end lineman left the edge man to the quarterback (he is front.edge and free; by = []);
+// - free: none of these, including box defenders runScheme did not number (by = []).
+export function zonePlan(players, numbers, los, { scheme = INSIDE_ZONE, box = null } = {}) {
   const front = readFront(players, numbers, los);
-  const { side, blocks, techs, combos, free } = runScheme(front, INSIDE_ZONE);
-  return { side, blocks, techs, combos, free, front };
+  const plan = runScheme(front, scheme);
+  const { blocks, combos, free, techs } = plan;
+  const end = front.line[front.line.length - 1];
+  const spared = scheme.rules.some((r) => r.when === 'spare') && front.edge != null && end != null
+    && techs[end.id]?.tech === 'climb' && blocks[end.id] !== front.edge && free.includes(front.edge);
+  const accounted = {};
+  for (const id of box ?? front.defenders.map((d) => d.id)) {
+    const by = Object.keys(blocks).filter((k) => blocks[k] === id);
+    const watcher = combos.find((c) => c.watch === id);
+    if (by.length) accounted[id] = { how: 'block', by };
+    else if (watcher) accounted[id] = { how: 'watch', by: [watcher.owner, watcher.partner] };
+    else if (spared && id === front.edge) accounted[id] = { how: 'read', by: [] };
+    else accounted[id] = { how: 'free', by: [] };
+  }
+  return { ...plan, front, accounted };
 }
 
 // Danger to the ball: how far the linebacker's fit point (his live goal, else where he stands) is from the ball. Smaller is more dangerous; no ball, no difference.

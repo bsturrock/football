@@ -50,8 +50,9 @@ test('F-35 #9: with the box empty he commits to the playside A gap between the t
   assert.ok(run.x > lo && run.x < hi, `run.x ${run.x} not between ${lo} and ${hi}`);
 });
 
+// F-54 #3: noTe, because base 'te' has only two free defenders once RT climbs to the MLB and the TE takes the SLB; this needs three.
 test('F-35 #9: with the playside A, B, C filled he cuts back to the backside', () => {
-  const play = createPlay(LOS, 'insideZone', { tackles: false });
+  const play = createPlay(LOS, 'insideZone', { tackles: false, personnel: 'noTe' });
   play.snap();
   const run = play.run;
   const prevMid = [];

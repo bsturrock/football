@@ -63,8 +63,14 @@ test('F-48 #2: an LB in the second level over P sends a full-vision back to Q', 
   const [P, Q] = pq(s);
   assert.ok(P.open && Q.open);
   s.rb.vision = 1;
-  const d = lb(s.ds);
+  // F-54 #3: the LB no blocker targets at the snap (MLB today, WLB once RT climbs to the MLB), so moving him over P is not blunted by a block.
+  const d = s.ds.find((x) => x.role === 'LB' && !s.play.players.some((o) => o.team === 'offense' && o.block?.target === x.id));
+  // F-54 #3: set the precondition here rather than lean on the base plan: slide the back toward Q until P and Q score level with no LB (a move of delta toward Q changes P-Q by -2*CUT_COST*delta).
+  const dir = Math.sign(Q.x - P.x);
+  const shift = (P.score - Q.score) / (2 * CUT_COST);
+  s.rb.x = Math.min(Math.max(s.rb.x + dir * shift, Math.min(P.x, Q.x)), Math.max(P.x, Q.x));
   const none = score(s);
+  assert.ok(Math.abs(pick(none, 'B', 'play').score - pick(none, 'B', 'back').score) < SWITCH_MARGIN, 'without the LB P and Q are within the margin');
   d.x = P.x;
   d.y = LOS + LANE_AHEAD + 2 * BODY_RADIUS;
   const lanes = score(s);

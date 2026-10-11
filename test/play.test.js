@@ -509,3 +509,86 @@ test('F-39 #7: TE engages and the play ends or breaks away on every front', () =
     }
   }
 });
+
+test('F-54 #6: default playside is left with unchanged numbering', () => {
+  const play = createPlay(25, 'insideZone');
+  assert.equal(play.playside, 'left');
+  assert.deepEqual(play.numbers, numberPlay(play.players, { los: 25, centerId: 'C', playside: 'left' }));
+  assert.equal(createPlay(25, 'base').playside, null);
+});
+
+test('F-54 #6: playside right numbers the +x linemen and plans toward +x', () => {
+  const play = createPlay(25, 'insideZone', { playside: 'right' });
+  assert.equal(play.playside, 'right');
+  assert.deepEqual(play.numbers, numberPlay(play.players, { los: 25, centerId: 'C', playside: 'right' }));
+  const c = play.player('C');
+  for (const p of play.players) {
+    if (p.team === 'offense' && p.role === 'OL' && p.id !== 'C') {
+      if (p.x > c.x) assert.ok(play.numbers[p.id] > 0, p.id);
+      else assert.ok(play.numbers[p.id] < 0, p.id);
+    }
+  }
+  play.snap();
+  assert.equal(play.plan.side, 1);
+});
+
+test('F-54 #6: setPlayside works presnap, returns false after the snap, bad keys rejected', () => {
+  const play = createPlay(25, 'insideZone');
+  assert.equal(play.setPlayside('right'), 'right');
+  assert.equal(play.playside, 'right');
+  assert.deepEqual(play.numbers, numberPlay(play.players, { los: 25, centerId: 'C', playside: 'right' }));
+  assert.equal(play.setPlayside('up'), false);
+  assert.equal(play.setPlayside(null), false);
+  assert.equal(play.playside, 'right');
+  assert.throws(() => createPlay(25, 'insideZone', { playside: 'up' }));
+  play.snap();
+  assert.equal(play.setPlayside('left'), false);
+  assert.equal(play.playside, 'right');
+});
+
+test('F-54 #6: play.plan is null before the snap and after reset, an object after the snap', () => {
+  const play = createPlay(25, 'insideZone');
+  assert.equal(play.plan, null);
+  play.snap();
+  assert.equal(typeof play.plan, 'object');
+  for (const k of ['side', 'blocks', 'combos', 'front']) assert.ok(k in play.plan, k);
+  assert.equal(play.plan.side, -1);
+  play.reset();
+  assert.equal(play.plan, null);
+  assert.equal(createPlay(25, 'base').plan, null);
+});
+
+test('F-54 #6: with playside right the RB runs toward +x', () => {
+  // He presses back toward the line before running, so compare the two directions at the same time.
+  const xAt = (playside) => {
+    const play = createPlay(25, 'insideZone', { playside });
+    play.snap();
+    for (let i = 0; i < 60; i++) play.step(FIXED_DT);
+    return play.player('RB').x;
+  };
+  assert.ok(xAt('right') > xAt('left'));
+});
+
+test('F-54 #6: every front, noTe and te personnel, both directions runs 3 s with finite positions', () => {
+  for (const front of FRONT_KEYS) {
+    for (const personnel of ['noTe', 'te']) {
+      for (const playside of ['left', 'right']) {
+        const play = createPlay(25, 'insideZone', { front, personnel, playside });
+        play.snap();
+        for (let i = 0; i < 180; i++) play.step(FIXED_DT);
+        for (const p of play.players) {
+          assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y), `${front} ${personnel} ${playside} ${p.id}`);
+        }
+      }
+    }
+  }
+});
+
+test('F-54 #6: cuesOf is null before the snap and has a track after 0.5 s without trace', () => {
+  const play = createPlay(25, 'insideZone');
+  assert.equal(play.cuesOf('LG'), null);
+  play.snap();
+  for (let i = 0; i < 30; i++) play.step(FIXED_DT);
+  assert.equal(play.trace, null);
+  assert.equal(typeof play.cuesOf('LG').track, 'object');
+});

@@ -116,6 +116,11 @@ export function scriptOptions() {
     ...Object.entries(SCRIPTS).map(([key, s]) => ({ key, name: s.name }))];
 }
 
+// Picker options for the pre-snap run direction.
+export function playsideOptions() {
+  return [{ key: 'left', name: 'Run left' }, { key: 'right', name: 'Run right' }];
+}
+
 // Label for the read-trace overlay toggle (O key or button).
 export function overlayLabel(on) {
   return `Overlay: ${on ? 'on' : 'off'} (O)`;
@@ -151,9 +156,18 @@ export function readLines(entry) {
     `reason: ${entry?.reason ?? ''}`];
 }
 
-// Overlay geometry from the latest trace tick; all empty before the snap or without a trace.
+// Overlay geometry: marks and pairs from play.plan; tracks, keys and labels from the latest
+// trace tick. All empty before the snap; tracks, keys and labels also empty without a trace.
 export function overlayShapes(play) {
-  const out = { tracks: [], keys: [], labels: [] };
+  const out = { tracks: [], keys: [], labels: [], marks: [], pairs: [] };
+  const plan = play.plan;
+  if (plan) {
+    if (plan.mike) out.marks.push({ id: plan.mike, text: 'MIKE' });
+    for (const [id, a] of Object.entries(plan.accounted ?? {})) {
+      if (a.how === 'free' || a.how === 'read') out.marks.push({ id, text: a.how });
+    }
+    for (const pr of plan.pairs ?? []) out.pairs.push({ a: pr.owner, b: pr.partner, text: pr.name });
+  }
   const ticks = play.trace?.ticks;
   const tick = ticks && ticks[ticks.length - 1];
   if (!tick) return out;
@@ -478,6 +492,8 @@ export function initDotsView(container) {
   const trackStrips = new Map();
   const keyLines = new Map();
   const decLabels = new Map();
+  const markLabels = new Map();
+  const pairLabels = new Map();
   function trackStripFor(id) {
     let m = trackStrips.get(id);
     if (!m) {
@@ -503,8 +519,9 @@ export function initDotsView(container) {
     }
     return line;
   }
-  function decLabelFor(id) {
-    let m = decLabels.get(id);
+  // One text sprite per key in its own map (decision labels, marks and pair labels never share one).
+  function spriteFor(map, key) {
+    let m = map.get(key);
     if (!m) {
       const c = document.createElement('canvas');
       c.width = 256; c.height = 64;
@@ -515,13 +532,33 @@ export function initDotsView(container) {
       m.userData = { canvas: c, texture: tex, text: null };
       m.visible = false;
       scene.add(m);
-      decLabels.set(id, m);
+      map.set(key, m);
     }
     return m;
   }
+  function decLabelFor(id) { return spriteFor(decLabels, id); }
+  function paintLabel(m, text) {
+    if (m.userData.text === text) return;
+    m.userData.text = text;
+    const c = m.userData.canvas;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, c.width, c.height);
+    g.font = 'bold 36px sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineWidth = 7;
+    g.strokeStyle = '#000';
+    g.lineJoin = 'round';
+    g.strokeText(text, c.width / 2, c.height / 2);
+    g.fillStyle = '#fff';
+    g.fillText(text, c.width / 2, c.height / 2);
+    m.userData.texture.needsUpdate = true;
+  }
   function syncOverlay() {
-    const shapes = overlayOn ? overlayShapes(play) : { tracks: [], keys: [], labels: [] };
+    const shapes = overlayOn ? overlayShapes(play)
+      : { tracks: [], keys: [], labels: [], marks: [], pairs: [] };
     const usedTracks = new Set(), usedKeys = new Set(), usedLabels = new Set();
+    const usedMarks = new Set(), usedPairs = new Set();
     for (const t of shapes.tracks) {
       const p = play.player(t.id);
       if (!p) continue;
@@ -551,31 +588,44 @@ export function initDotsView(container) {
       const p = play.player(l.id);
       if (!p || l.text === '') continue;
       const m = decLabelFor(l.id);
-      if (m.userData.text !== l.text) {
-        m.userData.text = l.text;
-        const c = m.userData.canvas;
-        const g = c.getContext('2d');
-        g.clearRect(0, 0, c.width, c.height);
-        g.font = 'bold 36px sans-serif';
-        g.textAlign = 'center';
-        g.textBaseline = 'middle';
-        g.lineWidth = 7;
-        g.strokeStyle = '#000';
-        g.lineJoin = 'round';
-        g.strokeText(l.text, c.width / 2, c.height / 2);
-        g.fillStyle = '#fff';
-        g.fillText(l.text, c.width / 2, c.height / 2);
-        m.userData.texture.needsUpdate = true;
-      }
+      paintLabel(m, l.text);
       const d = drawPos(play, p);
       const w = fieldToWorld(d.x, d.y - BODY_RADIUS - OV_LABEL_H / 2);
       m.position.set(w.x, 0.16, w.z);
       m.visible = true;
       usedLabels.add(l.id);
     }
+    // Marks sit just above (downfield of) their defender, away from the decision label below it.
+    for (const mk of shapes.marks) {
+      const p = play.player(mk.id);
+      if (!p) continue;
+      const key = `${mk.id}|${mk.text}`;
+      const m = spriteFor(markLabels, key);
+      paintLabel(m, mk.text);
+      const d = drawPos(play, p);
+      const w = fieldToWorld(d.x, d.y + BODY_RADIUS + OV_LABEL_H / 2);
+      m.position.set(w.x, 0.16, w.z);
+      m.visible = true;
+      usedMarks.add(key);
+    }
+    // Pair labels sit at the midpoint of the two linemen, slightly behind them (toward the backfield).
+    for (const pr of shapes.pairs) {
+      const a = play.player(pr.a), b = play.player(pr.b);
+      if (!a || !b) continue;
+      const key = `${pr.a}|${pr.b}|${pr.text}`;
+      const m = spriteFor(pairLabels, key);
+      paintLabel(m, pr.text);
+      const da = drawPos(play, a), db = drawPos(play, b);
+      const w = fieldToWorld((da.x + db.x) / 2, (da.y + db.y) / 2 - BODY_RADIUS - OV_LABEL_H / 2);
+      m.position.set(w.x, 0.16, w.z);
+      m.visible = true;
+      usedPairs.add(key);
+    }
     for (const [id, m] of trackStrips) if (!usedTracks.has(id)) m.visible = false;
     for (const [name, m] of keyLines) if (!usedKeys.has(name)) m.visible = false;
     for (const [id, m] of decLabels) if (!usedLabels.has(id)) m.visible = false;
+    for (const [key, m] of markLabels) if (!usedMarks.has(key)) m.visible = false;
+    for (const [key, m] of pairLabels) if (!usedPairs.has(key)) m.visible = false;
   }
 
   // ---- Ball marker ----
@@ -807,8 +857,10 @@ export function initDotsView(container) {
   const formationSelect = document.getElementById('formation-select');
   const defenseSelect = document.getElementById('defense-select');
   const scriptSelect = document.getElementById('script-select');
+  const playsideSelect = document.getElementById('playside-select');
   const syncPickers = () => {
     if (frontSelect) frontSelect.value = play.front;
+    if (playsideSelect) playsideSelect.value = play.playside ?? '';
     if (personnelSelect) personnelSelect.value = play.personnel;
     if (formationSelect) formationSelect.value = play.formation ?? '';
     if (defenseSelect) defenseSelect.value = play.defPersonnel ?? '';
@@ -833,6 +885,7 @@ export function initDotsView(container) {
       syncPickers();
     });
   };
+  wirePicker(playsideSelect, playsideOptions(), (k) => play.setPlayside(k));
   wirePicker(formationSelect, formationOptions(), (k) => play.setFormation(k));
   wirePicker(defenseSelect, defPersonnelOptions(), (k) => play.setDefPersonnel(k));
   wirePicker(scriptSelect, scriptOptions(), (k) => play.setScript(k));
