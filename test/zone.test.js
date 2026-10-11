@@ -2,11 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
-import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH, runScheme } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
-import { buildLineup, PLAYS, FRONTS } from '../src/dots/roster.js';
+import { buildLineup, PLAYS, FRONTS, LB_ROLES } from '../src/dots/roster.js';
 import { LB_SHIFT_STEP, DL_SHIFT_STEP } from '../src/dots/play.js';
 import { numberPlay, A_GAP_HALF } from '../src/dots/numbering.js';
 import { IZ_PLAN_PINS } from './fixtures/base-front.js';
@@ -400,4 +400,81 @@ test('F-50 #4: man-short zone, the TE climbs to the backside linebacker and he i
     }
     assert.notEqual(engagedAt, null, `${front} ${id} never blocked within 2.0 s`);
   }
+});
+
+// T-162: live second-level target (F-50 #5).
+const lbs = (s) => s.players.filter((p) => LB_ROLES.includes(p.role));
+const place = (s, spots) => { for (const [id, x, y] of spots) Object.assign(s.g(id), { x, y }); };
+test('T-162: dangerOf uses defGoals over position; no ball is 0', () => {
+  const s = sw();
+  place(s, [['MLB', 0, 30]]);
+  assert.equal(dangerOf(s.g('MLB'), { x: 0, y: 25 }, s.ctx), 5);
+  s.ctx.defGoals = { MLB: { x: 3, y: 29 } };
+  assert.equal(dangerOf(s.g('MLB'), { x: 0, y: 29 }, s.ctx), 3);
+  assert.equal(dangerOf(s.g('MLB'), null, s.ctx), 0);
+});
+test('T-162: the plan watch holds inside the margin, a clearly more dangerous LB takes over past it', () => {
+  const s = sw();
+  s.ctx.side = 1;
+  place(s, [['MLB', -1.3, 25.0], ['WLB', 2, 30]]);
+  const ball = { x: -1.3, y: 24 };
+  for (const l of lbs(s)) if (l.id !== 'MLB' && l.id !== 'WLB') place(s, [[l.id, 40, 40]]);
+  assert.ok(DANGER_MARGIN > 0.5 && DANGER_MARGIN < 1.5);
+  // inside the margin: the plan MLB (1.0 away) keeps the double against a WLB 0.5 away
+  place(s, [['MLB', -1.3, 25.0], ['WLB', -1.3, 24.5]]);
+  assert.deepEqual(zoneSwitch(s.players, ball, s.ctx).map((e) => e.target), ['MLB']);
+  // past it: MLB 2.0 away, WLB 0.5 away
+  place(s, [['MLB', -1.3, 26.0], ['WLB', -1.3, 24.5]]);
+  assert.deepEqual(zoneSwitch(s.players, ball, s.ctx).map((e) => e.target), ['WLB']);
+});
+test('T-162: a null plan watch takes the most dangerous LB in reach; none in reach = no switch', () => {
+  const s = sw();
+  s.ctx.side = 1;
+  s.ctx.combos[0].watch = null;
+  for (const l of lbs(s)) place(s, [[l.id, 40, 40]]);
+  assert.deepEqual(zoneSwitch(s.players, { x: 0, y: 25 }, s.ctx), []);
+  place(s, [['MLB', -1.3, 27], ['WLB', -1.3, 25.0]]);
+  assert.deepEqual(zoneSwitch(s.players, { x: 0, y: 25 }, s.ctx), [{ blocker: 'LG', target: 'WLB' }]);
+});
+test('T-162: cross-combo handoff, a claimed LB is never picked twice in one call', () => {
+  const s = sw();
+  s.ctx.side = 1;
+  // playside combo (RT/RG on LDT, plan MLB's neighbour) and backside combo C/LG (plan WLB-side)
+  const blk = (t) => ({ target: t, angle: 'straight', engaged: true, seq: 1, held: COMBO_HOLD });
+  for (const [id, x] of [['RG', 1.5], ['RT', 3.3]]) { s.g(id).block = blk('LDT'); place(s, [[id, x, 24.3]]); }
+  s.ctx.combos = [
+    { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' },
+    { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
+  ];
+  for (const l of lbs(s)) place(s, [[l.id, 40, 40]]);
+  // the backside combo's plan watch fits next to the playside combo and is the most dangerous
+  place(s, [['WLB', 2.0, 25.5], ['MLB', -1.5, 26.5]]);
+  const ball = { x: 2.0, y: 25 };
+  const out = zoneSwitch(s.players, ball, s.ctx);
+  const tgts = out.map((e) => e.target);
+  assert.equal(new Set(tgts).size, tgts.length, 'no LB twice');
+  assert.deepEqual(out.find((e) => ['RT', 'RG'].includes(e.blocker))?.target, 'WLB');
+  assert.ok(out.every((e) => e.target !== 'WLB' || ['RT', 'RG'].includes(e.blocker)));
+});
+test('T-162: claimedSet and unclaimedInReach', () => {
+  const s = sw();
+  place(s, [['MLB', -1.3, 26], ['WLB', 30, 26]]);
+  for (const l of lbs(s)) if (!['MLB', 'WLB'].includes(l.id)) place(s, [[l.id, 40, 40]]);
+  const claimed = claimedSet(s.players, ['X']);
+  assert.ok(claimed.has('RDT') && claimed.has('X'));
+  assert.deepEqual(unclaimedInReach(s.players, { x: 0, y: 25 }, s.ctx, claimed, -1).map((d) => d.id), ['MLB']);
+  assert.deepEqual(unclaimedInReach(s.players, null, s.ctx, new Set(['MLB']), -1), []);
+});
+test('T-162: a switched combo is never touched again; purity with a ball', () => {
+  const s = sw();
+  s.ctx.side = 1;
+  place(s, [['MLB', -1.3, 25.0]]);
+  s.g('C').block.target = 'MLB';
+  assert.deepEqual(zoneSwitch(s.players, { x: 0, y: 25 }, s.ctx), []);
+  s.g('C').block.target = 'RDT';
+  const p0 = structuredClone(s.players);
+  const c0 = structuredClone(s.ctx);
+  zoneSwitch(s.players, { x: 0, y: 25 }, s.ctx);
+  assert.deepEqual(s.players, p0);
+  assert.deepEqual(s.ctx, c0);
 });

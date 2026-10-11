@@ -6,7 +6,7 @@ import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
-import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
+import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_HOLD, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { readFront } from '../src/dots/front.js';
 import { FRONT_NAMES } from './fixtures/fronts.js';
@@ -15,6 +15,9 @@ import { LB_MINUS6_RG_WATCH } from './fixtures/base-front.js';
 
 const DT = 1 / 60;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
+// T-162: a combo's climber targets a live linebacker, not necessarily the plan watch: the combo has switched when a member targets anything but its DL.
+const climbTarget = (play, c) => [c.owner, c.partner].map((id) => play.player(id).block?.target).find((t) => t != null && t !== c.target) ?? null;
+const unswitched = (players, c) => [c.owner, c.partner].every((id) => players.find((q) => q.id === id)?.block?.target === c.target);
 const targets = (play) => Object.fromEntries(OL.map((id) => [id, play.player(id).block?.target]));
 
 test('F-12 #5: assignBlocks plan overrides one blocker, rest nearest; no plan unchanged', () => {
@@ -66,7 +69,7 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   assert.equal(lg.partner, 'LG');
   assert.equal(lg.target, 'RDT');
   assert.ok(lg.watch != null);
-  const switched = () => play.combos.every((c) => [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
+  const switched = () => play.combos.every((c) => climbTarget(play, c) != null);
   let t = 0;
   while (t < 4.0 && play.ball.phase !== 'dead' && !switched()) {
     play.step(DT);
@@ -76,9 +79,10 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   let climbed = 0;
   for (const c of play.combos) {
     const targets = new Set([c.owner, c.partner].map((id) => play.player(id).block.target));
-    if (targets.has(c.watch)) {
+    const live = climbTarget(play, c);
+    if (live) {
       climbed++;
-      assert.deepEqual(targets, new Set([c.watch, c.target]), `${c.owner}/${c.partner} targets`);
+      assert.deepEqual(targets, new Set([live, c.target]), `${c.owner}/${c.partner} targets`);
     } else {
       assert.deepEqual(targets, new Set([c.target]), `${c.owner}/${c.partner} still double`);
     }
@@ -133,7 +137,7 @@ test('F-12 #8 / F-39: base insideZone combos switch; the backside end man is blo
   const end = plan.front.line.at(-1).id;
   play.snap();
   const seen = new Set([...OL, 'TE'].map((id) => play.player(id).block.target));
-  const switched = () => play.combos.every((c) => [c.owner, c.partner].some((id) => play.player(id).block.target === c.watch));
+  const switched = () => play.combos.every((c) => climbTarget(play, c) != null);
   let t = 0;
   while (t < 4.0 && play.ball.phase !== 'dead' && !switched()) {
     play.step(DT);
@@ -477,8 +481,8 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
       const out = orig(players, ballPos, ctx);
       const byId = (id) => players.find((q) => q.id === id);
       seen = out.map((e) => {
-        const c = ctx.combos.find((m) => m.watch === e.target && (m.owner === e.blocker || m.partner === e.blocker));
-        const fit = ctx.defGoals?.[c.watch]?.x ?? byId(c.watch).x;
+        const c = ctx.combos.find((m) => (m.owner === e.blocker || m.partner === e.blocker) && unswitched(players, m));
+        const fit = ctx.defGoals?.[e.target]?.x ?? byId(e.target).x;
         const want = pickClimber(byId(c.owner), byId(c.partner), byId(c.target), fit, ctx.side);
         return { blocker: e.blocker, want: want.id };
       });
@@ -493,10 +497,10 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
         checked++;
       }
       for (const c of play.combos) {
-        const members = [c.owner, c.partner];
-        if (done.has(c.watch) || !members.some((id) => play.player(id).block.target === c.watch)) continue;
-        done.add(c.watch);
-        assert.ok(play.defense.committed[c.watch], `${k} ${c.watch} committed`);
+        const live = climbTarget(play, c);
+        if (!live || done.has(c.target)) continue;
+        done.add(c.target);
+        assert.ok(play.defense.committed[live], `${k} ${live} committed`);
       }
     }
   }
@@ -531,13 +535,14 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
         if (released) engagedOnce.delete(key);
         else if (engagedOnce.has(key)) assert.ok(play.blockersOf(c.target).length > 0, `${front} ${c.target} unblocked at ${i}`);
         if (!switched.has(key)) {
-          const climber = [c.owner, c.partner].find((id) => play.player(id).block?.target === c.watch);
+          const live = climbTarget(play, c);
+          const climber = live && [c.owner, c.partner].find((id) => play.player(id).block?.target === live);
           if (climber) {
             switched.add(key);
             switches++;
             const other = play.player(climber === c.owner ? c.partner : c.owner);
-            assert.ok(stayerEngaged(other, c.target), `${front} ${c.watch} stayer engaged`);
-            assert.ok((prevHeld[key] ?? 0) >= COMBO_HOLD - 1e-9, `${front} ${c.watch} held ${prevHeld[key]}`);
+            assert.ok(stayerEngaged(other, c.target), `${front} ${live} stayer engaged`);
+            assert.ok((prevHeld[key] ?? 0) >= COMBO_HOLD - 1e-9, `${front} ${live} held ${prevHeld[key]}`);
           } else prevHeld[key] = heldMax(play, c);
         }
       }
@@ -775,14 +780,16 @@ const climbProbe = (front, c) => {
   let found = null;
   for (let i = 1; i <= Math.round(2.0 / DT) && !found; i++) {
     probe.step(DT);
-    const hit = [c.owner, c.partner].some((id) => {
+    // judge the linebacker the climber actually switched to
+    const live = climbTarget(probe, c);
+    const hit = live && [c.owner, c.partner].some((id) => {
       const b = probe.player(id).block;
-      return b && b.target === c.watch && b.engaged;
+      return b && b.target === live && b.engaged;
     });
-    if (hit) found = { t: i * DT, y: probe.player(c.watch).y };
+    if (hit) found = { t: i * DT, y: probe.player(live).y, live };
   }
-  assert.ok(found, `${front} ${c.owner}/${c.partner} never engaged ${c.watch} within 2.0 s`);
-  assert.ok(found.y >= 25 + GAP_DEPTH, `${front} ${c.owner}/${c.partner} met ${c.watch} at ${found.t.toFixed(2)} s, y ${found.y}`);
+  assert.ok(found, `${front} ${c.owner}/${c.partner} never engaged a linebacker within 2.0 s`);
+  assert.ok(found.y >= 25 + GAP_DEPTH, `${front} ${c.owner}/${c.partner} met ${found.live} at ${found.t.toFixed(2)} s, y ${found.y}`);
 };
 
 const combosOf = (front) => {
@@ -819,9 +826,9 @@ test('R-64: every front, the climber on the switch tick is the blocker on the si
     play.retargetRule = (players, ballPos, ctx) => {
       const out = orig(players, ballPos, ctx);
       seen = out.map((e) => {
-        const c = ctx.combos.find((k) => k.watch === e.target && (k.owner === e.blocker || k.partner === e.blocker));
+        const c = ctx.combos.find((k) => (k.owner === e.blocker || k.partner === e.blocker) && unswitched(players, k));
         const byId = (id) => players.find((q) => q.id === id);
-        const fit = ctx.defGoals?.[c.watch]?.x ?? byId(c.watch).x;
+        const fit = ctx.defGoals?.[e.target]?.x ?? byId(e.target).x;
         const want = pickClimber(byId(c.owner), byId(c.partner), byId(c.target), fit, ctx.side);
         return { front, blocker: e.blocker, want: want.id };
       });
@@ -829,13 +836,11 @@ test('R-64: every front, the climber on the switch tick is the blocker on the si
     };
     for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
       seen = null;
-      const before = new Map(play.combos.map((c) => [c.watch, [c.owner, c.partner].some((id) => play.player(id).block?.target === c.watch)]));
       play.step(DT);
       for (const r of seen ?? []) {
         assert.equal(r.blocker, r.want, `${front} climber`);
         checked++;
       }
-      void before;
     }
   }
   assert.ok(checked > 0);
@@ -850,4 +855,50 @@ test('R-64: base, RG climbs to the MLB at or before 0.85 s', () => {
     if (play.player('RG').block?.target === 'MLB') t = i * DT;
   }
   assert.ok(t != null && t <= 0.85 + 1e-9, `RG switched at ${t}`);
+});
+
+test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch unless a clearly more dangerous unclaimed LB is in reach', () => {
+  let switches = 0;
+  const diffs = [];
+  for (const front of Object.keys(FRONTS)) {
+    const play = createPlay(25, 'insideZone', { front, personnel: 'te', tackles: false });
+    play.snap();
+    const orig = play.retargetRule;
+    let seen = null;
+    play.retargetRule = (players, ballPos, ctx) => {
+      const out = orig(players, ballPos, ctx);
+      const claimed = claimedSet(players);
+      seen = out.map((e) => {
+        const c = ctx.combos.find((m) => (m.owner === e.blocker || m.partner === e.blocker) && unswitched(players, m));
+        const o = players.find((q) => q.id === c.owner);
+        const pp = players.find((q) => q.id === c.partner);
+        const reach = unclaimedInReach(players, ballPos, ctx, claimed, (o.x + pp.x) / 2);
+        const plan = players.find((q) => q.id === c.watch);
+        return { c, e, plan, reach, ballPos, ctx };
+      });
+      return out;
+    };
+    const count = new Map();
+    for (let i = 0; i < 120 && play.ball.phase !== 'dead'; i++) {
+      seen = null;
+      play.step(DT);
+      for (const r of seen ?? []) {
+        const key = r.c.target + r.c.owner;
+        count.set(key, (count.get(key) ?? 0) + 1);
+        switches++;
+        if (r.e.target === r.c.watch) continue;
+        diffs.push(`${front} ${r.c.owner}/${r.c.partner}: ${r.c.watch} -> ${r.e.target}`);
+        // a different target needs a reason: plan watch claimed or absent, or beaten by more than the margin
+        const planFree = r.plan && r.reach.includes(r.plan);
+        const best = r.reach[0];
+        assert.equal(r.e.target, best.id, `${front} most dangerous in reach`);
+        if (planFree) assert.ok(dangerOf(r.plan, r.ballPos, r.ctx) - dangerOf(best, r.ballPos, r.ctx) > DANGER_MARGIN, `${front} margin`);
+      }
+    }
+    for (const [k, n] of count) assert.ok(n <= 1, `${front} ${k} switched ${n} times`);
+    // a combo that has switched is never retargeted again by the rule: each combo fired at most once while unswitched
+    for (const c of play.combos) assert.ok(climbTarget(play, c) == null || [c.owner, c.partner].filter((id) => play.player(id).block.target !== c.target).length === 1, `${front} ${c.owner} one climber`);
+  }
+  assert.ok(switches > 0);
+  void diffs;
 });

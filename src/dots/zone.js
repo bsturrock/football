@@ -1,6 +1,7 @@
 // Inside zone: a rule table run by the assignment engine, plus the runtime switch rule.
 import { readFront, HEAD_UP } from './front.js';
-import { runScheme } from './assign.js';
+import { runScheme, CLIMB_REACH } from './assign.js';
+import { LB_ROLES } from './roster.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
@@ -25,28 +26,70 @@ export function zonePlan(players, numbers, los) {
   return { side, blocks, techs, combos, free, front };
 }
 
+// Danger to the ball: how far the linebacker's fit point (his live goal, else where he stands) is from the ball. Smaller is more dangerous; no ball, no difference.
+export const DANGER_MARGIN = 1.0;
+const fitOf = (d, ctx) => ctx?.defGoals?.[d.id] ?? d;
+export function dangerOf(d, ballPos, ctx) {
+  if (!ballPos) return 0;
+  const f = fitOf(d, ctx);
+  return Math.hypot(f.x - ballPos.x, f.y - ballPos.y);
+}
+
+// Every id a blocker is currently blocking, plus any extra ids.
+export function claimedSet(players, extra = []) {
+  const s = new Set(extra);
+  for (const p of players) if (p.block?.target != null) s.add(p.block.target);
+  return s;
+}
+
+// Unclaimed linebackers whose fit is within CLIMB_REACH of x, most dangerous first (stable on ties).
+export function unclaimedInReach(players, ballPos, ctx, claimed, x) {
+  return players
+    .filter((d) => LB_ROLES.includes(d.role) && !claimed.has(d.id) && Math.abs(fitOf(d, ctx).x - x) <= CLIMB_REACH)
+    .map((d, i) => ({ d, i, k: dangerOf(d, ballPos, ctx) }))
+    .sort((a, b) => a.k - b.k || a.i - b.i)
+    .map((e) => e.d);
+}
+
 export function zoneSwitch(players, ballPos, ctx) {
   const byId = new Map(players.map((p) => [p.id, p]));
   const out = [];
-  for (const c of (ctx && ctx.combos) || []) {
+  const claimed = claimedSet(players);
+  const mid = (c) => {
+    const o = byId.get(c.owner), p = byId.get(c.partner);
+    return o && p ? (o.x + p.x) / 2 : 0;
+  };
+  const combos = [...((ctx && ctx.combos) || [])]
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => ctx.side * mid(b.c) - ctx.side * mid(a.c) || a.i - b.i)
+    .map((e) => e.c);
+  for (const c of combos) {
     const o = byId.get(c.owner);
     const p = byId.get(c.partner);
-    const w = byId.get(c.watch);
-    if (!o || !p || !w) continue;
-    if (o.block?.target === c.watch || p.block?.target === c.watch) continue;
+    if (!o || !p) continue;
+    if (o.block?.target !== c.target || p.block?.target !== c.target) continue; // already switched
+    const plan = byId.get(c.watch);
+    const free = unclaimedInReach(players, ballPos, ctx, claimed, mid(c));
+    let w = plan && !claimed.has(plan.id) ? plan : null;
+    if (w) {
+      const best = free.find((d) => d !== w);
+      if (best && dangerOf(w, ballPos, ctx) - dangerOf(best, ballPos, ctx) > DANGER_MARGIN) w = best;
+    } else w = free[0] ?? null;
+    if (!w) continue;
+    claimed.add(w.id);
     const dl = byId.get(c.target);
     const on = (x) => x.block?.target === c.target && x.block.engaged;
     // The climber is re-judged every tick from where the linebacker fits; nothing is locked.
     const go = () => {
       if (!dl || dl.react?.state === 'winning') return;
-      const fitX = ctx.defGoals?.[c.watch]?.x ?? w.x;
+      const fitX = ctx.defGoals?.[w.id]?.x ?? w.x;
       const taker = pickClimber(o, p, dl, fitX, ctx.side);
       const stayer = taker === o ? p : o;
       if (!on(stayer)) return;
       const held = Math.max(...[o, p].filter(on).map((x) => x.block.held ?? 0));
       if (held >= COMBO_HOLD - 1e-9) out.push({ blocker: taker.id, target: w.id });
     };
-    if (ctx.committed?.[c.watch]) go();
+    if (ctx.committed?.[w.id]) go();
     else {
       const dO = Math.hypot(w.x - o.x, w.y - o.y);
       const dP = Math.hypot(w.x - p.x, w.y - p.y);
