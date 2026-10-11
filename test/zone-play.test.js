@@ -342,7 +342,6 @@ test('F-19 #6: defense is null until an insideZone snap; LBs and linemen have ag
 
 test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off the QB', () => {
   let cases = 0;
-  let judged = 0;
   for (const k of Object.keys(FRONTS)) {
     for (const personnel of ['noTe', 'te']) {
       const play = createPlay(25, 'insideZone', { front: k, personnel });
@@ -353,6 +352,7 @@ test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off 
       cases++;
       const qb = play.player('QB');
       let handoff = false;
+      const judgedIds = new Set();
       for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
         play.step(DT);
         if (play.run.carried) handoff = true;
@@ -363,17 +363,21 @@ test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off 
           if (e.state !== 'pursue' && e.behavior !== 'contain') {
             const sp = gapSpan(play.players, play.defense, e.fit);
             if (sp) {
-              judged++;
+              judgedIds.add(id);
               assert.ok(dl.x >= sp.lo - BODY_RADIUS && dl.x <= sp.hi + BODY_RADIUS, `${k} ${personnel} ${id} x ${dl.x} in ${sp.lo}..${sp.hi} t=${i}`);
             }
           }
           if (!handoff) assert.ok(Math.hypot(dl.x - qb.x, dl.y - qb.y) > CONTACT_DIST + BODY_RADIUS, `${k} ${personnel} ${id} at QB t=${i}`);
         }
       }
+      // under the F-50 spare rule a free DL is normally the spared contain edge, judged in contain-play.test.js
+      for (const id of free) {
+        const contain = play.defense.agents[id].assign?.type === 'contain';
+        assert.ok(contain || judgedIds.has(id), `${k} ${personnel} ${id} is free but neither the contain edge nor judged against his gap`);
+      }
     }
   }
   assert.ok(cases > 0, 'no front/personnel leaves a DL unblocked');
-  assert.ok(judged > 0);
 });
 
 test('F-19 #4: a dropping LB never moves toward the LOS, and stays upfield of the snap line until pursue', () => {
