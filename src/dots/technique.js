@@ -212,7 +212,8 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
     ride = first ? target_ride : foot.ride + (target_ride - foot.ride) * (1 - Math.exp(-dt / RIDE_TAU));
   }
   const desired = rotate(base, ride);
-  const from = foot.push ?? c;
+  // A 'playside' push starts on the shared base (not the contact line), so partners agree from the first tick.
+  const from = foot.push ?? (TECHNIQUES[foot.tech]?.drive === 'playside' ? base : c);
   const fl = Math.hypot(from.x, from.y);
   const start = fl > 0 ? { x: from.x / fl, y: from.y / fl } : drive;
   const push = rotateToward(start, desired, dt > 0 ? PUSH_TURN * dt : 0);

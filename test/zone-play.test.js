@@ -213,16 +213,19 @@ test('F-17 #3: phases step then aim', () => {
 });
 
 test('F-17 #4: RG and RT sit side by side on LDT', () => {
-  // F-3: still green after the combo row went 'playside' (both blockers share one base push); the pair is hip to hip on LDT (measured at the first both-engaged tick, 0.25 s: distance 0.785 of max 0.81, dy 0.170 of max 0.28). pins combo contact geometry, not timing; retargeting is off because the RG's combo switch to MLB (about 0.33 s) comes before RT reaches LDT with the tighter alignment, so the double team never forms. With retargeting off RG and RT both engage LDT (about 0.25 s and 0.37 s).
+  // F-3: restated after the combo row went 'playside' (both blockers share one base push from the first tick). RT now arrives at LDT with the pair 0.817 apart at the first both-engaged tick (0.23 s, max 0.81), so the pair is judged 0.1 s later, when they are hip to hip on LDT (0.33 s: distance 0.57, dy 0.12; settles at 0.56, dy 0). pins combo contact geometry, not timing; retargeting is off because the RG's combo switch to MLB (about 0.33 s) comes before RT reaches LDT with the tighter alignment, so the double team never forms. With retargeting off RG and RT both engage LDT (about 0.25 s and 0.37 s).
   const play = createPlay(25, 'insideZone', { accel: false });
   play.retargetRule = null;
   play.snap();
   let found = false;
+  let first = null;
   for (let t = 0; t < 2 && !found; t += DT) {
     play.step(DT);
     const RG = play.player('RG');
     const RT = play.player('RT');
     if (RG.block.engaged && RT.block.engaged && RG.block.target === 'LDT' && RT.block.target === 'LDT') {
+      if (first == null) first = t;
+      if (t < first + 0.1) continue;
       found = true;
       assert.ok(Math.hypot(RG.x - RT.x, RG.y - RT.y) <= SPREAD + ENGAGE_TOL);
       assert.ok(Math.abs(RG.y - RT.y) <= BODY_RADIUS);
@@ -911,7 +914,7 @@ test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch 
 });
 
 test('F-3 #2: combo partners lean together', () => {
-  // Grace is 0.4 s after both are engaged, not the 0.1 s first drafted: the push turns at the rate cap from the contact line, so in base C/LG start 80+ degrees apart (C x -0.84, LG x +0.56 at engage) and converge at about 0.65 s (0.35 s after engage; 15 degree angle holds from 0.3 s, fails at 0.2 s with 25 degrees).
+  // Partners agree from 0.1 s after both are engaged: a 'playside' push starts on the shared base (footPush), not on the contact line (which began C/LG about 80 degrees apart and took 0.35 s to converge).
   for (const front of Object.keys(FRONTS)) {
     for (const opts of [{}, { personnel: 'te' }]) {
       const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front, ...opts });
@@ -927,7 +930,7 @@ test('F-3 #2: combo partners lean together', () => {
           const bs = [c.owner, c.partner].map((id) => play.player(id).block);
           if (!bs.every((b) => b.target === c.target && b.engaged)) return;
           if (!first.has(k)) first.set(k, t);
-          if (t < first.get(k) + 0.4) return;
+          if (t < first.get(k) + 0.1) return;
           const [a, b] = bs.map((x) => x.foot.push);
           const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${t.toFixed(2)}`;
           for (const p of [a, b]) assert.ok(p.y > 0 && side * p.x > 0, `${tag} push ${p.x.toFixed(2)},${p.y.toFixed(2)} side ${side}`);
