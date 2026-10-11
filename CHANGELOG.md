@@ -46,3 +46,4 @@
 - 2026-10-10 F-47 Inside zone combo climb: live gap-side climber, climb on hand-off (R-62) fe20a9e
 - 2026-10-10 F-48 RB vision: second-level hole read and open-field contact avoidance (R-61) 966225e
 - 2026-10-11 F-49 Any-angle blocking with momentum: ride the defender's travel, no snap (R-67) 6254d68
+- 2026-10-11 F-50 Zone second level: leave the least dangerous man, block the most dangerous now (R-66) 378119d
