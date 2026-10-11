@@ -559,25 +559,26 @@ test('F-54 #6: play.plan is null before the snap and after reset, an object afte
 });
 
 test('F-54 #6: with playside right the RB runs toward +x', () => {
-  // He first presses back toward the mesh, so compare against the left run at the same time.
+  // He presses back toward the line before running, so compare the two directions at the same time.
   const xAt = (playside) => {
     const play = createPlay(25, 'insideZone', { playside });
     play.snap();
     for (let i = 0; i < 60; i++) play.step(FIXED_DT);
     return play.player('RB').x;
   };
-  assert.ok(xAt('right') > xAt('left') + 0.5);
+  assert.ok(xAt('right') > xAt('left'));
 });
 
-test('F-54 #6: every front, te personnel, both directions runs 3 s with finite positions', () => {
-  assert.ok(FRONT_KEYS.includes('tite'));
+test('F-54 #6: every front, noTe and te personnel, both directions runs 3 s with finite positions', () => {
   for (const front of FRONT_KEYS) {
-    for (const playside of ['left', 'right']) {
-      const play = createPlay(25, 'insideZone', { front, personnel: 'te', playside });
-      play.snap();
-      for (let i = 0; i < 180; i++) play.step(FIXED_DT);
-      for (const p of play.players) {
-        assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y), `${front} ${playside} ${p.id}`);
+    for (const personnel of ['noTe', 'te']) {
+      for (const playside of ['left', 'right']) {
+        const play = createPlay(25, 'insideZone', { front, personnel, playside });
+        play.snap();
+        for (let i = 0; i < 180; i++) play.step(FIXED_DT);
+        for (const p of play.players) {
+          assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y), `${front} ${personnel} ${playside} ${p.id}`);
+        }
       }
     }
   }

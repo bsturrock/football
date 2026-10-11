@@ -64,7 +64,7 @@ export const PERSONNEL = Object.freeze({
 });
 
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
-// fronts are alignments: the play may run either way.
+// fronts are written for a playside-left play (the only play today).
 // Nearest base defense row of the same role to the alignment (dx, dy); ties go to the earlier row.
 const roleRating = (role, dx, dy) => {
   let row = null;
@@ -120,13 +120,6 @@ export const FRONTS = Object.freeze({
     defenders: defenders([
       ['PE', 'DE', -3.35, 0.6], ['P3', 'DT', -1.45, 0.6], ['N', 'DT', 0, 0.6], ['B3', 'DT', 1.45, 0.6],
       ['BE', 'DE', 3.35, 0.6], ['L1', 'LB', -1.12, 4.5], ['L2', 'LB', 1.6, 4.5],
-    ]),
-  }),
-  tite: Object.freeze({
-    name: 'Tite (4i-0-4i)',
-    defenders: defenders([
-      ['PE', 'DE', -2.15, 0.6], ['N', 'DT', 0, 0.6], ['BE', 'DE', 2.15, 0.6],
-      ['PI', 'LB', -1.2, 4.5], ['BI', 'LB', 1.2, 4.5],
     ]),
   }),
   walkedUp: Object.freeze({

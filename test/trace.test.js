@@ -124,6 +124,6 @@ test('untraced play records nothing', () => {
   const play = make();
   play.step(FIXED_DT);
   assert.equal(play.trace, null);
-  assert.equal(play.perception, null);
+  assert.notEqual(play.perception, null); // F-54 #6: perception runs on every play with a run, trace or not
   assert.deepEqual(play.traceOf('RB'), []);
 });

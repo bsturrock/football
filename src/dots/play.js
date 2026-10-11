@@ -356,7 +356,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
 
   play.cuesOf = (id) => (play.perception ? cuesFor(play.perception, id) : null);
 
-  play.traceOf =(id) => (play.trace ? entriesOf(play.trace, id) : []);
+  play.traceOf = (id) => (play.trace ? entriesOf(play.trace, id) : []);
 
   play.ballPosition = () => {
     const { holder, from, to, t } = play.ball;
