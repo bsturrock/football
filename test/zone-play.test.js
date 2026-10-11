@@ -154,6 +154,9 @@ const deg = (r) => (r * 180) / Math.PI;
 test('F-17 #2: first step angles', () => {
   const want = { LT: 45, LG: 60, C: 60, RG: 45, RT: 60, TE: 10 };
   const play = createPlay(25, 'insideZone');
+  const plan = zonePlan(play.players, play.numbers, 25);
+  // F-50 #2: the TE spares the end man and climbs when a backside LB would be free
+  want.TE = plan.techs.TE.tech === 'climb' ? 60 : 10;
   const pre = Object.fromEntries([...OL, 'TE'].map((id) => [id, { x: play.player(id).x, y: play.player(id).y }]));
   play.snap();
   play.step(DT);
@@ -356,7 +359,8 @@ test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off 
         for (const id of free) {
           const e = play.defense.agents[id];
           const dl = play.player(id);
-          if (e.state !== 'pursue') {
+          // the contain edge is judged in contain-play.test.js, not against his fit gap
+          if (e.state !== 'pursue' && e.behavior !== 'contain') {
             const sp = gapSpan(play.players, play.defense, e.fit);
             if (sp) {
               judged++;
