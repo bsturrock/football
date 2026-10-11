@@ -468,7 +468,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     // Behind the line, run to the hole in his lane; turn vertical once at the line.
     // The turn is latched (pastLos): contact pushing him back behind the line must not flip the aim back.
     run.aim = !run.pastLos ? { x: run.x + run.cut, y: los + GAP_DEPTH } : openFieldAim(players, run, rb, dt);
-    goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null };
+    goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null, forward: true };
   }
   steerStep(rb, goal, players, rb.speed * dt, dt, BODY_RADIUS);
   return handoff;
