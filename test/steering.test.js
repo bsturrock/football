@@ -408,17 +408,40 @@ for (const front of FRONT_NAMES) {
       }
     }
     const vel = (id, i) => ({ x: (pos[i][id].x - pos[i - 1][id].x) / FIXED_DT, y: (pos[i][id].y - pos[i - 1][id].y) / FIXED_DT });
-    let worst = 0, at = null;
+    // Hard contact: within one soft-relax step of the hard core. On such a tick the contact (steering
+    // slide plus separation push-out) decides the change, so the free cap does not apply; the contact
+    // rule does: inelastic, no rebound (he never leaves a body faster than that body moves along the
+    // normal, plus one soft relax).
+    const HE = S.hardCore(BODY_RADIUS) + (2 * BODY_RADIUS - S.hardCore(BODY_RADIUS)) * SOFT_RATE * FIXED_DT;
+    const others = (id) => play.players.map((p) => p.id).filter((o) => o !== id);
+    const distAt = (id, o, k) => Math.hypot(pos[k][id].x - pos[k][o].x, pos[k][id].y - pos[k][o].y);
+    let worst = 0, at = null, worstReb = -Infinity, atReb = null;
     for (let i = 3; i < pos.length; i++) {
       for (const id of defs) {
         if (!(free[i][id] && free[i - 1][id] && free[i - 2][id])) continue;
         const a = vel(id, i - 1), b = vel(id, i);
-        const dv = Math.hypot(b.x - a.x, b.y - a.y);
-        if (dv > worst) { worst = dv; at = { id, tick: i, a, b }; }
+        const os = others(id);
+        const hard = os.some((o) => [i - 2, i - 1, i].some((k) => distAt(id, o, k) < HE));
+        if (hard) {
+          for (const o of os) {
+            const d = distAt(id, o, i);
+            if (!(d < HE) || d === 0) continue;
+            const n = { x: (pos[i][id].x - pos[i][o].x) / d, y: (pos[i][id].y - pos[i][o].y) / d };
+            const vo = vel(o, i);
+            const reb = (b.x - vo.x) * n.x + (b.y - vo.y) * n.y;
+            if (reb > worstReb) { worstReb = reb; atReb = { id, o, tick: i, b, vo, d }; }
+          }
+          continue;
+        }
+        let nSoft = 1;
+        for (const k of [i - 2, i - 1, i]) nSoft = Math.max(nSoft, os.filter((o) => distAt(id, o, k) < 2 * BODY_RADIUS).length);
+        const dv = Math.hypot(b.x - a.x, b.y - a.y) - TOL * (nSoft - 1);
+        if (dv > worst) { worst = dv; at = { id, tick: i, a, b, nSoft }; }
       }
     }
-    t.diagnostic(`${front}: max free dv ${worst.toFixed(3)} yd/s per tick (limit ${(S.CUT_ACCEL * FIXED_DT).toFixed(3)} + TOL ${TOL.toFixed(3)}); closest free defender to ball ${worstGuard.toFixed(3)}`);
+    t.diagnostic(`${front}: max free dv - TOL*(nSoft-1) ${worst.toFixed(3)} yd/s per tick (limit ${(S.CUT_ACCEL * FIXED_DT).toFixed(3)} + TOL ${TOL.toFixed(3)}); worst collision rebound ${worstReb.toFixed(3)} (limit TOL); closest free defender to ball ${worstGuard.toFixed(3)}`);
     assert.ok(worst <= S.CUT_ACCEL * FIXED_DT + TOL, `${JSON.stringify(at)} dv ${worst}`);
+    assert.ok(worstReb <= TOL, `rebound ${JSON.stringify(atReb)}`);
     assert.ok(worstGuard >= CONTACT_DIST - 1e-6, `F-34 guard: ${worstGuard} < ${CONTACT_DIST}`);
   });
 }
