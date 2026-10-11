@@ -23,14 +23,16 @@ export const IZ_NUMBERS = {
   dlPlus4: { LT: 2, LG: 1, C: 0, RG: -1, RT: -2, QB: null, RB: null, TE: -3, WLB: 0, RDE: 1, RDT: -1, MLB: -2, LDT: -3, LDE: -5, SLB: -4 },
 };
 // readFront(...).covered for the listed linemen, base front, noTe, playside left
-export const BASE_COVERED = { LT: ['RDE'], LG: ['RDT'], C: [], RG: ['LDT'] };
+// F-54 #1: the RDT is a 2i on LG (inside shoulder), so he covers the C, not LG
+export const BASE_COVERED = { LT: ['RDE'], LG: [], C: ['RDT'], RG: ['LDT'] };
 
 const T = (tech, shade, watch = null) => ({ tech, shade, watch });
+// F-54 #1: the RDT covers C (2i on LG), so LG is the uncovered owner of the ace and C takes the playside shade
 const NO_TE_BASE = {
   blocks: { LT: 'RDE', LG: 'RDT', C: 'RDT', RG: 'LDT', RT: 'MLB' },
-  combos: [{ owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' }],
+  combos: [{ owner: 'LG', partner: 'C', target: 'RDT', watch: 'WLB' }],
   techs: {
-    LT: T('zone', 'playside'), LG: T('combo', 'backside', 'WLB'), C: T('combo', 'none', 'WLB'),
+    LT: T('zone', 'playside'), LG: T('combo', 'none', 'WLB'), C: T('combo', 'playside', 'WLB'),
     RG: T('zone', 'playside'), RT: T('climb', 'none'),
   },
   free: ['LDE', 'SLB'],
@@ -49,13 +51,14 @@ const NO_TE_DL_PLUS4 = {
   free: ['SLB', 'LDE'],
 };
 // F-54 #3: the LDT sits on RG's playside shoulder (toward the C), away from RT, so RG blocks him alone and RT climbs (was an RT/RG combo on the LDT)
+// F-54 #1: same LG/C ace as the noTe base, owned by LG
 const TE_BASE = {
   blocks: { LT: 'RDE', LG: 'RDT', C: 'RDT', RG: 'LDT', RT: 'MLB', TE: 'SLB' },
   combos: [
-    { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' },
+    { owner: 'LG', partner: 'C', target: 'RDT', watch: 'WLB' },
   ],
   techs: {
-    LT: T('zone', 'playside'), LG: T('combo', 'backside', 'WLB'), C: T('combo', 'none', 'WLB'),
+    LT: T('zone', 'playside'), LG: T('combo', 'none', 'WLB'), C: T('combo', 'playside', 'WLB'),
     RG: T('zone', 'playside'), RT: T('climb', 'none'), TE: T('climb', 'none'),
   },
   free: ['LDE'],
