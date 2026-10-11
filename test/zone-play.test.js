@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
-import { assignBlocks, doubleTeamPeel } from '../src/dots/blocking.js';
+import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES } from '../src/dots/technique.js';
+import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
@@ -221,34 +221,40 @@ test('F-17 #4: RG and RT sit side by side on LDT', () => {
 });
 
 test('F-17 #5: push directions', () => {
+  // A combo blocker's drive leans toward his watch, at most COMBO_MAX_LEAN off vertical. Counted only when the push is settled (turned less than the rate cap) and base is the drive, so push = rotate(drive, ride).
   const play = createPlay(25, 'insideZone');
   play.snap();
   let c = 0;
   let r = 0;
-  const WLB_DX = () => play.player('WLB').x - play.player('RDT').x;
+  const pt = (p) => ({ x: p.x, y: p.y });
+  const ang = (a, b) => deg(Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y));
+  const groups = [['RDT', ['C', 'LG']], ['LDT', ['RG', 'RT']]];
   for (let t = 0; t < 1.0; t += DT) {
-    // The push is computed before defenders move this step, so compare against the pre-step spread.
-    const dx = play.player('MLB').x - play.player('LDT').x;
-    const cdx = WLB_DX();
-    play.step(DT);
-    for (const id of ['C', 'LG']) {
-      const b = play.player(id).block;
-      if (b.engaged && b.target === 'RDT' && b.foot.ride === 0 && b.foot.push) {
-        c++;
-        assert.equal(Math.sign(b.foot.push.x), Math.sign(cdx), id);
-        assert.ok(deg(Math.acos(b.foot.push.y)) <= 30 + 1e-9, id);
+    const pre = [];
+    for (const [tid, ids] of groups) {
+      for (const id of ids) {
+        const b = play.player(id);
+        const f = b.block.foot;
+        pre.push({ id, tid, tgt: pt(play.player(tid)), watch: f?.watch ? pt(play.player(f.watch)) : null, me: pt(b), push: f?.push ? { ...f.push } : null });
       }
     }
-    for (const id of ['RG', 'RT']) {
-      const b = play.player(id).block;
-      if (b.engaged && b.target === 'LDT' && b.foot.ride === 0 && b.foot.push) {
-        r++;
-        assert.equal(Math.sign(b.foot.push.x), Math.sign(dx));
-        assert.ok(deg(Math.acos(b.foot.push.y)) <= 30 + 1e-9);
-      }
+    play.step(DT);
+    for (const s of pre) {
+      const b = play.player(s.id).block;
+      const f = b.foot;
+      if (!(b.engaged && b.target === s.tid && f && s.push && s.watch)) continue;
+      if (Math.abs(ang(s.push, f.push)) >= deg(PUSH_TURN * DT) - 1e-6) continue;
+      const drive = driveDir(f.tech, s.tgt, s.watch);
+      const contact = { x: s.tgt.x - s.me.x, y: s.tgt.y - s.me.y };
+      if (Math.abs(ang(drive, contact)) > BLIND_START) continue;
+      if (s.tid === 'RDT') c++; else r++;
+      const unrot = rotate(f.push, -f.ride);
+      assert.ok(Math.abs(ang(unrot, drive)) <= 1, `${s.id} unrot vs drive ${ang(unrot, drive)}`);
+      assert.equal(Math.sign(drive.x), Math.sign(s.watch.x - s.tgt.x), s.id);
+      assert.ok(deg(Math.acos(Math.min(1, drive.y))) <= 30 + 1e-9, s.id);
     }
   }
-  assert.ok(c > 0 && r > 0);
+  assert.ok(c > 0 && r > 0, `c ${c} r ${r}`);
 });
 
 test('F-17 #6: ride a sideways-moving defender', () => {
@@ -258,17 +264,17 @@ test('F-17 #6: ride a sideways-moving defender', () => {
   const C = play.player('C');
   const RDT = play.player('RDT');
   assert.ok(C.block.engaged && C.block.target === 'RDT');
-  for (let i = 0; i < 3; i++) {
-    RDT.x += 0.02;
+  // footPush reads the target's vel from the previous pass, so inject it right before each step.
+  let reached = false;
+  for (let i = 0; i < 40 && !reached; i++) {
+    RDT.vel = { x: 1.2, y: 0 };
     play.step(DT);
+    reached = C.block.foot.ride < 0 && C.block.foot.push.x > 0;
   }
-  assert.equal(C.block.foot.ride, 1);
-  assert.ok(C.block.foot.push.x > 0);
+  assert.ok(reached, `ride ${C.block.foot.ride}`);
   for (let i = 0; i < 3; i++) {
-    const x0 = RDT.x;
     play.step(DT);
-    const vx = (RDT.x - x0) / DT;
-    assert.ok(C.block.foot.ride === 1 || vx < -RIDE_MIN, `ride ${C.block.foot.ride} vx ${vx}`);
+    assert.ok(C.block.foot.ride < 0 || RDT.vel.x < -RIDE_MIN, `ride ${C.block.foot.ride} vx ${RDT.vel.x}`);
   }
 });
 
@@ -328,26 +334,38 @@ test('F-19 #6: defense is null until an insideZone snap; LBs and linemen have ag
 });
 
 test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off the QB', () => {
-  const play = createPlay(25, 'insideZone');
-  play.snap();
-  const free = Object.values(play.players).filter((p) => (p.role === 'DE' || p.role === 'DT')
-    && !play.players.some((o) => OL.includes(o.id) && o.block?.target === p.id)).map((p) => p.id);
-  assert.ok(free.length > 0);
-  const qb = play.player('QB');
-  let handoff = false;
-  for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
-    play.step(DT);
-    if (play.run.carried) handoff = true;
-    for (const id of free) {
-      const e = play.defense.agents[id];
-      const dl = play.player(id);
-      if (e.state !== 'pursue') {
-        const sp = gapSpan(play.players, play.defense, e.fit);
-        if (sp) assert.ok(dl.x >= sp.lo - BODY_RADIUS && dl.x <= sp.hi + BODY_RADIUS, `${id} x ${dl.x} in ${sp.lo}..${sp.hi} t=${i}`);
+  let cases = 0;
+  let judged = 0;
+  for (const k of Object.keys(FRONTS)) {
+    for (const personnel of ['noTe', 'te']) {
+      const play = createPlay(25, 'insideZone', { front: k, personnel });
+      play.snap();
+      const free = Object.values(play.players).filter((p) => (p.role === 'DE' || p.role === 'DT')
+        && !play.players.some((o) => isBlocker(o) && o.block?.target === p.id)).map((p) => p.id);
+      if (free.length === 0) continue;
+      cases++;
+      const qb = play.player('QB');
+      let handoff = false;
+      for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
+        play.step(DT);
+        if (play.run.carried) handoff = true;
+        for (const id of free) {
+          const e = play.defense.agents[id];
+          const dl = play.player(id);
+          if (e.state !== 'pursue') {
+            const sp = gapSpan(play.players, play.defense, e.fit);
+            if (sp) {
+              judged++;
+              assert.ok(dl.x >= sp.lo - BODY_RADIUS && dl.x <= sp.hi + BODY_RADIUS, `${k} ${personnel} ${id} x ${dl.x} in ${sp.lo}..${sp.hi} t=${i}`);
+            }
+          }
+          if (!handoff) assert.ok(Math.hypot(dl.x - qb.x, dl.y - qb.y) > CONTACT_DIST + BODY_RADIUS, `${k} ${personnel} ${id} at QB t=${i}`);
+        }
       }
-      if (!handoff) assert.ok(Math.hypot(dl.x - qb.x, dl.y - qb.y) > CONTACT_DIST + BODY_RADIUS, `${id} at QB t=${i}`);
     }
   }
+  assert.ok(cases > 0, 'no front/personnel leaves a DL unblocked');
+  assert.ok(judged > 0);
 });
 
 test('F-19 #4: a dropping LB never moves toward the LOS, and stays upfield of the snap line until pursue', () => {
@@ -436,21 +454,41 @@ test('F-34 #5: every front, an unengaged LB in drop, flow or fill stays out of t
 });
 
 test('F-19 #8: the climber comes off when the watched LB has committed', () => {
+  // F-47: the climber is picked by pickClimber (the blocker on the side of the LB's fit), judged on the switch tick.
+  let checked = 0;
   for (const k of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front: k });
     play.snap();
+    const orig = play.retargetRule;
+    let seen = null;
+    play.retargetRule = (players, ballPos, ctx) => {
+      const out = orig(players, ballPos, ctx);
+      const byId = (id) => players.find((q) => q.id === id);
+      seen = out.map((e) => {
+        const c = ctx.combos.find((m) => m.watch === e.target && (m.owner === e.blocker || m.partner === e.blocker));
+        const fit = ctx.defGoals?.[c.watch]?.x ?? byId(c.watch).x;
+        const want = pickClimber(byId(c.owner), byId(c.partner), byId(c.target), fit, ctx.side);
+        return { blocker: e.blocker, want: want.id };
+      });
+      return out;
+    };
     const done = new Set();
     for (let i = 0; i < 120; i++) {
+      seen = null;
       play.step(DT);
+      for (const r of seen ?? []) {
+        assert.equal(r.blocker, r.want, `${k} taker`);
+        checked++;
+      }
       for (const c of play.combos) {
         const members = [c.owner, c.partner];
         if (done.has(c.watch) || !members.some((id) => play.player(id).block.target === c.watch)) continue;
         done.add(c.watch);
         assert.ok(play.defense.committed[c.watch], `${k} ${c.watch} committed`);
-        if (c.owner === 'RT') assert.equal(play.player('RG').block.target, c.watch, `${k} taker`);
       }
     }
   }
+  assert.ok(checked > 0);
 });
 
 const HOLD_OK = (x, target) => x.block?.target === target && x.block.engaged && (x.block.held ?? 0) >= COMBO_HOLD - 1e-9;

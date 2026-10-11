@@ -4,9 +4,11 @@ import { HW } from '../src/util.js';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
   doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
-  SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce,
+  SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce, CONTACT_TURN,
+  contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
+import { startFoot } from '../src/dots/technique.js';
 import { startReact, WIN_SPEED } from '../src/dots/react.js';
 
 const DT = 1 / 60;
@@ -169,17 +171,155 @@ test('stepBlocking closing, engaging, seq', () => {
 test('stepBlocking engaged defender, clamp, blocker follows', () => {
   const ps = [O('a', 0, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, 10)];
   const goal = { x: 0, y: 0 };
-  const v = resolveBlock(ps[1], engagedOnList(ps), goal);
+  const g = resolveBlock(ps[1], engagedOnList(ps), goal);
+  const kd = 1 - Math.exp(-DT / ENGAGE_TAU);
   stepBlocking(ps, goal, DT, { rule: null, seq: 1 });
-  near(ps[1].y, 10 + v.vy * DT, 1e-12);
-  near(ps[1].x, 0 + v.vx * DT, 1e-12);
-  const spot = contactSpot(ps, ps[0]);
-  assert.ok(Math.hypot(ps[0].x - spot.x, ps[0].y - spot.y) < 6 * DT + 1e-9);
+  near(ps[1].y, 10 + kd * g.vy * DT, 1e-12);
+  near(ps[1].x, 0 + kd * g.vx * DT, 1e-12);
+  // the blocker rides the defender's displacement plus the damped correction toward his spot
+  const b0 = { x: 0.05, y: 10 - CONTACT_DIST };
+  const q = [O('a', b0.x, b0.y, { vel: { x: 1, y: 0 }, block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, 10)];
+  stepBlocking(q, goal, DT, { rule: null, seq: 1 });
+  const T = q[1];
+  const dT = { x: T.x - 0, y: T.y - 10 };
+  const fa0 = Math.atan2(T.x - b0.x, T.y - b0.y); // contact line blocker -> (moved) target
+  const fa = fa0 - Math.sign(fa0) * Math.min(Math.abs(fa0), CONTACT_TURN * DT); // turns toward straight
+  near(q[0].block.fa, fa, 1e-12);
+  const spot = { x: T.x - Math.sin(fa) * CONTACT_DIST, y: T.y - Math.cos(fa) * CONTACT_DIST };
+  const sx = dampedFollow(b0.x + dT.x - spot.x, 1 - 0, DT, FOLLOW_TAU);
+  const sy = dampedFollow(b0.y + dT.y - spot.y, 0 - 0, DT, FOLLOW_TAU);
+  assert.ok(Math.hypot(spot.x + sx.e - b0.x, spot.y + sy.e - b0.y) < 6 * DT, 'speed cap not binding');
+  near(q[0].x, spot.x + sx.e, 1e-12);
+  near(q[0].y, spot.y + sy.e, 1e-12);
+  near(q[0].block.fu.x, sx.u, 1e-12); near(q[0].block.fu.y, sy.u, 1e-12);
   const ps2 = [O('a', 0, Y_MAX - 0.3 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, Y_MAX - 0.3)];
   for (let i = 0; i < 20000; i++) stepBlocking(ps2, goal, DT, { rule: null, seq: 1 });
   assert.equal(ps2[1].y, Y_MAX);
   const s = contactSpot(ps2, ps2[0]);
   near(ps2[0].x, s.x, 1e-9); near(ps2[0].y, s.y, 1e-9);
+});
+
+test('contactImpulse head-on closing: equal masses meet at the mean normal speed, momentum conserved', () => {
+  const d = { x: 0, y: 1, strength: 1, vel: { x: 0, y: 1 } };
+  const b = { x: 0, y: 0, strength: 1, vel: { x: 0, y: 5 } };
+  const i = contactImpulse(d, b);
+  near(d.vel.y + i.d.y, 3); near(b.vel.y + i.b.y, 3);
+  near(massOf(d) * i.d.y + massOf(b) * i.b.y, 0);
+  near(i.d.x, 0); near(i.b.x, 0);
+});
+
+test('contactImpulse separating has no normal part, zero when coincident', () => {
+  const d = { x: 0, y: 1, strength: 1, vel: { x: 0, y: 5 } };
+  const b = { x: 0, y: 0, strength: 1, vel: { x: 0, y: 1 } };
+  const i = contactImpulse(d, b);
+  near(i.d.y, 0); near(i.b.y, 0);
+  const z = contactImpulse({ x: 1, y: 1, strength: 1 }, { x: 1, y: 1, strength: 1, vel: { x: 3, y: 3 } });
+  assert.deepEqual(z, { d: { x: 0, y: 0 }, b: { x: 0, y: 0 } });
+});
+
+test('contactImpulse grips the defender sliding only', () => {
+  const d = { x: 0, y: 1, strength: 1, vel: { x: 4, y: 0 } };
+  const b = { x: 0, y: 0, strength: 1, vel: { x: -2, y: 0 } };
+  const i = contactImpulse(d, b);
+  near(i.d.x, -CONTACT_GRIP * 4); near(i.d.y, 0);
+  near(i.b.x, 0); near(i.b.y, 0);
+});
+
+test('contactImpulse weights by mass: the heavier body changes less', () => {
+  const d = { x: 0, y: 1, strength: 3, vel: { x: 0, y: 0 } };
+  const b = { x: 0, y: 0, strength: 1, vel: { x: 0, y: 4 } };
+  const i = contactImpulse(d, b);
+  near(i.d.y, 1); near(i.b.y, -3);
+  near(massOf(d) * i.d.y + massOf(b) * i.b.y, 0);
+});
+
+test('carryVelocity relaxes toward the goal; the impact applies only while t > 0 and counts down', () => {
+  const k = 1 - Math.exp(-DT / 0.2);
+  const v = carryVelocity({ x: 1, y: 0 }, { x: 0, y: 2 }, null, DT, 0.2);
+  near(v.vx, 1 - k, 1e-12); near(v.vy, 2 * k, 1e-12);
+  const imp = { ax: 10, ay: -20, t: DT * 1.5 };
+  const w = carryVelocity({ x: 0, y: 0 }, { x: 0, y: 0 }, imp, DT, 0.2);
+  near(w.vx, 10 * DT, 1e-12); near(w.vy, -20 * DT, 1e-12);
+  near(imp.t, DT * 0.5, 1e-12);
+  carryVelocity({ x: 0, y: 0 }, { x: 0, y: 0 }, imp, DT, 0.2);
+  assert.ok(imp.t <= 0);
+  const z = carryVelocity({ x: 0, y: 0 }, { x: 0, y: 0 }, imp, DT, 0.2);
+  near(z.vx, 0, 1e-12); near(z.vy, 0, 1e-12);
+  assert.ok(IMPACT_TIME > 0);
+});
+
+test('dampedFollow: an error decays monotonically to 0 with no sign change', () => {
+  let s = { e: 1, u: 0 };
+  let prev = 1;
+  for (let i = 0; i < 600; i++) {
+    s = dampedFollow(s.e, s.u, DT, FOLLOW_TAU);
+    assert.ok(s.e >= 0, `tick ${i}: sign change ${s.e}`);
+    assert.ok(s.e <= prev + 1e-15, `tick ${i}: grew ${prev} -> ${s.e}`);
+    prev = s.e;
+  }
+  assert.ok(Math.abs(s.e) < 1e-6 && Math.abs(s.u) < 1e-6, `not settled: ${s.e}, ${s.u}`);
+});
+
+test('dampedFollow: a ramp-then-hold spot is followed with no overshoot', () => {
+  // follower position p tracks spot q; e = p - q. The spot ramps at 1.5 yd/s for 0.4 s, then holds.
+  let p = 0;
+  let q = 0;
+  let u = 0; // follower velocity; the spot's own rate is not fed in
+  for (let i = 0; i < 240; i++) {
+    const rate = i < 24 ? 1.5 : 0;
+    q += rate * DT;
+    const s = dampedFollow(p - q, u, DT, FOLLOW_TAU);
+    p = q + s.e;
+    u = s.u;
+    assert.ok(p <= q + 1e-12, `tick ${i}: overshot the spot by ${p - q}`);
+  }
+  near(p, q, 1e-6);
+});
+
+test('dampedFollow is exact: many small steps equal one large step', () => {
+  const big = dampedFollow(0.7, -2, 0.3, FOLLOW_TAU);
+  let s = { e: 0.7, u: -2 };
+  for (let i = 0; i < 300; i++) s = dampedFollow(s.e, s.u, 0.001, FOLLOW_TAU);
+  near(s.e, big.e, 1e-9);
+  near(s.u, big.u, 1e-9);
+});
+
+test('a hit gives the defender his whole impulse over IMPACT_TIME (the blocker pass keeps his impact)', () => {
+  const d = D('d', 0, 10, { speed: 0, strength: 0.6, vel: { x: 0, y: 0 } });
+  const a = O('a', -CONTACT_DIST - 0.02, 10, { facing: Math.PI / 2, vel: { x: 4, y: 0 }, block: blk('d') });
+  const ps = [a, d];
+  const ctx = { rule: null, seq: 0 };
+  const ball = { x: 0, y: -50 };
+  const imp = contactImpulse(d, a);
+  assert.ok(imp.d.x > 1, `impulse ${imp.d.x}`);
+  stepBlocking(ps, ball, DT, ctx);
+  assert.ok(a.block.engaged, 'engages on the first pass');
+  stepBlocking(ps, ball, DT, ctx);
+  assert.ok(d.impact, 'impact survives the pass after the engage');
+  let best = d.vel.x;
+  for (let i = 0; i < Math.ceil(IMPACT_TIME / DT); i++) {
+    stepBlocking(ps, ball, DT, ctx);
+    best = Math.max(best, d.vel.x);
+  }
+  assert.ok(best >= 0.8 * imp.d.x, `defender x velocity ${best} of impulse ${imp.d.x}`);
+  assert.equal(d.impact, null);
+});
+
+test('blindside (F-49 #8): a hit from the side carries the defender along and pushes the blocker with it', () => {
+  const d = D('d', 0, 10, { speed: 1, vel: { x: 0, y: 0.5 } });
+  const a = O('a', -CONTACT_DIST - 0.05, 10, { facing: Math.PI / 2, vel: { x: 5, y: 0 } });
+  a.block = blk('d', { foot: startFoot('zone', 'head', null, a, d) });
+  const ps = [a, d];
+  const ctx = { rule: null, seq: 0, side: 1 };
+  let ticks = 0;
+  while (!a.block.engaged && ticks < 5) { stepBlocking(ps, { x: 0, y: 0 }, DT, ctx); ticks++; }
+  assert.ok(a.block.engaged, 'engages within 5 ticks');
+  for (let i = 0; i < 12; i++) {
+    const x0 = d.x;
+    stepBlocking(ps, { x: 0, y: 0 }, DT, ctx);
+    assert.ok((d.x - x0) / DT > 0, `tick ${i}: defender x velocity ${(d.x - x0) / DT}`);
+    assert.ok(a.block.foot.push.x > 0, `tick ${i}: push.x ${a.block.foot.push.x}`);
+  }
 });
 
 test('stepBlocking engaged defender leans to his goal, else the ball', () => {
@@ -435,4 +575,81 @@ test('F-41 #2: an engaged blocker follows his spot before the lost check', () =>
   stepBlocking(ps, { x: 0, y: 0 }, DT, { rule: null, seq: 1 });
   assert.equal(ps[0].block.engaged, true);
   assert.notEqual(ps[0].block.released, 'lost');
+});
+
+test('F-49 #1: p.vel is the displacement over the stepBlocking pass divided by dt', () => {
+  const free = D('f', 0, 10, { speed: 6 });
+  const still = D('s', 5, 10, { speed: 0 });
+  const ps = [free, still];
+  stepBlocking(ps, { x: 0, y: -50 }, DT, { rule: null, seq: 0, defGoals: { f: { x: 3, y: 10, rate: 3, key: 'g' } } });
+  near(free.vel.x, free.x / DT, 1e-6);
+  near(free.vel.y, (free.y - 10) / DT, 1e-6);
+  assert.ok(free.vel.x > 0);
+  assert.deepEqual(still.vel, { x: 0, y: 0 });
+});
+
+test('F-49 #4: canEngage contact uses the blocker facing', () => {
+  const T = D('d', 0.5, 10, { speed: 0 });
+  const mkB = (o) => O('b', 0.5 - CONTACT_DIST, 10, { block: blk('d'), ...o });
+  const far = { x: 20, y: 10 };
+  const spot = { x: 5, y: 5 }; // away from the blocker, so only 'contact' can match
+  assert.equal(canEngage(mkB({ facing: Math.PI / 2 }), T, spot, far), 'contact');
+  assert.equal(canEngage(mkB({ facing: -Math.PI / 2 }), T, spot, far), null);
+  // missing facing reads as upfield: a target level with the blocker (dot 0) counts
+  assert.equal(canEngage(mkB({}), T, spot, far), 'contact');
+  const behind = O('b', 0.5, 10 + CONTACT_DIST, { block: blk('d') });
+  assert.equal(canEngage(behind, T, spot, far), null);
+});
+
+test('F-49 #5: a lone engaged blocker keeps his side and turns gradually', () => {
+  const a36 = (36 * Math.PI) / 180;
+  const T = D('d', 0, 10, { speed: 0, strength: 2 });
+  const b = O('b', -CONTACT_DIST * Math.cos(a36), 10 - CONTACT_DIST * Math.sin(a36), {
+    block: blk('d', { engaged: true, seq: 1, held: 0, winT: 0 }),
+  });
+  const ps = [b, T];
+  const bearing = () => Math.atan2(b.x - T.x, b.y - T.y);
+  let prev = bearing();
+  for (let i = 0; i < 10; i++) {
+    stepBlocking(ps, { x: 0, y: 0 }, DT, { rule: null, seq: 1 });
+    const now = bearing();
+    assert.ok(Math.abs(now - prev) <= CONTACT_TURN * DT + 0.02, `tick ${i} turned ${Math.abs(now - prev)}`);
+    prev = now;
+    if (i === 8) assert.ok(b.x < T.x, `snapped under the defender: dx ${b.x - T.x}`);
+  }
+});
+
+test('F-49 #5: two engaged on one target still take the contactSpot group placement', () => {
+  const T = D('d', 0, 10, { speed: 0 });
+  const mkE = (id, x) => O(id, x, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1, held: 0, winT: 0 }) });
+  const ps = [mkE('a', -0.1), mkE('b', 0.1), T];
+  const spots = ps.slice(0, 2).map((p) => contactSpot(ps, p));
+  assert.ok(Math.hypot(spots[0].x - spots[1].x, spots[0].y - spots[1].y) >= 2 * BODY_RADIUS - 1e-9);
+  for (let i = 0; i < 120; i++) stepBlocking(ps, { x: 0, y: 0 }, DT, { rule: null, seq: 1 });
+  const fin = ps.slice(0, 2).map((p) => contactSpot(ps, p));
+  assert.ok(Math.hypot(fin[0].x - fin[1].x, fin[0].y - fin[1].y) >= 2 * BODY_RADIUS - 1e-9);
+  assert.ok(Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) >= hardCore(BODY_RADIUS) - 1e-6);
+});
+
+test('F-49 #10: a lone footless blocker settles straight below a still target without wobble', () => {
+  const T = D('d', 0, 10, { speed: 0 });
+  const a60 = (60 * Math.PI) / 180;
+  const b = O('b', -CONTACT_DIST * Math.sin(a60), 10 - CONTACT_DIST * Math.cos(a60), {
+    block: blk('d', { engaged: true, seq: 1, held: 0, winT: 0 }),
+  });
+  const ps = [b, T];
+  const bearing = () => Math.atan2(b.x - T.x, T.y - b.y); // 0 = straight below the target
+  let prev = bearing();
+  assert.ok(prev < 0);
+  let settled = false;
+  for (let i = 0; i < 90; i++) {
+    stepBlocking(ps, { x: 0, y: 10 }, DT, { rule: null, seq: 1, defGoals: { d: { x: 0, y: 10, rate: 0 } } });
+    const now = bearing();
+    assert.ok(now >= prev - 1e-6, `tick ${i} bearing went back ${prev} -> ${now}`);
+    assert.ok(now <= 1e-6 + (0.5 * Math.PI) / 180, `tick ${i} overshot straight below: ${now}`);
+    if (settled) assert.ok(Math.abs(now) <= (0.5 * Math.PI) / 180, `tick ${i} left the settle band: ${now}`);
+    if (Math.abs(now) <= (0.5 * Math.PI) / 180) settled = true;
+    prev = now;
+  }
+  assert.ok(settled, `never settled, bearing ${prev}`);
 });

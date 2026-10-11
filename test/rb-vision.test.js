@@ -74,8 +74,12 @@ test('F-48 #2: an LB in the second level over P sends a full-vision back to Q', 
   assert.equal(q.level2, 0, 'nobody near Q');
   assert.ok(p.level2 > 0, 'P is penalised');
   assert.ok(q.score - p.score > SWITCH_MARGIN, `Q ${q.score} beats P ${p.score} by more than the margin`);
-  assert.equal(chooseLane(lanes, { side: 'play', name: 'B' }).name, 'B');
-  assert.equal(chooseLane(lanes, { side: 'play', name: 'B' }).side, 'back', 'the pick moves to Q');
+  // The pick leaves P for the back side, to a clearly better lane with less second-level cover (which back-side window is open is not pinned).
+  const moved = chooseLane(lanes, { side: 'play', name: 'B' });
+  assert.ok(!(moved.side === 'play' && moved.name === 'B'), 'the pick leaves P');
+  assert.equal(moved.side, 'back', 'the pick moves to the back side');
+  assert.ok(moved.score > p.score + SWITCH_MARGIN, `pick ${moved.score} vs P ${p.score}`);
+  assert.ok(moved.level2 < p.level2, 'less second-level cover than P');
   // Without the LB the two are within the margin, so the pick is not that LB's doing elsewhere.
   assert.ok(Math.abs(pick(none, 'B', 'play').level2) === 0);
 });

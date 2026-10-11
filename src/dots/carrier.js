@@ -36,7 +36,9 @@ export const ROOM_CAP = 4 * BODY_RADIUS; // room beyond this scores no more
 export const TRACK_COST = 0.5; // score per yard from the track point
 export const CUT_COST = 0.25; // score per yard from the RB's own x
 export const CLOSING_FRACTION = 1 / 8; // a free defender moving downhill faster than this fraction of his top speed is closing at full speed
-export const SWITCH_MARGIN = BODY_RADIUS / 2; // score a rival lane must beat the current one by
+// The RB's reaction time (s): his lane must read closed this long before he gives it up.
+export const CLOSE_HOLD = 0.1;
+export const SWITCH_MARGIN =BODY_RADIUS / 2; // score a rival lane must beat the current one by
 
 // Vision (F-48): the RB looks past the line band to the second level when scoring a hole.
 export const DEFAULT_VISION = 0.5; // a back with no vision rating
@@ -186,6 +188,7 @@ export function scoreLanes(players, run, rb, los, proj, flow) {
 }
 
 // R-45: seeded randomness chooses among open lanes within SWITCH_MARGIN of the best here; nothing else picks a lane.
+// chooseLane is pure; stepCarrier adds the hold: a lane that read open keeps the RB (and his aim) through a closure shorter than CLOSE_HOLD.
 export function chooseLane(lanes, current) {
   const cur = current ? lanes.find((l) => l.side === current.side && l.name === current.name) : undefined;
   let best = null;
@@ -220,6 +223,7 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     lane: { side: 'play', name: 'A' },
     lanes: [],
     gap: 'A',
+    closedFor: null, // seconds the current lane has read closed in a row; null: not open since picked
     locked: false,
     patience: patienceWindow(runDef, rb),
     pressTime: 0,
@@ -362,10 +366,19 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     run.lanes = scoreLanes(players, run, rb, los, undefined, proj.flow);
     let pick = null;
     if (run.lanes.length) {
-      pick = chooseLane(run.lanes, run.lane);
-      run.lane = { side: pick.side, name: pick.name };
-      run.gap = pick.name;
-      run.aim = { x: pick.x, y: los };
+      const cur = run.lanes.find((l) => l.side === run.lane.side && l.name === run.lane.name);
+      if (cur && cur.open) run.closedFor = 0;
+      else if (cur && run.closedFor !== null) run.closedFor += dt;
+      if (cur && !cur.open && run.closedFor !== null && run.closedFor < CLOSE_HOLD - 1e-9) {
+        pick = cur; // a brief closure: keep the lane and the last aim
+      } else {
+        pick = chooseLane(run.lanes, run.lane);
+        const changed = !cur || pick.side !== cur.side || pick.name !== cur.name;
+        run.lane = { side: pick.side, name: pick.name };
+        run.gap = pick.name;
+        run.aim = { x: pick.x, y: los };
+        if (changed) run.closedFor = pick.open ? 0 : null;
+      }
     } else {
       run.aim = { x: rb.x, y: los };
     }

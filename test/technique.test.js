@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  TECHNIQUES, PHASES, stepDir, aimPoint, driveDir, rideSign, rideDir, nextTech,
+  TECHNIQUES, PHASES, stepDir, aimPoint, driveDir, rotate, signedAngle, rotateToward, nextTech,
+  RIDE_MAX, RIDE_FULL, RIDE_MIN, PUSH_TURN,
   startFoot, retargetFoot, footGoal, footPush,
 } from '../src/dots/technique.js';
 
@@ -36,17 +37,12 @@ test('driveDir', () => {
   nearPt(driveDir('combo', { x: 0, y: 0 }, { x: 0, y: -1 }), 0, 1);
 });
 
-test('rideSign', () => {
-  assert.equal(rideSign(0, 0.29), 0);
-  assert.equal(rideSign(0, 0.3), 1);
-  assert.equal(rideSign(1, -0.1), 1);
-  assert.equal(rideSign(1, -0.5), -1);
-});
-
-test('rideDir', () => {
-  nearPt(rideDir({ x: 0, y: 1 }, 1), 0.7071067811865476, 0.7071067811865476);
-  const d = { x: 0, y: 1 };
-  assert.equal(rideDir(d, 0), d);
+test('rotate / signedAngle / rotateToward', () => {
+  nearPt(rotate({ x: 1, y: 0 }, Math.PI / 2), 0, 1);
+  near(signedAngle({ x: 0, y: 1 }, { x: -1, y: 0 }), Math.PI / 2);
+  const t = { x: 0, y: 1 };
+  nearPt(rotateToward({ x: 1, y: 0 }, t, 0.1), Math.cos(0.1), Math.sin(0.1));
+  nearPt(rotateToward({ x: 1, y: 0 }, t, 3), 0, 1);
 });
 
 test('nextTech', () => {
@@ -57,14 +53,14 @@ test('nextTech', () => {
 
 test('startFoot / retargetFoot', () => {
   const f = startFoot('combo', 'playside', 'MLB', { x: 1, y: 2 }, { x: 0, y: 3 });
-  assert.deepEqual(f, { tech: 'combo', shade: 'playside', watch: 'MLB', phase: 'step', ox: 1, oy: 2, ride: 0, tx: 0, push: null });
+  assert.deepEqual(f, { tech: 'combo', shade: 'playside', watch: 'MLB', phase: 'step', ox: 1, oy: 2, ride: 0, push: null });
   assert.equal(startFoot('nope', 'head', null, { x: 0, y: 0 }, { x: 0, y: 0 }), null);
   const g = startFoot('combo', undefined, undefined, { x: 0, y: 0 }, { x: 0, y: 0 });
   assert.equal(g.shade, 'none');
   assert.equal(g.watch, null);
   const clone = structuredClone(f);
   const r = retargetFoot(f, { x: 1.5, y: 2.5 }, { x: 2, y: 6 });
-  assert.deepEqual(r, { tech: 'climb', shade: 'none', watch: null, phase: 'aim', ox: 1.5, oy: 2.5, ride: 0, tx: 2, push: null });
+  assert.deepEqual(r, { tech: 'climb', shade: 'none', watch: null, phase: 'aim', ox: 1.5, oy: 2.5, ride: 0, push: null });
   assert.deepEqual(f, clone);
   assert.equal(retargetFoot({ ...f, tech: 'nope' }, { x: 0, y: 0 }, { x: 0, y: 0 }), null);
 });
@@ -108,24 +104,92 @@ test('zone and combo take a short step at >= 45 degrees', () => {
   }
 });
 
-test('footPush', () => {
-  const mk = (extra) => ({ tech: 'zone', shade: 'none', watch: null, phase: 'aim', ox: 0, oy: 0, ride: 0, tx: 0, push: null, ...extra });
-  let r = footPush(mk(), { x: 0.01, y: 5 }, null, 1 / 60);
-  assert.equal(r.ride, 1);
-  nearPt(r.push, 0.7071067811865476, 0.7071067811865476);
-  r = footPush(mk({ ride: 1 }), { x: 0.001, y: 5 }, null, 1 / 60);
-  assert.equal(r.ride, 1);
-  r = footPush(mk(), { x: 0, y: 5 }, null, 1 / 60);
-  nearPt(r.push, 0, 1);
-  const c = mk({ tech: 'combo' });
+const DT = 1 / 60;
+const mkFoot = (extra) => ({ tech: 'zone', shade: 'none', watch: null, phase: 'aim', ox: 0, oy: 0, ride: 0, push: null, ...extra });
+const V = { x: 0, y: 1 };
+const ang = (p) => Math.atan2(p.x, p.y);
+function settle(foot, target, watch, vel, contact, n = 90) {
+  let f = foot;
+  let r;
+  for (let i = 0; i < n; i++) {
+    r = footPush(f, target, watch, vel, contact, DT);
+    f = { ...f, ride: r.ride, push: r.push };
+  }
+  return r;
+}
+
+test('footPush (a) ride toward travel scales with speed', () => {
+  let r = settle(mkFoot(), { x: 0, y: 5 }, null, { x: 3, y: 0 }, V);
+  near(ang(r.push), rad(RIDE_MAX));
+  r = settle(mkFoot(), { x: 0, y: 5 }, null, { x: 1.5, y: 0 }, V);
+  near(ang(r.push), rad(RIDE_MAX) * 1.5 / RIDE_FULL);
+});
+
+test('footPush (b) mirrored', () => {
+  const r = settle(mkFoot(), { x: 0, y: 5 }, null, { x: -3, y: 0 }, V);
+  near(ang(r.push), -rad(RIDE_MAX));
+});
+
+test('footPush (c) ride holds under RIDE_MIN', () => {
+  const r = footPush(mkFoot({ ride: 0.4, push: V }), { x: 0, y: 5 }, null, { x: RIDE_MIN - 0.01, y: 0 }, V, DT);
+  near(r.ride, 0.4);
+});
+
+test('footPush (d) turn bound', () => {
+  const c = { x: Math.sin(rad(60)), y: Math.cos(rad(60)) };
+  const r = footPush(mkFoot(), { x: 0, y: 5 }, null, { x: 0, y: 0 }, c, DT);
+  const moved = Math.abs(signedAngle(c, r.push));
+  assert.ok(moved > 0 && moved <= PUSH_TURN * DT + 1e-9, `moved ${moved}`);
+  const f = mkFoot({ push: V, ride: 0 });
+  const r2 = footPush(f, { x: 0, y: 5 }, null, { x: 3, y: 0 }, V, DT);
+  assert.ok(Math.abs(signedAngle(V, r2.push)) <= PUSH_TURN * DT + 1e-9);
+  const r3 = footPush(f, { x: 0, y: 5 }, null, { x: 3, y: 0 }, V, 0);
+  nearPt(r3.push, 0, 1);
+  near(r3.ride, 0);
+});
+
+test('footPush (e) blindside', () => {
+  const r = settle(mkFoot(), { x: 0, y: 5 }, null, { x: 0, y: 0 }, { x: 1, y: 0 });
+  nearPt(r.push, 1, 0);
+  const c20 = { x: Math.sin(rad(20)), y: Math.cos(rad(20)) };
+  const r2 = settle(mkFoot(), { x: 0, y: 5 }, null, { x: 0, y: 0 }, c20);
+  nearPt(r2.push, 0, 1);
+});
+
+test('footPush (f) combo lean is the base near the contact', () => {
   const d = driveDir('combo', { x: 0, y: 0 }, { x: 1, y: 4 });
-  r = footPush(c, { x: 0, y: 0 }, { x: 1, y: 4 }, 1 / 60);
+  const r = settle(mkFoot({ tech: 'combo' }), { x: 0, y: 0 }, { x: 1, y: 4 }, { x: 0, y: 0 }, V);
   nearPt(r.push, d.x, d.y);
-  assert.equal(footPush(mk({ ride: -1 }), { x: 5, y: 0 }, null, 0).ride, -1);
-  const f = mk();
-  const clone = structuredClone(f);
-  footPush(f, { x: 1, y: 1 }, null, 0.1);
-  assert.deepEqual(f, clone);
+});
+
+test('footPush (g) pure', () => {
+  const foot = mkFoot({ push: V });
+  const target = { x: 1, y: 1 };
+  const vel = { x: 2, y: 1 };
+  const contact = { x: 0.6, y: 0.8 };
+  const snap = structuredClone([foot, target, vel, contact]);
+  footPush(foot, target, { x: 1, y: 2 }, vel, contact, 0.1);
+  assert.deepEqual([foot, target, vel, contact], snap);
+});
+
+test('footPush (h) no wobble', () => {
+  let f = mkFoot();
+  const tgt = { x: 0, y: 5 };
+  const step = (vel) => {
+    const r = footPush(f, tgt, null, vel, V, DT);
+    f = { ...f, ride: r.ride, push: r.push };
+    return ang(r.push);
+  };
+  for (let i = 0; i < 10; i++) step({ x: 0, y: 0 });
+  const fin = Math.atan2(2, 0) > 0 ? rad(RIDE_MAX) * 2 / RIDE_FULL : 0;
+  let prev = ang(f.push);
+  for (let i = 0; i < 60; i++) {
+    const a = step({ x: 2, y: 0 });
+    assert.ok(a >= prev - 1e-9, 'monotonic');
+    assert.ok(a <= fin + 1e-9, 'no overshoot');
+    prev = a;
+  }
+  assert.ok(Math.abs(prev - fin) < rad(1));
 });
 
 test('frozen and consistent', () => {
