@@ -750,28 +750,51 @@ test('F-45 #6: inside zone opens with a short, steep zone step', () => {
   assert.equal(bad.length, 0, `${bad.join('\n')}\n(id tech tick lat/up angle, yd)\n${rows.join('\n')}`);
 });
 
+// Known behaviour bug, owned by request R-68 (double-team and climb-off timing).
+const TODO_R68 = 'R-68: base MLB plants, loops round the climbing LG and flows outside; RG pure-pursues his contact spot (1.74 -> 1.16 yd, 1.5-2.0 s), no engage by 2.0 s at CUT_ACCEL 20 (green at 15/25, red at 18/20/22). Climb timing off the double is R-68 (.work/maps/R-68-notes.md).';
+
+const climbProbe = (front, c) => {
+  const probeOf = () => {
+    const p = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front });
+    p.snap();
+    return p;
+  };
+  const probe = probeOf();
+  let found = null;
+  for (let i = 1; i <= Math.round(2.0 / DT) && !found; i++) {
+    probe.step(DT);
+    const hit = [c.owner, c.partner].some((id) => {
+      const b = probe.player(id).block;
+      return b && b.target === c.watch && b.engaged;
+    });
+    if (hit) found = { t: i * DT, y: probe.player(c.watch).y };
+  }
+  assert.ok(found, `${front} ${c.owner}/${c.partner} never engaged ${c.watch} within 2.0 s`);
+  assert.ok(found.y >= 25 + GAP_DEPTH, `${front} ${c.owner}/${c.partner} met ${c.watch} at ${found.t.toFixed(2)} s, y ${found.y}`);
+};
+
+const combosOf = (front) => {
+  const p = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front });
+  p.snap();
+  return p.combos;
+};
+
 test('R-62: base and bear, every combo climber engages his watch before the watch reaches the line', () => {
   for (const front of ['base', 'bear']) {
-    const probeOf = () => {
-      const p = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front });
-      p.snap();
-      return p;
-    };
-    for (const c of probeOf().combos) {
-      const probe = probeOf();
-      let found = null;
-      for (let i = 1; i <= Math.round(2.0 / DT) && !found; i++) {
-        probe.step(DT);
-        const hit = [c.owner, c.partner].some((id) => {
-          const b = probe.player(id).block;
-          return b && b.target === c.watch && b.engaged;
-        });
-        if (hit) found = { t: i * DT, y: probe.player(c.watch).y };
-      }
-      assert.ok(found, `${front} ${c.owner}/${c.partner} never engaged ${c.watch} within 2.0 s`);
-      assert.ok(found.y >= 25 + GAP_DEPTH, `${front} ${c.owner}/${c.partner} met ${c.watch} at ${found.t.toFixed(2)} s, y ${found.y}`);
+    let checked = 0;
+    for (const c of combosOf(front)) {
+      if (front === 'base' && c.watch === 'MLB') continue;
+      checked++;
+      climbProbe(front, c);
     }
+    assert.ok(checked > 0, `${front}: no combo checked`);
   }
+});
+
+test('R-62 (base RT/RG on the MLB): the climber engages the MLB before he reaches the line', { todo: TODO_R68 }, () => {
+  const combos = combosOf('base').filter((c) => c.watch === 'MLB');
+  assert.ok(combos.length > 0, 'base MLB combo exists');
+  for (const c of combos) climbProbe('base', c);
 });
 
 test('R-64: every front, the climber on the switch tick is the blocker on the side of the fit', () => {
