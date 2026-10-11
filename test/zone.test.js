@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
-import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, COMBO_TOUCH, LB_FILL_V, TRACK_HALF, INSIDE_ZONE, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, COMBO_TOUCH, LB_FILL_V, TRACK_HALF, INSIDE_ZONE, ZONE_READ, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH, runScheme } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
@@ -45,7 +45,8 @@ test('invariants over all fronts', () => {
     const vals = Object.values(r.blocks);
     // (a) every line defender with a cover is a block target
     for (const d of lineDef) {
-      if (d.cover != null && !(d.id === front.edge && sparedEdge(front, r))) assert.ok(vals.includes(d.id), `${name} (a) ${d.id}`);
+      // F-54 #5 / R-5: plain inside zone has no spared edge, so the exception for it is gone
+      if (d.cover != null) assert.ok(vals.includes(d.id), `${name} (a) ${d.id}`);
     }
     // (b) at most twice, only as a combo's target with its owner and partner
     for (const d of front.defenders) {
@@ -86,7 +87,7 @@ test('invariants over all fronts', () => {
   }
 });
 
-// The backside end lineman climbed to a second-level man, leaving the edge man for the free list.
+// The backside end lineman climbed to a second-level man, leaving the edge man for the free list (ZONE_READ only since F-54 #5 / R-5).
 const sparedEdge = (front, plan) => {
   const end = front.line[front.line.length - 1];
   const t = front.defenders.find((d) => d.id === plan.blocks[end.id]);
@@ -99,7 +100,7 @@ const eachFront = (fn) => {
       const players = frontPlayers(name, personnel);
       const numbers = frontNumbers(players);
       const front = readFront(players, numbers, LOS);
-      fn({ label: `${personnel} ${name}`, personnel, name, players, numbers, front, plan: withoutFront(zonePlan(players, numbers, LOS)) });
+      fn({ label: `${personnel} ${name}`, personnel, name, players, numbers, front, plan: withoutFront(zonePlan(players, numbers, LOS)), read: withoutFront(zonePlan(players, numbers, LOS, { scheme: ZONE_READ })) });
     }
   }
 };
@@ -137,21 +138,22 @@ test('F-36 #2: cover windows end at the surface', () => {
   }
 });
 
+// Restated by F-54 #5 / R-5: plain inside zone never spares the edge, so no exception remains.
 test('F-36 #3: the backside end man is blocked, and every covered line man is a target', () => {
   eachFront(({ label, personnel, front, plan }) => {
     const targets = Object.values(plan.blocks);
     const edge = front.defenders.find((d) => d.id === front.edge);
-    const spared = sparedEdge(front, plan);
-    if (edge && edge.cover != null && !spared) assert.ok(targets.includes(edge.id), `${label} edge`);
-    if (personnel === 'te' && !spared) assert.ok(targets.includes(front.edge), `${label} edge blocked`);
+    if (edge && edge.cover != null) assert.ok(targets.includes(edge.id), `${label} edge`);
+    if (personnel === 'te') assert.ok(targets.includes(front.edge), `${label} edge blocked`);
   });
 });
 
-test('F-50 #2: the spare climb fires only when a second-level man would otherwise be free', () => {
-  eachFront(({ label, front, plan }) => {
+// Restated by F-54 #5 / R-5: the spare row belongs to ZONE_READ, so the spare rule is pinned there.
+test('F-50 #2: under ZONE_READ the spare climb fires only when a second-level man would otherwise be free', () => {
+  eachFront(({ label, front, read: plan }) => {
     const end = front.line[front.line.length - 1];
     if (!sparedEdge(front, plan)) return;
-    const old = runScheme(front, { rules: INSIDE_ZONE.rules.slice(1) });
+    const old = runScheme(front, INSIDE_ZONE);
     const hit = old.free.some((id) => {
       const d = front.defenders.find((x) => x.id === id);
       return d.level === 'second' && Math.abs(d.x - end.x) <= CLIMB_REACH;
@@ -160,12 +162,10 @@ test('F-50 #2: the spare climb fires only when a second-level man would otherwis
   });
 });
 
+// Restated by F-54 #5 / R-5 (the old pin was a greedy nearest-count deal that the T-24 best matching, Mike first, already departs from once one unit alone is dealt): each unit's second-level man is distinct, in its reach, and more backside than the unit before it.
 test('F-36 #5: second-level men are taken in zone count order', () => {
-  const key = (d) => (d.n >= 0 ? [0, d.n] : [1, -d.n]);
-  const less = (a, b) => (key(a)[0] - key(b)[0]) || (key(a)[1] - key(b)[1]);
   eachFront(({ label, front, plan }) => {
     const second = front.defenders.filter((d) => d.level === 'second');
-    const seen = new Set();
     const picks = [];
     front.line.forEach((l) => {
       const t = plan.techs[l.id];
@@ -176,12 +176,13 @@ test('F-36 #5: second-level men are taken in zone count order', () => {
         if (c.watch != null) picks.push({ id: c.watch, ref: (l.x + p.x) / 2 });
       }
     });
+    let lastU = Infinity;
     for (const { id, ref } of picks) {
-      const best = second
-        .filter((d) => !seen.has(d.id) && Math.abs(d.x - ref) <= CLIMB_REACH)
-        .sort((a, b) => less(a, b) || (Math.abs(a.x - ref) - Math.abs(b.x - ref)) || (a.id < b.id ? -1 : 1))[0];
-      assert.equal(id, best.id, `${label} pick`);
-      seen.add(id);
+      const d = second.find((x) => x.id === id);
+      assert.ok(d, `${label} pick ${id} is second-level`);
+      assert.ok(Math.abs(d.x - ref) <= CLIMB_REACH, `${label} pick ${id} in reach`);
+      assert.ok(d.u < lastU, `${label} pick ${id} more backside than the one before`);
+      lastU = d.u;
     }
     const coveredCount = front.defenders.filter((d) => d.level === 'line' && d.cover != null).length;
     const zero = front.defenders.find((d) => d.level === 'second' && d.n === 0);
@@ -198,9 +199,10 @@ test('F-36 #6: box count and free men', () => {
     assert.equal(new Set([...Object.values(plan.blocks), ...watches]).size, Math.min(front.line.length, front.box), label);
     for (const id of plan.free) {
       const d = front.defenders.find((x) => x.id === id);
-      assert.ok(d.level === 'second' || d.cover == null || (id === front.edge && sparedEdge(front, plan)), `${label} free ${id}`);
+      assert.ok(d.level === 'second' || d.cover == null, `${label} free ${id}`); // F-54 #5 / R-5: no spared edge under plain inside zone
     }
-    if (personnel === 'te') assert.equal(plan.free.length, 1, label);
+    // F-54 #5: derived from the front, not a literal: with a TE the line has a blocker for each of its men, so the free men are the box defenders the blockers cannot take (none when there are more blockers than box defenders)
+    if (personnel === 'te') assert.equal(plan.free.length, Math.max(0, front.box - front.line.length), label);
   });
 });
 
@@ -216,11 +218,8 @@ test('F-36 #3/#4: shifted lineups, edge blocked, no reach past a teammate, no ta
           const label = `${front} ${k} ${j} ${personnel}`;
           const dOf = (id) => f.defenders.find((d) => d.id === id);
           const edge = dOf(f.edge);
-          const spared = sparedEdge(f, plan);
-          if (edge && edge.cover != null) {
-            if (spared) assert.ok(plan.free.includes(edge.id), `${label} edge spared`);
-            else assert.ok(Object.values(plan.blocks).includes(edge.id), `${label} edge`);
-          }
+          // F-54 #5 / R-5: no spared edge under plain inside zone
+          if (edge && edge.cover != null) assert.ok(Object.values(plan.blocks).includes(edge.id), `${label} edge`);
           const comboMembers = new Set(plan.combos.flatMap((c) => [c.owner, c.partner]));
           f.line.forEach((l, i) => {
             const t = dOf(plan.blocks[l.id]);
@@ -417,14 +416,14 @@ test('gate: zoneSwitch leaves ctx and players alone (no climber lock)', () => {
   assert.deepEqual(s.ctx, c0);
 });
 
-test('F-50 #4: man-short zone, the TE climbs to the backside linebacker and he is blocked before he can tackle', () => {
+// Restated by F-54 #5 / R-5: plain inside zone no longer spares the end man, so the man-short TE blocks the end instead of climbing; the climb-and-contain play moves to ZONE_READ (plan level below).
+test('F-50 #4: man-short zone, the TE blocks the backside end man and he is blocked before he can tackle', () => {
   for (const front of ['under43', 'backedOff']) {
     const play = createPlay(25, 'insideZone', { front, personnel: 'te', tackles: false });
     assert.ok(play.snap(), front);
     const f = readFront(play.players, play.numbers, 25);
     const id = play.player('TE').block.target;
-    assert.equal(f.defenders.find((d) => d.id === id)?.level, 'second', `${front} TE target`);
-    assert.equal(play.defense.agents[f.edge].assign.type, 'contain', `${front} edge contains`);
+    assert.equal(id, f.edge, `${front} TE target is the end man`);
     const lb = play.player(id);
     let engagedAt = null;
     for (let t = 0; t <= 2.0 + 1e-9 && engagedAt == null; t += 1 / 60) {
@@ -514,4 +513,87 @@ test('T-162: a switched combo is never touched again; purity with a ball', () =>
   zoneSwitch(s.players, { x: 0, y: 25 }, s.ctx);
   assert.deepEqual(s.players, p0);
   assert.deepEqual(s.ctx, c0);
+});
+
+// ---- F-54 #5 / R-5 ----
+const planWith = (name, personnel, opts) => {
+  const players = frontPlayers(name, personnel);
+  return zonePlan(players, frontNumbers(players), LOS, opts);
+};
+
+test('F-54 #5 R-5: plain inside zone blocks the backside end', () => {
+  const plan = planWith('base', 'te');
+  assert.equal(plan.blocks.TE, 'LDE');
+  assert.equal(plan.accounted.LDE.how, 'block');
+  assert.equal(plan.accounted.SLB.how, 'free');
+  const play = createPlay(25, 'insideZone', { personnel: 'te' });
+  assert.ok(play.snap());
+  assert.equal(play.player('TE').block.target, 'LDE');
+});
+
+test('F-54 #5 the backside end man is blocked on every front', () => {
+  eachFront(({ label, front, players, numbers }) => {
+    const plan = zonePlan(players, numbers, LOS);
+    // an end man shaded outside the surface (cover null, e.g. dlPlus4 LDE) is covered by nobody, so only an edge inside the surface is blocked
+    const edge = front.defenders.find((d) => d.id === front.edge);
+    if (edge && edge.cover != null) assert.equal(plan.accounted[front.edge].how, 'block', `${label} edge`);
+    const ids = front.defenders.map((d) => d.id);
+    assert.deepEqual(Object.keys(plan.accounted).sort(), [...ids].sort(), `${label} one entry each`);
+    const lineBlockers = front.line.length;
+    if (lineBlockers < front.defenders.length) {
+      for (const [id, a] of Object.entries(plan.accounted)) {
+        // a line defender outside the surface (cover null) is covered by nobody, as in F-36 #6
+        const d = front.defenders.find((x) => x.id === id);
+        if (a.how === 'free') assert.ok(d.level === 'second' || d.cover == null, `${label} free ${id} is second-level or outside the surface`);
+      }
+    }
+  });
+});
+
+test('F-54 #5 ZONE_READ leaves the end to the QB', () => {
+  let fired = 0;
+  eachFront(({ label, front, players, numbers, plan }) => {
+    const read = zonePlan(players, numbers, LOS, { scheme: ZONE_READ });
+    const end = front.line[front.line.length - 1];
+    if (sparedEdge(front, read)) {
+      fired++;
+      assert.equal(read.accounted[front.edge].how, 'read', label);
+      assert.deepEqual(read.accounted[front.edge].by, [], label);
+      assert.equal(read.techs[end.id].tech, 'climb', label);
+    } else if (front.defenders.find((d) => d.id === front.edge)?.cover != null) {
+      assert.equal(read.accounted[front.edge].how, 'block', label);
+    }
+  });
+  assert.ok(fired > 0);
+  for (const [name, personnel] of [['under43', 'noTe'], ['bear', 'noTe'], ['base', 'te']]) {
+    const read = planWith(name, personnel, { scheme: ZONE_READ });
+    const f = read.front;
+    assert.equal(read.accounted[f.edge].how, 'read', `${personnel} ${name}`);
+    assert.equal(read.techs[f.line[f.line.length - 1].id].tech, 'climb', `${personnel} ${name}`);
+  }
+  // plain inside zone on those fronts blocks him
+  for (const [name, personnel] of [['under43', 'noTe'], ['bear', 'noTe'], ['base', 'te']]) {
+    const plan = planWith(name, personnel);
+    assert.equal(plan.accounted[plan.front.edge].how, 'block', `${personnel} ${name}`);
+  }
+});
+
+test('F-54 #5 the box argument', () => {
+  const full = planWith('base', 'te');
+  const box = ['LDE', 'MLB', 'GHOST'];
+  const sub = planWith('base', 'te', { box });
+  assert.deepEqual(Object.keys(sub.accounted).sort(), [...box].sort());
+  assert.equal(sub.accounted.LDE.how, 'block');
+  assert.equal(sub.accounted.GHOST.how, 'free'); // not numbered by runScheme
+  assert.deepEqual(sub.accounted.MLB, full.accounted.MLB);
+  assert.deepEqual(sub.blocks, full.blocks);
+});
+
+test('F-54 #2 tightened: no line-level defender inside the surface goes unblocked', () => {
+  eachFront(({ label, front, plan }) => {
+    const vals = Object.values(plan.blocks);
+    for (const d of front.defenders.filter((x) => x.level === 'line' && x.cover != null)) {
+      assert.ok(vals.includes(d.id), `${label} ${d.id}`);
+    }
+  });
 });
