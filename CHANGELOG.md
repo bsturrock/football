@@ -50,3 +50,4 @@
 - 2026-10-11 F-3 Real inside-zone double teams and the climb off them (R-1) 8fa15af
 - 2026-10-11 F-4 Perception layer, read trace and scenario harness (R-7) 6fe1145
 - 2026-10-11 F-53 Version stamp on dots.html (R-11) e1f1951
+- 2026-10-11 F-54 Zone rules v2: covered/uncovered pairing, Mike point, box count, either direction (R-8) 0cdd5b5
