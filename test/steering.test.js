@@ -358,6 +358,41 @@ test('accel cap is opt-in: without goal.accel the first step already points at t
   assert.ok(trace[0].v.y < 0, `vy ${trace[0].v.y}`);
 });
 
+test('T-38: a grazing hard-core hit under goal.accel is a contact stop at the hard core', () => {
+  const p = { id: 'LDE', x: -2.3326289718016193, y: 34.01146434700278, v: 5.97568167452963, speed: 7,
+    selfVel: { x: -2.2996884179339014, y: 5.3570351119423245 }, vel: { x: -2.2996884179339014, y: 5.3570351119423245 },
+    steer: { key: 'def:pursue', side: 1, stuck: 0, flips: 0, lane: ['MLB', 'WLB'] } };
+  const goal = { x: -4.425389514909736, y: 50.9572007845785, key: 'def:pursue', ignore: 'RB', accel: 20 };
+  const others = [
+    { id: 'LDT', x: -2.7751627448795846, y: 34.15867489702504 }, { id: 'RDT', x: -3.3528551185723683, y: 34.59240714571357 },
+    { id: 'RDE', x: -4.381687756786772, y: 35.72799761553998 }, { id: 'MLB', x: -2.33531970774139, y: 35.18954973996723 },
+    { id: 'WLB', x: -2.9254366112694887, y: 36.52284039232105 } ];
+  const maxStep = 0.11666666666666667, dt = 1 / 60;
+  const H = S.hardCore(0.28), LDT = others[0];
+  const x0 = p.x, y0 = p.y, v0 = p.selfVel;
+  // (a) Every velocity reachable under the cap (64 sampled directions on the circle of radius
+  // CUT_ACCEL * dt around selfVel) runs its straight step through LDT's hard core.
+  const segDist = (ax, ay, bx, by, cx, cy) => {
+    const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+    const u = L > 0 ? Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / L)) : 0;
+    return Math.hypot(ax + u * dx - cx, ay + u * dy - cy);
+  };
+  for (let k = 0; k < 64; k++) {
+    const a = 2 * Math.PI * k / 64, r = S.CUT_ACCEL * dt;
+    const vx = v0.x + r * Math.cos(a), vy = v0.y + r * Math.sin(a);
+    const d = segDist(x0, y0, x0 + vx * dt, y0 + vy * dt, LDT.x, LDT.y);
+    assert.ok(d < H, `direction ${k}: reachable step clears LDT by ${d}`);
+  }
+  // This is the tick the realism test now scores as contact, through the start-of-tick rule.
+  steerStep(p, goal, [p, ...others], maxStep, dt, 0.28);
+  // (b) LDE stops at LDT's hard core and inside no body.
+  assert.ok(Math.abs(Math.hypot(p.x - LDT.x, p.y - LDT.y) - H) < 1e-6, `LDT distance ${Math.hypot(p.x - LDT.x, p.y - LDT.y)}`);
+  for (const o of others) assert.ok(Math.hypot(p.x - o.x, p.y - o.y) >= H - 1e-9, `inside ${o.id}`);
+  // (c) The step is at most maxStep.
+  const len = Math.hypot(p.x - x0, p.y - y0);
+  assert.ok(len <= maxStep + 1e-9, `step ${len}`);
+});
+
 test('accel cap: step never exceeds maxStep and hard contact still holds hardCore', () => {
   const p = { id: 'm', x: 0, y: 0, vel: { x: 0, y: 0 }, speed: 6 };
   const goal = () => ({ x: 0, y: 10, key: 'wall', ignore: null, accel: S.CUT_ACCEL });
@@ -370,24 +405,6 @@ test('accel cap: step never exceeds maxStep and hard contact still holds hardCor
     p.vel = { x: (p.x - x0) / DT, y: (p.y - y0) / DT };
     assert.ok(Math.hypot(p.x - b.x, p.y - b.y) >= S.hardCore(RAD) - 1e-9, `d ${Math.hypot(p.x - b.x, p.y - b.y)}`);
   }
-});
-
-test('T-38: a grazing hard-core hit under goal.accel keeps the tangential speed', () => {
-  const p = { id: 'LDE', x: -2.3326289718016193, y: 34.01146434700278, v: 5.97568167452963, speed: 7,
-    selfVel: { x: -2.2996884179339014, y: 5.3570351119423245 }, vel: { x: -2.2996884179339014, y: 5.3570351119423245 },
-    steer: { key: 'def:pursue', side: 1, stuck: 0, flips: 0, lane: ['MLB', 'WLB'] } };
-  const goal = { x: -4.425389514909736, y: 50.9572007845785, key: 'def:pursue', ignore: 'RB', accel: 20 };
-  const others = [
-    { id: 'LDT', x: -2.7751627448795846, y: 34.15867489702504 }, { id: 'RDT', x: -3.3528551185723683, y: 34.59240714571357 },
-    { id: 'RDE', x: -4.381687756786772, y: 35.72799761553998 }, { id: 'MLB', x: -2.33531970774139, y: 35.18954973996723 },
-    { id: 'WLB', x: -2.9254366112694887, y: 36.52284039232105 } ];
-  const maxStep = 0.11666666666666667, dt = 1 / 60;
-  const x0 = p.x, y0 = p.y;
-  steerStep(p, goal, [p, ...others], maxStep, dt, 0.28);
-  for (const o of others) assert.ok(Math.hypot(p.x - o.x, p.y - o.y) >= S.hardCore(0.28) - 1e-9, `inside ${o.id}`);
-  const len = Math.hypot(p.x - x0, p.y - y0);
-  assert.ok(len <= maxStep + 1e-9, `step ${len}`);
-  assert.ok(len / dt >= 5.0, `speed ${len / dt}`);
 });
 
 // Play level: a free defender's velocity (position deltas / FIXED_DT) changes by at most
@@ -426,20 +443,25 @@ for (const front of FRONT_NAMES) {
       }
     }
     const vel = (id, i) => ({ x: (pos[i][id].x - pos[i - 1][id].x) / FIXED_DT, y: (pos[i][id].y - pos[i - 1][id].y) / FIXED_DT });
-    // Hard contact: within one soft-relax step of the hard core. On such a tick the contact (steering
-    // slide plus separation push-out) decides the change, so the free cap does not apply; the contact
-    // rule does: inelastic, no rebound (he never leaves a body faster than that body moves along the
+    // Hard contact: within one soft-relax step of the hard core of another body, at that body's
+    // end-of-tick position or at the position it held when the defender stepped (its start-of-tick
+    // position, since bodies step one after another inside a tick). A ray stop at a body that moves
+    // on later in the tick is still contact. On such a tick the contact (steering slide plus
+    // separation push-out) decides the change, so the free cap does not apply; the contact rule
+    // does: inelastic, no rebound (he never leaves a body faster than that body moves along the
     // normal, plus one soft relax).
     const HE = S.hardCore(BODY_RADIUS) + (2 * BODY_RADIUS - S.hardCore(BODY_RADIUS)) * SOFT_RATE * FIXED_DT;
     const others = (id) => play.players.map((p) => p.id).filter((o) => o !== id);
     const distAt = (id, o, k) => Math.hypot(pos[k][id].x - pos[k][o].x, pos[k][id].y - pos[k][o].y);
+    // The defender's end-of-tick-k position against the other body's start-of-tick-k position (k >= 1).
+    const crossAt = (id, o, k) => Math.hypot(pos[k][id].x - pos[k - 1][o].x, pos[k][id].y - pos[k - 1][o].y);
     let worst = 0, at = null, worstReb = -Infinity, atReb = null;
     for (let i = 3; i < pos.length; i++) {
       for (const id of defs) {
         if (!(free[i][id] && free[i - 1][id] && free[i - 2][id])) continue;
         const a = vel(id, i - 1), b = vel(id, i);
         const os = others(id);
-        const hard = os.some((o) => [i - 2, i - 1, i].some((k) => distAt(id, o, k) < HE));
+        const hard = os.some((o) => [i - 2, i - 1, i].some((k) => distAt(id, o, k) < HE || crossAt(id, o, k) < HE));
         if (hard) {
           for (const o of os) {
             const d = distAt(id, o, i);
