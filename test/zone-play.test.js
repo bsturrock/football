@@ -1056,10 +1056,11 @@ test('F-3 #3b: while both are on, the double never gives ground or drifts backsi
 
 test('F-3 #4: an LB who reads run early gets the climb no later and no deeper than one who reads late', (t) => {
   const diag = [];
+  let strict = 0; // combos whose climb really came earlier (proves the read reaches the climb)
   for (const front of ['base', 'bear']) {
     const run = (read) => {
-      const watch = createPlay(25, 'insideZone', { front }).combos.map((c) => c.watch);
-      return doubleRun(front, {}, { setup: (play) => { for (const id of new Set(watch)) if (play.defense.agents[id]) play.defense.agents[id].read = read; } });
+      // combos are only filled by play.snap(), so the watched LBs are read inside setup (which runs after the snap)
+      return doubleRun(front, {}, { setup: (play) => { for (const id of new Set(play.combos.map((c) => c.watch))) if (play.defense.agents[id]) play.defense.agents[id].read = read; } });
     };
     const early = run(0.1), late = run(1.0);
     for (const c of early.play.combos) {
@@ -1068,9 +1069,11 @@ test('F-3 #4: an LB who reads run early gets the climb no later and no deeper th
       if (!e || !l || e.w !== c.watch || l.w !== lc.watch) continue;
       diag.push(`${front} ${c.owner}/${c.partner} climb early ${e.t.toFixed(2)} late ${l.t.toFixed(2)}`);
       assert.ok(e.t <= l.t + 1e-9, `${front} ${c.owner} early climb ${e.t} after late ${l.t}`);
+      if (e.t < l.t - 1e-9) strict++;
       const ee = early.eng.get(c), le = late.eng.get(lc);
       if (ee && le && ee.t <= 2.0 && le.t <= 2.0) assert.ok(ee.lbY <= le.lbY + 0.05, `${front} ${c.owner} early LB y ${ee.lbY.toFixed(2)} deeper than late ${le.lbY.toFixed(2)}`);
     }
   }
+  assert.ok(strict > 0, `no combo climbed strictly earlier with an early read: ${diag.join('; ')}`);
   t.diagnostic(diag.join('; '));
 });
