@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/dots/steering.js';
+import { createPlay, FIXED_DT } from '../src/dots/play.js';
+import { engagedOn, CONTACT_DIST, SOFT_RATE, BODY_RADIUS } from '../src/dots/blocking.js';
+import { FRONT_NAMES } from './fixtures/fronts.js';
 
 const { steerStep } = S;
 const DT = 1 / 60, RAD = 0.6;
@@ -319,3 +322,103 @@ test('pace: PACES and entries are frozen', () => {
   assert.ok(Object.isFrozen(S.PACES));
   for (const k of Object.keys(S.PACES)) assert.ok(Object.isFrozen(S.PACES[k]));
 });
+
+// ---- planted cut: goal.accel = CUT_ACCEL (F-50 #10) ----
+
+function reversal(accel) {
+  const p = { id: 'm', x: 0, y: 0, vel: { x: 0, y: 5 }, speed: 6 };
+  const goal = { x: 0, y: -10, key: 'rev', ignore: null };
+  if (accel) goal.accel = S.CUT_ACCEL;
+  const trace = [];
+  for (let i = 0; i < Math.ceil(2 / DT); i++) {
+    const before = { x: p.x, y: p.y }, v0 = { ...p.vel };
+    steerStep(p, { ...goal }, [p], Math.min(6 * DT, Math.hypot(goal.x - p.x, goal.y - p.y)), DT, RAD);
+    p.vel = { x: (p.x - before.x) / DT, y: (p.y - before.y) / DT };
+    trace.push({ v0, v: p.vel });
+  }
+  return { p, trace, goal };
+}
+
+test('accel cap: reversal changes velocity by at most CUT_ACCEL*DT per tick and plants first', () => {
+  const { p, trace } = reversal(true);
+  let planted = false, toward = false;
+  for (const { v0, v } of trace) {
+    assert.ok(Math.hypot(v.x - v0.x, v.y - v0.y) <= S.CUT_ACCEL * DT + 1e-9, `dv ${Math.hypot(v.x - v0.x, v.y - v0.y)}`);
+    if (!toward && Math.hypot(v.x, v.y) < 0.5) planted = true;
+    if (v.y < 0) { toward = true; break; }
+  }
+  assert.ok(planted, 'speed fell below 0.5 yd/s before velocity pointed at the goal');
+  assert.ok(toward, 'velocity points at the goal within 2 s');
+  assert.ok(p.y > -10 && p.y < 0 || p.y < 0, `y ${p.y}`);
+  assert.ok(Math.abs(p.y + 10) < 10, 'ends closer to the goal than he started');
+});
+
+test('accel cap is opt-in: without goal.accel the first step already points at the goal', () => {
+  const { trace } = reversal(false);
+  assert.ok(trace[0].v.y < 0, `vy ${trace[0].v.y}`);
+});
+
+test('accel cap: step never exceeds maxStep and hard contact still holds hardCore', () => {
+  const p = { id: 'm', x: 0, y: 0, vel: { x: 0, y: 0 }, speed: 6 };
+  const goal = () => ({ x: 0, y: 10, key: 'wall', ignore: null, accel: S.CUT_ACCEL });
+  const maxStep = 3 * DT;
+  const b = { id: 'b', x: 0, y: S.hardCore(RAD) + 0.2 };
+  for (let i = 0; i < 120; i++) {
+    const x0 = p.x, y0 = p.y;
+    steerStep(p, goal(), [p, b], maxStep, DT, RAD);
+    assert.ok(Math.hypot(p.x - x0, p.y - y0) <= maxStep + 1e-9);
+    p.vel = { x: (p.x - x0) / DT, y: (p.y - y0) / DT };
+    assert.ok(Math.hypot(p.x - b.x, p.y - b.y) >= S.hardCore(RAD) - 1e-9, `d ${Math.hypot(p.x - b.x, p.y - b.y)}`);
+  }
+});
+
+// Play level: a free defender's velocity (position deltas / FIXED_DT) changes by at most
+// CUT_ACCEL * FIXED_DT + TOL over three consecutive free ticks. TOL: body separation (stepBlocking's
+// push-out) can move a body on a tick the steering did not choose; a soft push is at most SOFT_RATE
+// yd/s and relaxes a fraction SOFT_RATE * FIXED_DT of the overlap per tick; soft overlap is at most
+// the depth 2 * BODY_RADIUS - hardCore(BODY_RADIUS) (the hard core is a steering limit, not a push).
+// So one tick's push-out displacement is at most SOFT_RATE * FIXED_DT * depth, i.e. a velocity change
+// of SOFT_RATE * depth. TOL is that bound; the measured maximum is printed per front.
+const TOL = SOFT_RATE * (2 * BODY_RADIUS - S.hardCore(BODY_RADIUS));
+
+for (const front of FRONT_NAMES) {
+  test(`free defenders cap their acceleration on every tick (realism): ${front}`, (t) => {
+    const shifts = { dlPlus4: ['shiftDL', 4], dlMinus4: ['shiftDL', -4], lbPlus6: ['shiftLB', 6], lbMinus6: ['shiftLB', -6] };
+    const fronts = new Set(['base', 'over43', 'under43', 'odd34', 'bear', 'walkedUp', 'backedOff']);
+    const play = createPlay(25, 'insideZone', fronts.has(front) ? { front } : {});
+    if (shifts[front]) for (let k = 0; k < Math.abs(shifts[front][1]); k++) play[shifts[front][0]](Math.sign(shifts[front][1]));
+    assert.ok(play.snap());
+    const defs = play.players.filter((p) => p.team === 'defense').map((p) => p.id);
+    const pos = [], free = [];
+    const grab = () => {
+      pos.push(Object.fromEntries(play.players.map((p) => [p.id, { x: p.x, y: p.y }])));
+      // The tackle tick (ball dead) is the play ending, not a free tick.
+      free.push(Object.fromEntries(defs.map((id) => [id, play.ball.phase !== 'dead' && engagedOn(play.players, id).length === 0])));
+    };
+    grab();
+    let worstGuard = Infinity;
+    for (let i = 0; i < Math.ceil(4 / FIXED_DT) && play.ball.phase !== 'dead'; i++) {
+      play.step(FIXED_DT);
+      grab();
+      const bp = play.ballPosition();
+      for (const id of defs) {
+        if (!free[free.length - 1][id]) continue;
+        const d = Math.hypot(pos[pos.length - 1][id].x - bp.x, pos[pos.length - 1][id].y - bp.y);
+        if (d < worstGuard) worstGuard = d;
+      }
+    }
+    const vel = (id, i) => ({ x: (pos[i][id].x - pos[i - 1][id].x) / FIXED_DT, y: (pos[i][id].y - pos[i - 1][id].y) / FIXED_DT });
+    let worst = 0, at = null;
+    for (let i = 3; i < pos.length; i++) {
+      for (const id of defs) {
+        if (!(free[i][id] && free[i - 1][id] && free[i - 2][id])) continue;
+        const a = vel(id, i - 1), b = vel(id, i);
+        const dv = Math.hypot(b.x - a.x, b.y - a.y);
+        if (dv > worst) { worst = dv; at = { id, tick: i, a, b }; }
+      }
+    }
+    t.diagnostic(`${front}: max free dv ${worst.toFixed(3)} yd/s per tick (limit ${(S.CUT_ACCEL * FIXED_DT).toFixed(3)} + TOL ${TOL.toFixed(3)}); closest free defender to ball ${worstGuard.toFixed(3)}`);
+    assert.ok(worst <= S.CUT_ACCEL * FIXED_DT + TOL, `${JSON.stringify(at)} dv ${worst}`);
+    assert.ok(worstGuard >= CONTACT_DIST - 1e-6, `F-34 guard: ${worstGuard} < ${CONTACT_DIST}`);
+  });
+}
