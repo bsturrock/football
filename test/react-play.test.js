@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BODY_RADIUS, contactSpot, resolveBlock, stepBlocking } from '../src/dots/blocking.js';
 import { startFoot } from '../src/dots/technique.js';
+import { createPlay } from '../src/dots/play.js';
+import { FRONTS } from '../src/dots/roster.js';
 
 const DT = 1 / 60;
 
@@ -91,4 +93,66 @@ test('straight double team stays centred and bounded in depth', () => {
   const f = run({ x: 0, y: 21 }, 5.0);
   assert.ok(f.D.y - 25.7 <= 2.0, `D.y ${f.D.y}`);
   assert.ok(Math.abs(f.D.x) < 0.05, `D.x ${f.D.x}`);
+});
+
+// T-13: the base C/LG double on RDT must drive him playside, not latch his anchor backside on the first engaged tick.
+test('T-13: base C/LG double drives RDT 1 yd playside by 1.6 s (anchor not latched backside)', () => {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'base' });
+  let side = 0;
+  const orig = play.retargetRule;
+  play.retargetRule = (pl, b, ctx) => { side = ctx.side; orig(pl, b, ctx); return []; };
+  play.snap();
+  const RDT = play.player('RDT');
+  const x0 = RDT.x;
+  let reached = false;
+  for (let i = 0; i < Math.round(1.6 / DT) && !reached; i++) {
+    play.step(DT);
+    reached = side * (RDT.x - x0) >= 1.0;
+  }
+  assert.ok(reached, `side ${side} RDT moved ${side * (RDT.x - x0)} yd playside by 1.6 s`);
+});
+
+// F-3 #3: every held double moves its DL 1 yd playside and 0.2 yd back within 0.85 s of both men getting on.
+test('F-3 #3 drive: every held double moves its DL 1 yd playside and 0.2 yd back within 0.85 s of both men getting on', (t) => {
+  const fronts = Object.keys(FRONTS);
+  const variants = [{}, { personnel: 'te' }];
+  const reaches = [];
+  for (const front of fronts) {
+    for (const opts of variants) {
+      const label = opts.personnel ?? 'default';
+      const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front, ...opts });
+      let side = 0;
+      play.retargetRule = (pl, b, ctx) => { side = ctx.side; return []; };
+      play.snap();
+      const tracks = play.combos.map((c) => {
+        const dl = play.player(c.target);
+        return { c, dl, pt: play.player(c.partner), ob: play.player(c.owner), x0: dl.x, both: null, y1: null, reach: null };
+      });
+      const steps = Math.round(2.0 / DT);
+      for (let i = 1; i <= steps; i++) {
+        play.step(DT);
+        const t0 = i * DT;
+        for (const k of tracks) {
+          const engaged = (p) => p.block?.target === k.c.target && p.block?.engaged;
+          if (k.both === null && engaged(k.ob) && engaged(k.pt)) {
+            k.both = t0;
+            k.y1 = k.dl.y;
+          }
+          if (k.both !== null && k.reach === null && t0 - k.both >= 0.3 - 1e-9
+            && side * (k.dl.x - k.x0) >= 1.0 && k.dl.y - k.y1 >= 0.2) {
+            k.reach = t0;
+          }
+        }
+      }
+      tracks.forEach((k, idx) => {
+        const name = `${front}, ${label}, combo ${idx} (${k.c.owner}+${k.c.partner} on ${k.c.target})`;
+        assert.ok(k.both !== null, `${name}: both men never got on`);
+        assert.ok(k.reach !== null, `${name}: DL never reached 1 yd playside and 0.2 yd back (side ${side}, both ${k.both.toFixed(2)} s, x moved ${(side * (k.dl.x - k.x0)).toFixed(2)} yd)`);
+        const gap = k.reach - k.both;
+        assert.ok(gap <= 0.85 + 1e-9, `${name}: reach ${k.reach.toFixed(2)} s is ${gap.toFixed(2)} s after both ${k.both.toFixed(2)} s (max 0.85)`);
+        reaches.push(`${name}: both ${k.both.toFixed(2)} reach ${k.reach.toFixed(2)} gap ${gap.toFixed(2)}`);
+      });
+    }
+  }
+  t.diagnostic(reaches.join('\n'));
 });

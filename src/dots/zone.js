@@ -7,6 +7,12 @@ export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
 // the longer-held blocker on the DL must have held him this long before the climber leaves, and the stayer must be on him; a late-engaging stayer no longer delays a climber who has held since early
 export const COMBO_HOLD = 0.3;
+// F-3: a climb off a double that has been on together at least this long while the LB attacks downhill (the LB's own commit and speed decide, no fixed meet depth)
+export const COMBO_TOUCH = 0.1;
+// F-3: the LB counts as attacking downhill (a fill) at this speed toward the line, yd/s; a filling LB runs about 3.5, a flowing one mostly sideways
+export const LB_FILL_V = 1.5;
+// Human track rule: a blocker owns the vertical runway this far either side of him; a committed LB in a member's track (or across his face) is what releases the climber. A passive LB never does.
+export const TRACK_HALF = 1.5;
 
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
@@ -68,6 +74,8 @@ export function zoneSwitch(players, ballPos, ctx) {
     const p = byId.get(c.partner);
     if (!o || !p) continue;
     if (o.block?.target !== c.target || p.block?.target !== c.target) continue; // already switched
+    const dl = byId.get(c.target);
+    const on = (x) => x.block?.target === c.target && x.block.engaged;
     const plan = byId.get(c.watch);
     const free = unclaimedInReach(players, ballPos, ctx, claimed, mid(c));
     let w = plan && !claimed.has(plan.id) ? plan : null;
@@ -77,8 +85,6 @@ export function zoneSwitch(players, ballPos, ctx) {
     } else w = free[0] ?? null;
     if (!w) continue;
     claimed.add(w.id);
-    const dl = byId.get(c.target);
-    const on = (x) => x.block?.target === c.target && x.block.engaged;
     // The climber is re-judged every tick from where the linebacker fits; nothing is locked.
     const go = () => {
       if (!dl || dl.react?.state === 'winning') return;
@@ -86,15 +92,20 @@ export function zoneSwitch(players, ballPos, ctx) {
       const taker = pickClimber(o, p, dl, fitX, ctx.side);
       const stayer = taker === o ? p : o;
       if (!on(stayer)) return;
-      const held = Math.max(...[o, p].filter(on).map((x) => x.block.held ?? 0));
-      if (held >= COMBO_HOLD - 1e-9) out.push({ blocker: taker.id, target: w.id });
-    };
-    if (ctx.committed?.[w.id]) go();
-    else {
       const dO = Math.hypot(w.x - o.x, w.y - o.y);
       const dP = Math.hypot(w.x - p.x, w.y - p.y);
-      if (Math.min(dO, dP) <= SWITCH_DIST) go();
-    }
+      const forced = Math.min(dO, dP) <= SWITCH_DIST; // a blitzing or fast-filling LB is on top of the double
+      let ok = forced;
+      if (!ok && ctx.committed?.[w.id]) {
+        const inTrack = Math.abs(w.x - o.x) <= TRACK_HALF || Math.abs(w.x - p.x) <= TRACK_HALF;
+        // a climber who has not yet reached the DL has nothing to leave: the hold is the stayer's alone
+        const joint = on(o) && on(p) ? Math.min(o.block.held ?? 0, p.block.held ?? 0) : stayer.block.held ?? 0;
+        const vy = -((w.selfVel ?? w.vel ?? { y: 0 }).y ?? 0);
+        ok = inTrack && ((joint >= COMBO_TOUCH - 1e-9 && vy >= LB_FILL_V - 1e-9) || joint >= COMBO_HOLD - 1e-9); // the committed LB is in a member's track: attacking, or the DL is controlled
+      }
+      if (ok) out.push({ blocker: taker.id, target: w.id });
+    };
+    go();
   }
   return out;
 }

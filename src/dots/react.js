@@ -18,7 +18,7 @@ export const ANCHOR_RATE = 2.0; // /s, max lean rise per second
 export const RECOVER_RATE = 0.5; // /s, lean fall and stance catch-up per second
 export const ANCHOR_MIN = 0.25; // lean at which he counts as anchored
 export const ANCHOR_LATERAL = 0.7; // sideways part of the anchor per unit of backward lean
-export const SIDE_DEADZONE = 0.1; // yd
+export const SIDE_FULL = 0.3; // yd: goal offset to the side that gives the full sideways anchor; smaller offsets scale it down (no latch)
 export const HOLD_GIVE = 0.5; // yd he can be moved off the engage spot before the anchor stiffens
 export const HOLD_STIFF = 1.2; // force units per yd beyond the give
 export const SHED_REACH = 8 * 0.28; // yd: 8 body radii (BODY_RADIUS lives in blocking.js; react.js imports nothing)
@@ -43,10 +43,11 @@ export function anchorHold(ex, ey, d, push) {
   return { x: -h * dx / m, y: -h * dy / m };
 }
 
+// Sideways part of the anchor, in [-1, 1]: the goal's offset to his side over SIDE_FULL,
+// clamped. 0 when the goal is dead ahead. No latch: prevSide is kept in the signature only.
 export function anchorSide(prevSide, d, goal) {
   // Single hook where a later gap fit replaces ball.x.
-  const dx = goal.x - d.x;
-  return Math.abs(dx) > SIDE_DEADZONE ? Math.sign(dx) : prevSide;
+  return Math.max(-1, Math.min(1, (goal.x - d.x) / SIDE_FULL));
 }
 
 export function anchorDir(side, pu) {

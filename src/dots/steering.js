@@ -18,6 +18,9 @@
 //    apart, aim at their midpoint and hold that lane while both are ahead,
 //    except a blocker and his block target (they close by design), which are
 //    re-judged by the opening test every tick.
+//  - Goal fields: accel, pace, ignore, squeeze, and forward (boolean, opt-in):
+//    the plain-hit detour never points against the goal; its backward part is
+//    dropped, leaving a sideways slide (side, flips and release rules unchanged).
 export const AVOID_CLEARANCE = 0.3;
 export const LOOKAHEAD = 4.0;
 export const RELEASE_MARGIN = 0.3;
@@ -206,6 +209,13 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     const nx = rx / d, ny = ry / d;
     dx = nx * c - ny * sn;
     dy = nx * sn + ny * c;
+    if (goal.forward) {
+      const al = dx * ux + dy * uy;
+      if (al < 0) {
+        const lx = dx - al * ux, ly = dy - al * uy, ll = Math.hypot(lx, ly);
+        if (ll > 1e-9) { dx = lx / ll; dy = ly / ll; }
+      }
+    }
   }
 
   // a tangent slide step of length s ends about s^2/(2c) outside the circle, so this keeps the mover touching on the next call

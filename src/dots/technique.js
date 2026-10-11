@@ -11,7 +11,9 @@
 //            (0 = flat, 90 = upfield), keyed by shade (head/playside/backside/none)
 //   stepLen  optional first-step length in yards (default FIRST_STEP_LEN)
 //   aim      fraction of the radius the aim point sits playside of the target spot
-//   drive    push mode once engaged: 'vertical' or 'watch' (lean toward watched player)
+//   drive    push mode once engaged: 'vertical', 'watch' (lean toward watched player) or
+//            'playside' (lean back and toward the play (side) by COMBO_LEAN; every blocker on the
+//            man shares the base (no blindside bend))
 //   next     technique entered after coming off onto a new target
 //   phases   pre-contact phases, in order
 //   retarget phase entered after coming off onto a new target
@@ -30,12 +32,13 @@ export const PUSH_TURN = Math.PI; // rad/s, max push turn rate (tunable)
 export const BLIND_START = 30; // degrees, contact-vs-drive angle where the base starts bending (tunable)
 export const BLIND_FULL = 75; // degrees, contact-vs-drive angle where the base is the contact line (tunable)
 export const COMBO_MAX_LEAN = 30; // degrees from vertical, max combo drive lean (tunable)
+export const COMBO_LEAN = 40; // degrees from vertical toward the play, lean of a 'playside' drive; 40 so a held double moves even a DL with no playside goal 1 yd sideways before the anchor spring levels him off (F-3 #3) (tunable)
 
 const freezeRow = (r) => Object.freeze({ ...r, step: Object.freeze(r.step), phases: Object.freeze(r.phases) });
 
 export const TECHNIQUES = Object.freeze({
   zone: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
-  combo: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'watch', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  combo: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'playside', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'vertical', next: 'cutoff', phases: ['step', 'aim'], retarget: 'aim' }),
 });
@@ -77,9 +80,10 @@ export const PHASES = Object.freeze({
   }),
 });
 
-export function driveDir(tech, target, watch) {
-  const row = TECHNIQUES[tech];
-  if (row && row.drive === 'watch') {
+// Drive direction for a push mode. 'watch': lean toward the watched player. 'playside': lean back
+// and toward the play (side = +1 or -1) by COMBO_LEAN; the watch is ignored. Other modes: straight back.
+export function leanDir(mode, target, watch, side) {
+  if (mode === 'watch') {
     if (watch == null) return { x: 0, y: 1 };
     const vx = watch.x - target.x;
     const vy = watch.y - target.y;
@@ -89,6 +93,16 @@ export function driveDir(tech, target, watch) {
     else lean = Math.max(-max, Math.min(max, Math.atan2(vx, vy)));
     return { x: Math.sin(lean), y: Math.cos(lean) };
   }
+  if (mode === 'playside') {
+    const lean = (side === 1 || side === -1 ? side * rad(COMBO_LEAN) : 0);
+    return { x: Math.sin(lean), y: Math.cos(lean) };
+  }
+  return { x: 0, y: 1 };
+}
+
+export function driveDir(tech, target, watch, side) {
+  const row = TECHNIQUES[tech];
+  if (row && (row.drive === 'watch' || row.drive === 'playside')) return leanDir(row.drive, target, watch, side);
   return { x: 0, y: 1 };
 }
 
@@ -167,19 +181,24 @@ export function footGoal(foot, blocker, spot, side, radius) {
   return { phase, goal };
 }
 
-export function footPush(foot, target, watch, vel, contact, dt) {
-  const drive = driveDir(foot.tech, target, watch);
+export function footPush(foot, target, watch, vel, contact, dt, side) {
+  const drive = driveDir(foot.tech, target, watch, side);
   const c = contact ?? drive;
-  const theta = Math.abs(signedAngle(drive, c));
-  const w = Math.max(0, Math.min(1, (theta - rad(BLIND_START)) / (rad(BLIND_FULL) - rad(BLIND_START))));
-  let bx = (1 - w) * drive.x + w * c.x;
-  let by = (1 - w) * drive.y + w * c.y;
-  let bl = Math.hypot(bx, by);
   let base;
-  if (bl < 1e-9) {
-    const cl = Math.hypot(c.x, c.y);
-    base = { x: c.x / cl, y: c.y / cl };
-  } else base = { x: bx / bl, y: by / bl };
+  if (TECHNIQUES[foot.tech]?.drive === 'playside') {
+    // Shared base: every blocker on the man pushes from the drive, not from his own contact line.
+    base = drive;
+  } else {
+    const theta = Math.abs(signedAngle(drive, c));
+    const w = Math.max(0, Math.min(1, (theta - rad(BLIND_START)) / (rad(BLIND_FULL) - rad(BLIND_START))));
+    let bx = (1 - w) * drive.x + w * c.x;
+    let by = (1 - w) * drive.y + w * c.y;
+    let bl = Math.hypot(bx, by);
+    if (bl < 1e-9) {
+      const cl = Math.hypot(c.x, c.y);
+      base = { x: c.x / cl, y: c.y / cl };
+    } else base = { x: bx / bl, y: by / bl };
+  }
 
   const v = vel ?? { x: 0, y: 0 };
   const along = v.x * base.x + v.y * base.y;
@@ -193,7 +212,8 @@ export function footPush(foot, target, watch, vel, contact, dt) {
     ride = first ? target_ride : foot.ride + (target_ride - foot.ride) * (1 - Math.exp(-dt / RIDE_TAU));
   }
   const desired = rotate(base, ride);
-  const from = foot.push ?? c;
+  // A 'playside' push starts on the shared base (not the contact line), so partners agree from the first tick.
+  const from = foot.push ?? (TECHNIQUES[foot.tech]?.drive === 'playside' ? base : c);
   const fl = Math.hypot(from.x, from.y);
   const start = fl > 0 ? { x: from.x / fl, y: from.y / fl } : drive;
   const push = rotateToward(start, desired, dt > 0 ? PUSH_TURN * dt : 0);

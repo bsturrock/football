@@ -484,3 +484,24 @@ test('T-173 (b) a line that already clears both bodies keeps the midpoint aim', 
   steerStep(p, { x: 0, y: 5, key: 'k', ignore: null }, [p, ...bodies], 6 * DT, DT, R35);
   assert.ok(Math.abs(p.x) < 1e-12 && Math.abs(p.y - (-3 + 6 * DT)) < 1e-12);
 });
+
+test('T-12: a forward goal never detours backward around a body on the held side', () => {
+  const mk = (ox) => ({
+    p: { id: 'p', x: 0, y: 0, steer: { key: 'k', side: 1, stuck: 0, flips: 0, lane: null } },
+    bodies: [{ id: 'o', x: ox, y: 0.09 }],
+  });
+  const step = (ox, forward) => {
+    const { p, bodies } = mk(ox);
+    const g = { x: 0, y: 10, key: 'k' };
+    if (forward) g.forward = true;
+    steerStep(p, g, [p, ...bodies], 0.13, 1 / 60, 0.28);
+    return p;
+  };
+  assert.ok(step(-0.51, false).y < 0);
+  const f = step(-0.51, true);
+  assert.ok(f.y >= -1e-9);
+  assert.equal(f.steer.side, 1);
+  const a = step(0.51, false), b = step(0.51, true);
+  assert.equal(b.x, a.x);
+  assert.equal(b.y, a.y);
+});

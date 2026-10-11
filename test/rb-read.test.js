@@ -268,6 +268,7 @@ test('F-35 #13: base front backside edge never keeps him pressing under pressure
   }
 });
 
+const MAX_TRACK_STEP = 0.15; // yd per tick; the track point drifts smoothly (about 0.06 observed), never jumps
 // F-46: the RB's patience is a shuffle around his track point with some forward creep.
 function pressRun(front, accel = true) {
   const play = createPlay(LOS, 'insideZone', { accel, tackles: false, front });
@@ -303,8 +304,15 @@ for (const front of Object.keys(FRONTS)) {
     // The press is shorter than the walk from the mesh to the guard, so he is still arriving (and the guard slides
     // away): he may be off the track by his first-tick offset plus one shuffle width, never more.
     const bound = Math.max(SHUFFLE_WIDTH + BODY_RADIUS, ticks.length ? Math.abs(ticks[0].x - ticks[0].px) + SHUFFLE_WIDTH : 0);
+    let prevPx = null;
     for (const k of ticks) {
-      assert.ok(Math.abs(k.x - k.px) <= bound + 1e-9, `${front}: ${k.x} off track ${k.px}`);
+      if (prevPx !== null) assert.ok(Math.abs(k.px - prevPx) <= MAX_TRACK_STEP, `${front}: track point jumps ${k.px - prevPx}`);
+      prevPx = k.px;
+      // The track point itself drifts (the guard is driven playside through a long double team, smoothly, a few
+      // hundredths of a yard a tick), so the allowed gap grows by how far the track has travelled since the first
+      // tick. A jump of the track would still show: it travels at once, but so would the allowance, so the per-tick
+      // step of the track is bounded as well.
+      assert.ok(Math.abs(k.x - k.px) <= bound + Math.abs(k.px - ticks[0].px) + 1e-9, `${front}: ${k.x} off track ${k.px}`);
     }
     if (!start || !end) return t.diagnostic(`${front}: no press`);
     assert.ok(end.y > start.y, `${front}: no forward creep ${start.y} -> ${end.y}`);

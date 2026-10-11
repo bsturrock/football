@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
-import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, COMBO_TOUCH, LB_FILL_V, TRACK_HALF, INSIDE_ZONE, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH, runScheme } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
@@ -357,18 +357,55 @@ test('zoneSwitch: playside sign picks by the DL, not the nearer blocker', () => 
   assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'LG', target: 'MLB' }]);
 });
 
-test('gate: stayer just engaged, climber held COMBO_HOLD -> switch', () =>
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = 0; }), [{ blocker: 'LG', target: 'MLB' }]));
+// Restated by T-9 (F-3 #1, round 3): the climber now comes off in response to his LB, so each case names what the LB does. Was: joint hold COMBO_HOLD and a DL driven the old drive gate gated every climb.
+const joint = (j) => (s) => { s.g('C').block.held = j; s.g('LG').block.held = j; };
+const lbMove = (vx, vy) => (s) => { s.g('MLB').vel = { x: vx, y: vy }; };
+const far = [-1.6, 29.5]; // beyond SWITCH_DIST of both blockers
+test('gate: stayer just engaged, climber held COMBO_HOLD -> switch', () => {
+  // restated: a committed LB that is not attacking needs the joint hold (min of both) at COMBO_HOLD; one man's hold is not enough
+  const m = (extra) => (s) => { commit('MLB', -1.5)(s); extra(s); };
+  assert.deepEqual(at(...far, m((s) => { s.g('C').block.held = 0; s.g('LG').block.held = COMBO_HOLD + 0.2; })), [], 'stayer held 0: not yet a double');
+  assert.deepEqual(at(...far, m((s) => { s.g('C').block.held = COMBO_HOLD; s.g('LG').block.held = COMBO_HOLD + 0.2; })), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('gate: climber not engaged -> none', () => {
+  // restated: a committed LB far away and a climber not yet on the DL: the hold counted is the stayer's alone, so a stayer just on (held 0) releases nothing; once he has held COMBO_HOLD the climber (who has nothing to leave) goes
+  const m = (h) => (s) => { commit('MLB', -1.5)(s); s.g('LG').block.engaged = false; s.g('C').block.held = h; };
+  assert.deepEqual(at(...far, m(0)), []);
+  assert.deepEqual(at(...far, m(COMBO_HOLD)), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('F-3 #1 (i): joint under COMBO_TOUCH, LB committed and attacking downhill -> none', () =>
+  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_TOUCH - 0.01)(s); lbMove(0, -(LB_FILL_V + 1))(s); }), []));
+test('F-3 #1 (ii): joint at COMBO_TOUCH, LB committed and attacking -> switch', () =>
+  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_TOUCH)(s); lbMove(0, -(LB_FILL_V + 1))(s); }), [{ blocker: 'LG', target: 'MLB' }]));
+test('F-3 #1 (iii): joint at COMBO_TOUCH, LB committed but moving sideways -> none; at COMBO_HOLD -> switch', () => {
+  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_TOUCH)(s); lbMove(3, 0)(s); }), []);
+  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_HOLD)(s); lbMove(3, 0)(s); }), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('F-3 #1 (iv): LB uncommitted, beyond SWITCH_DIST, joint at COMBO_HOLD -> none', () =>
+  assert.deepEqual(at(...far, (s) => { joint(COMBO_HOLD)(s); lbMove(0, -4)(s); }), []));
+test('F-3 #1 (v): LB within SWITCH_DIST, only the stayer engaged -> switch (forced, no joint hold)', () =>
+  // LG is the climber (fit is backside of the DL), C the stayer
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('LG').block.engaged = false; joint(0)(s); }), [{ blocker: 'LG', target: 'MLB' }]));
+test('F-3 #1 (vi): LB within SWITCH_DIST but the stayer not engaged -> none', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.engaged = false; }), []));
+test('F-3 #1 (vii): DL winning -> none, even forced', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('RDT').react = { state: 'winning' }; }), []));
 test('gate: neither held long enough -> none', () =>
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = COMBO_HOLD - 0.01; s.g('LG').block.held = COMBO_HOLD - 0.01; }), []));
+  // restated: a committed LB that is not attacking and a joint hold just under COMBO_HOLD
+  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_HOLD - 0.01)(s); }), []));
 test('gate: stayer not engaged -> none', () =>
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.engaged = false; }), []));
 test('gate: winning DL -> none', () =>
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('RDT').react = { state: 'winning' }; }), []));
 test('gate: commit trigger uses the same gate', () => {
-  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), [{ blocker: 'LG', target: 'MLB' }]);
-  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; s.g('LG').block.held = 0; }), []);
+  // restated: the joint hold (min of both) gates a committed, non-attacking LB
+  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); s.g('LG').block.held = COMBO_HOLD + 0.2; }), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), []);
+  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; s.g('LG').block.held = 0; }), []);
 });
+test('F-3 #1 (viii): committed LB outside both tracks does not release the climber', () =>
+  // human track rule: only an LB in a member's track (or across his face) pulls a blocker off the DL
+  assert.deepEqual(at(-2.2 - TRACK_HALF - 0.5, 29.5, (s) => { commit('MLB', -5)(s); joint(COMBO_HOLD)(s); lbMove(0, -4)(s); }), []));
 test('gate: zoneSwitch leaves ctx and players alone (no climber lock)', () => {
   const s = sw();
   Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
