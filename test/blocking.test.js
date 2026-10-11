@@ -5,7 +5,7 @@ import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
   doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
   SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce, CONTACT_TURN,
-  contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU,
+  contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
 import { startFoot } from '../src/dots/technique.js';
@@ -176,13 +176,22 @@ test('stepBlocking engaged defender, clamp, blocker follows', () => {
   stepBlocking(ps, goal, DT, { rule: null, seq: 1 });
   near(ps[1].y, 10 + kd * g.vy * DT, 1e-12);
   near(ps[1].x, 0 + kd * g.vx * DT, 1e-12);
-  const spot = contactSpot(ps, ps[0]);
-  const kb = 1 - Math.exp(-DT / FOLLOW_TAU);
-  const gb = { x: (spot.x - 0) / DT, y: (spot.y - (10 - CONTACT_DIST)) / DT };
-  const gm = Math.hypot(gb.x, gb.y);
-  const cap = gm > 6 ? 6 / gm : 1;
-  near(ps[0].x, kb * gb.x * cap * DT, 1e-12);
-  near(ps[0].y, 10 - CONTACT_DIST + kb * gb.y * cap * DT, 1e-12);
+  // the blocker rides the defender's displacement plus the damped correction toward his spot
+  const b0 = { x: 0.05, y: 10 - CONTACT_DIST };
+  const q = [O('a', b0.x, b0.y, { vel: { x: 1, y: 0 }, block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, 10)];
+  stepBlocking(q, goal, DT, { rule: null, seq: 1 });
+  const T = q[1];
+  const dT = { x: T.x - 0, y: T.y - 10 };
+  const fa0 = Math.atan2(T.x - b0.x, T.y - b0.y); // contact line blocker -> (moved) target
+  const fa = fa0 - Math.sign(fa0) * Math.min(Math.abs(fa0), CONTACT_TURN * DT); // turns toward straight
+  near(q[0].block.fa, fa, 1e-12);
+  const spot = { x: T.x - Math.sin(fa) * CONTACT_DIST, y: T.y - Math.cos(fa) * CONTACT_DIST };
+  const sx = dampedFollow(b0.x + dT.x - spot.x, 1 - 0, DT, FOLLOW_TAU);
+  const sy = dampedFollow(b0.y + dT.y - spot.y, 0 - 0, DT, FOLLOW_TAU);
+  assert.ok(Math.hypot(spot.x + sx.e - b0.x, spot.y + sy.e - b0.y) < 6 * DT, 'speed cap not binding');
+  near(q[0].x, spot.x + sx.e, 1e-12);
+  near(q[0].y, spot.y + sy.e, 1e-12);
+  near(q[0].block.fu.x, sx.u, 1e-12); near(q[0].block.fu.y, sy.u, 1e-12);
   const ps2 = [O('a', 0, Y_MAX - 0.3 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1 }) }), D('d', 0, Y_MAX - 0.3)];
   for (let i = 0; i < 20000; i++) stepBlocking(ps2, goal, DT, { rule: null, seq: 1 });
   assert.equal(ps2[1].y, Y_MAX);
@@ -237,6 +246,63 @@ test('carryVelocity relaxes toward the goal; the impact applies only while t > 0
   const z = carryVelocity({ x: 0, y: 0 }, { x: 0, y: 0 }, imp, DT, 0.2);
   near(z.vx, 0, 1e-12); near(z.vy, 0, 1e-12);
   assert.ok(IMPACT_TIME > 0);
+});
+
+test('dampedFollow: an error decays monotonically to 0 with no sign change', () => {
+  let s = { e: 1, u: 0 };
+  let prev = 1;
+  for (let i = 0; i < 600; i++) {
+    s = dampedFollow(s.e, s.u, DT, FOLLOW_TAU);
+    assert.ok(s.e >= 0, `tick ${i}: sign change ${s.e}`);
+    assert.ok(s.e <= prev + 1e-15, `tick ${i}: grew ${prev} -> ${s.e}`);
+    prev = s.e;
+  }
+  assert.ok(Math.abs(s.e) < 1e-6 && Math.abs(s.u) < 1e-6, `not settled: ${s.e}, ${s.u}`);
+});
+
+test('dampedFollow: a ramp-then-hold spot is followed with no overshoot', () => {
+  // follower position p tracks spot q; e = p - q. The spot ramps at 1.5 yd/s for 0.4 s, then holds.
+  let p = 0;
+  let q = 0;
+  let u = 0; // follower velocity; the spot's own rate is not fed in
+  for (let i = 0; i < 240; i++) {
+    const rate = i < 24 ? 1.5 : 0;
+    q += rate * DT;
+    const s = dampedFollow(p - q, u, DT, FOLLOW_TAU);
+    p = q + s.e;
+    u = s.u;
+    assert.ok(p <= q + 1e-12, `tick ${i}: overshot the spot by ${p - q}`);
+  }
+  near(p, q, 1e-6);
+});
+
+test('dampedFollow is exact: many small steps equal one large step', () => {
+  const big = dampedFollow(0.7, -2, 0.3, FOLLOW_TAU);
+  let s = { e: 0.7, u: -2 };
+  for (let i = 0; i < 300; i++) s = dampedFollow(s.e, s.u, 0.001, FOLLOW_TAU);
+  near(s.e, big.e, 1e-9);
+  near(s.u, big.u, 1e-9);
+});
+
+test('a hit gives the defender his whole impulse over IMPACT_TIME (the blocker pass keeps his impact)', () => {
+  const d = D('d', 0, 10, { speed: 0, strength: 0.6, vel: { x: 0, y: 0 } });
+  const a = O('a', -CONTACT_DIST - 0.02, 10, { facing: Math.PI / 2, vel: { x: 4, y: 0 }, block: blk('d') });
+  const ps = [a, d];
+  const ctx = { rule: null, seq: 0 };
+  const ball = { x: 0, y: -50 };
+  const imp = contactImpulse(d, a);
+  assert.ok(imp.d.x > 1, `impulse ${imp.d.x}`);
+  stepBlocking(ps, ball, DT, ctx);
+  assert.ok(a.block.engaged, 'engages on the first pass');
+  stepBlocking(ps, ball, DT, ctx);
+  assert.ok(d.impact, 'impact survives the pass after the engage');
+  let best = d.vel.x;
+  for (let i = 0; i < Math.ceil(IMPACT_TIME / DT); i++) {
+    stepBlocking(ps, ball, DT, ctx);
+    best = Math.max(best, d.vel.x);
+  }
+  assert.ok(best >= 0.8 * imp.d.x, `defender x velocity ${best} of impulse ${imp.d.x}`);
+  assert.equal(d.impact, null);
 });
 
 test('blindside (F-49 #8): a hit from the side carries the defender along and pushes the blocker with it', () => {

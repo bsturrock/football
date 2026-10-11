@@ -157,31 +157,38 @@ export function contactSpot(players, blocker) {
 // Tunable: rad/s a lone engaged blocker's contact line turns toward his push direction.
 export const CONTACT_TURN = Math.PI / 2;
 
-// Spot an engaged blocker follows. A lone blocker stays on his contact line (the line from him
-// to the target) and turns it gradually toward his push direction, never snapping to the fixed
-// BLOCK_ANGLES spot. When another blocker has the same target (engaged or still closing, e.g.
-// a combo partner) the contactSpot group placement applies unchanged, so the pair keeps its
-// geometry and the climb timing; the survivor of a climb is then lone and follows his line.
+// Spot an engaged blocker follows. A lone blocker's spot sits on CONTACT_DIST around the target at
+// his own bearing state b.block.fa (atan2 of the unit vector blocker -> target). It starts on the
+// actual contact line (on engage, or when he becomes lone) and turns gradually toward his push
+// direction; it is not re-derived from his position each tick, so a smooth follow does not slow
+// the turn, and he never snaps to the fixed BLOCK_ANGLES spot. When another blocker has the same
+// target (engaged or still closing, e.g. a combo partner) the contactSpot group placement applies
+// unchanged and fa resets, so the pair keeps its geometry and the climb timing.
 function followSpot(players, b, dt) {
   const T = byId(players, b.block.target);
   if (players.some((p) => p !== b && isBlocker(p) && p.block && p.block.target === b.block.target)) {
+    b.block.fa = null;
     return contactSpot(players, b);
   }
-  const dx = T.x - b.x;
-  const dy = T.y - b.y;
-  const dist = Math.hypot(dx, dy);
   const base = BLOCK_ANGLES[b.block.angle];
-  const a = dist < 1e-9 ? base : { x: dx / dist, y: dy / dist };
+  if (b.block.fa == null) {
+    const dx = T.x - b.x;
+    const dy = T.y - b.y;
+    const dist = Math.hypot(dx, dy);
+    const a = dist < 1e-9 ? base : { x: dx / dist, y: dy / dist };
+    b.block.fa = Math.atan2(a.x, a.y);
+  }
   // Aim between his push and his block angle: he follows the defender's travel without
   // trailing upfield of him (a pure push-following blocker lets a rusher run the arc and win).
   const push = b.block.foot?.push ?? base;
   const wm = Math.hypot(push.x + base.x, push.y + base.y) || 1;
   const want = { x: (push.x + base.x) / wm, y: (push.y + base.y) / wm };
-  const cur = Math.atan2(a.x, a.y);
+  const cur = b.block.fa;
   let diff = Math.atan2(want.x, want.y) - cur;
   diff = Math.atan2(Math.sin(diff), Math.cos(diff));
   const turn = Math.sign(diff) * Math.min(Math.abs(diff), CONTACT_TURN * dt);
-  const n = cur + turn;
+  const n = Math.atan2(Math.sin(cur + turn), Math.cos(cur + turn));
+  b.block.fa = n;
   return { x: T.x - Math.sin(n) * CONTACT_DIST, y: T.y - Math.cos(n) * CONTACT_DIST };
 }
 
@@ -207,12 +214,12 @@ export function blockPush(blockers) {
 export const massOf = (p) => p.strength;
 
 // Tunables: share of the defender's sliding speed the hands take away at contact; seconds the hit's
-// impulse is spread over; seconds the defender's velocity takes to ease to the block-resolved one
-// and the engaged blocker's to his follow spot.
+// impulse is spread over; seconds the defender's velocity takes to ease to the block-resolved one;
+// 1 / w of the engaged blocker's critically damped correction toward his follow spot.
 export const CONTACT_GRIP = 0.25;
-export const IMPACT_TIME = 0.08;
-export const ENGAGE_TAU = 0.17;
-export const FOLLOW_TAU = 0.065;
+export const IMPACT_TIME = 0.1;
+export const ENGAGE_TAU = 0.2;
+export const FOLLOW_TAU = 0.13;
 
 // Velocity change of each body from the hit (mass-weighted along the contact line, plus a grip on
 // the defender's sliding). Pure.
@@ -249,12 +256,29 @@ export function carryVelocity(prev, goal, impact, dt, tau) {
   const k = 1 - Math.exp(-dt / tau);
   let vx = prev.x + (goal.x - prev.x) * k;
   let vy = prev.y + (goal.y - prev.y) * k;
-  if (impact && impact.t > 0) {
-    vx += impact.ax * dt;
-    vy += impact.ay * dt;
-    impact.t -= dt;
-  }
+  const s = impactStep(impact, dt);
+  vx += s.x;
+  vy += s.y;
   return { vx, vy };
+}
+
+// Velocity the hit adds this tick (its acceleration over the part of dt it still lasts), counting
+// impact.t down. The full impulse ax * IMPACT_TIME is delivered exactly, whatever dt.
+function impactStep(impact, dt) {
+  if (!impact || impact.t <= 0) return { x: 0, y: 0 };
+  const s = Math.min(dt, impact.t);
+  impact.t -= dt;
+  if (impact.t <= 1e-9) impact.t = 0;
+  return { x: impact.ax * s, y: impact.ay * s };
+}
+
+// One exact tick of the critically damped follower e'' + 2w e' + w^2 e = 0 (w = 1 / tau), with e
+// the error and u its rate. Stable for any dt and never rings. Pure, one axis.
+export function dampedFollow(e, u, dt, tau) {
+  const w = 1 / tau;
+  const k = Math.exp(-w * dt);
+  const c = u + w * e;
+  return { e: (e + c * dt) * k, u: (u - w * c * dt) * k };
 }
 
 // The one function that decides who wins an engaged block. Pure.
@@ -521,6 +545,8 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       b.block.held = 0;
       b.block.winT = 0;
       if ('released' in b.block) b.block.released = null;
+      b.block.fa = null;
+      b.block.fu = null;
       justEngaged.add(b.id);
       b.steer = null;
       b.block.seq = ++ctx.seq;
@@ -553,6 +579,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
   }
 
+  const kicked = new Map(); // defender id -> velocity his hit added this pass
   for (const d of players) {
     if (!isDefense(d)) continue;
     if ((d.shedFree ?? 0) > 0) d.shedFree = Math.max(0, d.shedFree - dt);
@@ -565,7 +592,11 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       const line = ld < 1e-9 ? null : { x: (d.x - mx) / ld, y: (d.y - my) / ld };
       d.react = stepReact(d.react ?? null, d, blockPush(eng), ctx?.defGoals?.[d.id] ?? ballPos, dt, { leverage: fight, line });
       const g = resolveBlock(d, eng, ballPos);
-      const v = carryVelocity(d.vel ?? { x: 0, y: 0 }, { x: g.vx, y: g.vy }, d.impact, dt, ENGAGE_TAU);
+      const v = carryVelocity(d.vel ?? { x: 0, y: 0 }, { x: g.vx, y: g.vy }, null, dt, ENGAGE_TAU);
+      const kick = impactStep(d.impact, dt);
+      kicked.set(d.id, kick);
+      v.vx += kick.x;
+      v.vy += kick.y;
       if (d.impact && d.impact.t <= 0) d.impact = null;
       d.x = Math.min(HW, Math.max(-HW, d.x + v.vx * dt));
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
@@ -610,25 +641,47 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     b.block.winT = T.react?.state === 'winning' ? b.block.winT + dt : 0;
   }
 
+  // Engaged blockers ride their target (his displacement this pass) plus a critically damped
+  // correction toward the follow spot. Only blockers' impacts are cleared here; a defender's is
+  // cleared in the defender loop.
   for (const b of players) {
     if (!b.block || !b.block.engaged) {
-      if (b.impact) b.impact = null;
+      if (isBlocker(b) && b.impact) b.impact = null;
       continue;
     }
     b.steer = null;
     if (justEngaged.has(b.id)) continue;
+    const T = byId(players, b.block.target);
+    const t0 = start[players.indexOf(T)];
+    const dTx = T.x - t0.x;
+    const dTy = T.y - t0.y;
     const spot = followSpot(players, b, dt);
-    let gx = (spot.x - b.x) / dt;
-    let gy = (spot.y - b.y) / dt;
-    const gm = Math.hypot(gx, gy);
-    if (gm > b.speed) {
-      gx = (gx / gm) * b.speed;
-      gy = (gy / gm) * b.speed;
+    const ex = b.x + dTx - spot.x;
+    const ey = b.y + dTy - spot.y;
+    let u = b.block.fu;
+    if (!u) {
+      const vb = b.vel ?? { x: 0, y: 0 };
+      const vt = T.vel ?? { x: 0, y: 0 };
+      u = { x: vb.x - vt.x, y: vb.y - vt.y };
     }
-    const v = carryVelocity(b.vel ?? { x: 0, y: 0 }, { x: gx, y: gy }, b.impact, dt, FOLLOW_TAU);
+    const own = impactStep(b.impact, dt);
     if (b.impact && b.impact.t <= 0) b.impact = null;
-    b.x += v.vx * dt;
-    b.y += v.vy * dt;
+    const theirs = kicked.get(T.id) ?? { x: 0, y: 0 };
+    const sx = dampedFollow(ex, u.x + own.x - theirs.x, dt, FOLLOW_TAU);
+    const sy = dampedFollow(ey, u.y + own.y - theirs.y, dt, FOLLOW_TAU);
+    let mx = spot.x + sx.e - b.x;
+    let my = spot.y + sy.e - b.y;
+    let fu = { x: sx.u, y: sy.u };
+    const mm = Math.hypot(mx, my);
+    const cap = b.speed * dt;
+    if (mm > cap) {
+      mx = (mx / mm) * cap;
+      my = (my / mm) * cap;
+      fu = { x: (mx - dTx) / dt, y: (my - dTy) / dt };
+    }
+    b.block.fu = fu;
+    b.x += mx;
+    b.y += my;
     clampBody(b);
   }
 
@@ -639,6 +692,8 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     b.block.engaged = false;
     b.block.seq = null;
     b.block.released = reason;
+    b.block.fa = null;
+    b.block.fu = null;
     if (b.block.foot) b.block.foot.push = null;
     if (reason !== 'past') b.block.cool = REENGAGE_DELAY;
     if (reason === 'shed') byId(players, b.block.target).shedFree = REENGAGE_DELAY;
