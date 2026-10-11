@@ -7,6 +7,11 @@ export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
 // the longer-held blocker on the DL must have held him this long before the climber leaves, and the stayer must be on him; a late-engaging stayer no longer delays a climber who has held since early
 export const COMBO_HOLD = 0.3;
+// F-3: the climber leaves only off a real double: both men on the DL together for COMBO_HOLD, and the DL driven this far playside of his snap spot and COMBO_BACK further back than when both first got on
+export const COMBO_MOVE = 1.0;
+export const COMBO_BACK = 0.2;
+const snapX = new WeakMap(); // combo -> the DL's x at the snap (kept off the combo so plans compare equal); a hand-built combo has none and skips the drive gate
+const firstY = new WeakMap(); // combo -> the DL's y on the first tick both members were engaged
 
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
@@ -23,6 +28,7 @@ export const INSIDE_ZONE = Object.freeze({
 export function zonePlan(players, numbers, los) {
   const front = readFront(players, numbers, los);
   const { side, blocks, techs, combos, free } = runScheme(front, INSIDE_ZONE);
+  for (const c of combos) snapX.set(c, players.find((p) => p.id === c.target)?.x);
   return { side, blocks, techs, combos, free, front };
 }
 
@@ -68,6 +74,11 @@ export function zoneSwitch(players, ballPos, ctx) {
     const p = byId.get(c.partner);
     if (!o || !p) continue;
     if (o.block?.target !== c.target || p.block?.target !== c.target) continue; // already switched
+    const dl = byId.get(c.target);
+    const on = (x) => x.block?.target === c.target && x.block.engaged;
+    // recorded on the first tick both are on (held is then under COMBO_HOLD); a hand-built fixture whose double is already held has no start and skips the back check
+    if (dl && on(o) && on(p) && !firstY.has(c) && Math.min(o.block.held ?? 0, p.block.held ?? 0) < COMBO_HOLD - 1e-9) firstY.set(c, dl.y);
+    const y1 = firstY.get(c);
     const plan = byId.get(c.watch);
     const free = unclaimedInReach(players, ballPos, ctx, claimed, mid(c));
     let w = plan && !claimed.has(plan.id) ? plan : null;
@@ -77,17 +88,17 @@ export function zoneSwitch(players, ballPos, ctx) {
     } else w = free[0] ?? null;
     if (!w) continue;
     claimed.add(w.id);
-    const dl = byId.get(c.target);
-    const on = (x) => x.block?.target === c.target && x.block.engaged;
     // The climber is re-judged every tick from where the linebacker fits; nothing is locked.
     const go = () => {
       if (!dl || dl.react?.state === 'winning') return;
       const fitX = ctx.defGoals?.[w.id]?.x ?? w.x;
       const taker = pickClimber(o, p, dl, fitX, ctx.side);
-      const stayer = taker === o ? p : o;
-      if (!on(stayer)) return;
-      const held = Math.max(...[o, p].filter(on).map((x) => x.block.held ?? 0));
-      if (held >= COMBO_HOLD - 1e-9) out.push({ blocker: taker.id, target: w.id });
+      if (!on(o) || !on(p)) return;
+      const held = Math.min(o.block.held ?? 0, p.block.held ?? 0);
+      if (held < COMBO_HOLD - 1e-9) return;
+      if (snapX.get(c) != null && ctx.side * (dl.x - snapX.get(c)) < COMBO_MOVE - 1e-9) return;
+      if (y1 !== undefined && dl.y - y1 < COMBO_BACK - 1e-9) return;
+      out.push({ blocker: taker.id, target: w.id });
     };
     if (ctx.committed?.[w.id]) go();
     else {

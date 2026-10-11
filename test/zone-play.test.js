@@ -115,11 +115,16 @@ test('F-12 #7: shifted LBs: both combos switch to their watch; range gives the R
   // The range trigger only applies while the watched LB has not committed (a commit takes precedence).
   assert.ok(!p2.defense.committed?.[W], 'watched LB has not committed');
   // Fixture for the gate precondition: RT cannot hold LDT naturally before the play dies on this lineup.
+  // T-9 (F-3 #1/#3): the joint gate needs both members held and the DL driven COMBO_MOVE playside; the fixture supplies both (RG's engage is real, the rest is forced).
   Object.assign(RT.block, { engaged: true, held: COMBO_HOLD });
+  RG.block.held = COMBO_HOLD;
+  const ldt = p2.player('LDT');
+  const ldtX0 = ldt.x;
   // T-152: the climber follows the gap the LB fits (his goal), not who he stands nearer; judge by pickClimber.
   const orig = p2.retargetRule;
   let want = null;
   p2.retargetRule = (players, ballPos, ctx) => {
+    ldt.x = ldtX0 + ctx.side * 1.0;
     want = pickClimber(RT, RG, p2.player('LDT'), ctx.defGoals?.[W]?.x ?? lb.x, ctx.side).id;
     return orig(players, ballPos, ctx);
   };
@@ -877,7 +882,8 @@ test('R-64: every front, the climber on the switch tick is the blocker on the si
   assert.ok(checked > 0);
 });
 
-test('R-64: base, RG climbs to the MLB at or before 0.85 s', () => {
+// Restated by T-9 (F-3 #1/#3): was 0.85 s. The climber now leaves only off a real double (both on 0.3 s, DL driven 1 yd playside), measured 1.12 s on this lineup (both on at 0.82 s).
+test('R-64: base, RG climbs to the MLB at or before 1.15 s', () => {
   const play = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front: 'base' });
   play.snap();
   let t = null;
@@ -885,7 +891,7 @@ test('R-64: base, RG climbs to the MLB at or before 0.85 s', () => {
     play.step(DT);
     if (play.player('RG').block?.target === 'MLB') t = i * DT;
   }
-  assert.ok(t != null && t <= 0.85 + 1e-9, `RG switched at ${t}`);
+  assert.ok(t != null && t <= 1.15 + 1e-9, `RG switched at ${t}`);
 });
 
 test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch unless a clearly more dangerous unclaimed LB is in reach', () => {
@@ -961,6 +967,59 @@ test('F-3 #2: combo partners lean together', () => {
         });
       }
       play.combos.forEach((c, k) => assert.ok(seen.get(k), `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} never both engaged`));
+    }
+  }
+});
+
+// F-3 #1/#3 (T-9): a climb happens only off a real double. The wrapper reads the players exactly as the rule saw them on the tick it released a climber.
+const COMBO_MOVE_T = 1.0;
+const doubleRun = (front, opts, check) => {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front, ...opts });
+  const orig = play.retargetRule;
+  const both = new Map(); // combo -> { t, y, snapX }
+  const climbed = new Map();
+  let t = 0;
+  play.retargetRule = (pl, b, ctx) => {
+    const out = orig(pl, b, ctx);
+    for (const c of play.combos) {
+      const ps = [c.owner, c.partner].map((id) => pl.find((q) => q.id === id));
+      const dl = pl.find((q) => q.id === c.target);
+      const on = ps.every((q) => q.block?.target === c.target && q.block.engaged);
+      if (on && !both.has(c)) both.set(c, { t, y: dl.y });
+      if (!climbed.has(c) && out.some((o) => o.blocker === c.owner || o.blocker === c.partner)) {
+        climbed.set(c, t);
+        check({ c, t, side: ctx.side, dl, on, ps, first: both.get(c), x0: snap.get(c) });
+      }
+    }
+    return out;
+  };
+  const snap = new Map();
+  play.snap();
+  for (const c of play.combos) snap.set(c, play.player(c.target).x);
+  for (let i = 1; i <= Math.round(2.0 / DT); i++) { t = i * DT; play.step(DT); }
+  play.combos.forEach((c) => assert.ok(climbed.has(c), `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} never climbed within 2.0 s`));
+};
+
+test('F-3 #1: no combo climbs before both men have been on the DL together for COMBO_HOLD', () => {
+  for (const front of Object.keys(FRONTS)) {
+    for (const opts of [{}, { personnel: 'te' }]) {
+      doubleRun(front, opts, ({ c, t, on, first }) => {
+        const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${t.toFixed(2)}`;
+        assert.ok(on && first, `${tag} climbed without both engaged`);
+        assert.ok(t - first.t >= COMBO_HOLD - 2 * DT, `${tag} both on only ${(t - first.t).toFixed(2)} s`);
+      });
+    }
+  }
+});
+
+test('F-3 #3: the double drives the DL at least 1 yd playside and back before the climb', () => {
+  for (const front of Object.keys(FRONTS)) {
+    for (const opts of [{}, { personnel: 'te' }]) {
+      doubleRun(front, opts, ({ c, t, side, dl, first, x0 }) => {
+        const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${t.toFixed(2)}`;
+        assert.ok(side * (dl.x - x0) >= COMBO_MOVE_T - 1e-6, `${tag} DL playside ${(side * (dl.x - x0)).toFixed(2)}`);
+        assert.ok(dl.y - first.y >= 0.2 - 1e-6, `${tag} DL back ${(dl.y - first.y).toFixed(2)}`);
+      });
     }
   }
 });

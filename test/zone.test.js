@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
-import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, INSIDE_ZONE, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, COMBO_MOVE, COMBO_BACK, INSIDE_ZONE, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH, runScheme } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
@@ -357,8 +357,46 @@ test('zoneSwitch: playside sign picks by the DL, not the nearer blocker', () => 
   assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'LG', target: 'MLB' }]);
 });
 
-test('gate: stayer just engaged, climber held COMBO_HOLD -> switch', () =>
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = 0; }), [{ blocker: 'LG', target: 'MLB' }]));
+// Restated by T-9 (F-3 #1): was "stayer just engaged (held 0), climber held COMBO_HOLD -> switch" (one man's hold was enough). Now the joint hold, the min of both members' held, must reach COMBO_HOLD.
+test('gate: stayer just engaged, climber held COMBO_HOLD -> switch', () => {
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = 0; }), [], 'stayer held 0: not yet a double');
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = COMBO_HOLD; s.g('LG').block.held = COMBO_HOLD + 0.2; }), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('gate: climber not engaged -> none', () =>
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('LG').block.engaged = false; }), []));
+test('gate: the DL must be COMBO_MOVE playside of his snap spot and COMBO_BACK further back than when both got on', () => {
+  const s = sw();
+  Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
+  s.ctx.side = 1;
+  const dl = s.g('RDT');
+  const y0 = dl.y;
+  s.g('C').block.held = 0; s.g('LG').block.held = 0;
+  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), []); // first tick both on: records y
+  s.g('C').block.held = COMBO_HOLD; s.g('LG').block.held = COMBO_HOLD;
+  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [], 'held but not driven back');
+  dl.y = y0 + COMBO_BACK;
+  assert.equal(zoneSwitch(s.players, null, s.ctx).length, 1, 'driven back, no snap spot recorded: back check only');
+});
+test('gate: planned combo needs COMBO_MOVE playside before it climbs', () => {
+  const players = buildLineup(25, 'insideZone', {});
+  const numbers = frontNumbers(players);
+  const plan = zonePlan(players, numbers, LOS);
+  const c = plan.combos[0];
+  const g = (id) => players.find((p) => p.id === id);
+  const dl = g(c.target);
+  const x0 = dl.x, y0 = dl.y;
+  for (const id of [c.owner, c.partner]) g(id).block = { target: c.target, angle: 'straight', engaged: true, seq: 1, held: 0 };
+  const ctx = { combos: plan.combos, side: plan.side };
+  const lb = g(c.watch);
+  Object.assign(lb, { x: g(c.owner).x, y: g(c.owner).y + 1 });
+  assert.deepEqual(zoneSwitch(players, null, ctx), [], 'first tick');
+  for (const id of [c.owner, c.partner]) g(id).block.held = COMBO_HOLD;
+  dl.y = y0 + 0.5;
+  dl.x = x0 + plan.side * (COMBO_MOVE - 0.05);
+  assert.deepEqual(zoneSwitch(players, null, ctx), [], 'short of COMBO_MOVE');
+  dl.x = x0 + plan.side * COMBO_MOVE;
+  assert.equal(zoneSwitch(players, null, ctx).length, 1, 'at COMBO_MOVE');
+});
 test('gate: neither held long enough -> none', () =>
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.held = COMBO_HOLD - 0.01; s.g('LG').block.held = COMBO_HOLD - 0.01; }), []));
 test('gate: stayer not engaged -> none', () =>
@@ -366,7 +404,9 @@ test('gate: stayer not engaged -> none', () =>
 test('gate: winning DL -> none', () =>
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('RDT').react = { state: 'winning' }; }), []));
 test('gate: commit trigger uses the same gate', () => {
-  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), [{ blocker: 'LG', target: 'MLB' }]);
+  // Restated by T-9 (F-3 #1): the joint hold (min of both) gates the commit trigger too.
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('LG').block.held = COMBO_HOLD + 0.2; }), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), []);
   assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; s.g('LG').block.held = 0; }), []);
 });
 test('gate: zoneSwitch leaves ctx and players alone (no climber lock)', () => {
