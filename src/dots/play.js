@@ -4,7 +4,7 @@
 
 import { DEF_PERSONNEL, FORMATIONS, FRONTS, PERSONNEL, PLAYS, buildLineup } from './roster.js';
 import { PLAYSIDE_SIGN, numberPlay } from './numbering.js';
-import { boxCount, createPerception, observe, worldSnapshot } from './perceive.js';
+import { boxCount, createPerception, cuesFor, observe, worldSnapshot } from './perceive.js';
 import { createTrace, entriesOf, recordTick } from './trace.js';
 import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
@@ -41,7 +41,9 @@ const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zone
 
 // formation: a FORMATIONS key (full-11 offense), or null. defPersonnel: a DEF_PERSONNEL key, or null
 // for the FRONTS defense. Left undefined, it takes the formation's default defense, unless the caller passed front.
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined, script = null, trace = false } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined, script = null, trace = false, playside = undefined } = {}) {
+  const sideKey = playside === undefined ? PLAYS[playKey].playside ?? null : playside;
+  if (sideKey !== null && !Object.hasOwn(PLAYSIDE_SIGN, sideKey)) throw new Error(`createPlay: bad playside ${playside}`);
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const defP = defPersonnel !== undefined ? defPersonnel : (front === undefined ? FORMATIONS[formation]?.defense ?? null : null);
   const play = {
@@ -64,6 +66,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     lbShift: 0,
     numbers: {},
     combos: [],
+    plan: null,
+    playside: sideKey,
     run: null,
     defense: null,
     ticks: 0,
@@ -108,6 +112,15 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     if (!Object.hasOwn(FRONTS, key)) return false;
     play.front = key;
     play.defPersonnel = null;
+    play.reset();
+    return key;
+  };
+
+  // Pre-snap run direction, 'left' or 'right'. Only changes while the ball is presnap.
+  play.setPlayside = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (typeof key !== 'string' || !Object.hasOwn(PLAYSIDE_SIGN, key)) return false;
+    play.playside = key;
     play.reset();
     return key;
   };
@@ -157,7 +170,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     return play.timeScale;
   };
 
-  const baseSide = () => PLAYSIDE_SIGN[PLAYS[playKey].playside] ?? 1;
+  const baseSide = () => PLAYSIDE_SIGN[play.playside] ?? 1;
 
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
@@ -172,12 +185,13 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     initFacing(play.players);
     // Pre-snap read: computed only here, so shifts keep it in sync with the lineup.
     const def = PLAYS[playKey];
-    play.numbers = def.playside
-      ? numberPlay(play.players, { los, centerId: def.ball.start, playside: def.playside })
+    play.numbers = play.playside
+      ? numberPlay(play.players, { los, centerId: def.ball.start, playside: play.playside })
       : {};
     for (const p of play.players) p.block = null;
     ctx = { seq: 0 };
     play.combos = [];
+    play.plan = null;
     play.run = null;
     play.defense = null;
     play.separation = 0;
@@ -212,7 +226,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     snapshotPrev();
     let plan = null;
     if (scheme) {
-      plan = scheme.plan(play.players, play.numbers, los);
+      plan = scheme.plan(play.players, play.numbers, los, { box: play.box?.ids ?? null });
+      play.plan = plan;
       play.combos = plan.combos;
       ctx.combos = plan.combos;
       ctx.side = plan.side;
@@ -222,20 +237,20 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     }
     const def = PLAYS[playKey];
     if (def.run) {
-      play.run = startRun(play.players, def.run, { snapToId: def.ball.snapTo, playside: def.playside, numbers: play.numbers });
+      play.run = startRun(play.players, def.run, { snapToId: def.ball.snapTo, playside: play.playside, numbers: play.numbers });
       play.defense = startDefense(play.players, plan?.front ?? readFront(play.players, play.numbers, los), {
         los,
         carrierId: play.run.carrier,
         script: play.script,
       });
     }
-    if (trace) {
+    if (trace || play.run) {
       play.perception = createPerception(
         worldSnapshot(play.players, { t: 0, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null }),
         { centerId: PLAYS[playKey].ball.start },
       );
-      play.trace = createTrace();
     }
+    if (trace) play.trace = createTrace();
     return true;
   };
 
@@ -287,6 +302,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     ctx.committed = play.defense ? play.defense.committed : null;
     ctx.rule = play.retargetRule;
     ctx.fightBlocks = play.fightBlocks;
+    ctx.los = los;
+    ctx.cues = (id) => cuesFor(play.perception, id);
     play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
     if (starts) {
       play.players.forEach((p, i) => {
@@ -325,10 +342,10 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
       advance(FIXED_DT);
       acc -= FIXED_DT;
       play.ticks += 1;
-      if (play.trace && !wasDead) {
+      if (play.perception && !wasDead) {
         const t = play.ticks * FIXED_DT;
         observe(play.perception, worldSnapshot(play.players, { t, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null }));
-        recordTick(play.trace, play.perception, play.players, { t, defense: play.defense, run: play.run });
+        if (play.trace) recordTick(play.trace, play.perception, play.players, { t, defense: play.defense, run: play.run });
       }
       n++;
     }
@@ -337,7 +354,9 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     play.alpha = Math.min(acc / FIXED_DT, 1 - 1e-12);
   };
 
-  play.traceOf = (id) => (play.trace ? entriesOf(play.trace, id) : []);
+  play.cuesOf = (id) => (play.perception ? cuesFor(play.perception, id) : null);
+
+  play.traceOf =(id) => (play.trace ? entriesOf(play.trace, id) : []);
 
   play.ballPosition = () => {
     const { holder, from, to, t } = play.ball;
