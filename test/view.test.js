@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { angleDiff } from '../src/dots/facing.js';
@@ -205,4 +205,27 @@ test('T-89: resultLabel', () => {
   assert.equal(resultLabel({ reason: 'touchdown', by: null, yards: 75 }), 'Touchdown, +75.0 yd');
   assert.equal(resultLabel({ reason: 'out', by: null, yards: -1.25 }), `Out of bounds, ${(-1.25).toFixed(1)} yd`);
   assert.equal(resultLabel({ reason: 'mystery', by: null, yards: 0 }), 'Play over, +0.0 yd');
+});
+
+test('versionLabel reads the last changelog entry', () => {
+  const text = [
+    '# Changelog',
+    '',
+    '- 2026-10-10 F-3 Roster and formations (R-6) 1a2b3c4',
+    '- 2026-10-11 F-4 Perception layer, read trace and scenario harness (R-7) 6fe1145',
+    '',
+  ].join('\n');
+  assert.equal(versionLabel(text), 'F-4 · 2026-10-11 · 6fe1145');
+});
+
+test('versionLabel handles CRLF line endings and trailing blank lines', () => {
+  const text = '# Changelog\r\n- 2026-10-10 F-3 Roster and formations (R-6) 1a2b3c4\r\n- 2026-10-11 F-4 Perception layer (R-7) 6fe1145  \r\n\r\n';
+  assert.equal(versionLabel(text), 'F-4 · 2026-10-11 · 6fe1145');
+});
+
+test('versionLabel returns version unknown without a matching entry', () => {
+  assert.equal(versionLabel('# Changelog'), 'version unknown');
+  assert.equal(versionLabel(''), 'version unknown');
+  assert.equal(versionLabel(undefined), 'version unknown');
+  assert.equal(versionLabel(42), 'version unknown');
 });

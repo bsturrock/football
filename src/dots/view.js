@@ -227,10 +227,30 @@ export function resultLabel(result) {
   return `Play over, ${yardsText}`;
 }
 
+// Build stamp from the last CHANGELOG.md entry: "F-4 · 2026-10-11 · 6fe1145".
+export function versionLabel(text) {
+  if (typeof text !== 'string') return 'version unknown';
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].replace(/\s+$/, '');
+    const m = line.match(/^- (\d{4}-\d{2}-\d{2}) (F-\d+) .* ([0-9a-f]{7,40})$/);
+    if (m) return `${m[2]} · ${m[1]} · ${m[3]}`;
+  }
+  return 'version unknown';
+}
+
 export function initDotsView(container) {
   const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true });
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
+  const versionEl = document.getElementById('version');
+  if (versionEl) {
+    // Not awaited: the play loop must start regardless of the fetch.
+    fetch('./CHANGELOG.md')
+      .then((r) => (r.ok ? r.text() : ''))
+      .then((text) => { versionEl.textContent = versionLabel(text); })
+      .catch(() => { versionEl.textContent = 'version unknown'; });
+  }
   const resetBtn = document.getElementById('reset-btn');
   const frontSelect = document.getElementById('front-select');
   const personnelSelect = document.getElementById('personnel-select');
