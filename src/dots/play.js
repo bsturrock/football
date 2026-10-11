@@ -10,7 +10,7 @@ import { readFront } from './front.js';
 import { ACCEL_TAU } from './steering.js';
 import { playEnd } from './tackle.js';
 import { initFacing, stepFacing } from './facing.js';
-import { startDefense, stepDefense } from './defense.js';
+import { SCRIPTS, startDefense, stepDefense } from './defense.js';
 import {
   BODY_RADIUS,
   assignBlocks,
@@ -39,7 +39,7 @@ const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zone
 
 // formation: a FORMATIONS key (full-11 offense), or null. defPersonnel: a DEF_PERSONNEL key, or null
 // for the FRONTS defense. Left undefined, it takes the formation's default defense, unless the caller passed front.
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined, script = null } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const defP = defPersonnel !== undefined ? defPersonnel : (front === undefined ? FORMATIONS[formation]?.defense ?? null : null);
   const play = {
@@ -53,6 +53,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     personnel: personnel ?? PLAYS[playKey].personnel ?? 'noTe',
     formation,
     defPersonnel: defP,
+    script,
     accel,
     tackles,
     // off = defenders never win leverage or shed; blocks still release 'past' and 'lost'.
@@ -102,6 +103,15 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     if (!Object.hasOwn(FRONTS, key)) return false;
     play.front = key;
     play.defPersonnel = null;
+    play.reset();
+    return key;
+  };
+
+  // Pre-snap defensive script, a key of SCRIPTS or null. Only changes while the ball is presnap.
+  play.setScript = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (key !== null && !Object.hasOwn(SCRIPTS, key)) return false;
+    play.script = key;
     play.reset();
     return key;
   };
@@ -206,6 +216,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
       play.defense = startDefense(play.players, plan?.front ?? readFront(play.players, play.numbers, los), {
         los,
         carrierId: play.run.carrier,
+        script: play.script,
       });
     }
     return true;
