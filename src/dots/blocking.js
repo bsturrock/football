@@ -862,8 +862,10 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (rb.x !== left.x || rb.y !== left.y) d.bump = { ax: rb.x / IMPACT_TIME, ay: rb.y / IMPACT_TIME, t: IMPACT_TIME };
   }
   // A free defender's own velocity (p.selfVel, his planted-cut reference in steerStep) is his own
-  // step, and body contact is inelastic for him too: a push-out takes off the part of it pointing into
-  // that body and never becomes his momentum (p.vel, the measurement, still holds the push-out).
+  // step, and body contact is inelastic for him too: a push-out takes off at most the velocity it
+  // applied (len / dt) from the part of his step pointing into that body, and never becomes his
+  // momentum (p.vel, the measurement, still holds the push-out). A graze keeps his speed; against a
+  // stationary body the steering clamp already stops his step, so he still loses the into component.
   for (const p of players) {
     const own = stepped.get(p.id);
     if (!own) {
@@ -877,8 +879,9 @@ export function stepBlocking(players, ballPos, dt, ctx) {
         if (len < 1e-12) continue;
         const into = (own.x * s.x + own.y * s.y) / len;
         if (into < 0) {
-          own.x -= (into * s.x) / len;
-          own.y -= (into * s.y) / len;
+          const cut = Math.max(into, -len / dt);
+          own.x -= (cut * s.x) / len;
+          own.y -= (cut * s.y) / len;
         }
       }
     }

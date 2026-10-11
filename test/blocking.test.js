@@ -393,6 +393,45 @@ test('inelastic separation: an engaged defender driven into a stationary anchore
   assert.ok(contact !== null, 'd reaches d2');
 });
 
+test('a free defender grazing another body keeps his speed: contact takes off only what the push-out applied', () => {
+  const H = hardCore(BODY_RADIUS);
+  const a = D('a', 0, 10, { vel: { x: 0, y: 6 }, selfVel: { x: 0, y: 6 }, speed: 6 });
+  const b = D('b', 0, 10 + 2 * BODY_RADIUS - 0.02, { vel: { x: 0, y: 6 }, selfVel: { x: 0, y: 6 }, speed: 6 });
+  const goal = (p) => ({ x: p.x, y: p.y + 30, key: 'def:pursue', rate: 6 });
+  const ps = [a, b];
+  const cap = CUT_ACCEL * DT + SOFT_RATE * (2 * BODY_RADIUS - H);
+  for (let i = 0; i < 30; i++) {
+    const before = { ...a.vel };
+    stepBlocking(ps, { x: 0, y: -50 }, DT, { rule: null, seq: 0, defGoals: { a: goal(a), b: goal(b) } });
+    assert.ok(a.selfVel.y >= a.vel.y - 1e-6, `tick ${i}: selfVel ${a.selfVel.y} vs vel ${a.vel.y}`);
+    const dv = Math.hypot(a.vel.x - before.x, a.vel.y - before.y);
+    assert.ok(dv <= cap + 1e-6, `tick ${i}: velocity change ${dv.toFixed(3)} > ${cap.toFixed(3)}`);
+  }
+});
+
+test('a free defender running at a stationary engaged pair still stops at it: selfVel keeps no component into him', () => {
+  const u = Math.SQRT1_2;
+  const d2 = D('d2', 0, 10, { strength: 1 });
+  const b2 = O('b2', d2.x + CONTACT_DIST * u, d2.y - CONTACT_DIST * u, { block: blk('d2', { engaged: true, seq: 1, angle: 'left' }) });
+  const f = D('f', 0, 16, { vel: { x: 0, y: -6 }, selfVel: { x: 0, y: -6 }, speed: 6 });
+  const ps = [b2, d2, f];
+  const ctx = { rule: null, seq: 1, fightBlocks: false, defGoals: { d2: { x: d2.x + 40, y: d2.y - 40 }, f: { x: d2.x, y: d2.y, key: 'def:pursue', rate: 6 } } };
+  let contact = null;
+  let at = null;
+  for (let i = 0; i < 120 && (at === null || i <= at + 10); i++) {
+    stepBlocking(ps, { x: 0, y: -50 }, DT, ctx);
+    const dist = Math.hypot(f.x - d2.x, f.y - d2.y);
+    if (contact === null && dist < 2 * BODY_RADIUS) contact = i;
+    if (contact === null) continue;
+    // He slows through the soft zone (cut accel); from two ticks after he is at the body (0.5 yd) he keeps nothing into it.
+    if (dist <= 0.5 && at === null) at = i;
+    if (at === null || i < at + 2) continue;
+    const toward = (f.selfVel.x * (d2.x - f.x) + f.selfVel.y * (d2.y - f.y)) / dist;
+    assert.ok(toward <= 0.05, `tick ${i}: selfVel toward d2 ${toward.toFixed(3)} yd/s`);
+  }
+  assert.ok(contact !== null, 'f reaches d2');
+});
+
 test('a rider cannot carry a third body: an engaged blocker yields to another engaged defender', () => {
   const u = Math.SQRT1_2;
   // c rides m playside (+x) at about 1.3 yd/s; d, engaged by b, is in c's path (not m's) and b pushes him
