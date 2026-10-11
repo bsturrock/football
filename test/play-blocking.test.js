@@ -522,9 +522,10 @@ const liveClimb = (play, c) => [c.owner, c.partner].map((id) => play.player(id).
 // The human's rule: "not a problem the mike is moving laterally to the ball carrier, not coming down field so he
 // wouldn't really have a chance anyway. And thats ok - we aren't building with outcome driven, it's football
 // realism driven. The blocks won't work 100% of the time." Changed: the combo must still climb a live LB within
-// 2.0 s and, if it engages him, he must be met before the line. A climber that never engages passes only when the
-// LB flowed (lateral travel from the climb tick to the window end beats his downhill travel); a passing miss is
-// logged with t.diagnostic, a downhill LB that got past the line unmet fails.
+// 2.0 s and, if it engages him, he must be met before the line. A climber that never engages passes unless the LB
+// got past the line unmet (his y at the window end is below 25 + GAP_DEPTH); a miss that passes is logged with
+// t.diagnostic. F-55: the climb now waits for the LB to declare, and tests judge no meet time, so a climber that
+// misses an LB still above the line at the window end is fine.
 const judgeClimb = (t, probe, front, c) => {
   const n = Math.round(2.0 / DT);
   const who = `${front} combo ${c.owner}/${c.partner}`;
@@ -555,8 +556,9 @@ const judgeClimb = (t, probe, front, c) => {
   const lateral = Math.abs(end.x - climb.x0);
   const downhill = climb.y0 - end.y;
   const travel = `${who} vs ${climb.live}: lateral ${lateral.toFixed(2)} yd, downhill ${downhill.toFixed(2)} yd, y at end ${end.y.toFixed(2)}`;
-  assert.ok(lateral > downhill, `${travel}: no engage, and the LB came downhill past the line unmet`);
-  t.diagnostic(`${travel}: missed, LB flowed laterally`);
+  assert.ok(end.y >= 25 + GAP_DEPTH, `${travel}: no engage, and the LB got past the line unmet`);
+  const why = lateral > downhill ? 'missed, LB flowed laterally' : 'unmet, LB still above the line at the window end';
+  t.diagnostic(`${travel}: ${why}`);
 };
 
 const combosClimb = (t, fronts, only = () => true) => {
