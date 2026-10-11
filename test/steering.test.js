@@ -372,6 +372,24 @@ test('accel cap: step never exceeds maxStep and hard contact still holds hardCor
   }
 });
 
+test('T-38: a grazing hard-core hit under goal.accel keeps the tangential speed', () => {
+  const p = { id: 'LDE', x: -2.3326289718016193, y: 34.01146434700278, v: 5.97568167452963, speed: 7,
+    selfVel: { x: -2.2996884179339014, y: 5.3570351119423245 }, vel: { x: -2.2996884179339014, y: 5.3570351119423245 },
+    steer: { key: 'def:pursue', side: 1, stuck: 0, flips: 0, lane: ['MLB', 'WLB'] } };
+  const goal = { x: -4.425389514909736, y: 50.9572007845785, key: 'def:pursue', ignore: 'RB', accel: 20 };
+  const others = [
+    { id: 'LDT', x: -2.7751627448795846, y: 34.15867489702504 }, { id: 'RDT', x: -3.3528551185723683, y: 34.59240714571357 },
+    { id: 'RDE', x: -4.381687756786772, y: 35.72799761553998 }, { id: 'MLB', x: -2.33531970774139, y: 35.18954973996723 },
+    { id: 'WLB', x: -2.9254366112694887, y: 36.52284039232105 } ];
+  const maxStep = 0.11666666666666667, dt = 1 / 60;
+  const x0 = p.x, y0 = p.y;
+  steerStep(p, goal, [p, ...others], maxStep, dt, 0.28);
+  for (const o of others) assert.ok(Math.hypot(p.x - o.x, p.y - o.y) >= S.hardCore(0.28) - 1e-9, `inside ${o.id}`);
+  const len = Math.hypot(p.x - x0, p.y - y0);
+  assert.ok(len <= maxStep + 1e-9, `step ${len}`);
+  assert.ok(len / dt >= 5.0, `speed ${len / dt}`);
+});
+
 // Play level: a free defender's velocity (position deltas / FIXED_DT) changes by at most
 // CUT_ACCEL * FIXED_DT + TOL over three consecutive free ticks. TOL: body separation (stepBlocking's
 // push-out) can move a body on a tick the steering did not choose; a soft push is at most SOFT_RATE

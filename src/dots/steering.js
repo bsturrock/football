@@ -59,6 +59,9 @@ export const PACES = Object.freeze({
 // plant: it is not judged stuck (no side flip). CUT_ACCEL: an NFL linebacker's planted cut is roughly
 // 10-25 yd/s^2 (tunable).
 export const CUT_ACCEL = 20;
+// Planted cut: the least share of a ray-stopped remainder that must run along the body's tangent
+// (sine of the angle between the step and the line to the body) for it to slide instead of stop.
+export const SLIDE_MIN_TANGENT = 0.5;
 
 export function steerStep(p, goal, players, maxStep, dt, radius) {
   const fullStep = maxStep;
@@ -221,11 +224,11 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   // a tangent slide step of length s ends about s^2/(2c) outside the circle, so this keeps the mover touching on the next call
   const sl = Math.min(maxStep, D), tol = Math.max(1e-6, sl * sl / (2 * radius));
   // Contact clamps on a step: slide off bodies he touches, then stop the ray at hard contact.
-  const clampStep = (vx, vy) => {
+  const clampFrom = (ox, oy, vx, vy) => {
     for (let pass = 0; pass < 2; pass++) {
       for (const o of players) {
         if (o === p) continue;
-        const rx = o.x - p.x, ry = o.y - p.y;
+        const rx = o.x - ox, ry = o.y - oy;
         const d = Math.hypot(rx, ry);
         if (d > 0 && d <= contact(o) + tol) {
           const nx = rx / d, ny = ry / d;
@@ -235,21 +238,50 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       }
     }
     const vl = Math.hypot(vx, vy);
-    if (vl < 1e-12) return { x: 0, y: 0 };
+    if (vl < 1e-12) return { x: 0, y: 0, vl: 0, hit: null };
     const mx = vx / vl, my = vy / vl;
-    let step = vl;
+    let step = vl, cut = null;
     for (const o of players) {
       if (o === p) continue;
-      const rx = o.x - p.x, ry = o.y - p.y;
+      const rx = o.x - ox, ry = o.y - oy;
       const b = rx * mx + ry * my;
       if (b <= 0) continue;
       const dd = contact(o) * contact(o);
       const c = rx * rx + ry * ry - dd;
       if (c <= 1e-6) continue;
       const disc = b * b - c;
-      if (disc > 0) step = Math.min(step, Math.max(0, b - Math.sqrt(disc)));
+      if (disc > 0) {
+        const hs = Math.max(0, b - Math.sqrt(disc));
+        if (hs < step) { step = hs; cut = o; }
+      }
     }
-    return { x: mx * step, y: my * step };
+    return { x: mx * step, y: my * step, vl, hit: cut };
+  };
+  const clampStep = (vx, vy) => clampFrom(p.x, p.y, vx, vy);
+  // Planted-cut step: when the ray stop cuts it at a body that is not his own target, the rest of
+  // the step slides along that body's tangent at the contact point (inelastic: only the part into
+  // the body is dropped), then meets the clamps once more from there. Never longer than the step.
+  const clampSlide = (vx, vy, v0, lim) => {
+    const a = clampFrom(p.x, p.y, vx, vy);
+    if (!a.hit || (goal.ignore != null && a.hit.id === goal.ignore)) return { x: a.x, y: a.y };
+    // the plain stop is kept while it still changes his velocity by no more than the cap
+    if (Math.hypot(a.x / dt - v0.x, a.y / dt - v0.y) <= lim + 1e-9) return { x: a.x, y: a.y };
+    const rem = a.vl - Math.hypot(a.x, a.y);
+    if (rem < 1e-12) return { x: a.x, y: a.y };
+    const qx = p.x + a.x, qy = p.y + a.y;
+    const nx0 = a.hit.x - qx, ny0 = a.hit.y - qy, nl = Math.hypot(nx0, ny0);
+    if (nl < 1e-12) return { x: a.x, y: a.y };
+    const nx = nx0 / nl, ny = ny0 / nl;
+    let rx = (vx / a.vl) * rem, ry = (vy / a.vl) * rem;
+    const dot = rx * nx + ry * ny;
+    if (dot > 0) { rx -= dot * nx; ry -= dot * ny; }
+    // slide only as far as keeps him closest to his current velocity
+    const tl = Math.hypot(rx, ry);
+    if (tl < 1e-12) return { x: a.x, y: a.y };
+    const sl2 = Math.min(tl, Math.max(0, ((v0.x * dt - a.x) * rx + (v0.y * dt - a.y) * ry) / tl));
+    rx *= sl2 / tl; ry *= sl2 / tl;
+    const b = clampFrom(qx, qy, rx, ry);
+    return { x: a.x + b.x, y: a.y + b.y };
   };
   let mv = clampStep(dx * Math.min(maxStep, D), dy * Math.min(maxStep, D));
   // Planted cut (goal.accel): the chosen step's velocity moves from v0 by at most accel * dt;
@@ -262,7 +294,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       let cx = (v0.x + ex * lim / el) * dt, cy = (v0.y + ey * lim / el) * dt;
       const cl = Math.hypot(cx, cy);
       if (cl > maxStep) { cx *= maxStep / cl; cy *= maxStep / cl; }
-      mv = clampStep(cx, cy);
+      mv = clampSlide(cx, cy, v0, lim);
       // Still carrying speed away from the goal: a plant, not a stall.
       plant = v0.x * ux + v0.y * uy < 0;
     }
