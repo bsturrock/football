@@ -8,7 +8,7 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #10200f; font-family: sans-serif; }
   #field { position: fixed; inset: 0; }
   #field canvas { display: block; touch-action: none; }
-  #tooltip { position: fixed; display: none; pointer-events: none; padding: 3px 7px; background: rgba(0,0,0,.8); color: #fff; font-size: 12px; border-radius: 3px; z-index: 5; }
+  #tooltip { position: fixed; display: none; pointer-events: none; padding: 3px 7px; background: rgba(0,0,0,.8); color: #fff; font-size: 12px; border-radius: 3px; z-index: 5; white-space: pre; }
   #info-panel { position: fixed; top: 10px; left: 10px; min-width: 170px; padding: 10px 12px; background: rgba(0,0,0,.65); color: #fff; font-size: 13px; border-radius: 6px; z-index: 4; }
   #hint { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; padding: 6px 12px; background: rgba(0,0,0,.65); color: #fff; font-size: 12px; border-radius: 6px; z-index: 4; }
   #reset-btn { cursor: pointer; }
@@ -27,7 +27,7 @@
 <div id="field"></div>
 <div id="tooltip"></div>
 <div id="info-panel"></div>
-<div id="hint"><button id="reset-btn">Reset (R)</button><select id="front-select" title="Defensive front"></select><select id="personnel-select" title="Offensive personnel"></select><button id="fight-btn" title="Defense fights blocks (F)">Defense fights blocks: on (F)</button><button id="speed-down" title="Slower (-)">−</button>
+<div id="hint"><button id="reset-btn">Reset (R)</button><select id="front-select" title="Defensive front"></select><select id="personnel-select" title="Offensive personnel"></select><select id="formation-select" title="Offensive formation"></select><select id="defense-select" title="Defensive personnel"></select><select id="script-select" title="Defensive script"></select><button id="overlay-btn" title="Read overlay (O)">Overlay: off (O)</button><button id="fight-btn" title="Defense fights blocks (F)">Defense fights blocks: on (F)</button><button id="speed-down" title="Slower (-)">−</button>
 <button id="speed-up" title="Faster (+)">+</button><span>Click field to snap · drag to pan · wheel to zoom</span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script type="module">
