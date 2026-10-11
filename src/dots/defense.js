@@ -5,7 +5,7 @@
 // lineman, and pursues only when the ball gets outside him, crosses the los, or the RB commits away.
 // A blitz or drop is a new GOALS entry plus a state row; linebackers do not blitz today.
 import { BODY_RADIUS } from './blocking.js';
-import { GAP_NAMES, liveGaps } from './front.js';
+import { GAP_NAMES, HEAD_UP, liveGaps } from './front.js';
 import { DL_ROLES, LB_ROLES } from './roster.js';
 
 export const LB_READ_TIME = 0.45; // s, fallback when a player has no def.read
@@ -132,6 +132,8 @@ export const TRIGGERS = Object.freeze({
   ballOutside: (d, e, env) => env.defense.side * (env.ballPos.x - containX(e, env)) < 0,
   // The RB committed to the playside of the center.
   committedAway: (d, e, env) => !!env.run?.locked && env.run.x != null && env.defense.side * (env.run.x - env.defense.centerX) > 0,
+  // A scripted defender's time has come (the script row's `at`, default 0).
+  scriptAt: (d, e, env) => env.defense.t >= (e.at ?? 0) - 1e-9,
   atFill: (d, e, env) => {
     const g = GOALS.fill(d, e, env);
     return Math.hypot(d.x - g.x, d.y - g.y) <= BODY_RADIUS;
@@ -140,6 +142,50 @@ export const TRIGGERS = Object.freeze({
 
 export const BEHAVIORS = Object.freeze({
   pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'pursue', speed: 1, exits: [] } } },
+  // Scripted and DB behaviours: known-in-advance actions for tests, and simple bodies for the DBs.
+  sit: {
+    start: 'sit',
+    keys: [],
+    states: {
+      sit: { goal: 'hold', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
+    },
+  },
+  fillNow: {
+    start: 'wait',
+    keys: [],
+    states: {
+      wait: { goal: 'hold', speed: 1, exits: [{ when: 'scriptAt', to: 'fill' }] },
+      fill: { goal: 'fill', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'atFill', to: 'pursue' }] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
+    },
+  },
+  blitz: {
+    start: 'wait',
+    keys: [],
+    states: {
+      wait: { goal: 'hold', speed: 1, exits: [{ when: 'scriptAt', to: 'blitz' }] },
+      blitz: { goal: 'penetrate', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
+    },
+  },
+  slant: {
+    start: 'wait',
+    keys: [],
+    states: {
+      wait: { goal: 'hold', speed: 1, exits: [{ when: 'scriptAt', to: 'slant' }] },
+      slant: { goal: 'penetrate', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
+    },
+  },
+  cover: {
+    start: 'cover',
+    keys: [],
+    states: {
+      cover: { goal: 'hold', speed: 1, exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
+    },
+  },
   attack: {
     start: 'attack',
     keys: ['olMove', 'mesh'],
@@ -186,12 +232,77 @@ export const CALLS = Object.freeze({
   }),
 });
 
-// selector name -> (player, front-read entry) => bool
+// Walks one gap over along the line. Gaps in playside order: back F..B, back A, play A, play B..F.
+export function shiftGap(fit, dir) {
+  const i = GAP_NAMES.indexOf(fit.name);
+  const pos = fit.side === 'play' ? i : -i - 1; // back A = -1, play A = 0
+  const next = pos + (dir === 'play' ? 1 : -1);
+  const side = next >= 0 ? 'play' : 'back';
+  const idx = Math.min(GAP_NAMES.length - 1, next >= 0 ? next : -next - 1);
+  return { side, name: GAP_NAMES[idx] };
+}
+
+// Play-relative picks: the one defender in `front` that best fits, or false for everyone else.
+const roleOf = (players, id) => players.find((q) => q.id === id)?.role;
+const byId = (a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
+function pick(d, front, players, keep, rank) {
+  if (!front || !players) return false;
+  const c = front.defenders.filter((f) => keep(f, roleOf(players, f.id)));
+  if (!c.length) return false;
+  c.sort((a, b) => rank(a) - rank(b) || byId(a, b));
+  return c[0].id === d.id;
+}
+
+// selector name -> (player, front-read entry, front, players) => bool
 export const WHO = Object.freeze({
   dl: (d, f, front) => DL_ROLES.includes(d.role),
   lb: (d, f, front) => LB_ROLES.includes(d.role),
   edge: (d, f, front) => front?.edge != null && front.edge === d.id,
+  playLB: (d, f, front, players) => pick(d, front, players, (x, r) => x.level === 'second' && LB_ROLES.includes(r) && x.u >= -HEAD_UP, (x) => Math.abs(x.u)),
+  backLB: (d, f, front, players) => pick(d, front, players, (x, r) => x.level === 'second' && LB_ROLES.includes(r) && x.u < -HEAD_UP, (x) => Math.abs(x.u)),
+  playDT: (d, f, front, players) => pick(d, front, players, (x, r) => x.level === 'line' && DL_ROLES.includes(r) && x.u > -HEAD_UP, (x) => x.u),
+  backDT: (d, f, front, players) => pick(d, front, players, (x, r) => x.level === 'line' && DL_ROLES.includes(r) && x.u <= -HEAD_UP, (x) => -x.u),
+  playEnd: (d, f, front, players) => pick(d, front, players, (x) => x.level === 'line' && x.u > HEAD_UP, (x) => -x.u),
+  backEnd: (d, f, front, players) => !!front && !!players && front.edge != null && front.edge === d.id,
 });
+
+export const LATE_FILL_AT = 0.6; // s: when a late scripted fill starts (tunable)
+
+// Test scripts: which defender does what, picked by play-relative selector.
+const row = (r) => Object.freeze(r);
+export const SCRIPTS = Object.freeze({
+  lbSits: Object.freeze({ name: 'LBs sit', rows: Object.freeze([row({ who: 'playLB', behavior: 'sit' }), row({ who: 'backLB', behavior: 'sit' })]) }),
+  lbFills: Object.freeze({ name: 'Playside LB fills at the snap', rows: Object.freeze([row({ who: 'playLB', behavior: 'fillNow' })]) }),
+  lbFillsLate: Object.freeze({ name: 'Playside LB sits, then fills', rows: Object.freeze([row({ who: 'playLB', behavior: 'fillNow', at: LATE_FILL_AT })]) }),
+  lbBlitz: Object.freeze({ name: 'Playside LB blitzes his gap', rows: Object.freeze([row({ who: 'playLB', behavior: 'blitz' })]) }),
+  dtSlant: Object.freeze({ name: 'Playside DT slants playside', rows: Object.freeze([row({ who: 'playDT', behavior: 'slant', slant: 'play' })]) }),
+  dtSlantBack: Object.freeze({ name: 'Playside DT slants backside', rows: Object.freeze([row({ who: 'playDT', behavior: 'slant', slant: 'back' })]) }),
+  endCrash: Object.freeze({ name: 'Backside end crashes inside', rows: Object.freeze([row({ who: 'backEnd', behavior: 'slant', slant: 'play' })]) }),
+});
+
+// Role default for defenders no script, def or call row gives a behaviour.
+export const ROLE_BEHAVIORS = Object.freeze({ CB: 'cover', S: 'cover' });
+
+// Accepts a SCRIPTS key, an array of rows, or null; returns the rows (null for none).
+export function validateScript(script) {
+  if (script == null) return null;
+  let rows;
+  if (typeof script === 'string') {
+    if (!Object.hasOwn(SCRIPTS, script)) throw new Error(`defense: unknown script "${script}"`);
+    rows = SCRIPTS[script].rows;
+  } else if (Array.isArray(script)) {
+    rows = script;
+  } else {
+    throw new Error('defense: script must be a key, rows or null');
+  }
+  for (const r of rows) {
+    if (!Object.hasOwn(WHO, r.who)) throw new Error(`defense: script unknown who "${r.who}"`);
+    validateBehavior(r.behavior);
+    if (r.slant !== undefined && r.slant !== 'play' && r.slant !== 'back') throw new Error(`defense: script bad slant "${r.slant}"`);
+    if (r.at !== undefined && !(Number.isFinite(r.at) && r.at >= 0)) throw new Error(`defense: script bad at "${r.at}"`);
+  }
+  return rows;
+}
 
 // assignment type -> behaviour name
 export const ASSIGNMENTS = Object.freeze({
@@ -218,8 +329,8 @@ export function validateBehavior(name, behaviors = BEHAVIORS) {
 }
 
 // First row whose selector matches, as an assignment ({type, ...params}); null when none.
-export function pickAssign(rows, d, f, front) {
-  const row = rows.find((r) => WHO[r.who](d, f, front));
+export function pickAssign(rows, d, f, front, players) {
+  const row = rows.find((r) => WHO[r.who](d, f, front, players));
   if (!row) return null;
   const { who, ...rest } = row;
   return rest;
@@ -239,8 +350,9 @@ export function validateCall(name) {
   return CALLS[name];
 }
 
-export function startDefense(players, front, { los, call = 'base', carrierId } = {}) {
+export function startDefense(players, front, { los, call = 'base', carrierId, script = null } = {}) {
   const table = validateCall(call);
+  const scriptRows = validateScript(script);
   const rb = players.find((p) => p.id === carrierId);
   const defense = {
     call,
@@ -265,10 +377,36 @@ export function startDefense(players, front, { los, call = 'base', carrierId } =
   for (const f of front.defenders) {
     const d = players.find((p) => p.id === f.id);
     if (!d) continue;
-    let assign = d.def?.assign ?? pickAssign(table.rows, d, f, front);
+    const srow = scriptRows?.find((r) => WHO[r.who](d, f, front, players));
+    let assign = d.def?.assign ?? pickAssign(table.rows, d, f, front, players);
     if (assign && !Object.hasOwn(ASSIGNMENTS, assign.type)) throw new Error(`defense: unknown type "${assign.type}"`);
     if (assign?.type === 'zone' && assign.depth === undefined) assign = { ...assign, depth: ZONE_DEPTH };
-    const name = d.def?.behavior ?? (assign ? ASSIGNMENTS[assign.type].behavior : null);
+    const name = srow ? srow.behavior : (d.def?.behavior ?? (assign ? ASSIGNMENTS[assign.type].behavior : null) ?? ROLE_BEHAVIORS[d.role] ?? null);
+    if (!name) continue;
+    if (!checked.has(name)) { validateBehavior(name); checked.add(name); }
+    const agent = {
+      behavior: name,
+      state: BEHAVIORS[name].start,
+      st: 0,
+      read: d.def?.read ?? LB_READ_TIME,
+      x0: d.x,
+      y0: d.y,
+      assign: assign ?? null,
+      fit: assign?.gap && assign.gap !== 'fit' ? assign.gap : f.fit,
+      why: srow ? 'script' : 'start',
+    };
+    if (srow) {
+      if (srow.slant) agent.fit = shiftGap(agent.fit, srow.slant);
+      agent.at = srow.at ?? 0;
+      agent.script = srow.who;
+    }
+    defense.agents[d.id] = agent;
+  }
+  // Defence players outside the numbered front (wide corners, deep safeties) with a def behaviour or a role default.
+  const inFront = new Set(front.defenders.map((f) => f.id));
+  for (const d of players) {
+    if (d.team !== 'defense' || inFront.has(d.id)) continue;
+    const name = d.def?.behavior ?? ROLE_BEHAVIORS[d.role] ?? null;
     if (!name) continue;
     if (!checked.has(name)) { validateBehavior(name); checked.add(name); }
     defense.agents[d.id] = {
@@ -278,8 +416,9 @@ export function startDefense(players, front, { los, call = 'base', carrierId } =
       read: d.def?.read ?? LB_READ_TIME,
       x0: d.x,
       y0: d.y,
-      assign: assign ?? null,
-      fit: assign?.gap && assign.gap !== 'fit' ? assign.gap : f.fit,
+      assign: null,
+      fit: null,
+      why: 'start',
     };
   }
   return defense;
@@ -299,7 +438,7 @@ export function stepDefense(players, defense, { run, ballPos }, dt) {
     const env = { players, defense, run, ballPos, los: defense.los, behavior };
     e.st += dt;
     const hit = behavior.states[e.state].exits.find((x) => TRIGGERS[x.when](d, e, env));
-    if (hit) { e.state = hit.to; e.st = 0; }
+    if (hit) { e.state = hit.to; e.st = 0; e.why = hit.when; }
     const row = behavior.states[e.state];
     const g = GOALS[row.goal](d, e, env);
     if (e.state !== behavior.start && !defense.committed[id]) {

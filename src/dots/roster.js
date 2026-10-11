@@ -83,6 +83,7 @@ const NAMES = Object.freeze({
   L1: 'Linebacker 1', L2: 'Linebacker 2', L3: 'Linebacker 3',
   PO: 'Playside Outside Linebacker', BO: 'Backside Outside Linebacker',
   PI: 'Playside Inside Linebacker', BI: 'Backside Inside Linebacker',
+  NB: 'Nickel Back', CBX: 'Cornerback (on X)', CBZ: 'Cornerback (on Z)', FS: 'Free Safety', SS: 'Strong Safety',
 });
 // rows: [id, role, dx, dy]
 const defenders = (rows) => Object.freeze(rows.map(([id, role, dx, dy]) => {
@@ -131,6 +132,76 @@ export const FRONTS = Object.freeze({
   }),
 });
 
+// Full-11 offensive formations and defensive personnel. FRONTS and PERSONNEL keep their
+// 7-man shape; a formation picks a PERSONNEL key to build on and adds its rows here.
+// WR and DB rows are bodies at an alignment: their routes, coverage and run support come later.
+export const WR_ROLES = Object.freeze(['WR']);
+export const DB_ROLES = Object.freeze(['CB', 'S']);
+const WR_SPEED = 8.5;
+const WR_STRENGTH = 0.4;
+const DB_SPEED = 8.0;
+const DB_STRENGTH = 0.4;
+const wr = (id, name, dx, dy) => pos(id, name, 'offense', 'WR', dx, dy, WR_SPEED, WR_STRENGTH);
+// DB rows: roleRating has no CB/S base row, so the speed and strength are set here.
+const db = (id, role, dx, dy) => pos(id, NAMES[id], 'defense', role, dx, dy, DB_SPEED, DB_STRENGTH, null);
+
+// defense: the DEF_PERSONNEL key this formation is normally met with.
+export const FORMATIONS = Object.freeze({
+  '11': Object.freeze({
+    name: '11: TE right, slot left (2x2)',
+    personnel: 'te',
+    rows: Object.freeze([
+      wr('X', 'Split End', -13.0, -0.75),
+      wr('H', 'Slot Receiver', -6.5, -1.25),
+      wr('Z', 'Flanker', 12.0, -1.25),
+    ]),
+    defense: 'nickel',
+  }),
+  '12': Object.freeze({
+    name: '12: TE each side, 2 WR',
+    personnel: 'te',
+    rows: Object.freeze([
+      pos('TE2', 'Second Tight End', 'offense', 'TE', -3.6, -0.75, 6.5, 0.9),
+      wr('X', 'Split End', -13.0, -0.75),
+      wr('Z', 'Flanker', 12.0, -1.25),
+    ]),
+    defense: 'base11',
+  }),
+  '21': Object.freeze({
+    name: '21: FB wing right, 2 WR',
+    personnel: 'te',
+    rows: Object.freeze([
+      pos('FB', 'Fullback', 'offense', 'FB', 4.4, -1.8, 7.0, 0.7),
+      wr('X', 'Split End', -13.0, -0.75),
+      wr('Z', 'Flanker', 12.0, -1.25),
+    ]),
+    defense: 'base11',
+  }),
+});
+
+// Defensive personnel = all 11 defender rows. DL and LB come from defenders(); DBs from db().
+export const DEF_PERSONNEL = Object.freeze({
+  nickel: Object.freeze({
+    name: 'Nickel 4-2-5',
+    defenders: Object.freeze([
+      ...defenders([
+        ['PE', 'DE', -2.65, 0.6], ['PT', 'DT', -1.45, 0.6], ['BT', 'DT', 0.25, 0.6], ['BE', 'DE', 2.65, 0.6],
+        ['MIK', 'LB', -0.4, 4.5], ['WIL', 'LB', 1.6, 4.5],
+      ]),
+      db('NB', 'CB', -6.2, 4.0), db('CBX', 'CB', -13.0, 6.0), db('CBZ', 'CB', 12.0, 6.0),
+      db('FS', 'S', -4.0, 12.0), db('SS', 'S', 4.0, 12.0),
+    ]),
+  }),
+  base11: Object.freeze({
+    name: '4-3 Base + 2 CB, 2 S',
+    defenders: Object.freeze([
+      ...FRONTS.base.defenders,
+      db('CBX', 'CB', -13.0, 6.0), db('CBZ', 'CB', 12.0, 6.0),
+      db('FS', 'S', -4.0, 12.0), db('SS', 'S', 4.0, 12.0),
+    ]),
+  }),
+});
+
 // Play definitions. Shapes:
 //   ball: { start, snapTo } where start is the position id holding the ball
 //         pre-snap and snapTo is the position id that receives the snap.
@@ -167,13 +238,27 @@ export const LB_ROLES = Object.freeze(['LB']);
 // front picks a key of FRONTS for the defense. dlShift is a lateral offset in yards
 // added to x of every DL player; lbShift does the same for LBs. personnel picks a key of
 // PERSONNEL (default: the play's personnel, else 'noTe').
-export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0, lbShift = 0, personnel } = {}) {
+// formation picks a key of FORMATIONS (full-11 offense; personnel is then ignored).
+// defPersonnel picks a key of DEF_PERSONNEL (full-11 defense; front is then ignored).
+export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0, lbShift = 0, personnel, formation = null, defPersonnel = null } = {}) {
   const play = PLAYS[playKey];
   if (!play) throw new Error(`buildLineup: unknown play "${playKey}"`);
   if (!Object.hasOwn(FRONTS, front)) throw new Error(`buildLineup: unknown front "${front}"`);
-  const key = personnel ?? play.personnel ?? 'noTe';
-  if (!Object.hasOwn(PERSONNEL, key)) throw new Error(`buildLineup: unknown personnel "${key}"`);
-  const rows = [...POSITIONS.filter((p) => p.team === 'offense'), ...PERSONNEL[key].rows, ...FRONTS[front].defenders];
+  let offense;
+  if (formation != null) {
+    if (!Object.hasOwn(FORMATIONS, formation)) throw new Error(`buildLineup: unknown formation "${formation}"`);
+    const form = FORMATIONS[formation];
+    offense = [...POSITIONS.filter((p) => p.team === 'offense'), ...PERSONNEL[form.personnel].rows, ...form.rows];
+  } else {
+    const key = personnel ?? play.personnel ?? 'noTe';
+    if (!Object.hasOwn(PERSONNEL, key)) throw new Error(`buildLineup: unknown personnel "${key}"`);
+    offense = [...POSITIONS.filter((p) => p.team === 'offense'), ...PERSONNEL[key].rows];
+  }
+  if (defPersonnel != null && !Object.hasOwn(DEF_PERSONNEL, defPersonnel)) {
+    throw new Error(`buildLineup: unknown defPersonnel "${defPersonnel}"`);
+  }
+  const defense = defPersonnel != null ? DEF_PERSONNEL[defPersonnel].defenders : FRONTS[front].defenders;
+  const rows = [...offense, ...defense];
   return rows.map((p) => {
     const a = play.assignments[p.id];
     return {

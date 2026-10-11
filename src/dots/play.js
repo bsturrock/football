@@ -2,15 +2,17 @@
 // Ball phases: presnap -> snapping -> held -> carried -> dead (carried and dead only on plays with a run).
 // Time advances only through step(dt); there are no timers or clocks here.
 
-import { FRONTS, PERSONNEL, PLAYS, buildLineup } from './roster.js';
-import { numberPlay } from './numbering.js';
+import { DEF_PERSONNEL, FORMATIONS, FRONTS, PERSONNEL, PLAYS, buildLineup } from './roster.js';
+import { PLAYSIDE_SIGN, numberPlay } from './numbering.js';
+import { boxCount, createPerception, observe, worldSnapshot } from './perceive.js';
+import { createTrace, entriesOf, recordTick } from './trace.js';
 import { startRun, stepCarrier } from './carrier.js';
 import { zonePlan, zoneSwitch } from './zone.js';
 import { readFront } from './front.js';
 import { ACCEL_TAU } from './steering.js';
 import { playEnd } from './tackle.js';
 import { initFacing, stepFacing } from './facing.js';
-import { startDefense, stepDefense } from './defense.js';
+import { SCRIPTS, startDefense, stepDefense } from './defense.js';
 import {
   BODY_RADIUS,
   assignBlocks,
@@ -37,8 +39,11 @@ export const LB_SHIFT_MAX = 6; // steps allowed each way
 // A scheme's plan returns {side, blocks, techs, combos, free, front}.
 const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zoneSwitch }) });
 
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 'base', personnel = undefined, accel = true, tackles = true, fightBlocks = true } = {}) {
+// formation: a FORMATIONS key (full-11 offense), or null. defPersonnel: a DEF_PERSONNEL key, or null
+// for the FRONTS defense. Left undefined, it takes the formation's default defense, unless the caller passed front.
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined, script = null, trace = false } = {}) {
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
+  const defP = defPersonnel !== undefined ? defPersonnel : (front === undefined ? FORMATIONS[formation]?.defense ?? null : null);
   const play = {
     los,
     playKey,
@@ -46,8 +51,11 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     ball: {},
     retargetRule: scheme ? scheme.rule : doubleTeamPeel,
     timeScale,
-    front,
+    front: front ?? 'base',
     personnel: personnel ?? PLAYS[playKey].personnel ?? 'noTe',
+    formation,
+    defPersonnel: defP,
+    script,
     accel,
     tackles,
     // off = defenders never win leverage or shed; blocks still release 'past' and 'lost'.
@@ -59,6 +67,9 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     run: null,
     defense: null,
     ticks: 0,
+    trace: null,
+    perception: null,
+    box: null,
     result: null,
     alpha: 0,
     prev: {},
@@ -91,10 +102,21 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
   };
 
   // Pre-snap defensive front, a key of FRONTS. Only changes while the ball is presnap.
+  // A 7-man front replaces any full-11 defence, so it clears defPersonnel.
   play.setFront = (key) => {
     if (play.ball.phase !== 'presnap') return false;
     if (!Object.hasOwn(FRONTS, key)) return false;
     play.front = key;
+    play.defPersonnel = null;
+    play.reset();
+    return key;
+  };
+
+  // Pre-snap defensive script, a key of SCRIPTS or null. Only changes while the ball is presnap.
+  play.setScript = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (key !== null && !Object.hasOwn(SCRIPTS, key)) return false;
+    play.script = key;
     play.reset();
     return key;
   };
@@ -109,12 +131,33 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     return key;
   };
 
+  // Pre-snap full-11 offense, a key of FORMATIONS or null. Sets the formation's default defence.
+  play.setFormation = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (key !== null && !Object.hasOwn(FORMATIONS, key)) return false;
+    play.formation = key;
+    play.defPersonnel = key === null ? null : FORMATIONS[key].defense;
+    play.reset();
+    return key;
+  };
+
+  // Pre-snap full-11 defence, a key of DEF_PERSONNEL or null (null = the FRONTS defence).
+  play.setDefPersonnel = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (key !== null && !Object.hasOwn(DEF_PERSONNEL, key)) return false;
+    play.defPersonnel = key;
+    play.reset();
+    return key;
+  };
+
   // Scales how fast play.step advances; the only place time scale applies.
   play.setTimeScale = (s) => {
     if (!Number.isFinite(s)) return play.timeScale;
     play.timeScale = Math.min(SIM_SPEED_MAX, Math.max(SIM_SPEED_MIN, s));
     return play.timeScale;
   };
+
+  const baseSide = () => PLAYSIDE_SIGN[PLAYS[playKey].playside] ?? 1;
 
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
@@ -123,6 +166,8 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       dlShift: play.dlShift * DL_SHIFT_STEP,
       lbShift: play.lbShift * LB_SHIFT_STEP,
       personnel: play.personnel,
+      formation: play.formation,
+      defPersonnel: play.defPersonnel,
     });
     initFacing(play.players);
     // Pre-snap read: computed only here, so shifts keep it in sync with the lineup.
@@ -144,6 +189,9 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       to: null,
     });
     play.ticks = 0;
+    play.trace = null;
+    play.perception = null;
+    play.box = boxCount(worldSnapshot(play.players, { t: 0, los, side: baseSide(), carrierId: null }));
     play.result = null;
     play.alpha = 0;
     acc = 0;
@@ -178,7 +226,15 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
       play.defense = startDefense(play.players, plan?.front ?? readFront(play.players, play.numbers, los), {
         los,
         carrierId: play.run.carrier,
+        script: play.script,
       });
+    }
+    if (trace) {
+      play.perception = createPerception(
+        worldSnapshot(play.players, { t: 0, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null }),
+        { centerId: PLAYS[playKey].ball.start },
+      );
+      play.trace = createTrace();
     }
     return true;
   };
@@ -265,15 +321,23 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front = 
     let n = 0;
     while (acc >= FIXED_DT - 1e-9 && n < MAX_TICKS_PER_STEP) {
       snapshotPrev();
+      const wasDead = play.ball.phase === 'dead';
       advance(FIXED_DT);
       acc -= FIXED_DT;
       play.ticks += 1;
+      if (play.trace && !wasDead) {
+        const t = play.ticks * FIXED_DT;
+        observe(play.perception, worldSnapshot(play.players, { t, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null }));
+        recordTick(play.trace, play.perception, play.players, { t, defense: play.defense, run: play.run });
+      }
       n++;
     }
     if (acc >= FIXED_DT - 1e-9) acc = 0; // runaway frame: drop the excess
     if (acc < 0) acc = 0;
     play.alpha = Math.min(acc / FIXED_DT, 1 - 1e-12);
   };
+
+  play.traceOf = (id) => (play.trace ? entriesOf(play.trace, id) : []);
 
   play.ballPosition = () => {
     const { holder, from, to, t } = play.ball;

@@ -2,7 +2,9 @@
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
 import { createPlay, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
-import { FRONTS, PERSONNEL, BALL_LENGTH, BALL_WIDTH } from './roster.js';
+import { FRONTS, PERSONNEL, FORMATIONS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH } from './roster.js';
+import { SCRIPTS } from './defense.js';
+import { TRACK_HALF, TRACK_DEPTH } from './perceive.js';
 import { BODY_RADIUS } from './blocking.js';
 import { wrapAngle, angleDiff, facingDir } from './facing.js';
 import { HW } from '../util.js';
@@ -96,6 +98,81 @@ export function personnelOptions() {
   return Object.entries(PERSONNEL).map(([key, p]) => ({ key, name: p.name }));
 }
 
+// Picker options for the full-11 offensive formation ('' = the box-only personnel pickers).
+export function formationOptions() {
+  return [{ key: '', name: 'Box only' },
+    ...Object.entries(FORMATIONS).map(([key, f]) => ({ key, name: f.name }))];
+}
+
+// Picker options for the full-11 defence ('' = the front picker's 7-man front).
+export function defPersonnelOptions() {
+  return [{ key: '', name: 'Front picker' },
+    ...Object.entries(DEF_PERSONNEL).map(([key, d]) => ({ key, name: d.name }))];
+}
+
+// Picker options for the defensive script ('' = none).
+export function scriptOptions() {
+  return [{ key: '', name: 'No script' },
+    ...Object.entries(SCRIPTS).map(([key, s]) => ({ key, name: s.name }))];
+}
+
+// Label for the read-trace overlay toggle (O key or button).
+export function overlayLabel(on) {
+  return `Overlay: ${on ? 'on' : 'off'} (O)`;
+}
+
+// Short on-field label for a trace decision ('' = nothing to say).
+export function decisionLabel(decision) {
+  if (!decision) return '';
+  if (decision.kind === 'block') {
+    return `${decision.tech ?? 'blk'} ${decision.target}${decision.engaged ? '*' : ''}`;
+  }
+  if (decision.kind === 'defend') return String(decision.state ?? '');
+  if (decision.kind === 'carry') return decision.locked ? String(decision.lane) : 'read';
+  return '';
+}
+
+// Tooltip lines for one trace entry: the read cues, the decision and the reason.
+export function readLines(entry) {
+  const r = entry?.read ?? {};
+  const parts = [];
+  if (r.tech) parts.push(`tech ${r.tech.label} ${r.tech.shade}`);
+  if (r.track) parts.push(`track ${r.track.ids.join(',') || 'none'}`);
+  if (r.lbs) {
+    const s = Object.entries(r.lbs).map(([id, st]) => `${id} ${st}`).join(', ');
+    if (s) parts.push(`lbs ${s}`);
+  }
+  if (r.felt) parts.push(`felt ${r.felt}`);
+  if (r.hat) parts.push(`hat ${r.hat}`);
+  if (r.flow) parts.push(`flow ${r.flow.kind} ${r.flow.dir}`);
+  if (r.key) parts.push(`key ${r.key.id}`);
+  return [`read: ${parts.join(' | ')}`,
+    `decision: ${decisionLabel(entry?.decision)}`,
+    `reason: ${entry?.reason ?? ''}`];
+}
+
+// Overlay geometry from the latest trace tick; all empty before the snap or without a trace.
+export function overlayShapes(play) {
+  const out = { tracks: [], keys: [], labels: [] };
+  const ticks = play.trace?.ticks;
+  const tick = ticks && ticks[ticks.length - 1];
+  if (!tick) return out;
+  const ids = new Set(play.players.map((p) => p.id));
+  for (const p of play.players) {
+    if (p.team === 'offense' && (p.role === 'OL' || p.role === 'TE')) {
+      out.tracks.push({ id: p.id, x0: p.x - TRACK_HALF, x1: p.x + TRACK_HALF, y0: p.y, y1: p.y + TRACK_DEPTH });
+    }
+    const entry = tick.players[p.id];
+    if (!entry) continue;
+    const lb = entry.read?.track?.lb;
+    if (lb && ids.has(lb)) out.keys.push({ from: p.id, to: lb, kind: 'track' });
+    const key = entry.read?.key;
+    if (key && ids.has(key.id)) out.keys.push({ from: p.id, to: key.id, kind: 'key' });
+    out.labels.push({ id: p.id, text: decisionLabel(entry.decision) });
+  }
+  return out;
+}
+
 // Text for a player's zone-number label ('' hides it).
 export function numberLabel(n) {
   return n === null || n === undefined ? '' : String(n);
@@ -151,7 +228,7 @@ export function resultLabel(result) {
 }
 
 export function initDotsView(container) {
-  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED });
+  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true });
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
   const resetBtn = document.getElementById('reset-btn');
@@ -374,6 +451,113 @@ export function initDotsView(container) {
     }
   }
 
+  // ---- Read-trace overlay (track strips, key lines, decision labels) ----
+  let overlayOn = false;
+  const TRACK_COLOR = 0x4fc3f7, KEY_COLOR = 0xff9800;
+  const OV_LABEL_W = 4 * LABEL_SIZE, OV_LABEL_H = LABEL_SIZE * 0.6;
+  const trackStrips = new Map();
+  const keyLines = new Map();
+  const decLabels = new Map();
+  function trackStripFor(id) {
+    let m = trackStrips.get(id);
+    if (!m) {
+      m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({ color: TRACK_COLOR, transparent: true, opacity: 0.12, depthWrite: false }));
+      m.rotation.x = -Math.PI / 2;
+      m.visible = false;
+      scene.add(m);
+      trackStrips.set(id, m);
+    }
+    return m;
+  }
+  function keyLineFor(name, kind) {
+    let line = keyLines.get(name);
+    if (!line) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+      line = new THREE.Line(g, new THREE.LineBasicMaterial({
+        color: kind === 'key' ? KEY_COLOR : TRACK_COLOR, transparent: true, opacity: 0.9 }));
+      line.visible = false;
+      scene.add(line);
+      keyLines.set(name, line);
+    }
+    return line;
+  }
+  function decLabelFor(id) {
+    let m = decLabels.get(id);
+    if (!m) {
+      const c = document.createElement('canvas');
+      c.width = 256; c.height = 64;
+      const tex = new THREE.CanvasTexture(c);
+      m = new THREE.Mesh(new THREE.PlaneGeometry(OV_LABEL_W, OV_LABEL_H),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+      m.rotation.x = -Math.PI / 2;
+      m.userData = { canvas: c, texture: tex, text: null };
+      m.visible = false;
+      scene.add(m);
+      decLabels.set(id, m);
+    }
+    return m;
+  }
+  function syncOverlay() {
+    const shapes = overlayOn ? overlayShapes(play) : { tracks: [], keys: [], labels: [] };
+    const usedTracks = new Set(), usedKeys = new Set(), usedLabels = new Set();
+    for (const t of shapes.tracks) {
+      const p = play.player(t.id);
+      if (!p) continue;
+      const d = drawPos(play, p);
+      const m = trackStripFor(t.id);
+      const w = fieldToWorld((t.x0 + t.x1) / 2 + (d.x - p.x), (t.y0 + t.y1) / 2 + (d.y - p.y));
+      m.position.set(w.x, 0.05, w.z);
+      m.scale.set(t.x1 - t.x0, t.y1 - t.y0, 1);
+      m.visible = true;
+      usedTracks.add(t.id);
+    }
+    for (const k of shapes.keys) {
+      const a = play.player(k.from), b = play.player(k.to);
+      if (!a || !b) continue;
+      const name = `${k.from}|${k.kind}`;
+      const line = keyLineFor(name, k.kind);
+      const da = drawPos(play, a), db = drawPos(play, b);
+      const wa = fieldToWorld(da.x, da.y), wb = fieldToWorld(db.x, db.y);
+      const pos = line.geometry.attributes.position;
+      pos.setXYZ(0, wa.x, 0.14, wa.z);
+      pos.setXYZ(1, wb.x, 0.14, wb.z);
+      pos.needsUpdate = true;
+      line.visible = true;
+      usedKeys.add(name);
+    }
+    for (const l of shapes.labels) {
+      const p = play.player(l.id);
+      if (!p || l.text === '') continue;
+      const m = decLabelFor(l.id);
+      if (m.userData.text !== l.text) {
+        m.userData.text = l.text;
+        const c = m.userData.canvas;
+        const g = c.getContext('2d');
+        g.clearRect(0, 0, c.width, c.height);
+        g.font = 'bold 36px sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.lineWidth = 7;
+        g.strokeStyle = '#000';
+        g.lineJoin = 'round';
+        g.strokeText(l.text, c.width / 2, c.height / 2);
+        g.fillStyle = '#fff';
+        g.fillText(l.text, c.width / 2, c.height / 2);
+        m.userData.texture.needsUpdate = true;
+      }
+      const d = drawPos(play, p);
+      const w = fieldToWorld(d.x, d.y - BODY_RADIUS - OV_LABEL_H / 2);
+      m.position.set(w.x, 0.16, w.z);
+      m.visible = true;
+      usedLabels.add(l.id);
+    }
+    for (const [id, m] of trackStrips) if (!usedTracks.has(id)) m.visible = false;
+    for (const [name, m] of keyLines) if (!usedKeys.has(name)) m.visible = false;
+    for (const [id, m] of decLabels) if (!usedLabels.has(id)) m.visible = false;
+  }
+
   // ---- Ball marker ----
   // Unit circles scaled to the ball's width (x) and length (y) before the -PI/2 x turn, so length runs along z.
   const ball = new THREE.Group();
@@ -446,6 +630,7 @@ export function initDotsView(container) {
     syncBlockLines();
     syncNoses();
     syncLabels();
+    syncOverlay();
     const holder = play.ball.holder && play.player(play.ball.holder);
     let bw;
     if (holder) {
@@ -499,7 +684,9 @@ export function initDotsView(container) {
     }
     const p = dotAt(e.clientX, e.clientY);
     if (p && tooltip) {
-      tooltip.textContent = `${p.id} · ${p.name}`;
+      const ticks = play.trace?.ticks;
+      const entry = ticks?.length ? ticks[ticks.length - 1].players[p.id] : null;
+      tooltip.textContent = [`${p.id} · ${p.name}`, ...(entry ? readLines(entry) : [])].join('\n');
       tooltip.style.display = 'block';
       tooltip.style.left = `${e.clientX + 14}px`;
       tooltip.style.top = `${e.clientY + 14}px`;
@@ -586,6 +773,51 @@ export function initDotsView(container) {
       personnelSelect.blur(); // so ArrowLeft/ArrowRight go back to the DL shift
     });
   }
+  const overlayBtn = document.getElementById('overlay-btn');
+  const showOverlay = () => {
+    if (overlayBtn) overlayBtn.textContent = overlayLabel(overlayOn);
+  };
+  showOverlay();
+  const toggleOverlay = () => { overlayOn = !overlayOn; showOverlay(); };
+  overlayBtn?.addEventListener('click', () => {
+    toggleOverlay();
+    overlayBtn.blur();
+  });
+
+  const formationSelect = document.getElementById('formation-select');
+  const defenseSelect = document.getElementById('defense-select');
+  const scriptSelect = document.getElementById('script-select');
+  const syncPickers = () => {
+    if (frontSelect) frontSelect.value = play.front;
+    if (personnelSelect) personnelSelect.value = play.personnel;
+    if (formationSelect) formationSelect.value = play.formation ?? '';
+    if (defenseSelect) defenseSelect.value = play.defPersonnel ?? '';
+    if (scriptSelect) scriptSelect.value = play.script ?? '';
+  };
+  const wirePicker = (select, options, apply) => {
+    if (!select) return;
+    for (const { key, name } of options) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    syncPickers();
+    select.addEventListener('change', () => {
+      apply(select.value === '' ? null : select.value);
+      if (selectedId && !play.player(selectedId)) selectedId = null;
+      showShift();
+      showLB();
+      showFight();
+      select.blur();
+      syncPickers();
+    });
+  };
+  wirePicker(formationSelect, formationOptions(), (k) => play.setFormation(k));
+  wirePicker(defenseSelect, defPersonnelOptions(), (k) => play.setDefPersonnel(k));
+  wirePicker(scriptSelect, scriptOptions(), (k) => play.setScript(k));
+  frontSelect?.addEventListener('change', () => { if (defenseSelect) defenseSelect.value = play.defPersonnel ?? ''; });
+
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { selectedId = null; return; }
     if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
@@ -609,6 +841,7 @@ export function initDotsView(container) {
     }
     if (e.key.toLowerCase() === 'r') doReset();
     if (e.key.toLowerCase() === 'f') { toggleFight(); return; }
+    if (e.key.toLowerCase() === 'o' && document.activeElement?.tagName !== 'SELECT') toggleOverlay();
   });
 
   // ---- Loop ----
