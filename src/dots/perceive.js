@@ -13,6 +13,8 @@
 //          blocker is him (smallest |du|). Line-level defender: his own techniqueOf
 //          { blocker, label, shade }. label '0','1','2','2i','3','4','4i','5','6','7','9';
 //          shade 'head' | 'playside' | 'backside' of the defender vs. that blocker.
+//          Slots past the third from the center (k >= 4, e.g. a line of 7 on one side or
+//          linemen that crossed) use the outside labels ('6','7','9').
 //   track  line player: { ids, lb }. ids = defenders within TRACK_HALF laterally and
 //          0 < dy <= TRACK_DEPTH above him, nearest first; lb = first of them in `lbs`, else null.
 //   lbs    line player: { [id]: state } for every second-level box defender at the snap.
@@ -49,6 +51,7 @@ export const BOX_COUNT_DEPTH = 7.0;
 
 const EPS = 1e-9;
 const LABELS = [['0', '1', '1'], ['2', '2i', '3'], ['4', '4i', '5'], ['6', '7', '9']];
+const OUTSIDE_SLOT = LABELS.length - 1;
 
 const cmpId = (a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0);
 const isLine = (p) => p.team === 'offense' && LINE_ROLES.includes(p.role);
@@ -105,7 +108,7 @@ function lineSlots(snapshot, centerId) {
   const line = snapshot.players.filter(isLine).sort((a, b) => a.x - b.x || cmpId(a.id, b.id));
   const ci = line.findIndex((p) => p.id === centerId);
   if (ci < 0) return null;
-  const slots = line.map((p, i) => ({ k: Math.abs(i - ci), x: p.x, player: p, ghost: false }));
+  const slots = line.map((p, i) => ({ k: Math.min(Math.abs(i - ci), OUTSIDE_SLOT), x: p.x, player: p, ghost: false }));
   const left = line.slice(0, ci);
   const right = line.slice(ci + 1);
   for (const [arr, dir] of [[left, -1], [right, 1]]) {

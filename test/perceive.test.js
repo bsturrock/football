@@ -5,7 +5,8 @@ import {
   REACTION_DELAY, HISTORY_S, TRACK_HALF, worldSnapshot, createPerception, observe, seenAt, velocityOf,
   techniqueOf, boxCount, cuesFor, perceiveAll,
 } from '../src/dots/perceive.js';
-import { buildLineup, FRONTS } from '../src/dots/roster.js';
+import { buildLineup, FRONTS, FORMATIONS } from '../src/dots/roster.js';
+import { createPlay, FIXED_DT } from '../src/dots/play.js';
 
 const LOS = 25;
 const SIDE = -1;
@@ -223,4 +224,36 @@ test('purity of the module source', () => {
   }
   assert.ok(!/\.(vel|selfVel|react|steer|carry)\b/.test(src));
   assert.ok(!/Math\.random|Date|performance/.test(src));
+});
+
+test('technique on a line of 7 one side', () => {
+  const line = [
+    P('C', 'offense', 'OL', 0, 24.72), P('RG', 'offense', 'OL', 1.2, 24.4), P('RT', 'offense', 'OL', 2.4, 24.4),
+    P('TE', 'offense', 'TE', 3.6, 24.4), P('TE2', 'offense', 'TE', 4.8, 24.4),
+    P('LG', 'offense', 'OL', -1.2, 24.4), P('LT', 'offense', 'OL', -2.4, 24.25),
+  ];
+  const s = snap(0, [...line, P('DE', 'defense', 'DE', 4.8, LOS + 1)]);
+  let t;
+  assert.doesNotThrow(() => { t = techniqueOf(s, 'DE', CENTER); });
+  assert.equal(t.label, '6');
+  assert.equal(t.blocker, 'TE2');
+});
+
+test('perceiveAll survives a whole run on every front and formation', () => {
+  const LABEL_SET = ['0', '1', '2', '2i', '3', '4', '4i', '5', '6', '7', '9'];
+  const runAll = (play) => {
+    play.snap();
+    const st = createPerception(worldSnapshot(play.players, { t: 0, los: 25, side: 1, carrierId: null }), CENTER);
+    for (let tick = 1; tick <= 240 && play.result === null; tick++) {
+      play.step(FIXED_DT);
+      observe(st, worldSnapshot(play.players, { t: tick * FIXED_DT, los: 25, side: 1, carrierId: null }));
+      const cues = perceiveAll(st);
+      for (const [id, c] of Object.entries(cues)) {
+        const label = c.tech?.label;
+        if (label !== undefined) assert.ok(LABEL_SET.includes(label), `${id} label ${label} at tick ${tick}`);
+      }
+    }
+  };
+  for (const front of Object.keys(FRONTS)) runAll(createPlay(25, 'insideZone', { front }));
+  for (const formation of Object.keys(FORMATIONS)) runAll(createPlay(25, 'insideZone', { formation }));
 });
