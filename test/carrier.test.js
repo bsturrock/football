@@ -750,7 +750,8 @@ test('F-48 #5: a free defender ahead and to one side bends the aim to the other 
     assert.ok(run.aim.y > at.y);
     assert.ok(Math.sign(run.aim.x - at.x) === -sgn, `aim x ${run.aim.x} vs rb ${at.x}`);
     assert.ok(Math.abs(bearing(at, run.aim)) <= AVOID_FAN + 1e-9);
-    near(Math.hypot(run.aim.x - at.x, run.aim.y - at.y), AVOID_AIM_DIST);
+    // the aim lies on the chosen cut heading from the RB
+    assert.ok(Math.abs(bearing(at, run.aim) - run.avoidLine.th) < 1e-6, 'aim off the held cut heading');
   }
 });
 
@@ -847,6 +848,41 @@ test('F-48 #9: a static defender gives a stable heading, no alternating sign', (
   assert.equal(heads.size, 1);
 });
 
+test('F-48 #5 (T-175): when every heading is caught at about the same short distance he still does not aim at the man dead ahead', () => {
+  for (const sgn of [1, -1]) {
+    const { pl, run, rb, ds } = past(1);
+    place(ds[0], rb.x, rb.y + 3);
+    place(ds[1], rb.x + sgn * 3.2 * Math.sin(0.4), rb.y + 3.2 * Math.cos(0.4));
+    place(ds[2], rb.x - sgn * 1.7, rb.y - 0.3);
+    ds[0].speed = ds[1].speed = 7.5;
+    ds[2].speed = 6.5;
+    const at = { x: rb.x, y: rb.y };
+    go(pl, run);
+    const dist = Math.hypot(ds[0].x - at.x, ds[0].y - at.y);
+    const diff = Math.abs(bearing(at, run.aim) - bearing(at, ds[0]));
+    assert.ok(diff > Math.asin(AVOID_CONTACT / dist), `aim bearing differs by only ${diff}`);
+  }
+});
+
+test('F-48 #5 (T-175): a held heading that a free defender moves onto is released at once', () => {
+  const { pl, run, rb, ds } = past(1);
+  place(ds[0], rb.x + 0.4, rb.y + 3); // he bends to the left and holds that heading
+  ds[0].speed = 0.01;
+  go(pl, run);
+  assert.notEqual(run.avoid, 0);
+  assert.notEqual(run.avoid, null);
+  run.avoidAt = run.avoidClock; // just chosen, so AVOID_HOLD would keep it
+  run.avoidForced = false;
+  const th = run.avoidLine.th;
+  // a free defender 2.5 yd out on the held line
+  place(ds[0], rb.x + 2.5 * Math.sin(th), rb.y + 2.5 * Math.cos(th));
+  const at = { x: rb.x, y: rb.y };
+  go(pl, run);
+  const dist = Math.hypot(ds[0].x - at.x, ds[0].y - at.y);
+  assert.ok(Math.abs(bearing(at, run.aim) - bearing(at, ds[0])) > Math.asin(AVOID_CONTACT / dist));
+  assert.equal(run.avoidForced, true);
+});
+
 test('F-48 #5/#9 play level: past the los every front gains ground and never aims at a close free defender', () => {
   const DT = 1 / 60;
   for (const front of Object.keys(FRONTS)) {
@@ -911,6 +947,58 @@ test('F-48 #11c: past the los the aim x reverses at most once in 0.5 s and a hea
     }
   }
   console.log('F-48 #11c reversals: ' + report.join(' '));
+});
+
+test('F-48 #11d: a held cut line has one fixed aim point; a new heading is a single jump of the aim', () => {
+  const { pl, run, rb, ds } = past(1);
+  const d = ds[0];
+  place(d, rb.x + 0.4, rb.y + 6);
+  d.speed = 0.01;
+  go(pl, run);
+  assert.notEqual(run.avoid, null);
+  const run1 = (n) => {
+    const aims = [];
+    for (let i = 0; i < n; i++) {
+      const { th } = run.avoidLine;
+      rb.x += 0.05 * Math.sin(th);
+      rb.y += 0.05 * Math.cos(th);
+      run.x = rb.x;
+      const before = run.avoid;
+      go(pl, run);
+      aims.push({ aim: { ...run.aim }, same: run.avoid === before });
+    }
+    return aims;
+  };
+  // (a) + (c): same heading, same aim, on the line and inside the field.
+  const first = { ...run.aim };
+  const heading = run.avoid;
+  for (const t of run1(8)) {
+    assert.equal(t.same, true);
+    assert.ok(Math.abs(t.aim.x - first.x) < 1e-9 && Math.abs(t.aim.y - first.y) < 1e-9, 'aim moved on a held heading');
+  }
+  assert.equal(run.avoid, heading);
+  const line = run.avoidLine;
+  assert.ok(Math.abs(run.aim.x - (line.x + (run.aim.y - line.y) * Math.tan(line.th))) < 1e-9, 'aim off the cut line');
+  assert.ok(Math.abs(run.aim.x) <= HW - AVOID_SIDELINE + 1e-9 && run.aim.y <= GOAL_LINE_Y + 1e-9);
+  // (b) the heading changes: the aim changes once, then holds.
+  for (let i = 0; i < Math.ceil((AVOID_HOLD + 0.1) * 60); i++) go(pl, run);
+  d.x = rb.x - 0.4;
+  d.y = rb.y + 6;
+  let jumps = 0;
+  let changed = false;
+  let prev = { ...run.aim };
+  for (let i = 0; i < 20; i++) {
+    const { th } = run.avoidLine;
+    rb.x += 0.05 * Math.sin(th);
+    rb.y += 0.05 * Math.cos(th);
+    run.x = rb.x;
+    go(pl, run);
+    if (run.avoid !== heading) changed = true;
+    if (Math.abs(run.aim.x - prev.x) > 1e-9) jumps++;
+    prev = { ...run.aim };
+  }
+  assert.ok(changed, 'heading never changed');
+  assert.ok(jumps <= 1, `aim x changed on ${jumps} ticks`);
 });
 
 test('F-48 #12 (a): a free defender inside AVOID_CLOSE and no held heading gives the vertical aim', () => {

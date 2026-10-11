@@ -477,15 +477,35 @@ const brokeAway = (play, los) => {
 };
 
 test('F-39 #7: TE engages and the play ends or breaks away on every front', () => {
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   for (const front of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front, personnel: 'te' });
+    const planTarget = zonePlan(play.players, play.numbers, 25).blocks.TE;
     play.snap();
+    assert.equal(play.player('TE').block.target, planTarget, `${front} TE target after snap, plan ${planTarget}`);
+    const role = play.player(planTarget).role;
+    const startDist = dist(play.player('TE'), play.player(planTarget));
     let engaged = false;
+    let minD = Infinity;
     for (let i = 0; i < 360 && play.ball.phase !== 'dead'; i++) {
       play.step(1 / 60);
-      if (play.player('TE').block?.engaged) engaged = true;
+      const te = play.player('TE');
+      if (te.block?.engaged) engaged = true;
+      // read the current target each tick: later F-50 tasks may legally retarget a climber
+      if (te.block?.target) minD = Math.min(minD, dist(te, play.player(te.block.target)));
     }
     assert.ok(play.ball.phase === 'dead' || brokeAway(play, 25), front);
-    assert.equal(engaged, true, front);
+    if (DL_ROLES.includes(role)) {
+      assert.equal(engaged, true, `${front} TE on DL ${planTarget}, minD ${minD.toFixed(2)}`);
+    } else if (LB_ROLES.includes(role)) {
+      // a climbing TE closes on his LB, who may drop, flow and make the play without the TE engaging
+      const closed = minD <= startDist / 2;
+      const tackler = play.result?.by;
+      const lostLb = tackler !== play.player('TE').block.target;
+      assert.ok(engaged || (closed && lostLb),
+        `${front} TE on LB ${planTarget}: engaged ${engaged}, minD ${minD.toFixed(2)} vs start ${startDist.toFixed(2)}, tackler ${tackler}`);
+    } else {
+      assert.fail(`${front} TE plan target ${planTarget} has role ${role}, not DL or LB`);
+    }
   }
 });

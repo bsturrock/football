@@ -58,7 +58,7 @@ export const AVOID_TURN_COST = 0.25; // yd of safe run per radian of turn away f
 export const AVOID_SWITCH = 1.5; // yd: score a rival heading must beat the held one by
 export const AVOID_HOLD = 0.3; // s: a new heading is held at least this long
 export const AVOID_LINGER = 0.5; // s: a cut line is kept this long after the last man leaves his sight
-export const AVOID_AIM_DIST = 4; // yd: how far along the heading the aim sits
+export const AVOID_AIM_DIST = 4; // yd: how far ahead along a candidate heading the sideline filter looks
 export const AVOID_CLOSE = AVOID_CONTACT + 2 * BODY_RADIUS; // yd: inside this a free defender is on him, so he squeezes and takes the hit instead of cutting
 const AVOID_RAY_STEP = 0.25; // yd
 
@@ -285,6 +285,17 @@ function safeRun(rb, th, threats, sight) {
   return sight;
 }
 
+// A cut line from (x, y) at heading th, with its far point: where it first reaches the sideline inset or the goal line.
+function cutLine(x, y, th) {
+  const sn = Math.sin(th), cs = Math.cos(th);
+  let s = cs > 1e-9 ? Math.max(0, (GOAL_LINE_Y - y) / cs) : 0;
+  if (Math.abs(sn) > 1e-9) {
+    const sx = (Math.sign(sn) * (HW - AVOID_SIDELINE) - x) / sn;
+    if (sx >= 0 && sx < s) s = sx;
+  }
+  return { x, y, th, far: { x: x + s * sn, y: y + s * cs } };
+}
+
 // The committed aim past the los: vertical when nobody is seen, else the best held heading away from free defenders.
 function openFieldAim(players, run, rb, dt) {
   const vertical = { x: run.x + run.cut, y: GOAL_LINE_Y };
@@ -302,9 +313,7 @@ function openFieldAim(players, run, rb, dt) {
   // Inside arm's reach he cannot cut cleanly: no new heading, keep the current aim (held cut line, else vertical).
   const heldAim = () => {
     if (run.avoid === null || run.avoid === 0 || !run.avoidLine) return vertical;
-    const { x: lx, y: ly, th } = run.avoidLine;
-    const ay = rb.y + AVOID_AIM_DIST * Math.cos(th);
-    return { x: lx + (ay - ly) * Math.tan(th), y: ay };
+    return run.avoidLine.far;
   };
   if (threats.some((d) => Math.hypot(d.x - rb.x, d.y - rb.y) < AVOID_CLOSE)) return heldAim();
   const holding = run.avoid !== null && run.avoid !== 0 && run.avoidClock - run.avoidSeen < AVOID_LINGER - 1e-9;
@@ -319,31 +328,46 @@ function openFieldAim(players, run, rb, dt) {
   const score = (off) => {
     const th = absOf(off);
     const S = safeRun(rb, th, threats, sight);
-    return { off, S, score: S * Math.cos(th) - AVOID_TURN_COST * Math.abs(th - thV) };
+    // miss: the smallest lateral distance by which the heading line passes a threat ahead of him (Infinity: none ahead).
+    // A heading is "at" a threat when it passes closer than AVOID_CONTACT, however short every safe run is.
+    let miss = Infinity;
+    for (const d of threats) {
+      const dx = d.x - rb.x, dy = d.y - rb.y;
+      if (dx * Math.sin(th) + dy * Math.cos(th) <= 0) continue;
+      miss = Math.min(miss, Math.abs(dx * Math.cos(th) - dy * Math.sin(th)));
+    }
+    return { off, S, miss, at: miss < AVOID_CONTACT, score: S * Math.cos(th) - AVOID_TURN_COST * Math.abs(th - thV) };
   };
   const n = Math.round(2 * AVOID_FAN / AVOID_STEP);
-  let best = null;
+  const better = (c, b) => !b || c.score > b.score + 1e-9 || (Math.abs(c.score - b.score) <= 1e-9 && Math.abs(c.off) < Math.abs(b.off));
+  let best = null; // best heading that is not at a man
+  let widest = null; // fallback when every heading is at one: the largest miss
   for (let k = -n; k <= n; k++) {
     const off = k * AVOID_STEP;
     if (k !== 0 && Math.abs(thV + off) > AVOID_FAN) continue;
     const ax = rb.x + AVOID_AIM_DIST * Math.sin(absOf(off));
     if (Math.abs(ax) > HW - AVOID_SIDELINE && Math.abs(ax) > Math.abs(rb.x)) continue; // never aim toward the sideline
     const c = score(off);
-    if (!best || c.score > best.score + 1e-9 || (Math.abs(c.score - best.score) <= 1e-9 && Math.abs(c.off) < Math.abs(best.off))) best = c;
+    if (!c.at && better(c, best)) best = c;
+    if (!widest || c.miss > widest.miss + 1e-9 || (Math.abs(c.miss - widest.miss) <= 1e-9 && Math.abs(c.off) < Math.abs(widest.off))) widest = c;
   }
+  if (!best) best = widest;
   let off = best.off;
   if (run.avoid !== null) {
     const held = score(run.avoid);
     const free = run.avoidClock - run.avoidAt >= AVOID_HOLD - 1e-9 || held.S < AVOID_CONTACT;
-    if (!(free && best.score > held.score + AVOID_SWITCH)) off = run.avoid;
+    if (held.at && !best.at) {
+      // The held line now runs at a free defender (none inside AVOID_CLOSE): release it at once.
+      run.avoidForced = true;
+    } else if (!(free && best.score > held.score + AVOID_SWITCH)) off = run.avoid;
     else run.avoidForced = held.S < AVOID_CONTACT;
   }
   if (off !== run.avoid) {
     run.avoid = off;
     run.avoidAt = run.avoidClock;
-    run.avoidLine = { x: rb.x, y: rb.y, th: absOf(off) }; // the line he cuts onto: a plant, then this line
+    run.avoidLine = cutLine(rb.x, rb.y, absOf(off)); // the line he cuts onto: a plant, then this line
   }
-  // Aim at the point AVOID_AIM_DIST ahead of him on the cut line, so incidental sideways jostle does not move the aim.
+  // Aim at the fixed far point of the cut line (a landmark, like the vertical aim), so the aim does not slide with him.
   return heldAim();
 }
 
