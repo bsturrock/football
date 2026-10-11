@@ -49,3 +49,4 @@
 - 2026-10-11 F-50 Zone second level: leave the least dangerous man, block the most dangerous now (R-66) 378119d
 - 2026-10-11 F-3 Real inside-zone double teams and the climb off them (R-1) 8fa15af
 - 2026-10-11 F-4 Perception layer, read trace and scenario harness (R-7) 6fe1145
+- 2026-10-11 F-53 Version stamp on dots.html (R-11) e1f1951
