@@ -8,7 +8,7 @@ import {
   contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
-import { startFoot } from '../src/dots/technique.js';
+import { startFoot, RIDE_MIN } from '../src/dots/technique.js';
 import { startReact, WIN_SPEED } from '../src/dots/react.js';
 
 const DT = 1 / 60;
@@ -233,19 +233,62 @@ test('contactImpulse weights by mass: the heavier body changes less', () => {
   near(massOf(d) * i.d.y + massOf(b) * i.b.y, 0);
 });
 
-test('carryVelocity relaxes toward the goal; the impact applies only while t > 0 and counts down', () => {
+test('carryVelocity relaxes toward the goal; the easing acts on the post-hit velocity while the impact counts down', () => {
   const k = 1 - Math.exp(-DT / 0.2);
   const v = carryVelocity({ x: 1, y: 0 }, { x: 0, y: 2 }, null, DT, 0.2);
   near(v.vx, 1 - k, 1e-12); near(v.vy, 2 * k, 1e-12);
+  // R0 = impulse still to deliver = (15, -30) * DT; this tick delivers kick = (10, -20) * DT. The easing
+  // acts on prev + R0 and the undelivered rest is taken back out: v = (R0)(1 - k) - (R0 - kick).
   const imp = { ax: 10, ay: -20, t: DT * 1.5 };
   const w = carryVelocity({ x: 0, y: 0 }, { x: 0, y: 0 }, imp, DT, 0.2);
-  near(w.vx, 10 * DT, 1e-12); near(w.vy, -20 * DT, 1e-12);
+  near(w.vx, 10 * DT - k * 15 * DT, 1e-12); near(w.vy, -20 * DT + k * 30 * DT, 1e-12);
+  near(w.kick.x, 10 * DT, 1e-12); near(w.kick.y, -20 * DT, 1e-12);
   near(imp.t, DT * 0.5, 1e-12);
-  carryVelocity({ x: 0, y: 0 }, { x: 0, y: 0 }, imp, DT, 0.2);
+  const w2 = carryVelocity({ x: w.vx, y: w.vy }, { x: 0, y: 0 }, imp, DT, 0.2);
   assert.ok(imp.t <= 0);
+  // the window is over: the velocity is the whole impulse, eased over both ticks
+  near(w2.vx, 15 * DT * (1 - k) ** 2, 1e-12); near(w2.vy, -30 * DT * (1 - k) ** 2, 1e-12);
   const z = carryVelocity({ x: 0, y: 0 }, { x: 0, y: 0 }, imp, DT, 0.2);
   near(z.vx, 0, 1e-12); near(z.vy, 0, 1e-12);
+  near(z.kick.x, 0, 1e-12); near(z.kick.y, 0, 1e-12);
   assert.ok(IMPACT_TIME > 0);
+});
+
+test('R-71: a head-on hit takes the defender to the common velocity and eases him to the goal, no overshoot', () => {
+  // A linebacker sliding into a climbing blocker at 5.9 yd/s (R-71's WIL: vy -5.88), the block-resolved
+  // goal pointing back at 0.8 yd/s. The blocker's speed is set so the common velocity is R-71's +0.37.
+  const d = D('d', 0, 10, { strength: 0.5, vel: { x: 0, y: -5.9 } });
+  const md = massOf(d);
+  const mb = 1;
+  const common = 0.37;
+  const b = O('b', 0, 10 - CONTACT_DIST, { strength: mb, vel: { x: 0, y: (common * (md + mb) - md * -5.9) / mb } });
+  const goal = { x: 0, y: 0.8 };
+  for (const dt of [DT, IMPACT_TIME / 2.5]) {
+    const imp = contactImpulse(d, b);
+    near(d.vel.y + imp.d.y, common, 1e-9);
+    const impact = { ax: imp.d.x / IMPACT_TIME, ay: imp.d.y / IMPACT_TIME, t: IMPACT_TIME };
+    const window = Math.ceil(IMPACT_TIME / dt - 1e-9);
+    const cap = Math.max(common, goal.y);
+    let v = { x: d.vel.x, y: d.vel.y };
+    let prev = -Infinity;
+    for (let i = 0; i < window + 20; i++) {
+      const s = carryVelocity(v, goal, impact, dt, ENGAGE_TAU);
+      v = { x: s.vx, y: s.vy };
+      assert.ok(v.y <= cap + 1e-9, `dt ${dt} tick ${i}: velocity ${v.y} past ${cap}`);
+      if (i >= window - 1) {
+        assert.ok(v.y >= prev - 1e-12, `dt ${dt} tick ${i}: ${prev} -> ${v.y} not monotone toward the goal`);
+        prev = v.y;
+      }
+    }
+    // at the end of the window it is exactly the post-hit velocity eased over the window
+    const after = { ax: impact.ax, ay: impact.ay, t: IMPACT_TIME };
+    let u = { x: d.vel.x, y: d.vel.y };
+    for (let i = 0; i < window; i++) {
+      const s = carryVelocity(u, goal, after, dt, ENGAGE_TAU);
+      u = { x: s.vx, y: s.vy };
+    }
+    near(u.y, goal.y + (common - goal.y) * Math.exp(-(window * dt) / ENGAGE_TAU), 1e-9);
+  }
 });
 
 test('dampedFollow: an error decays monotonically to 0 with no sign change', () => {
@@ -301,7 +344,10 @@ test('a hit gives the defender his whole impulse over IMPACT_TIME (the blocker p
     stepBlocking(ps, ball, DT, ctx);
     best = Math.max(best, d.vel.x);
   }
-  assert.ok(best >= 0.8 * imp.d.x, `defender x velocity ${best} of impulse ${imp.d.x}`);
+  // R-71: the easing acts on the post-hit velocity from the hit on, so by the end of the window the
+  // whole impulse has been delivered and eased for IMPACT_TIME (block-resolved goal x is 0 here).
+  const eased = imp.d.x * Math.exp(-IMPACT_TIME / ENGAGE_TAU);
+  assert.ok(best >= 0.8 * eased, `defender x velocity ${best} of eased impulse ${eased}`);
   assert.equal(d.impact, null);
 });
 
@@ -320,6 +366,64 @@ test('blindside (F-49 #8): a hit from the side carries the defender along and pu
     assert.ok((d.x - x0) / DT > 0, `tick ${i}: defender x velocity ${(d.x - x0) / DT}`);
     assert.ok(a.block.foot.push.x > 0, `tick ${i}: push.x ${a.block.foot.push.x}`);
   }
+});
+
+const minPair = (ps) => Math.min(...ps.flatMap((p, i) => ps.slice(i + 1).map((q) => Math.hypot(p.x - q.x, p.y - q.y))));
+
+test('inelastic separation: an engaged defender driven into a stationary anchored body stops there, no rebound', () => {
+  const u = Math.SQRT1_2;
+  // d (no strength of his own, sliding in at 2 yd/s) is driven up and right by b; d2 sits on that line,
+  // anchored by b2, whose push d2 exactly matches (equal strength, goal straight back), so d2 is stationary.
+  const d = D('d', 0, 10, { strength: 0, vel: { x: 2 * u, y: 2 * u } });
+  const b = O('b', -CONTACT_DIST * u, 10 - CONTACT_DIST * u, { block: blk('d', { engaged: true, seq: 1, angle: 'right' }) });
+  const d2 = D('d2', 0.8 * u, 10 + 0.8 * u, { strength: 1 });
+  const b2 = O('b2', d2.x + CONTACT_DIST * u, d2.y - CONTACT_DIST * u, { block: blk('d2', { engaged: true, seq: 2, angle: 'left' }) });
+  const ps = [b, d, b2, d2];
+  const ctx = { rule: null, seq: 2, fightBlocks: false, defGoals: { d: { x: 0, y: -40 }, d2: { x: d2.x + 40, y: d2.y - 40 } } };
+  let contact = null;
+  for (let i = 0; i < 120 && (contact === null || i <= contact + 15); i++) {
+    stepBlocking(ps, { x: 0, y: -40 }, DT, ctx);
+    const dist = Math.hypot(d.x - d2.x, d.y - d2.y);
+    if (contact === null && dist < 2 * BODY_RADIUS) contact = i;
+    if (contact === null || i === contact) continue;
+    const away = (d.vel.x * (d.x - d2.x) + d.vel.y * (d.y - d2.y)) / dist;
+    assert.ok(away <= 0.05, `tick ${i - contact} after contact: ${away.toFixed(3)} yd/s away from the body`);
+    assert.ok(b.block.engaged && b2.block.engaged, `tick ${i}: blocks hold`);
+  }
+  assert.ok(contact !== null, 'd reaches d2');
+});
+
+test('a rider cannot carry a third body: an engaged blocker yields to another engaged defender', () => {
+  const u = Math.SQRT1_2;
+  // c rides m playside (+x) at about 1.3 yd/s; d, engaged by b, is in c's path (not m's) and b pushes him
+  // back toward c. When c reaches d, c is held up; d is not dragged along in c's direction of travel.
+  const m = D('m', 0, 10, { strength: 0.707 });
+  const c = O('c', -CONTACT_DIST * u, 10 - CONTACT_DIST * u, { block: blk('m', { engaged: true, seq: 1, angle: 'right' }) });
+  const d = D('d', 1.0, c.y - 0.3, { strength: 0.707 });
+  const b = O('b', d.x + CONTACT_DIST * u, d.y - CONTACT_DIST * u, { block: blk('d', { engaged: true, seq: 2, angle: 'left' }) });
+  const ps = [c, m, b, d];
+  const H = hardCore(BODY_RADIUS);
+  const ctx = { rule: null, seq: 2, fightBlocks: false, defGoals: { m: { x: 40, y: -30 }, d: { x: d.x + 24, y: d.y - 32 } } };
+  let contact = null;
+  let travel = null;
+  let fastest = 0;
+  for (let i = 0; i < 120 && (contact === null || i <= contact + 20); i++) {
+    stepBlocking(ps, { x: 0, y: -40 }, DT, ctx);
+    assert.ok(minPair(ps) >= H - 1e-9, `tick ${i}: a pair is closer than H`);
+    if (contact === null) {
+      fastest = Math.max(fastest, Math.hypot(c.vel.x, c.vel.y));
+      if (Math.hypot(c.x - d.x, c.y - d.y) < 2 * BODY_RADIUS) {
+        contact = i;
+        const s = Math.hypot(c.vel.x, c.vel.y);
+        travel = { x: c.vel.x / s, y: c.vel.y / s };
+      }
+      continue;
+    }
+    const along = d.vel.x * travel.x + d.vel.y * travel.y;
+    assert.ok(along < RIDE_MIN, `tick ${i - contact} after contact: d moves ${along.toFixed(2)} yd/s in c's direction`);
+  }
+  assert.ok(contact !== null, 'c reaches d');
+  assert.ok(fastest >= 1.2 && travel.x > 0.9, `c rides m playside before the contact (${fastest.toFixed(2)} yd/s)`);
 });
 
 test('stepBlocking engaged defender leans to his goal, else the ball', () => {
