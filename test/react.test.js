@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   REACT_STATES, ANCHOR_RATE, RECOVER_RATE, ANCHOR_MIN, ANCHOR_LATERAL,
   startReact, anchorSide, anchorDir, stepReact, anchorHold, HOLD_GIVE, HOLD_STIFF,
-  SHED_REACH, LEVER_COS, WIN_SPEED,
+  SHED_REACH, LEVER_COS, WIN_SPEED, SIDE_FULL,
 } from '../src/dots/react.js';
 
 const DT = 1 / 60;
@@ -92,10 +92,15 @@ test('zero push is neutral', () => {
   assert.equal(r.state, 'neutral');
 });
 
-test('anchorSide keeps prevSide inside the deadzone', () => {
-  assert.equal(anchorSide(1, def(0, 0), { x: 0.05, y: -3 }), 1);
-  assert.equal(anchorSide(1, def(0, 0), { x: -0.05, y: -3 }), 1);
-  assert.equal(anchorSide(1, def(0, 0), { x: -2, y: -3 }), -1);
+// T-13: the latch let a 0.1 yd offset on one tick decide a full sideways anchor, so the side now scales with the offset.
+test('anchorSide scales with the goal offset up to SIDE_FULL (was: keeps prevSide inside the deadzone)', () => {
+  const tol = 1e-9;
+  const near1 = (a, b) => assert.ok(Math.abs(a - b) < tol, `${a} vs ${b}`);
+  near1(anchorSide(1, def(0, 0), { x: 0.05, y: -3 }), 0.05 / SIDE_FULL);
+  near1(anchorSide(1, def(0, 0), { x: -0.05, y: -3 }), -0.05 / SIDE_FULL);
+  near1(anchorSide(1, def(0, 0), { x: -2, y: -3 }), -1);
+  near1(anchorSide(1, def(0, 0), { x: 0.3, y: -3 }), 1);
+  near1(anchorSide(1, def(0, 0), { x: 0, y: -3 }), 0);
 });
 
 test('anchorDir in the field frame', () => {

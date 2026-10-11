@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BODY_RADIUS, contactSpot, resolveBlock, stepBlocking } from '../src/dots/blocking.js';
 import { startFoot } from '../src/dots/technique.js';
+import { createPlay } from '../src/dots/play.js';
 
 const DT = 1 / 60;
 
@@ -91,4 +92,21 @@ test('straight double team stays centred and bounded in depth', () => {
   const f = run({ x: 0, y: 21 }, 5.0);
   assert.ok(f.D.y - 25.7 <= 2.0, `D.y ${f.D.y}`);
   assert.ok(Math.abs(f.D.x) < 0.05, `D.x ${f.D.x}`);
+});
+
+// T-13: the base C/LG double on RDT must drive him playside, not latch his anchor backside on the first engaged tick.
+test('T-13: base C/LG double drives RDT 1 yd playside by 1.6 s (anchor not latched backside)', () => {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'base' });
+  let side = 0;
+  const orig = play.retargetRule;
+  play.retargetRule = (pl, b, ctx) => { side = ctx.side; orig(pl, b, ctx); return []; };
+  play.snap();
+  const RDT = play.player('RDT');
+  const x0 = RDT.x;
+  let reached = false;
+  for (let i = 0; i < Math.round(1.6 / DT) && !reached; i++) {
+    play.step(DT);
+    reached = side * (RDT.x - x0) >= 1.0;
+  }
+  assert.ok(reached, `side ${side} RDT moved ${side * (RDT.x - x0)} yd playside by 1.6 s`);
 });
