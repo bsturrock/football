@@ -520,6 +520,9 @@ test('F-41 #3: TE look line holds through 1.5 s', () => {
 const TODO_R68 = 'R-68: base MLB plants, loops round the climbing LG and flows outside; RG pure-pursues his contact spot (1.74 -> 1.16 yd, 1.5-2.0 s), no engage by 2.0 s at CUT_ACCEL 20 (green at 15/25, red at 18/20/22). Climb timing off the double is R-68 (.work/maps/R-68-notes.md).';
 const R68_BASE_MLB = (front, c) => front === 'base' && c.watch === 'MLB';
 
+// Since F-50 the climber goes to a live linebacker, not always the plan watch: judge the member's target that is not the combo's (as R-62 in zone-play.test.js does).
+const liveClimb = (play, c) => [c.owner, c.partner].map((id) => play.player(id).block?.target).find((t) => t != null && t !== c.target) ?? null;
+
 const combosClimb = (fronts, only = () => true) => {
   let count = 0;
   for (const front of fronts) {
@@ -534,14 +537,15 @@ const combosClimb = (fronts, only = () => true) => {
       let found = null;
       for (let i = 1; i <= n && !found; i++) {
         probe.step(DT);
-        const hit = [c.owner, c.partner].some((id) => {
+        const live = liveClimb(probe, c);
+        const hit = live && [c.owner, c.partner].some((id) => {
           const b = probe.player(id).block;
-          return b && b.target === c.watch && b.engaged;
+          return b && b.target === live && b.engaged;
         });
-        if (hit) found = { t: i * DT, y: probe.player(c.watch).y };
+        if (hit) found = { t: i * DT, y: probe.player(live).y, live };
       }
-      assert.ok(found, `${front} combo ${c.owner}/${c.partner} never engaged watch ${c.watch} within 2.0 s`);
-      assert.ok(found.y >= 25 + GAP_DEPTH, `${front} combo ${c.owner}/${c.partner} met ${c.watch} at ${found.t.toFixed(2)} s, y ${found.y}`);
+      assert.ok(found, `${front} combo ${c.owner}/${c.partner} never engaged a live climb target within 2.0 s`);
+      assert.ok(found.y >= 25 + GAP_DEPTH, `${front} combo ${c.owner}/${c.partner} met ${found.live} at ${found.t.toFixed(2)} s, y ${found.y}`);
     }
   }
   assert.ok(count > 0, 'no combo checked');

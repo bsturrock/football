@@ -38,7 +38,7 @@ const freezeRow = (r) => Object.freeze({ ...r, step: Object.freeze(r.step), phas
 
 export const TECHNIQUES = Object.freeze({
   zone: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
-  combo: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'watch', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  combo: freezeRow({ stepLen: 0.25, step: { head: 60, playside: 45, backside: 60, none: 60 }, aim: 0.5, drive: 'playside', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'vertical', next: 'cutoff', phases: ['step', 'aim'], retarget: 'aim' }),
 });

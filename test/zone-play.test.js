@@ -4,7 +4,7 @@ import { createPlay } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
+import { FIRST_STEP_LEN, RIDE_MIN, TECHNIQUES, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_HOLD, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
@@ -213,7 +213,7 @@ test('F-17 #3: phases step then aim', () => {
 });
 
 test('F-17 #4: RG and RT sit side by side on LDT', () => {
-  // pins combo contact geometry, not timing; retargeting is off because the RG's combo switch to MLB (about 0.33 s) comes before RT reaches LDT with the tighter alignment, so the double team never forms. With retargeting off RG and RT both engage LDT (about 0.25 s and 0.37 s).
+  // F-3: still green after the combo row went 'playside' (both blockers share one base push); the pair is hip to hip on LDT (measured at the first both-engaged tick, 0.25 s: distance 0.785 of max 0.81, dy 0.170 of max 0.28). pins combo contact geometry, not timing; retargeting is off because the RG's combo switch to MLB (about 0.33 s) comes before RT reaches LDT with the tighter alignment, so the double team never forms. With retargeting off RG and RT both engage LDT (about 0.25 s and 0.37 s).
   const play = createPlay(25, 'insideZone', { accel: false });
   play.retargetRule = null;
   play.snap();
@@ -232,8 +232,11 @@ test('F-17 #4: RG and RT sit side by side on LDT', () => {
 });
 
 test('F-17 #5: push directions', () => {
-  // A combo blocker's drive leans toward his watch, at most COMBO_MAX_LEAN off vertical. Counted only when the push is settled (turned less than the rate cap) and base is the drive, so push = rotate(drive, ride).
+  // Restated for F-3 (combo row drive 'playside'; was: toward the watch): a combo blocker's drive is back and playside, sign of drive.x equals ctx.side, angle from vertical equals COMBO_LEAN (30). Counted only when the push is settled (turned less than the rate cap) and base is the drive, so push = rotate(drive, ride).
   const play = createPlay(25, 'insideZone');
+  let side = 0;
+  const rule = play.retargetRule;
+  play.retargetRule = (players, ballPos, ctx) => { side = ctx.side; return rule(players, ballPos, ctx); };
   play.snap();
   let c = 0;
   let r = 0;
@@ -255,21 +258,25 @@ test('F-17 #5: push directions', () => {
       const f = b.foot;
       if (!(b.engaged && b.target === s.tid && f && s.push && s.watch)) continue;
       if (Math.abs(ang(s.push, f.push)) >= deg(PUSH_TURN * DT) - 1e-6) continue;
-      const drive = driveDir(f.tech, s.tgt, s.watch);
+      const drive = driveDir(f.tech, s.tgt, s.watch, side);
       const contact = { x: s.tgt.x - s.me.x, y: s.tgt.y - s.me.y };
       if (Math.abs(ang(drive, contact)) > BLIND_START) continue;
       if (s.tid === 'RDT') c++; else r++;
       const unrot = rotate(f.push, -f.ride);
       assert.ok(Math.abs(ang(unrot, drive)) <= 1, `${s.id} unrot vs drive ${ang(unrot, drive)}`);
-      assert.equal(Math.sign(drive.x), Math.sign(s.watch.x - s.tgt.x), s.id);
-      assert.ok(deg(Math.acos(Math.min(1, drive.y))) <= 30 + 1e-9, s.id);
+      assert.equal(Math.sign(drive.x), side, s.id);
+      assert.ok(Math.abs(deg(Math.acos(Math.min(1, drive.y))) - COMBO_LEAN) <= 1e-6, s.id);
     }
   }
   assert.ok(c > 0 && r > 0, `c ${c} r ${r}`);
 });
 
 test('F-17 #6: ride a sideways-moving defender', () => {
+  // Restated for F-3: the base push is the playside drive (side -1 here: x -0.5, y 0.87; push starts x -0.84). A defender moving +x makes ride negative and turns the push toward +x past the drive (measured: ride -0.27 at 16 ticks, -0.42 settled, push.x -0.10 vs drive.x -0.5).
   const play = createPlay(25, 'insideZone');
+  let side = 0;
+  const rule = play.retargetRule;
+  play.retargetRule = (players, ballPos, ctx) => { side = ctx.side; return rule(players, ballPos, ctx); };
   play.snap();
   for (let i = 0; i < 300 && !(play.player('C').block.engaged && play.player('C').block.target === 'RDT'); i++) play.step(DT);
   const C = play.player('C');
@@ -280,7 +287,7 @@ test('F-17 #6: ride a sideways-moving defender', () => {
   for (let i = 0; i < 40 && !reached; i++) {
     RDT.vel = { x: 1.2, y: 0 };
     play.step(DT);
-    reached = C.block.foot.ride < 0 && C.block.foot.push.x > 0;
+    reached = C.block.foot.ride < 0 && C.block.foot.push.x > driveDir('combo', RDT, null, side).x;
   }
   assert.ok(reached, `ride ${C.block.foot.ride}`);
   for (let i = 0; i < 3; i++) {
@@ -901,4 +908,35 @@ test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch 
   }
   assert.ok(switches > 0);
   void diffs;
+});
+
+test('F-3 #2: combo partners lean together', () => {
+  // Grace is 0.4 s after both are engaged, not the 0.1 s first drafted: the push turns at the rate cap from the contact line, so in base C/LG start 80+ degrees apart (C x -0.84, LG x +0.56 at engage) and converge at about 0.65 s (0.35 s after engage; 15 degree angle holds from 0.3 s, fails at 0.2 s with 25 degrees).
+  for (const front of Object.keys(FRONTS)) {
+    for (const opts of [{}, { personnel: 'te' }]) {
+      const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front, ...opts });
+      let side = 0;
+      play.retargetRule = (players, ballPos, ctx) => { side = ctx.side; return []; };
+      play.snap();
+      const first = new Map();
+      const seen = new Map();
+      for (let i = 1; i <= Math.round(1.5 / DT); i++) {
+        play.step(DT);
+        const t = i * DT;
+        play.combos.forEach((c, k) => {
+          const bs = [c.owner, c.partner].map((id) => play.player(id).block);
+          if (!bs.every((b) => b.target === c.target && b.engaged)) return;
+          if (!first.has(k)) first.set(k, t);
+          if (t < first.get(k) + 0.4) return;
+          const [a, b] = bs.map((x) => x.foot.push);
+          const tag = `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} t ${t.toFixed(2)}`;
+          for (const p of [a, b]) assert.ok(p.y > 0 && side * p.x > 0, `${tag} push ${p.x.toFixed(2)},${p.y.toFixed(2)} side ${side}`);
+          const ang = Math.abs(deg(Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y)));
+          assert.ok(ang <= 15, `${tag} angle ${ang.toFixed(1)}`);
+          seen.set(k, true);
+        });
+      }
+      play.combos.forEach((c, k) => assert.ok(seen.get(k), `${front} ${JSON.stringify(opts)} ${c.owner}/${c.partner} never both engaged`));
+    }
+  }
 });
