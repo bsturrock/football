@@ -1,8 +1,8 @@
 // Pure blocking logic for the dots layer: no THREE, no DOM, no timers, no randomness.
 import { HW } from '../util.js';
-import { steerStep, hardCore } from './steering.js';
+import { steerStep, hardCore, CUT_ACCEL } from './steering.js';
 import { stepReact } from './react.js';
-import { startFoot, retargetFoot, footGoal, footPush } from './technique.js';
+import { startFoot, retargetFoot, footGoal, footPush, RIDE_MIN } from './technique.js';
 
 export const BLOCKER_ROLES = ['OL', 'TE'];
 // 0.56 yd = 20 in wide, the top of the 16-20 in shoulder range; area about 2.2 sq ft, between
@@ -164,7 +164,7 @@ export const CONTACT_TURN = Math.PI / 2;
 // the turn, and he never snaps to the fixed BLOCK_ANGLES spot. When another blocker has the same
 // target (engaged or still closing, e.g. a combo partner) the contactSpot group placement applies
 // unchanged and fa resets, so the pair keeps its geometry and the climb timing.
-function followSpot(players, b, dt) {
+function followSpot(players, b, dt, dT = { x: 0, y: 0 }) {
   const T = byId(players, b.block.target);
   if (players.some((p) => p !== b && isBlocker(p) && p.block && p.block.target === b.block.target)) {
     b.block.fa = null;
@@ -173,12 +173,14 @@ function followSpot(players, b, dt) {
   }
   const base = BLOCK_ANGLES[b.block.angle];
   if (b.block.fa == null) {
-    const dx = T.x - b.x;
-    const dy = T.y - b.y;
+    const dx = T.x - dT.x - b.x;
+    const dy = T.y - dT.y - b.y;
     const dist = Math.hypot(dx, dy);
     const a = dist < 1e-9 ? base : { x: dx / dist, y: dy / dist };
     b.block.fa = Math.atan2(a.x, a.y);
     b.block.fw = null;
+    b.block.fd = 0;
+    b.block.fx = 0;
   }
   // Aim between his push and his block angle: he follows the defender's travel without
   // trailing upfield of him (a pure push-following blocker lets a rusher run the arc and win).
@@ -197,8 +199,27 @@ function followSpot(players, b, dt) {
   const sweep = prevAim == null ? 0 : Math.atan2(Math.sin(wa - prevAim), Math.cos(wa - prevAim));
   const closing = sweep * diff < 0;
   const room = Math.max(0, CONTACT_TURN * dt - (closing ? Math.abs(sweep) : 0));
-  const turn = Math.sign(diff) * Math.min(Math.abs(diff), room);
-  const n = Math.atan2(Math.sin(cur + turn), Math.cos(cur + turn));
+  let turn = Math.sign(diff) * Math.min(Math.abs(diff), room);
+  // Once his bearing has turned one way (block.fd) it holds that direction: the aim easing back as
+  // the ride angle relaxes with a slowing LB is no reason to turn back (wobble, #11). Released only
+  // when his man's lateral travel really reverses (beyond RIDE_MIN against block.fx, the sign of the
+  // last such travel); a new target or a partner joining or leaving resets fa and with it fd and fx.
+  const tvx = T.vel?.x ?? 0;
+  if (Math.abs(tvx) > RIDE_MIN) {
+    if (b.block.fx && Math.sign(tvx) !== b.block.fx) b.block.fd = 0;
+    b.block.fx = Math.sign(tvx);
+  }
+  if (b.block.fd && Math.sign(turn) === -b.block.fd) turn = 0;
+  if (Math.abs(turn) > 1e-12) b.block.fd = Math.sign(turn);
+  let n = Math.atan2(Math.sin(cur + turn), Math.cos(cur + turn));
+  // His own momentum carrying him further round in the held direction is kept, not pulled back
+  // (#12): the bearing moves up to his actual contact line (blocker and target at the same instant).
+  const cx = T.x - dT.x - b.x;
+  const cy = T.y - dT.y - b.y;
+  if (b.block.fd && Math.hypot(cx, cy) > 1e-9) {
+    const ca = Math.atan2(cx, cy);
+    if (Math.sign(Math.atan2(Math.sin(ca - n), Math.cos(ca - n))) === b.block.fd) n = ca;
+  }
   b.block.fa = n;
   return { x: T.x - Math.sin(n) * CONTACT_DIST, y: T.y - Math.cos(n) * CONTACT_DIST };
 }
@@ -540,6 +561,50 @@ export function separateBodies(players, dt = Infinity, extraAnchors, rec) {
   return moveTotal();
 }
 
+// Fastest speed (yd/s) from which a mover braking by accel * dt per tick still stops within rem
+// yards, counting this tick's step: v * dt + dt * sum_k max(0, v - k * accel * dt) <= rem, solved
+// exactly (piecewise linear in v), so the next tick's limit is never more than accel * dt lower. Pure.
+export function stopSpeed(rem, accel, dt) {
+  if (!(rem > 0)) return 0;
+  const h = accel * dt;
+  if (!(h > 0)) return Infinity;
+  const at = (n) => (rem + h * dt * n * (n + 1) / 2) / (dt * (n + 1));
+  let n = Math.max(0, Math.floor((-h / 2 + Math.sqrt(h * h / 4 + 2 * accel * rem)) / h));
+  for (let i = 0; i < 4; i++) {
+    const v = at(n);
+    if (v > (n + 1) * h) n++;
+    else if (v < n * h && n > 0) n--;
+    else return v;
+  }
+  return at(n);
+}
+
+// A free defender's step: his goal under the planted-cut limit (goal.accel = CUT_ACCEL), never inside
+// CONTACT_DIST of the ball (the guard wins), slowing so he can stop at the nearer of goal and guard
+// within the cap. With nowhere to step (goal reached, at the guard) he brakes along his travel by
+// CUT_ACCEL * dt instead of freezing, unless that would carry him closer to the ball inside the guard.
+function freeStep(d, goal, ballPos, rate, players, dt) {
+  const gd = Math.hypot(goal.x - d.x, goal.y - d.y);
+  const bd = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
+  if (gd > 1e-9 && bd > CONTACT_DIST) {
+    const room = Math.min(gd, bd - CONTACT_DIST);
+    const limit = Math.min(rate * dt, room, stopSpeed(room, CUT_ACCEL, dt) * dt);
+    steerStep(d, { ...goal, accel: CUT_ACCEL }, players, limit, dt, BODY_RADIUS);
+    return;
+  }
+  const v0 = d.selfVel ?? d.vel;
+  const sp = v0 ? Math.hypot(v0.x, v0.y) : 0;
+  if (!(dt > 0) || sp < 1e-9) return;
+  const s = Math.max(0, sp - CUT_ACCEL * dt) * dt;
+  if (s < 1e-9) return;
+  const ux = v0.x / sp;
+  const uy = v0.y / sp;
+  const nb = Math.hypot(ballPos.x - d.x - ux * s, ballPos.y - d.y - uy * s);
+  if (nb < CONTACT_DIST && nb < bd) return;
+  const ahead = { x: d.x + ux * (s + 1), y: d.y + uy * (s + 1), key: goal.key, ignore: goal.ignore, accel: CUT_ACCEL };
+  steerStep(d, ahead, players, s, dt, BODY_RADIUS);
+}
+
 // Blockers who left an engaged block by retarget keep their anchor rank while they close on
 // the new target, so their neighbours keep splitting overlaps with them as before.
 const closingLeavers = new WeakSet();
@@ -631,6 +696,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
   }
 
+  const stepped = new Map(); // free defender id -> velocity of his own step this pass
   const kicked = new Map(); // defender id -> velocity his hit added this pass
   const holders = new Map(); // engaged defender id -> ids of the blockers engaged on him this pass
   for (const d of players) {
@@ -661,33 +727,19 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       d.carry = null;
       d.bump = null;
       const g = ctx?.defGoals?.[d.id];
-      if (g) {
-        const gd = Math.hypot(g.x - d.x, g.y - d.y);
-        // A free defender never steps inside contact of the ball; the tackle rule takes over at TACKLE_DIST.
+      const x0 = d.x;
+      const y0 = d.y;
+      // A free defender never steps inside contact of the ball; the tackle rule takes over at TACKLE_DIST.
+      if (g) freeStep(d, { x: g.x, y: g.y, key: g.key, ignore: holderId }, ballPos, g.rate, players, dt);
+      else {
+        // Chasing the ball he runs to the guard point (CONTACT_DIST short of it on his line): a body
+        // beyond the point he stops at is not in his way.
         const bd = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
-        if (gd > 1e-9 && bd > CONTACT_DIST) {
-          steerStep(
-            d,
-            { x: g.x, y: g.y, key: g.key, ignore: holderId },
-            players,
-            Math.min(g.rate * dt, gd, bd - CONTACT_DIST),
-            dt,
-            BODY_RADIUS,
-          );
-        }
-        continue;
+        const k = bd > CONTACT_DIST ? (bd - CONTACT_DIST) / bd : 0;
+        const at = { x: d.x + (ballPos.x - d.x) * k, y: d.y + (ballPos.y - d.y) * k };
+        freeStep(d, { ...at, key: 'ball', ignore: holderId }, ballPos, d.speed, players, dt);
       }
-      const dist = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
-      if (dist > CONTACT_DIST) {
-        steerStep(
-          d,
-          { x: ballPos.x, y: ballPos.y, key: 'ball', ignore: holderId },
-          players,
-          Math.min(d.speed * dt, dist - CONTACT_DIST),
-          dt,
-          BODY_RADIUS,
-        );
-      }
+      if (dt > 0) stepped.set(d.id, { x: (d.x - x0) / dt, y: (d.y - y0) / dt });
     }
   }
 
@@ -722,7 +774,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const t0 = start[players.indexOf(T)];
     const dTx = T.x - t0.x;
     const dTy = T.y - t0.y;
-    const spot = followSpot(players, b, dt);
+    const spot = followSpot(players, b, dt, { x: dTx, y: dTy });
     const ex = b.x + dTx - spot.x;
     const ey = b.y + dTy - spot.y;
     let u = b.block.fu;
@@ -808,6 +860,29 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
     const left = impactLeft(d.bump);
     if (rb.x !== left.x || rb.y !== left.y) d.bump = { ax: rb.x / IMPACT_TIME, ay: rb.y / IMPACT_TIME, t: IMPACT_TIME };
+  }
+  // A free defender's own velocity (p.selfVel, his planted-cut reference in steerStep) is his own
+  // step, and body contact is inelastic for him too: a push-out takes off the part of it pointing into
+  // that body and never becomes his momentum (p.vel, the measurement, still holds the push-out).
+  for (const p of players) {
+    const own = stepped.get(p.id);
+    if (!own) {
+      if (p.selfVel) p.selfVel = null;
+      continue;
+    }
+    const got = pushes.get(p.id);
+    if (got) {
+      for (const s of got.values()) {
+        const len = Math.hypot(s.x, s.y);
+        if (len < 1e-12) continue;
+        const into = (own.x * s.x + own.y * s.y) / len;
+        if (into < 0) {
+          own.x -= (into * s.x) / len;
+          own.y -= (into * s.y) / len;
+        }
+      }
+    }
+    p.selfVel = own;
   }
   if (dt > 0) {
     players.forEach((p, i) => {

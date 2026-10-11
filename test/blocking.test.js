@@ -7,7 +7,7 @@ import {
   SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce, CONTACT_TURN,
   contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
 } from '../src/dots/blocking.js';
-import { hardCore } from '../src/dots/steering.js';
+import { hardCore, CUT_ACCEL } from '../src/dots/steering.js';
 import { startFoot, RIDE_MIN } from '../src/dots/technique.js';
 import { startReact, WIN_SPEED } from '../src/dots/react.js';
 
@@ -182,7 +182,7 @@ test('stepBlocking engaged defender, clamp, blocker follows', () => {
   stepBlocking(q, goal, DT, { rule: null, seq: 1 });
   const T = q[1];
   const dT = { x: T.x - 0, y: T.y - 10 };
-  const fa0 = Math.atan2(T.x - b0.x, T.y - b0.y); // contact line blocker -> (moved) target
+  const fa0 = Math.atan2(T.x - dT.x - b0.x, T.y - dT.y - b0.y); // contact line blocker -> target, same instant
   const fa = fa0 - Math.sign(fa0) * Math.min(Math.abs(fa0), CONTACT_TURN * DT); // turns toward straight
   near(q[0].block.fa, fa, 1e-12);
   const spot = { x: T.x - Math.sin(fa) * CONTACT_DIST, y: T.y - Math.cos(fa) * CONTACT_DIST };
@@ -462,7 +462,8 @@ test('T-118: a free defender already at CONTACT_DIST holds still', () => {
 
 test('T-118: a goal far from the ball still moves a free defender g.rate * DT', () => {
   const holder = O('rb', -10, 0);
-  const d = D('d', 0, 0);
+  // Already running at g.rate toward his goal (the planted-cut limit only bounds a change of velocity).
+  const d = D('d', 0, 0, { vel: { x: 6 * Math.SQRT1_2, y: 6 * Math.SQRT1_2 } });
   const ps = [d, holder];
   const ball = { x: -10, y: 0 };
   const g = { x: 10, y: 10, key: 'def:gap', rate: 6 };
@@ -485,7 +486,8 @@ test('resolveBlock adds react.hold', () => {
 function engagedOnList(ps) { return ps.filter((p) => p.block && p.block.engaged); }
 
 test('stepBlocking pursuit', () => {
-  const ps = [D('d', 0, 10, { speed: 6 })];
+  // Already running at his speed toward the ball (the planted-cut limit only bounds a change of velocity).
+  const ps = [D('d', 0, 10, { speed: 6, vel: { x: 0, y: -6 } })];
   const ball = { x: 0, y: 0 };
   stepBlocking(ps, ball, DT, { rule: null, seq: 0 });
   near(ps[0].y, 10 - 6 * DT, 1e-9);
@@ -493,6 +495,47 @@ test('stepBlocking pursuit', () => {
   near(ps[0].y, CONTACT_DIST, 1e-9);
   stepBlocking(ps, ball, DT, { rule: null, seq: 0 });
   near(ps[0].y, CONTACT_DIST, 1e-9);
+});
+
+// F-50 #10 (R-69): a free defender's velocity changes by at most CUT_ACCEL * DT per tick.
+const VEL_TOL = 1e-6; // yd/s, float rounding only
+
+test('planted cut: a free defender reversing to a goal behind him slows through a plant, then runs at it', () => {
+  const d = D('d', 0, 0, { vel: { x: 0, y: 5 } });
+  const ps = [d];
+  const ball = { x: 30, y: -40 };
+  const ctx = { rule: null, seq: 0, defGoals: { d: { x: 0, y: -20, key: 'def:gap', rate: 7 } } };
+  let prev = { ...d.vel };
+  let plant = -1;
+  let minSpeed = Infinity;
+  for (let i = 0; i < 60; i++) {
+    stepBlocking(ps, ball, DT, ctx);
+    const dv = Math.hypot(d.vel.x - prev.x, d.vel.y - prev.y);
+    assert.ok(dv <= CUT_ACCEL * DT + VEL_TOL, `tick ${i}: velocity change ${dv}`);
+    const sp = Math.hypot(d.vel.x, d.vel.y);
+    if (sp < minSpeed) { minSpeed = sp; plant = i; }
+    prev = { ...d.vel };
+  }
+  assert.ok(minSpeed <= CUT_ACCEL * DT, `never planted: slowest ${minSpeed}`);
+  assert.ok(plant > 5 && plant < 30, `plant at tick ${plant}`);
+  near(d.vel.x, 0, 1e-9);
+  near(d.vel.y, -7, 1e-6); // then runs at the goal at full rate
+});
+
+test('planted cut: a free defender pursuing the ball at full speed stops at CONTACT_DIST without a snap', () => {
+  const d = D('d', 0, 10, { speed: 6, vel: { x: 0, y: -6 } });
+  const ps = [d];
+  const ball = { x: 0, y: 0 };
+  let prev = { ...d.vel };
+  for (let i = 0; i < 240; i++) {
+    stepBlocking(ps, ball, DT, { rule: null, seq: 0 });
+    assert.ok(Math.hypot(d.x - ball.x, d.y - ball.y) >= CONTACT_DIST - 1e-9, `tick ${i}: inside CONTACT_DIST`);
+    const dv = Math.hypot(d.vel.x - prev.x, d.vel.y - prev.y);
+    assert.ok(dv <= CUT_ACCEL * DT + VEL_TOL, `tick ${i}: velocity change ${dv}`);
+    prev = { ...d.vel };
+  }
+  near(d.y, CONTACT_DIST, 1e-9);
+  near(Math.hypot(d.vel.x, d.vel.y), 0, 1e-9);
 });
 
 const peelFixture = () => [

@@ -47,9 +47,20 @@ export const PACES = Object.freeze({
   burst: Object.freeze({ frac: 1, tau: BURST_TAU }),
 });
 
+// Opt-in planted cut: a goal carrying goal.accel (yd/s^2) limits how fast the mover's velocity may
+// change. His last velocity v0 is p.selfVel when the caller keeps one (his own step, contact
+// push-outs taken out), else p.vel (measured by the caller; {0, 0} when missing); if the chosen
+// step / dt differs from v0 by more than accel * dt, he takes v0 moved accel * dt toward it, so a
+// reversal slows through zero (the plant) and re-accelerates. The step is still never longer than
+// maxStep and still meets the contact clamps. A step still carrying speed away from the goal is a
+// plant: it is not judged stuck (no side flip). CUT_ACCEL: an NFL linebacker's planted cut is roughly
+// 10-25 yd/s^2 (tunable).
+export const CUT_ACCEL = 20;
+
 export function steerStep(p, goal, players, maxStep, dt, radius) {
   const fullStep = maxStep;
   const pace = goal.pace || null;
+  const accel = typeof goal.accel === 'number' && dt > 0 ? goal.accel : null;
   if (typeof p.v === 'number' && dt > 0) {
     let top = typeof p.speed === 'number' ? p.speed : maxStep / dt;
     let tau = ACCEL_TAU;
@@ -155,23 +166,24 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     dy = nx * sn + ny * c;
   }
 
-  let vx = dx * Math.min(maxStep, D), vy = dy * Math.min(maxStep, D);
   // a tangent slide step of length s ends about s^2/(2c) outside the circle, so this keeps the mover touching on the next call
   const sl = Math.min(maxStep, D), tol = Math.max(1e-6, sl * sl / (2 * radius));
-  for (let pass = 0; pass < 2; pass++) {
-    for (const o of players) {
-      if (o === p) continue;
-      const rx = o.x - p.x, ry = o.y - p.y;
-      const d = Math.hypot(rx, ry);
-      if (d > 0 && d <= contact(o) + tol) {
-        const nx = rx / d, ny = ry / d;
-        const dot = vx * nx + vy * ny;
-        if (dot > 0) { vx -= dot * nx; vy -= dot * ny; }
+  // Contact clamps on a step: slide off bodies he touches, then stop the ray at hard contact.
+  const clampStep = (vx, vy) => {
+    for (let pass = 0; pass < 2; pass++) {
+      for (const o of players) {
+        if (o === p) continue;
+        const rx = o.x - p.x, ry = o.y - p.y;
+        const d = Math.hypot(rx, ry);
+        if (d > 0 && d <= contact(o) + tol) {
+          const nx = rx / d, ny = ry / d;
+          const dot = vx * nx + vy * ny;
+          if (dot > 0) { vx -= dot * nx; vy -= dot * ny; }
+        }
       }
     }
-  }
-  const vl = Math.hypot(vx, vy);
-  if (vl >= 1e-12) {
+    const vl = Math.hypot(vx, vy);
+    if (vl < 1e-12) return { x: 0, y: 0 };
     const mx = vx / vl, my = vy / vl;
     let step = vl;
     for (const o of players) {
@@ -185,9 +197,26 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       const disc = b * b - c;
       if (disc > 0) step = Math.min(step, Math.max(0, b - Math.sqrt(disc)));
     }
-    p.x += mx * step;
-    p.y += my * step;
+    return { x: mx * step, y: my * step };
+  };
+  let mv = clampStep(dx * Math.min(maxStep, D), dy * Math.min(maxStep, D));
+  // Planted cut (goal.accel): the chosen step's velocity moves from v0 by at most accel * dt;
+  // the capped step is never longer than maxStep and meets the contact clamps again.
+  let plant = false;
+  if (accel !== null) {
+    const v0 = p.selfVel ?? p.vel ?? { x: 0, y: 0 };
+    const ex = mv.x / dt - v0.x, ey = mv.y / dt - v0.y, el = Math.hypot(ex, ey), lim = accel * dt;
+    if (el > lim) {
+      let cx = (v0.x + ex * lim / el) * dt, cy = (v0.y + ey * lim / el) * dt;
+      const cl = Math.hypot(cx, cy);
+      if (cl > maxStep) { cx *= maxStep / cl; cy *= maxStep / cl; }
+      mv = clampStep(cx, cy);
+      // Still carrying speed away from the goal: a plant, not a stall.
+      plant = v0.x * ux + v0.y * uy < 0;
+    }
   }
+  p.x += mv.x;
+  p.y += mv.y;
 
   const s = p.steer;
   if (s && s.side !== 0) {
@@ -195,12 +224,17 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     // Also judge the net advance over two steps, so a forward step that
     // separation undoes the next step (a 2-cycle) still counts as stuck.
     if (s.lx2 !== undefined) prog = Math.min(prog, ((sx - s.lx2) * ux + (sy - s.ly2) * uy) / 2);
-    if (prog < STUCK_PROGRESS * fullStep) s.stuck += dt; else s.stuck = 0;
+    // A planted cut (goal.accel, last step still carrying speed away from the goal) is neither
+    // stuck nor free: the turn is not read as a stall, so it does not flip his side.
+    if (s.plant) { /* planting: hold */ } else if (prog < STUCK_PROGRESS * fullStep) s.stuck += dt; else s.stuck = 0;
     if (s.stuck >= STUCK_TIME - 1e-9) {
       s.stuck = 0;
       if (s.lane) { s.lane = null; s.laneOff = true; }
       if (s.flips < MAX_FLIPS) { s.side = -s.side; s.flips++; }
     }
   }
-  if (p.steer) { p.steer.lx2 = p.steer.lx; p.steer.ly2 = p.steer.ly; p.steer.lx = sx; p.steer.ly = sy; }
+  if (p.steer) {
+    p.steer.lx2 = p.steer.lx; p.steer.ly2 = p.steer.ly; p.steer.lx = sx; p.steer.ly = sy;
+    if (plant) p.steer.plant = true; else delete p.steer.plant;
+  }
 }
