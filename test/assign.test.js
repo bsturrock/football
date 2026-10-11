@@ -6,7 +6,7 @@ import { zonePlan, INSIDE_ZONE } from '../src/dots/zone.js';
 import { A_GAP_HALF, numberPlay } from '../src/dots/numbering.js';
 import { buildLineup } from '../src/dots/roster.js';
 import { frontPlayers, frontNumbers, LOS, FRONT_NAMES } from './fixtures/fronts.js';
-import { IZ_FREE } from './fixtures/base-front.js';
+import { IZ_FREE, IZ_PLAN_PINS } from './fixtures/base-front.js';
 
 const read = (name) => {
   const players = frontPlayers(name);
@@ -225,16 +225,18 @@ test('F-54 #3 pair names', () => {
 
 test('F-54 #3 every front pairs, playside left', () => {
   const E = (owner, partner, target) => `${owner}+${partner}>${target}`;
+  const pinPairs = (personnel) => IZ_PLAN_PINS[personnel].base.combos.map((c) => E(c.owner, c.partner, c.target));
   const want = {
+    // base pairs come from the shared base plan pins (test/fixtures/base-front.js IZ_PLAN_PINS), so a change to who is covered is restated in one place
     // RDT sits between LG and C, shaded toward C: C helps LG (playside first); RG's LDT is also toward C but C is taken
-    base: { noTe: [E('C', 'LG', 'RDT')], te: [E('C', 'LG', 'RDT')] },
+    base: { noTe: pinPairs('noTe'), te: pinPairs('te') },
     // RDE is outside LG, toward the uncovered LT: LT helps LG; RDT is head-up on C, LG is covered, so RG (backside) helps C
     dlPlus4: { both: [E('LT', 'LG', 'RDE'), E('RG', 'C', 'RDT')] },
     // RDT is outside LG, toward the uncovered LT: LT helps LG; LDT is head-up on C, so RG helps C; the TE (last man) never combos
     dlMinus4: { both: [E('LT', 'LG', 'RDT'), E('RG', 'C', 'LDT')] },
-    // same alignment as base
-    lbPlus6: { both: [E('C', 'LG', 'RDT')] },
-    lbMinus6: { both: [E('C', 'LG', 'RDT')] },
+    // lbPlus6 and lbMinus6 shift only linebackers, so their line alignment and pairs equal base
+    lbPlus6: { noTe: pinPairs('noTe'), te: pinPairs('te') },
+    lbMinus6: { noTe: pinPairs('noTe'), te: pinPairs('te') },
     // BT is on the C's backside shoulder, toward the C: C helps RG; PT is outside LG, away from the C, and LT is covered
     over43: { both: [E('C', 'RG', 'BT')] },
     // PN is between LG and C: LG helps C (ace); BT is toward RG so RG helps RT (deuce) when RT is not the last man (te)
