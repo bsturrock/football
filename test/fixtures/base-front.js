@@ -44,15 +44,15 @@ const NO_TE_DL_PLUS4 = {
   },
   free: ['SLB', 'LDE'],
 };
+// F-54 #3: the LDT sits on RG's playside shoulder (toward the C), away from RT, so RG blocks him alone and RT climbs (was an RT/RG combo on the LDT)
 const TE_BASE = {
-  blocks: { LT: 'RDE', LG: 'RDT', C: 'RDT', RG: 'LDT', RT: 'LDT', TE: 'SLB' },
+  blocks: { LT: 'RDE', LG: 'RDT', C: 'RDT', RG: 'LDT', RT: 'MLB', TE: 'SLB' },
   combos: [
-    { owner: 'RT', partner: 'RG', target: 'LDT', watch: 'MLB' },
     { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' },
   ],
   techs: {
     LT: T('zone', 'playside'), LG: T('combo', 'backside', 'WLB'), C: T('combo', 'none', 'WLB'),
-    RG: T('combo', 'playside', 'MLB'), RT: T('combo', 'none', 'MLB'), TE: T('climb', 'none'),
+    RG: T('zone', 'playside'), RT: T('climb', 'none'), TE: T('climb', 'none'),
   },
   free: ['LDE'],
 };
