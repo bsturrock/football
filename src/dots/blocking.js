@@ -154,6 +154,37 @@ export function contactSpot(players, blocker) {
   return mine;
 }
 
+// Tunable: rad/s a lone engaged blocker's contact line turns toward his push direction.
+export const CONTACT_TURN = Math.PI / 2;
+
+// Spot an engaged blocker follows. A lone blocker stays on his contact line (the line from him
+// to the target) and turns it gradually toward his push direction, never snapping to the fixed
+// BLOCK_ANGLES spot. When another blocker has the same target (engaged or still closing, e.g.
+// a combo partner) the contactSpot group placement applies unchanged, so the pair keeps its
+// geometry and the climb timing; the survivor of a climb is then lone and follows his line.
+function followSpot(players, b, dt) {
+  const T = byId(players, b.block.target);
+  if (players.some((p) => p !== b && isBlocker(p) && p.block && p.block.target === b.block.target)) {
+    return contactSpot(players, b);
+  }
+  const dx = T.x - b.x;
+  const dy = T.y - b.y;
+  const dist = Math.hypot(dx, dy);
+  const base = BLOCK_ANGLES[b.block.angle];
+  const a = dist < 1e-9 ? base : { x: dx / dist, y: dy / dist };
+  // Aim between his push and his block angle: he follows the defender's travel without
+  // trailing upfield of him (a pure push-following blocker lets a rusher run the arc and win).
+  const push = b.block.foot?.push ?? base;
+  const wm = Math.hypot(push.x + base.x, push.y + base.y) || 1;
+  const want = { x: (push.x + base.x) / wm, y: (push.y + base.y) / wm };
+  const cur = Math.atan2(a.x, a.y);
+  let diff = Math.atan2(want.x, want.y) - cur;
+  diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  const turn = Math.sign(diff) * Math.min(Math.abs(diff), CONTACT_TURN * dt);
+  const n = cur + turn;
+  return { x: T.x - Math.sin(n) * CONTACT_DIST, y: T.y - Math.cos(n) * CONTACT_DIST };
+}
+
 // Single place where future factors (skills, leverage, fatigue) multiply in.
 export const driveForce = (p) => p.strength;
 // Single place where future factors (skills, leverage, fatigue) multiply in.
@@ -277,7 +308,8 @@ export function canEngage(b, T, spot, ballPos) {
   // Engage only well inside canRelease's 'lost' range, or the block would drop on the next tick.
   const near = Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_NEAR;
   if (near && Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL) return 'spot';
-  const d = BLOCK_ANGLES[b.block.angle];
+  // "In front" is where the blocker actually faces (missing facing = upfield, offense).
+  const d = Number.isFinite(b.facing) ? { x: Math.sin(b.facing), y: Math.cos(b.facing) } : { x: 0, y: 1 };
   const touching =
     near &&
     (T.x - b.x) * d.x + (T.y - b.y) * d.y >= 0;
@@ -525,7 +557,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (!b.block || !b.block.engaged) continue;
     b.steer = null;
     if (justEngaged.has(b.id)) continue;
-    const spot = contactSpot(players, b);
+    const spot = followSpot(players, b, dt);
     moveToward(b, spot.x, spot.y, b.speed * dt);
   }
 

@@ -4,7 +4,7 @@ import { HW } from '../src/util.js';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
   doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
-  SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce,
+  SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce, CONTACT_TURN,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
 import { startReact, WIN_SPEED } from '../src/dots/react.js';
@@ -435,4 +435,81 @@ test('F-41 #2: an engaged blocker follows his spot before the lost check', () =>
   stepBlocking(ps, { x: 0, y: 0 }, DT, { rule: null, seq: 1 });
   assert.equal(ps[0].block.engaged, true);
   assert.notEqual(ps[0].block.released, 'lost');
+});
+
+test('F-49 #1: p.vel is the displacement over the stepBlocking pass divided by dt', () => {
+  const free = D('f', 0, 10, { speed: 6 });
+  const still = D('s', 5, 10, { speed: 0 });
+  const ps = [free, still];
+  stepBlocking(ps, { x: 0, y: -50 }, DT, { rule: null, seq: 0, defGoals: { f: { x: 3, y: 10, rate: 3, key: 'g' } } });
+  near(free.vel.x, free.x / DT, 1e-6);
+  near(free.vel.y, (free.y - 10) / DT, 1e-6);
+  assert.ok(free.vel.x > 0);
+  assert.deepEqual(still.vel, { x: 0, y: 0 });
+});
+
+test('F-49 #4: canEngage contact uses the blocker facing', () => {
+  const T = D('d', 0.5, 10, { speed: 0 });
+  const mkB = (o) => O('b', 0.5 - CONTACT_DIST, 10, { block: blk('d'), ...o });
+  const far = { x: 20, y: 10 };
+  const spot = { x: 5, y: 5 }; // away from the blocker, so only 'contact' can match
+  assert.equal(canEngage(mkB({ facing: Math.PI / 2 }), T, spot, far), 'contact');
+  assert.equal(canEngage(mkB({ facing: -Math.PI / 2 }), T, spot, far), null);
+  // missing facing reads as upfield: a target level with the blocker (dot 0) counts
+  assert.equal(canEngage(mkB({}), T, spot, far), 'contact');
+  const behind = O('b', 0.5, 10 + CONTACT_DIST, { block: blk('d') });
+  assert.equal(canEngage(behind, T, spot, far), null);
+});
+
+test('F-49 #5: a lone engaged blocker keeps his side and turns gradually', () => {
+  const a36 = (36 * Math.PI) / 180;
+  const T = D('d', 0, 10, { speed: 0, strength: 2 });
+  const b = O('b', -CONTACT_DIST * Math.cos(a36), 10 - CONTACT_DIST * Math.sin(a36), {
+    block: blk('d', { engaged: true, seq: 1, held: 0, winT: 0 }),
+  });
+  const ps = [b, T];
+  const bearing = () => Math.atan2(b.x - T.x, b.y - T.y);
+  let prev = bearing();
+  for (let i = 0; i < 10; i++) {
+    stepBlocking(ps, { x: 0, y: 0 }, DT, { rule: null, seq: 1 });
+    const now = bearing();
+    assert.ok(Math.abs(now - prev) <= CONTACT_TURN * DT + 0.02, `tick ${i} turned ${Math.abs(now - prev)}`);
+    prev = now;
+    if (i === 8) assert.ok(b.x < T.x, `snapped under the defender: dx ${b.x - T.x}`);
+  }
+});
+
+test('F-49 #5: two engaged on one target still take the contactSpot group placement', () => {
+  const T = D('d', 0, 10, { speed: 0 });
+  const mkE = (id, x) => O(id, x, 10 - CONTACT_DIST, { block: blk('d', { engaged: true, seq: 1, held: 0, winT: 0 }) });
+  const ps = [mkE('a', -0.1), mkE('b', 0.1), T];
+  const spots = ps.slice(0, 2).map((p) => contactSpot(ps, p));
+  assert.ok(Math.hypot(spots[0].x - spots[1].x, spots[0].y - spots[1].y) >= 2 * BODY_RADIUS - 1e-9);
+  for (let i = 0; i < 120; i++) stepBlocking(ps, { x: 0, y: 0 }, DT, { rule: null, seq: 1 });
+  const fin = ps.slice(0, 2).map((p) => contactSpot(ps, p));
+  assert.ok(Math.hypot(fin[0].x - fin[1].x, fin[0].y - fin[1].y) >= 2 * BODY_RADIUS - 1e-9);
+  assert.ok(Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) >= hardCore(BODY_RADIUS) - 1e-6);
+});
+
+test('F-49 #10: a lone footless blocker settles straight below a still target without wobble', () => {
+  const T = D('d', 0, 10, { speed: 0 });
+  const a60 = (60 * Math.PI) / 180;
+  const b = O('b', -CONTACT_DIST * Math.sin(a60), 10 - CONTACT_DIST * Math.cos(a60), {
+    block: blk('d', { engaged: true, seq: 1, held: 0, winT: 0 }),
+  });
+  const ps = [b, T];
+  const bearing = () => Math.atan2(b.x - T.x, T.y - b.y); // 0 = straight below the target
+  let prev = bearing();
+  assert.ok(prev < 0);
+  let settled = false;
+  for (let i = 0; i < 90; i++) {
+    stepBlocking(ps, { x: 0, y: 10 }, DT, { rule: null, seq: 1, defGoals: { d: { x: 0, y: 10, rate: 0 } } });
+    const now = bearing();
+    assert.ok(now >= prev - 1e-6, `tick ${i} bearing went back ${prev} -> ${now}`);
+    assert.ok(now <= 1e-6 + (0.5 * Math.PI) / 180, `tick ${i} overshot straight below: ${now}`);
+    if (settled) assert.ok(Math.abs(now) <= (0.5 * Math.PI) / 180, `tick ${i} left the settle band: ${now}`);
+    if (Math.abs(now) <= (0.5 * Math.PI) / 180) settled = true;
+    prev = now;
+  }
+  assert.ok(settled, `never settled, bearing ${prev}`);
 });
