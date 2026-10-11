@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   TECHNIQUES, PHASES, stepDir, aimPoint, driveDir, leanDir, rotate, signedAngle, rotateToward, nextTech,
   RIDE_MAX, RIDE_FULL, RIDE_MIN, PUSH_TURN,
-  startFoot, retargetFoot, footGoal, footPush,
+  startFoot, retargetFoot, footGoal, footPush, COMBO_LEAN,
 } from '../src/dots/technique.js';
 
 const near = (a, b, m) => assert.ok(Math.abs(a - b) < 1e-9, `${m ?? ''} ${a} vs ${b}`);
@@ -50,13 +50,14 @@ test('leanDir watch', () => {
   nearPt(leanDir('watch', T, { x: 0, y: -1 }), 0, 1);
 });
 
+// The lean moved 30 -> 40 for F-3 #3; the cases stay and are restated on COMBO_LEAN.
 test('leanDir playside', () => {
   const T = { x: 0, y: 0 };
-  nearPt(leanDir('playside', T, null, 1), Math.sin(rad(30)), Math.cos(rad(30)));
-  nearPt(leanDir('playside', T, null, -1), -Math.sin(rad(30)), Math.cos(rad(30)));
+  nearPt(leanDir('playside', T, null, 1), Math.sin(rad(COMBO_LEAN)), Math.cos(rad(COMBO_LEAN)));
+  nearPt(leanDir('playside', T, null, -1), -Math.sin(rad(COMBO_LEAN)), Math.cos(rad(COMBO_LEAN)));
   nearPt(leanDir('playside', T, null, undefined), 0, 1);
-  nearPt(leanDir('playside', T, { x: 5, y: 1 }, 1), Math.sin(rad(30)), Math.cos(rad(30)));
-  nearPt(leanDir('playside', T, { x: -1, y: -1 }, -1), -Math.sin(rad(30)), Math.cos(rad(30)));
+  nearPt(leanDir('playside', T, { x: 5, y: 1 }, 1), Math.sin(rad(COMBO_LEAN)), Math.cos(rad(COMBO_LEAN)));
+  nearPt(leanDir('playside', T, { x: -1, y: -1 }, -1), -Math.sin(rad(COMBO_LEAN)), Math.cos(rad(COMBO_LEAN)));
   nearPt(leanDir('vertical', T, { x: 1, y: 4 }, 1), 0, 1);
 });
 

@@ -32,7 +32,7 @@ export const PUSH_TURN = Math.PI; // rad/s, max push turn rate (tunable)
 export const BLIND_START = 30; // degrees, contact-vs-drive angle where the base starts bending (tunable)
 export const BLIND_FULL = 75; // degrees, contact-vs-drive angle where the base is the contact line (tunable)
 export const COMBO_MAX_LEAN = 30; // degrees from vertical, max combo drive lean (tunable)
-export const COMBO_LEAN = 30; // degrees from vertical, lean of a 'playside' drive toward the play (tunable)
+export const COMBO_LEAN = 40; // degrees from vertical toward the play, lean of a 'playside' drive; 40 so a held double moves even a DL with no playside goal 1 yd sideways before the anchor spring levels him off (F-3 #3) (tunable)
 
 const freezeRow = (r) => Object.freeze({ ...r, step: Object.freeze(r.step), phases: Object.freeze(r.phases) });
 
