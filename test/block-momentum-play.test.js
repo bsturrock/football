@@ -20,8 +20,11 @@ const WINDOW_BEFORE = 3;
 const WINDOW_AFTER = 30;
 const LB_MIN_SPEED = 2; // yd/s over the tick before the engage
 
+// tackles and fightBlocks are off so neither a tackle (the whistle cuts the window short once the climb comes
+// later, after a real double team) nor a legitimate shed (the LB beating the block) ends the block inside the
+// window: the test judges the block's momentum, not when the climb happens or how long the play lives.
 function record(front) {
-  const play = createPlay(25, 'insideZone', { front });
+  const play = createPlay(25, 'insideZone', { front, tackles: false, fightBlocks: false });
   assert.ok(play.snap());
   const ticks = [];
   const grab = () => ({
@@ -142,7 +145,8 @@ for (const front of FRONTS) {
       const p = r.ticks[i].block[r.hit.blocker].push;
       return Math.atan2(p.x, p.y);
     });
-    const bearing = idx.map((i) => {
+    // Bearing is judged while engaged (like the push): the approach before the engage is not the block.
+    const bearing = idx.filter((i) => r.ticks[i].block[r.hit.blocker].engaged).map((i) => {
       const b = r.ticks[i].pos[r.hit.blocker];
       const l = r.ticks[i].pos[r.hit.lb];
       return Math.atan2(b.x - l.x, b.y - l.y);
