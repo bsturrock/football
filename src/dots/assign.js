@@ -9,6 +9,8 @@
 //   or head-up on the covered man: the playside helper first); one helper per covered man, one covered man per
 //   helper, the last backside lineman never combos; pairs are named ace (C + guard), deuce (guard + tackle),
 //   tag (tackle + TE), else combo; nobody left to help climbs;
+// - the backside end lineman with no line defender to cut off cuts off the nearest second-level man in reach
+//   (even one a combo watches);
 // - a man-short line leaves the backside end man (plays contain): `spare` lets the end lineman, whose
 //   covered man would be that end man, climb to a free second-level defender instead;
 // - the Mike is the second-level man nearest the playside A gap; the others count from him (playside +1, +2,
@@ -155,12 +157,20 @@ function climb(state, i) {
   return d ? { target: d.id } : null;
 }
 
+// With no line defender left to cut off, the backside end lineman cuts off the nearest untargeted second-level
+// man in reach (a combo's watch does not exclude him: zoneSwitch skips a watch already claimed by a block).
 function cutoff(state, i) {
-  const b = state.front.line[i];
-  const d = state.front.defenders
-    .filter((e) => e.level === 'line' && e.cover != null && !state.targeted.has(e.id) && e.u < b.u)
+  const { front, targeted } = state;
+  const b = front.line[i];
+  const d = front.defenders
+    .filter((e) => e.level === 'line' && e.cover != null && !targeted.has(e.id) && e.u < b.u)
     .sort(byNearest(b.x))[0];
-  return d && Math.abs(d.x - b.x) <= CLIMB_REACH ? { target: d.id } : null;
+  if (d && Math.abs(d.x - b.x) <= CLIMB_REACH) return { target: d.id };
+  if (i !== front.line.length - 1) return null;
+  const s = front.defenders
+    .filter((e) => e.level === 'second' && !targeted.has(e.id) && Math.abs(e.x - b.x) <= CLIMB_REACH + 1e-9)
+    .sort(byNearest(b.x))[0];
+  return s ? { target: s.id } : null;
 }
 
 function spare(state, i) {

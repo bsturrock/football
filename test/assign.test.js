@@ -194,12 +194,23 @@ test('F-54 #3 tite pairs both directions', () => {
   for (const personnel of ['noTe', 'te']) {
     for (const playside of ['right', 'left']) {
       for (const m of MIRRORS) {
-        const r = runScheme(handFront(personnel, m, defs, playside), INSIDE_ZONE);
+        const front = handFront(personnel, m, defs, playside);
+        const r = runScheme(front, INSIDE_ZONE);
         const tag = `${personnel} ${playside} mirror ${m}`;
         assert.deepEqual(pairSet(r), want[playside], tag);
         const alone = playside === 'right' ? 'LT' : 'RT';
         assert.ok(!r.pairs.some((p) => p.owner === alone || p.partner === alone), tag);
         assert.ok(r.blocks[alone] != null, tag);
+        // F-54 #3: no orphan lineman on any tite alignment
+        for (const l of front.line) {
+          assert.ok(r.techs[l.id], `${tag} ${l.id} tech`);
+          assert.ok(r.blocks[l.id] != null, `${tag} ${l.id} block`);
+        }
+        if (personnel === 'te' && playside === 'left') {
+          // the TE is the backside end man; the backside LB is L1 and he cuts him off
+          assert.equal(r.techs.TE.tech, 'cutoff', tag);
+          assert.equal(r.blocks.TE, 'L1', tag);
+        }
       }
     }
   }
@@ -249,6 +260,9 @@ test('F-54 #3 every front pairs, playside left', () => {
     walkedUp: { both: [E('C', 'RG', 'BT')] },
     // PN is between LG and C: LG helps C
     backedOff: { both: [E('LG', 'C', 'PN')] },
+    // PE is the 4i inside LT, toward the uncovered LT: LT helps LG (deuce); N is head-up on C, LG is covered, so RG
+    // helps C (ace); RT blocks BE alone; with a TE the TE (last man) cuts off the backside LB
+    tite: { both: [E('LT', 'LG', 'PE'), E('RG', 'C', 'N')] },
   };
   for (const name of FRONT_NAMES) {
     for (const personnel of ['noTe', 'te']) {
