@@ -7,7 +7,7 @@ import { SCRIPTS } from '../src/dots/defense.js';
 import { TRACK_HALF } from '../src/dots/perceive.js';
 import {
   overlayShapes, decisionLabel, readLines, overlayLabel,
-  formationOptions, defPersonnelOptions, scriptOptions,
+  formationOptions, defPersonnelOptions, scriptOptions, playsideOptions,
 } from '../src/dots/view.js';
 
 function run(opts, secs = 1) {
@@ -20,7 +20,44 @@ function run(opts, secs = 1) {
 test('before the snap overlayShapes is empty', () => {
   const play = createPlay(25, 'insideZone', { trace: true });
   const s = overlayShapes(play);
-  assert.deepEqual(s, { tracks: [], keys: [], labels: [] });
+  assert.deepEqual(s, { tracks: [], keys: [], labels: [], marks: [], pairs: [] });
+});
+
+test('F-54 #7: playside picker options', () => {
+  assert.deepEqual(playsideOptions().map((o) => o.key), ['left', 'right']);
+  assert.deepEqual(playsideOptions().map((o) => o.name), ['Run left', 'Run right']);
+});
+
+test('F-54 #7: MIKE, free and read marks and pair labels from the plan', () => {
+  const play = run({ personnel: 'te' }, 0.5);
+  const s = overlayShapes(play);
+  const mikes = s.marks.filter((m) => m.text === 'MIKE');
+  assert.equal(mikes.length, 1);
+  assert.equal(mikes[0].id, play.plan.mike);
+  const freeIds = Object.entries(play.plan.accounted).filter(([, a]) => a.how === 'free').map(([id]) => id);
+  for (const id of freeIds) assert.ok(s.marks.some((m) => m.id === id && m.text === 'free'), id);
+  assert.deepEqual(s.pairs.map((p) => p.text), play.plan.pairs.map((p) => p.name));
+});
+
+test('F-54 #7: pair labels come from the plan when playside is right', () => {
+  const play = run({ personnel: 'te', playside: 'right' }, 0.5);
+  assert.deepEqual(overlayShapes(play).pairs.map((p) => p.text), play.plan.pairs.map((p) => p.name));
+});
+
+test('F-54 #7: after the snap the plan carries mike, pairs and accounted, keyed by box ids', () => {
+  const play = run({ personnel: 'te' }, 0.5);
+  assert.ok('mike' in play.plan);
+  assert.ok(Array.isArray(play.plan.pairs));
+  assert.ok(play.plan.accounted && typeof play.plan.accounted === 'object');
+  const boxIds = new Set(play.box.ids);
+  for (const id of Object.keys(play.plan.accounted)) assert.ok(boxIds.has(id), id);
+});
+
+test('F-54 #7: dots.html has playside-select inside #hint after front-select', () => {
+  const html = readFileSync(new URL('../dots.html', import.meta.url), 'utf8');
+  const hint = html.slice(html.indexOf('<div id="hint"'), html.indexOf('</div>', html.indexOf('<div id="hint"')));
+  assert.ok(hint.includes('id="playside-select"'));
+  assert.ok(hint.indexOf('id="playside-select"') > hint.indexOf('id="front-select"'));
 });
 
 test('after the snap on the base front', () => {
