@@ -179,7 +179,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
         const ang = sg * Math.asin(rc / pd), c = Math.cos(ang), sn = Math.sin(ang);
         return { x: nx * c - ny * sn, y: nx * sn + ny * c };
       };
-      // a side is plugged when a body closer to the edge body than a mover can squeeze between (an engagement) sits in the way before the lane midpoint
+      // a side is plugged when a body within 2 * H of the picked edge body lies within H of that side's tangent before the lane midpoint (no room to squeeze between them)
       const plugged = (v) => {
         const tl = Math.hypot(mx - p.x, my - p.y);
         for (const q of players) {
