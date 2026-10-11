@@ -11,7 +11,9 @@
 //            (0 = flat, 90 = upfield), keyed by shade (head/playside/backside/none)
 //   stepLen  optional first-step length in yards (default FIRST_STEP_LEN)
 //   aim      fraction of the radius the aim point sits playside of the target spot
-//   drive    push mode once engaged: 'vertical' or 'watch' (lean toward watched player)
+//   drive    push mode once engaged: 'vertical', 'watch' (lean toward watched player) or
+//            'playside' (lean back and toward the play (side) by COMBO_LEAN; every blocker on the
+//            man shares the base (no blindside bend))
 //   next     technique entered after coming off onto a new target
 //   phases   pre-contact phases, in order
 //   retarget phase entered after coming off onto a new target
@@ -30,6 +32,7 @@ export const PUSH_TURN = Math.PI; // rad/s, max push turn rate (tunable)
 export const BLIND_START = 30; // degrees, contact-vs-drive angle where the base starts bending (tunable)
 export const BLIND_FULL = 75; // degrees, contact-vs-drive angle where the base is the contact line (tunable)
 export const COMBO_MAX_LEAN = 30; // degrees from vertical, max combo drive lean (tunable)
+export const COMBO_LEAN = 30; // degrees from vertical, lean of a 'playside' drive toward the play (tunable)
 
 const freezeRow = (r) => Object.freeze({ ...r, step: Object.freeze(r.step), phases: Object.freeze(r.phases) });
 
@@ -77,9 +80,10 @@ export const PHASES = Object.freeze({
   }),
 });
 
-export function driveDir(tech, target, watch) {
-  const row = TECHNIQUES[tech];
-  if (row && row.drive === 'watch') {
+// Drive direction for a push mode. 'watch': lean toward the watched player. 'playside': lean back
+// and toward the play (side = +1 or -1) by COMBO_LEAN; the watch is ignored. Other modes: straight back.
+export function leanDir(mode, target, watch, side) {
+  if (mode === 'watch') {
     if (watch == null) return { x: 0, y: 1 };
     const vx = watch.x - target.x;
     const vy = watch.y - target.y;
@@ -89,6 +93,16 @@ export function driveDir(tech, target, watch) {
     else lean = Math.max(-max, Math.min(max, Math.atan2(vx, vy)));
     return { x: Math.sin(lean), y: Math.cos(lean) };
   }
+  if (mode === 'playside') {
+    const lean = (side === 1 || side === -1 ? side * rad(COMBO_LEAN) : 0);
+    return { x: Math.sin(lean), y: Math.cos(lean) };
+  }
+  return { x: 0, y: 1 };
+}
+
+export function driveDir(tech, target, watch, side) {
+  const row = TECHNIQUES[tech];
+  if (row && (row.drive === 'watch' || row.drive === 'playside')) return leanDir(row.drive, target, watch, side);
   return { x: 0, y: 1 };
 }
 
@@ -167,19 +181,24 @@ export function footGoal(foot, blocker, spot, side, radius) {
   return { phase, goal };
 }
 
-export function footPush(foot, target, watch, vel, contact, dt) {
-  const drive = driveDir(foot.tech, target, watch);
+export function footPush(foot, target, watch, vel, contact, dt, side) {
+  const drive = driveDir(foot.tech, target, watch, side);
   const c = contact ?? drive;
-  const theta = Math.abs(signedAngle(drive, c));
-  const w = Math.max(0, Math.min(1, (theta - rad(BLIND_START)) / (rad(BLIND_FULL) - rad(BLIND_START))));
-  let bx = (1 - w) * drive.x + w * c.x;
-  let by = (1 - w) * drive.y + w * c.y;
-  let bl = Math.hypot(bx, by);
   let base;
-  if (bl < 1e-9) {
-    const cl = Math.hypot(c.x, c.y);
-    base = { x: c.x / cl, y: c.y / cl };
-  } else base = { x: bx / bl, y: by / bl };
+  if (TECHNIQUES[foot.tech]?.drive === 'playside') {
+    // Shared base: every blocker on the man pushes from the drive, not from his own contact line.
+    base = drive;
+  } else {
+    const theta = Math.abs(signedAngle(drive, c));
+    const w = Math.max(0, Math.min(1, (theta - rad(BLIND_START)) / (rad(BLIND_FULL) - rad(BLIND_START))));
+    let bx = (1 - w) * drive.x + w * c.x;
+    let by = (1 - w) * drive.y + w * c.y;
+    let bl = Math.hypot(bx, by);
+    if (bl < 1e-9) {
+      const cl = Math.hypot(c.x, c.y);
+      base = { x: c.x / cl, y: c.y / cl };
+    } else base = { x: bx / bl, y: by / bl };
+  }
 
   const v = vel ?? { x: 0, y: 0 };
   const along = v.x * base.x + v.y * base.y;

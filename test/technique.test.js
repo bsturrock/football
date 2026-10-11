@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  TECHNIQUES, PHASES, stepDir, aimPoint, driveDir, rotate, signedAngle, rotateToward, nextTech,
+  TECHNIQUES, PHASES, stepDir, aimPoint, driveDir, leanDir, rotate, signedAngle, rotateToward, nextTech,
   RIDE_MAX, RIDE_FULL, RIDE_MIN, PUSH_TURN,
   startFoot, retargetFoot, footGoal, footPush,
 } from '../src/dots/technique.js';
@@ -29,12 +29,35 @@ test('aimPoint', () => {
 
 test('driveDir', () => {
   nearPt(driveDir('zone', { x: 0, y: 0 }, { x: 1, y: 4 }), 0, 1);
-  nearPt(driveDir('combo', { x: 0, y: 0 }, null), 0, 1);
+  const T = { x: 0, y: 0 };
+  const cases = [[T, { x: 1, y: 4 }, 1], [T, { x: 1, y: 4 }, -1], [T, { x: 1, y: 4 }, undefined],
+    [T, { x: 5, y: 1 }, 1], [T, { x: -1, y: -1 }, -1], [T, { x: 0, y: -1 }, undefined], [T, null, 1]];
+  for (const [t, w, s] of cases) {
+    const a = driveDir('combo', t, w, s);
+    const b = leanDir(TECHNIQUES.combo.drive, t, w, s);
+    near(a.x, b.x);
+    near(a.y, b.y);
+  }
+});
+
+test('leanDir watch', () => {
+  const T = { x: 0, y: 0 };
+  nearPt(leanDir('watch', T, null), 0, 1);
   const l = Math.atan2(1, 4);
-  nearPt(driveDir('combo', { x: 0, y: 0 }, { x: 1, y: 4 }), Math.sin(l), Math.cos(l));
-  nearPt(driveDir('combo', { x: 0, y: 0 }, { x: 5, y: 1 }), 0.5, Math.cos(rad(30)));
-  nearPt(driveDir('combo', { x: 0, y: 0 }, { x: -1, y: -1 }), -0.5, Math.cos(rad(30)));
-  nearPt(driveDir('combo', { x: 0, y: 0 }, { x: 0, y: -1 }), 0, 1);
+  nearPt(leanDir('watch', T, { x: 1, y: 4 }), Math.sin(l), Math.cos(l));
+  nearPt(leanDir('watch', T, { x: 5, y: 1 }), 0.5, Math.cos(rad(30)));
+  nearPt(leanDir('watch', T, { x: -1, y: -1 }), -0.5, Math.cos(rad(30)));
+  nearPt(leanDir('watch', T, { x: 0, y: -1 }), 0, 1);
+});
+
+test('leanDir playside', () => {
+  const T = { x: 0, y: 0 };
+  nearPt(leanDir('playside', T, null, 1), Math.sin(rad(30)), Math.cos(rad(30)));
+  nearPt(leanDir('playside', T, null, -1), -Math.sin(rad(30)), Math.cos(rad(30)));
+  nearPt(leanDir('playside', T, null, undefined), 0, 1);
+  nearPt(leanDir('playside', T, { x: 5, y: 1 }, 1), Math.sin(rad(30)), Math.cos(rad(30)));
+  nearPt(leanDir('playside', T, { x: -1, y: -1 }, -1), -Math.sin(rad(30)), Math.cos(rad(30)));
+  nearPt(leanDir('vertical', T, { x: 1, y: 4 }, 1), 0, 1);
 });
 
 test('rotate / signedAngle / rotateToward', () => {
@@ -157,7 +180,7 @@ test('footPush (e) blindside', () => {
 });
 
 test('footPush (f) combo lean is the base near the contact', () => {
-  const d = driveDir('combo', { x: 0, y: 0 }, { x: 1, y: 4 });
+  const d = leanDir(TECHNIQUES.combo.drive, { x: 0, y: 0 }, { x: 1, y: 4 });
   const r = settle(mkFoot({ tech: 'combo' }), { x: 0, y: 0 }, { x: 1, y: 4 }, { x: 0, y: 0 }, V);
   nearPt(r.push, d.x, d.y);
 });
