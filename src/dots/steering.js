@@ -119,11 +119,11 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   };
 
   // A recorded lane stays valid while both bodies are still ahead.
-  let laneMid = null, threading = false;
+  let laneMid = null, threading = false, laneBodies = null;
   if (p.steer && p.steer.lane) {
     const a = byId(p.steer.lane[0]), b = byId(p.steer.lane[1]);
     const blockPair = a && b && (a.block?.target === b.id || b.block?.target === a.id);
-    if (a && b && !blockPair && ahead(a) && ahead(b)) laneMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (a && b && !blockPair && ahead(a) && ahead(b)) { laneMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; laneBodies = [a, b]; }
     else p.steer.lane = null;
   }
 
@@ -151,8 +151,34 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       if (n && nd >= 2 * H) {
         s.lane = [hit.o.id, n.id];
         const lx = (hit.o.x + n.x) / 2 - p.x, ly = (hit.o.y + n.y) / 2 - p.y, ll = Math.hypot(lx, ly);
-        if (ll > 1e-12) { threading = true; dx = lx / ll; dy = ly / ll; }
+        if (ll > 1e-12) { threading = true; laneBodies = [hit.o, n]; dx = lx / ll; dy = ly / ll; }
       }
+    }
+  }
+  // Lane aim: bend around a lane body the straight line to the midpoint would graze.
+  if (laneBodies && (laneMid || threading)) {
+    const [la, lb] = laneBodies;
+    const mx = (la.x + lb.x) / 2, my = (la.y + lb.y) / 2;
+    const w = Math.hypot(la.x - lb.x, la.y - lb.y);
+    const rc = Math.min(2 * radius, w / 2);
+    const tmid = (mx - p.x) * dx + (my - p.y) * dy;
+    let pick = null, pd = Infinity, plat = 0;
+    for (const o of laneBodies) {
+      const rx = o.x - p.x, ry = o.y - p.y;
+      const t = rx * dx + ry * dy;
+      const lat = dx * ry - dy * rx;
+      const d = Math.hypot(rx, ry);
+      if (t > 0 && t < tmid && Math.abs(lat) < rc && d > rc && d < pd) { pick = o; pd = d; plat = lat; }
+    }
+    if (pick) {
+      const rx = pick.x - p.x, ry = pick.y - p.y;
+      // lane side: the side of the line to the body on which the midpoint lies
+      const cr = rx * (my - p.y) - ry * (mx - p.x);
+      const sgn = cr >= 0 ? 1 : -1;
+      const ang = sgn * Math.asin(rc / pd), c = Math.cos(ang), sn = Math.sin(ang);
+      const nx = rx / pd, ny = ry / pd;
+      dx = nx * c - ny * sn;
+      dy = nx * sn + ny * c;
     }
   }
   if (!laneMid && !threading && hit) {

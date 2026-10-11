@@ -256,7 +256,7 @@ function slideRun(accel) {
   const goal = accel ? { x: -6, y: 2, key: 'g', ignore: 'o' } : { x: 8, y: 0, key: 'g', ignore: 'o' };
   const moves = [];
   const n = accel ? 90 : 20;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n && p.x < 1.5; i++) {
     const x0 = p.x, y0 = p.y;
     steerStep(p, goal, [p, o], accel ? Math.min(maxStep, (p.v + 30 * DT) * DT) : maxStep, DT, RAD);
     const moved = Math.hypot(p.x - x0, p.y - y0);
@@ -445,3 +445,42 @@ for (const front of FRONT_NAMES) {
     assert.ok(worstGuard >= CONTACT_DIST - 1e-6, `F-34 guard: ${worstGuard} < ${CONTACT_DIST}`);
   });
 }
+
+// ---- T-173: lane threading bends around the near edge body ----
+const R35 = 0.35;
+function t173Run(start, goal, bodies, v0, n) {
+  const p = { id: 'p', x: start.x, y: start.y, selfVel: { x: v0.x, y: v0.y }, vel: { x: v0.x, y: v0.y } };
+  let maxDv = 0, minD = Infinity;
+  const path = [];
+  for (let i = 0; i < n && p.x < 1.5; i++) {
+    const x0 = p.x, y0 = p.y;
+    const D = Math.hypot(goal.x - p.x, goal.y - p.y);
+    steerStep(p, { x: goal.x, y: goal.y, key: 'k', ignore: null, accel: S.CUT_ACCEL }, [p, ...bodies], Math.min(5 * DT, D), DT, R35);
+    const v = { x: (p.x - x0) / DT, y: (p.y - y0) / DT };
+    maxDv = Math.max(maxDv, Math.hypot(v.x - p.selfVel.x, v.y - p.selfVel.y));
+    p.selfVel = v; p.vel = v;
+    for (const b of bodies) minD = Math.min(minD, Math.hypot(p.x - b.x, p.y - b.y));
+    path.push([p.x, p.y]);
+  }
+  return { p, maxDv, minD, path };
+}
+
+test('T-173 (a) flat-angle mover threads the lane around the near edge body', () => {
+  const bodies = [{ id: 'a', x: -0.7, y: 0 }, { id: 'b', x: 0.7, y: 0 }];
+  const ang = 15 * Math.PI / 180, c = Math.cos(ang), s = Math.sin(ang);
+  const start = { x: -3 * c, y: -3 * s };
+  const goal = { x: 6 * c, y: 6 * s };
+  const r = t173Run(start, goal, bodies, { x: 4.5 * c, y: 4.5 * s }, 120);
+  assert.ok(r.p.x >= 1.5, `past the lane: ${r.p.x}`);
+  assert.ok(r.maxDv <= S.CUT_ACCEL / 60 + 1e-6, `dv ${r.maxDv}`);
+  assert.ok(r.minD >= S.hardCore(R35) - 1e-6, `closest ${r.minD}`);
+  const crossed = r.path.some(([x, y], i) => i > 0 && r.path[i - 1][0] < 0 && x >= 0 && Math.abs(x) < 5 && Math.abs(y) < 5);
+  assert.ok(crossed);
+});
+
+test('T-173 (b) a line that already clears both bodies keeps the midpoint aim', () => {
+  const bodies = [{ id: 'a', x: -0.7, y: 0 }, { id: 'b', x: 0.7, y: 0 }];
+  const p = { id: 'p', x: 0, y: -3 };
+  steerStep(p, { x: 0, y: 5, key: 'k', ignore: null }, [p, ...bodies], 6 * DT, DT, R35);
+  assert.ok(Math.abs(p.x) < 1e-12 && Math.abs(p.y - (-3 + 6 * DT)) < 1e-12);
+});
