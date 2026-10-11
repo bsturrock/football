@@ -63,7 +63,8 @@ test('F-48 #2: an LB in the second level over P sends a full-vision back to Q', 
   const [P, Q] = pq(s);
   assert.ok(P.open && Q.open);
   s.rb.vision = 1;
-  const d = lb(s.ds);
+  // F-54 #3: the LB no blocker targets at the snap (MLB today, WLB once RT climbs to the MLB), so moving him over P is not blunted by a block.
+  const d = s.ds.find((x) => x.role === 'LB' && !s.play.players.some((o) => o.team === 'offense' && o.block?.target === x.id));
   const none = score(s);
   d.x = P.x;
   d.y = LOS + LANE_AHEAD + 2 * BODY_RADIUS;
