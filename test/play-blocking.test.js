@@ -516,47 +516,74 @@ test('F-41 #3: TE look line holds through 1.5 s', () => {
   }
 });
 
-// Known behaviour bug, owned by request R-68 (double-team and climb-off timing).
-const TODO_R68 = 'R-68: base MLB plants, loops round the climbing LG and flows outside; RG pure-pursues his contact spot (1.74 -> 1.16 yd, 1.5-2.0 s), no engage by 2.0 s at CUT_ACCEL 20 (green at 15/25, red at 18/20/22). Climb timing off the double is R-68 (.work/maps/R-68-notes.md).';
-const R68_BASE_MLB = (front, c) => front === 'base' && c.watch === 'MLB';
+// The base MLB combos (the RT/RG climbers on the MLB) get their own test, split out by name.
+const BASE_MLB = (front, c) => front === 'base' && c.watch === 'MLB';
 
 // Since F-50 the climber goes to a live linebacker, not always the plan watch: judge the member's target that is not the combo's (as R-62 in zone-play.test.js does).
 const liveClimb = (play, c) => [c.owner, c.partner].map((id) => play.player(id).block?.target).find((t) => t != null && t !== c.target) ?? null;
 
-const combosClimb = (fronts, only = () => true) => {
+// The human's rule: "not a problem the mike is moving laterally to the ball carrier, not coming down field so he
+// wouldn't really have a chance anyway. And thats ok - we aren't building with outcome driven, it's football
+// realism driven. The blocks won't work 100% of the time." Changed: the combo must still climb a live LB within
+// 2.0 s and, if it engages him, he must be met before the line. A climber that never engages passes only when the
+// LB flowed (lateral travel from the climb tick to the window end beats his downhill travel); a passing miss is
+// logged with t.diagnostic, a downhill LB that got past the line unmet fails.
+const judgeClimb = (t, probe, front, c) => {
+  const n = Math.round(2.0 / DT);
+  const who = `${front} combo ${c.owner}/${c.partner}`;
+  let climb = null; // the LB on the climb tick, and where he was then
+  let engaged = null;
+  let end = null;
+  for (let i = 1; i <= n && !engaged; i++) {
+    probe.step(DT);
+    if (!climb) {
+      const live = liveClimb(probe, c);
+      if (!live) continue;
+      const lb = probe.player(live);
+      climb = { live, t: i * DT, x0: lb.x, y0: lb.y };
+    }
+    const lb = probe.player(climb.live);
+    end = lb;
+    const hit = [c.owner, c.partner].some((id) => {
+      const b = probe.player(id).block;
+      return b && b.target === climb.live && b.engaged;
+    });
+    if (hit) engaged = { t: i * DT, y: lb.y };
+  }
+  assert.ok(climb, `${who} never climbed a live LB within 2.0 s`);
+  if (engaged) {
+    assert.ok(engaged.y >= 25 + GAP_DEPTH, `${who} met ${climb.live} at ${engaged.t.toFixed(2)} s, y ${engaged.y}`);
+    return;
+  }
+  const lateral = Math.abs(end.x - climb.x0);
+  const downhill = climb.y0 - end.y;
+  const travel = `${who} vs ${climb.live}: lateral ${lateral.toFixed(2)} yd, downhill ${downhill.toFixed(2)} yd, y at end ${end.y.toFixed(2)}`;
+  assert.ok(lateral > downhill, `${travel}: no engage, and the LB came downhill past the line unmet`);
+  t.diagnostic(`${travel}: missed, LB flowed laterally`);
+};
+
+const combosClimb = (t, fronts, only = () => true) => {
   let count = 0;
   for (const front of fronts) {
     const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front });
     play.snap();
-    const n = Math.round(2.0 / DT);
     for (const c of play.combos) {
       if (!only(front, c)) continue;
       count++;
       const probe = createPlay(25, 'insideZone', { accel: true, tackles: false, front });
       probe.snap();
-      let found = null;
-      for (let i = 1; i <= n && !found; i++) {
-        probe.step(DT);
-        const live = liveClimb(probe, c);
-        const hit = live && [c.owner, c.partner].some((id) => {
-          const b = probe.player(id).block;
-          return b && b.target === live && b.engaged;
-        });
-        if (hit) found = { t: i * DT, y: probe.player(live).y, live };
-      }
-      assert.ok(found, `${front} combo ${c.owner}/${c.partner} never engaged a live climb target within 2.0 s`);
-      assert.ok(found.y >= 25 + GAP_DEPTH, `${front} combo ${c.owner}/${c.partner} met ${found.live} at ${found.t.toFixed(2)} s, y ${found.y}`);
+      judgeClimb(t, probe, front, c);
     }
   }
   assert.ok(count > 0, 'no combo checked');
 };
 
-test('F-41 #4: combos climb before the watch reaches the line', () => {
-  combosClimb(Object.keys(FRONTS), (f, c) => !R68_BASE_MLB(f, c));
+test('F-41 #4: combos climb before the watch reaches the line', (t) => {
+  combosClimb(t, Object.keys(FRONTS), (f, c) => !BASE_MLB(f, c));
 });
 
-test('F-41 #4 (base RT/RG on the MLB): combo climbs before the watch reaches the line', { todo: TODO_R68 }, () => {
-  combosClimb(['base'], R68_BASE_MLB);
+test('F-41 #4 (base RT/RG on the MLB): combo climbs before the watch reaches the line', (t) => {
+  combosClimb(t, ['base'], BASE_MLB);
 });
 
 // ---- F-32: smooth engage, engage clock, release ----

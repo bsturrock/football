@@ -777,29 +777,50 @@ test('F-45 #6: inside zone opens with a short, steep zone step', () => {
   assert.equal(bad.length, 0, `${bad.join('\n')}\n(id tech tick lat/up angle, yd)\n${rows.join('\n')}`);
 });
 
-// Known behaviour bug, owned by request R-68 (double-team and climb-off timing).
-const TODO_R68 = 'R-68: base MLB plants, loops round the climbing LG and flows outside; RG pure-pursues his contact spot (1.74 -> 1.16 yd, 1.5-2.0 s), no engage by 2.0 s at CUT_ACCEL 20 (green at 15/25, red at 18/20/22). Climb timing off the double is R-68 (.work/maps/R-68-notes.md).';
-
-const climbProbe = (front, c) => {
-  const probeOf = () => {
-    const p = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front });
-    p.snap();
-    return p;
-  };
-  const probe = probeOf();
-  let found = null;
-  for (let i = 1; i <= Math.round(2.0 / DT) && !found; i++) {
+// The human's rule: "not a problem the mike is moving laterally to the ball carrier, not coming down field so he
+// wouldn't really have a chance anyway. And thats ok - we aren't building with outcome driven, it's football
+// realism driven. The blocks won't work 100% of the time." Changed: the combo must still climb a live LB within
+// 2.0 s and, if it engages him, he must be met before the line. A climber that never engages passes only when the
+// LB flowed (lateral travel from the climb tick to the window end beats his downhill travel); a passing miss is
+// logged with t.diagnostic, a downhill LB that got past the line unmet fails.
+const judgeClimb = (t, probe, front, c) => {
+  const n = Math.round(2.0 / DT);
+  const who = `${front} ${c.owner}/${c.partner}`;
+  let climb = null; // the LB the climber switched to, on the climb tick, and where he was then
+  let engaged = null;
+  let end = null;
+  for (let i = 1; i <= n && !engaged; i++) {
     probe.step(DT);
-    // judge the linebacker the climber actually switched to
-    const live = climbTarget(probe, c);
-    const hit = live && [c.owner, c.partner].some((id) => {
+    if (!climb) {
+      const live = climbTarget(probe, c);
+      if (!live) continue;
+      const lb = probe.player(live);
+      climb = { live, t: i * DT, x0: lb.x, y0: lb.y };
+    }
+    const lb = probe.player(climb.live);
+    end = lb;
+    const hit = [c.owner, c.partner].some((id) => {
       const b = probe.player(id).block;
-      return b && b.target === live && b.engaged;
+      return b && b.target === climb.live && b.engaged;
     });
-    if (hit) found = { t: i * DT, y: probe.player(live).y, live };
+    if (hit) engaged = { t: i * DT, y: lb.y };
   }
-  assert.ok(found, `${front} ${c.owner}/${c.partner} never engaged a linebacker within 2.0 s`);
-  assert.ok(found.y >= 25 + GAP_DEPTH, `${front} ${c.owner}/${c.partner} met ${found.live} at ${found.t.toFixed(2)} s, y ${found.y}`);
+  assert.ok(climb, `${who} never climbed a linebacker within 2.0 s`);
+  if (engaged) {
+    assert.ok(engaged.y >= 25 + GAP_DEPTH, `${who} met ${climb.live} at ${engaged.t.toFixed(2)} s, y ${engaged.y}`);
+    return;
+  }
+  const lateral = Math.abs(end.x - climb.x0);
+  const downhill = climb.y0 - end.y;
+  const travel = `${who} vs ${climb.live}: lateral ${lateral.toFixed(2)} yd, downhill ${downhill.toFixed(2)} yd, y at end ${end.y.toFixed(2)}`;
+  assert.ok(lateral > downhill, `${travel}: no engage, and the LB came downhill past the line unmet`);
+  t.diagnostic(`${travel}: missed, LB flowed laterally`);
+};
+
+const climbProbe = (t, front, c) => {
+  const p = createPlay(25, 'insideZone', { personnel: 'te', accel: true, tackles: false, front });
+  p.snap();
+  judgeClimb(t, p, front, c);
 };
 
 const combosOf = (front) => {
@@ -808,22 +829,22 @@ const combosOf = (front) => {
   return p.combos;
 };
 
-test('R-62: base and bear, every combo climber engages his watch before the watch reaches the line', () => {
+test('R-62: base and bear, every combo climber engages his watch before the watch reaches the line', (t) => {
   for (const front of ['base', 'bear']) {
     let checked = 0;
     for (const c of combosOf(front)) {
       if (front === 'base' && c.watch === 'MLB') continue;
       checked++;
-      climbProbe(front, c);
+      climbProbe(t, front, c);
     }
     assert.ok(checked > 0, `${front}: no combo checked`);
   }
 });
 
-test('R-62 (base RT/RG on the MLB): the climber engages the MLB before he reaches the line', { todo: TODO_R68 }, () => {
+test('R-62 (base RT/RG on the MLB): the climber engages the MLB before he reaches the line', (t) => {
   const combos = combosOf('base').filter((c) => c.watch === 'MLB');
   assert.ok(combos.length > 0, 'base MLB combo exists');
-  for (const c of combos) climbProbe('base', c);
+  for (const c of combos) climbProbe(t, 'base', c);
 });
 
 test('R-64: every front, the climber on the switch tick is the blocker on the side of the fit', () => {
