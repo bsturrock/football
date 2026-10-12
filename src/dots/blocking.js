@@ -4,6 +4,7 @@ import { steerStep, hardCore, CUT_ACCEL } from './steering.js';
 import { stepReact } from './react.js';
 import { startFoot, retargetFoot, footGoal, footPush, RIDE_MIN } from './technique.js';
 import { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
+import { MOVE_COUNTER, moveOdds } from './roster.js';
 export { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
 
 export const BLOCKER_ROLES = ['OL', 'TE'];
@@ -28,6 +29,36 @@ export const ENGAGE_SLACK = BODY_RADIUS / 10;
 export const SHED_TIME = 0.3;
 // Tunable: seconds after a shed or lost block before the blocker may engage again.
 export const REENGAGE_DELAY = 0.5;
+// Tunable pass-rush moves: time = seconds the try lasts before the roll, drive = driveForce factor
+// during the try, stall = seconds he is stuck after a lost try.
+export const MOVES = Object.freeze({
+  swim: Object.freeze({ time: 0.25, drive: 0.5, stall: 0.4 }),
+  power: Object.freeze({ time: 0.4, drive: 1.5, stall: 0.3 }),
+});
+// Tunable: driveForce factor while stalled after a lost try.
+export const LOST_DRIVE = 0.3;
+// Tunable: seconds engaged before the first try.
+export const MOVE_SETUP = 0.2;
+// Tunable: seconds after a stall before the next try.
+export const MOVE_REST = 0.6;
+// Tunable: seconds a won move stays on d.move for the view.
+export const MOVE_SHOW = 0.5;
+
+// Pure seeded roll in [0, 1): FNV-1a over `${seed}|${id}|${n}`, then a murmur-style finalizer.
+export function moveRoll(seed, id, n) {
+  const str = `${seed}|${id}|${n}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
 
 export const BLOCK_ANGLES = Object.freeze({
   straight: Object.freeze({ x: 0, y: 1 }),
@@ -240,7 +271,14 @@ function followSpot(players, b, dt, dT = { x: 0, y: 0 }) {
 }
 
 // Single place where future factors (skills, leverage, fatigue) multiply in.
-export const driveForce = (p) => p.strength;
+const moveDrive = (p) => {
+  const m = p.move;
+  if (!m) return 1;
+  if (m.phase === 'try') return MOVES[m.kind].drive;
+  if (m.phase === 'lost') return LOST_DRIVE;
+  return 1;
+};
+export const driveForce = (p) => p.strength * moveDrive(p);
 // Single place where future factors (skills, leverage, fatigue) multiply in.
 export const blockForce = (p) => p.strength;
 
@@ -440,6 +478,7 @@ export function doubleTeamPeel(players, ballPos) { // eslint-disable-line no-unu
 // (contact broken), or null. fight = false (play option fightBlocks off) means no shed.
 // Later shed decisions (R-42 DL AI) go here.
 export function canRelease(b, T, ballPos, fight = true) {
+  if (fight && T.move?.phase === 'won' && T.move.by === b.id) return 'shed';
   if (fight && (b.block.winT ?? 0) >= SHED_TIME) return 'shed';
   if (ballPast(T, ballPos)) return 'past';
   if (Math.hypot(T.x - b.x, T.y - b.y) > CONTACT_DIST + ENGAGE_TOL) return 'lost';
@@ -703,6 +742,7 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
       b.block.held = 0;
       b.block.winT = 0;
       if ('released' in b.block) b.block.released = null;
+      b.block.beat = null;
       endContact(b);
       justEngaged.add(b.id);
       b.steer = null;
@@ -800,6 +840,55 @@ function holdTimers(players, dt, before) {
   }
 }
 
+// Pass-rush moves: an engaged, single-blocked defender whose goal carries a move runs a timed try,
+// then a seeded roll against moveOdds decides won (the canRelease shed) or lost (a stall, then rest).
+function movePass(players, dt, ctx, s) {
+  for (const d of players) {
+    if (d.move?.phase === 'won') {
+      d.move.t += dt;
+      if (d.move.t >= MOVE_SHOW) d.move = null;
+      continue;
+    }
+    const on = ctx?.moves === true && s.fight ? engagedOn(players, d.id) : [];
+    if (on.length !== 1) {
+      d.move = null;
+      continue;
+    }
+    const b = on[0];
+    if (d.move && d.move.by !== b.id) {
+      d.move = null;
+      continue;
+    }
+    const gm = ctx.defGoals?.[d.id]?.move;
+    const m = d.move;
+    if (!m) {
+      if (gm && b.block.held >= MOVE_SETUP) {
+        d.move = { kind: gm.kind, side: gm.side, phase: 'try', t: 0, n: (d.moveN = (d.moveN ?? 0) + 1), by: b.id };
+      }
+    } else if (m.phase === 'try') {
+      if (!gm) {
+        d.move = null;
+        continue;
+      }
+      m.t += dt;
+      if (m.t >= MOVES[m.kind].time) {
+        const odds = moveOdds(d[m.kind], b[MOVE_COUNTER[m.kind]]);
+        m.phase = moveRoll(ctx.seed ?? 1, d.id, m.n) < odds ? 'won' : 'lost';
+        m.t = 0;
+      }
+    } else if (m.phase === 'lost') {
+      m.t += dt;
+      if (m.t >= MOVES[m.kind].stall) {
+        m.phase = 'rest';
+        m.t = 0;
+      }
+    } else if (m.phase === 'rest') {
+      m.t += dt;
+      if (m.t >= MOVE_REST) d.move = null;
+    }
+  }
+}
+
 // Engaged blockers ride their target (his displacement this pass) plus a critically damped
 // correction toward the follow spot. Only blockers' impacts are cleared here; a defender's is
 // cleared in the defender loop.
@@ -877,7 +966,11 @@ function releasePass(players, ballPos, s) {
     b.block.released = reason;
     endContact(b);
     if (reason !== 'past') b.block.cool = REENGAGE_DELAY;
-    if (reason === 'shed') byId(players, b.block.target).shedFree = REENGAGE_DELAY;
+    if (reason === 'shed') {
+      const T = byId(players, b.block.target);
+      T.shedFree = REENGAGE_DELAY;
+      if (T.move?.phase === 'won' && T.move.by === b.id) b.block.beat = T.move.kind;
+    }
   }
 
   const leaving = engagedAtStart.filter((id) => !byId(players, id).block?.engaged);
@@ -991,6 +1084,8 @@ export function stepBlocking(players, ballPos, dt, ctx) {
   // 6. defenders step or take their hits
   defenderPass(players, ballPos, dt, ctx, s);
   holdTimers(players, dt, s.before);
+  // 6b. pass-rush moves
+  movePass(players, dt, ctx, s);
   // 7. engaged blockers ride their target
   ridePass(players, dt, s);
   // 8. release
