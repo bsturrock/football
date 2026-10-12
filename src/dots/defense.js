@@ -38,7 +38,11 @@ export const CONTAIN_WIDTH = 2 * BODY_RADIUS; // yd outside the backside end lin
 export const CONTAIN_SPEED = 0.5; // fraction of speed while reading and squeezing: a controlled squeeze (tunable)
 
 export const LEAD_MAX = 1.0; // s, the longest lead a pursuer takes (tunable)
+export const LEVER_V = 1.0; // yd/s: the ball must move sideways at least this fast before pursuers take the inside-out lever (tunable)
+export const PURSUE_LEVER = 0.5; // yd: an inside pursuer aims this far inside the intercept point (tunable)
 
+// Pursuit (GOALS.pursue) aims at this point, then the inside-out lever shifts it: a pursuer inside of a
+// sideways-moving ball aims PURSUE_LEVER inside it, so he arrives from the inside, never from behind.
 // Where a pursuer at d running at `speed` meets a ball at `ball` moving at v: the earliest
 // non-negative meeting time, capped at LEAD_MAX (also used when no meeting exists). The lead
 // time is also capped at the pursuer's time to reach the ball's current spot, so a close
@@ -116,6 +120,12 @@ function gapSide(d, e, env, b) {
   const span = e.fit ? gapSpan(env.players, env.defense, e.fit) : null;
   if (span) return Math.sign((span.lo + span.hi) / 2 - b.x);
   return Math.sign(e.x0 - b.x);
+}
+
+// The offensive player engaged on d (a contact fact, like the `shed` trigger); prefers `prefer` (an id) when he is one.
+function engagerOf(d, env, prefer) {
+  const all = env.players.filter((p) => p.block?.target === d.id && p.block.engaged);
+  return all.find((p) => p.id === prefer) ?? all[0] ?? null;
 }
 
 // A goal built from the blocker, or today's gapFit goal when he has none.
@@ -217,7 +227,30 @@ export const GOALS = Object.freeze({
     return { x: b.x + (s || gapSide(d, e, env, b)) * ARM_FREE, y: env.los };
   }),
   contain: (d, e, env) => ({ x: containX(e, env), y: env.los - CONTAIN_DEPTH }),
-  pursue: (d, e, env) => intercept(d, env.ballPos, env.defense.ballV, d.speed),
+  // Take on a climbing blocker with the gap-side shoulder. Unengaged: step up to the climber's gap side
+  // and meet him. Engaged: through his gap-side shoulder (the ball cannot come back through the gap).
+  takeOn: (d, e, env) => {
+    const cue = env.cues?.(d.id);
+    if (e.st === 0) { e.back = e.from; e.climber = cue?.climber?.id ?? e.climber; }
+    const eng = engagerOf(d, env, e.climber);
+    const free = cue?.climber ? env.players.find((p) => p.id === cue.climber.id) : null;
+    const b = eng ?? free ?? env.players.find((p) => p.id === e.climber);
+    if (!b) return GOALS.fitGap(d, e, env);
+    e.climber = b.id;
+    const gs = gapSide(d, e, env, b) || Math.sign((cue?.ball?.x ?? b.x) - b.x) || 1;
+    return eng ? { x: b.x + gs * BODY_RADIUS, y: b.y - PENETRATE_DEPTH } : { x: b.x + gs * BODY_RADIUS, y: b.y + BODY_RADIUS };
+  },
+  // Pursue the ball from the inside out. The ball cue (the holder's own seen spot and velocity, which do not
+  // jump when the ball changes hands) leads the intercept; without a cue, the env ball spot and velocity.
+  // A pursuer inside of a ball moving sideways at >= LEVER_V aims PURSUE_LEVER inside the intercept point.
+  pursue: (d, e, env) => {
+    const c = env.cues?.(d.id)?.ball;
+    const B = c ? { x: c.x, y: c.y } : env.ballPos;
+    const V = c ? { x: c.vx, y: c.vy } : env.defense.ballV;
+    const p = intercept(d, B, V, d.speed);
+    const s = Math.abs(V.x) >= LEVER_V ? Math.sign(V.x) : 0;
+    return s !== 0 && s * (d.x - B.x) < 0 ? { x: p.x - s * PURSUE_LEVER, y: p.y } : p;
+  },
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
 });
 
@@ -240,6 +273,10 @@ export const TRIGGERS = Object.freeze({
     const f = env.cues?.(d.id)?.felt;
     return e.st >= GETOFF_TIME - 1e-9 && (f == null || f === 'none');
   },
+  // A blocker is climbing on him (perceive.js climber cue).
+  climberSeen: (d, e, env) => env.cues?.(d.id)?.climber != null,
+  // The climber is gone: no climber cue and nobody engaged on him. A row's `back` limits it to takeOn entered from those states.
+  climberGone: (d, e, env, x) => env.cues?.(d.id)?.climber == null && !engagerOf(d, env) && (!x.back || x.back.includes(e.back)),
   // The ball commits (the carrier is past the line or moving downfield).
   ballCommitted: (d, e, env) => env.cues?.(d.id)?.ball?.committed === true,
   // The LB read is in: after def.read, his key read is x.is (and flow class x.flow, coverage x.cover when named).
@@ -264,6 +301,10 @@ export const FELT_VALUES = Object.freeze(['double', 'reach', 'base', 'pass', 'do
 const PURSUE_EXITS = Object.freeze([{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }]);
 // The LB pursue exits: a shed, the carrier past the line, or the ball committed (perceive.js ball.committed).
 export const LB_PURSUE_EXITS = Object.freeze([{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballCommitted', to: 'pursue' }]);
+// The DL pursue exits: the shared ones, plus the ball committing (a two-gap DL leaves on it for twoGapFit instead).
+export const DL_PURSUE_EXITS = Object.freeze([...PURSUE_EXITS, { when: 'ballCommitted', to: 'pursue' }]);
+// The LB takeOn exits: where a taken-on climber sends him back to (fit or split; else scrape).
+const TAKE_ON_EXIT = Object.freeze({ when: 'climberSeen', to: 'takeOn' });
 // The felt exits generated from DL_RESPONSES, skipping the state he is already in.
 const feltExits = (self) => Object.entries(DL_RESPONSES).filter(([, to]) => to !== self).map(([is, to]) => ({ when: 'felt', is, to }));
 
@@ -320,13 +361,13 @@ export const BEHAVIORS = Object.freeze({
     start: 'getoff',
     keys: [],
     states: {
-      getoff: { goal: 'getoff', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('getoff'), { when: 'getoffDone', to: 'squeeze' }] },
-      hold: { goal: 'holdGap', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('hold'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      outsideArm: { goal: 'outsideArm', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('outsideArm'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      anchor: { goal: 'anchor', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('anchor'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      close: { goal: 'close', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('close'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      rush: { goal: 'rush', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('rush'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      squeeze: { goal: 'squeeze', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('squeeze')] },
+      getoff: { goal: 'getoff', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('getoff'), { when: 'getoffDone', to: 'squeeze' }] },
+      hold: { goal: 'holdGap', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('hold'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      outsideArm: { goal: 'outsideArm', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('outsideArm'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      anchor: { goal: 'anchor', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('anchor'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      close: { goal: 'close', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('close'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      rush: { goal: 'rush', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('rush'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      squeeze: { goal: 'squeeze', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('squeeze')] },
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
@@ -367,9 +408,14 @@ export const BEHAVIORS = Object.freeze({
           { when: 'read', is: 'run', to: 'fit' },
         ],
       },
-      fit: { goal: 'fitGap', speed: 1, exits: [...LB_PURSUE_EXITS] },
-      scrape: { goal: 'scrapeGoal', speed: 1, exits: [...LB_PURSUE_EXITS] },
-      split: { goal: 'split', speed: 1, exits: [...LB_PURSUE_EXITS] },
+      fit: { goal: 'fitGap', speed: 1, exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
+      scrape: { goal: 'scrapeGoal', speed: 1, exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
+      split: { goal: 'split', speed: 1, exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
+      takeOn: {
+        goal: 'takeOn',
+        speed: 1,
+        exits: [...LB_PURSUE_EXITS, { when: 'climberGone', back: ['fit', 'split'], to: 'fit' }, { when: 'climberGone', to: 'scrape' }],
+      },
       drop: { goal: 'drop', speed: DROP_SPEED, exits: [...LB_PURSUE_EXITS] },
       man: { goal: 'man', speed: 1, exits: [...LB_PURSUE_EXITS] },
       pursue: { goal: 'pursue', speed: 1, exits: [] },
@@ -681,7 +727,7 @@ export function stepDefense(players, defense, { run, ballPos, cues }, dt) {
     const tech = cueOf(id)?.tech;
     if (e.blocker == null && tech?.blocker != null) e.blocker = tech.blocker;
     const hit = behavior.states[e.state].exits.find((x) => x.to !== e.state && TRIGGERS[x.when](d, e, env, x));
-    if (hit) { e.state = hit.to; e.st = 0; e.why = hit.when; }
+    if (hit) { e.from = e.state; e.state = hit.to; e.st = 0; e.why = hit.when; }
     const row = behavior.states[e.state];
     const g = GOALS[row.goal](d, e, env);
     if (e.state !== behavior.start && !defense.committed[id]) {

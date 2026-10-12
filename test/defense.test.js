@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
   LB_READ_TIME, KEY_MOVE, READ_STEP, READ_STEP_DOWN, READ_SPEED, OVER_TOP, keyRead, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, intercept, CONTAIN_DEPTH, CONTAIN_WIDTH, CONTAIN_SPEED,
-  MAN_ROLES, PERSONNEL_CALLS, callFor, shiftGap, DL_RESPONSES, GETOFF_TIME, GETOFF_DEPTH, ARM_FREE, RUSH_DEPTH,
+  MAN_ROLES, PERSONNEL_CALLS, callFor, shiftGap, DL_RESPONSES, GETOFF_TIME, GETOFF_DEPTH, ARM_FREE, RUSH_DEPTH, LEVER_V, PURSUE_LEVER,
 } from '../src/dots/defense.js';
 import { createPlay } from '../src/dots/play.js';
 import { readFront } from '../src/dots/front.js';
@@ -225,7 +225,8 @@ test('F-58 #1: fit goal is the ball cue x inside his gap span at FILL_DEPTH; he 
   assert.equal(t.defense.agents.MLB.state, 'pursue');
   assert.equal(t.defense.agents.MLB.why, 'ballCommitted');
   const pur = step(t, 0.01).MLB;
-  assert.deepEqual({ x: pur.x, y: pur.y }, intercept(mlb, t.ball, t.defense.ballV, mlb.speed));
+  // T-57 3a: pursue leads with the ball cue (spot and velocity of the holder), not the env ball spot.
+  assert.deepEqual({ x: pur.x, y: pur.y }, intercept(mlb, { x: 0, y: LOS }, { x: 0, y: 0 }, mlb.speed));
 });
 
 test('F-58 #3: scrape goal is one OVER_TOP behind the ball against flow, no deeper than y0, never shallower than fill depth', () => {
@@ -943,4 +944,126 @@ test('F-56: validateBehavior rejects a felt exit with an unknown value', () => {
   const bad = { x: { start: 'a', keys: [], states: { a: { goal: 'hold', speed: 1, exits: [{ when: 'felt', is: 'sideways', to: 'a' }] } } } };
   assert.throws(() => validateBehavior('x', bad), /sideways/);
   assert.doesNotThrow(() => validateBehavior('twoGap'));
+});
+
+// T-57 (F-58 #5, #6, #7, #12): take on a climber, DLs shed on commit, pursuit inside-out off the ball cue.
+const envOf = (s) => ({ players: s.players, defense: s.defense, run: s.run, ballPos: s.ball, los: LOS, cues: s.cues });
+const inFit = (s) => { stubLB(s, RUN); step(s, 1); assert.equal(s.defense.agents.MLB.state, 'fit'); return s; };
+
+test('T-57 #1: an LB in fit, scrape or split with a climber cue goes to takeOn; his goal is on his gap side of the climber, both sides', () => {
+  for (const side of [-1, 1]) {
+    const s = inFit(setup());
+    const e = s.defense.agents.MLB;
+    const span = gapSpan(s.players, s.defense, e.fit);
+    const lg = by(s.players, 'LG');
+    lg.x = (span.lo + span.hi) / 2 - side;
+    lg.y = LOS - 1;
+    stubLB(s, { ...RUN, climber: { id: 'LG', side: -side } });
+    const g = step(s, 0.01).MLB;
+    assert.equal(e.state, 'takeOn');
+    near(g.x, lg.x + side * BODY_RADIUS);
+    near(g.y, lg.y + BODY_RADIUS);
+  }
+  for (const st of ['scrape', 'split']) {
+    const s = setup();
+    s.defense.agents.MLB.state = st;
+    stubLB(s, { climber: { id: 'LG', side: 1 } });
+    step(s, 0.01);
+    assert.equal(s.defense.agents.MLB.state, 'takeOn', st);
+  }
+});
+
+test('T-57 #1: climberGone returns takeOn to fit (from fit or split) or scrape; engaged he stays', () => {
+  for (const [from, back] of [['fit', 'fit'], ['split', 'fit'], ['scrape', 'scrape']]) {
+    const s = setup();
+    s.defense.agents.MLB.state = from;
+    stubLB(s, { climber: { id: 'LG', side: 1 } });
+    step(s, 0.01);
+    assert.equal(s.defense.agents.MLB.state, 'takeOn');
+    assert.equal(s.defense.agents.MLB.back, from);
+    by(s.players, 'LG').block = { target: 'MLB', engaged: true, released: null, seq: null, angle: 'straight' };
+    stubLB(s, {});
+    step(s, 0.01);
+    assert.equal(s.defense.agents.MLB.state, 'takeOn', `${from} engaged`);
+    by(s.players, 'LG').block = null;
+    step(s, 0.01);
+    assert.equal(s.defense.agents.MLB.state, back, from);
+  }
+});
+
+test('T-57 #1: the engaged takeOn goal is on the gap side of his blocker and passes the leverage check', () => {
+  for (const side of [-1, 1]) {
+    const s = setup();
+    const e = s.defense.agents.MLB;
+    e.state = 'fit';
+    const span = gapSpan(s.players, s.defense, e.fit);
+    const lg = by(s.players, 'LG');
+    lg.x = (span.lo + span.hi) / 2 - side;
+    lg.y = LOS - 1;
+    stubLB(s, { climber: { id: 'LG', side: -side } });
+    step(s, 0.01);
+    assert.equal(e.state, 'takeOn');
+    const mlb = by(s.players, 'MLB');
+    mlb.x = lg.x;
+    mlb.y = lg.y + 2 * BODY_RADIUS;
+    lg.block = { target: 'MLB', engaged: true, released: null, seq: null, angle: 'straight' };
+    stubLB(s, {});
+    const g = GOALS.takeOn(mlb, e, envOf(s));
+    assert.equal(Math.sign(g.x - lg.x), side);
+    const gm = Math.hypot(g.x - mlb.x, g.y - mlb.y);
+    const bm = Math.hypot(lg.x - mlb.x, lg.y - mlb.y);
+    const cos = ((g.x - mlb.x) * (lg.x - mlb.x) + (g.y - mlb.y) * (lg.y - mlb.y)) / (gm * bm);
+    assert.ok(cos > LEVER_COS, `cos ${cos}`);
+  }
+});
+
+test('T-57 #2: ballCommitted sends a DL in getoff, hold, anchor and squeeze to pursue; twoGap control goes to twoGapFit; contain is unchanged', () => {
+  const ball = { x: 0, y: LOS, vx: 0, vy: 4, carried: true, past: false, committed: true };
+  for (const st of ['getoff', 'hold', 'anchor', 'squeeze']) {
+    const s = stubCues(setup(), 'base', ball);
+    const id = Object.keys(s.defense.agents).find((k) => s.defense.agents[k].behavior === 'attack');
+    s.defense.agents[id].state = st;
+    step(s, 0.01);
+    assert.equal(s.defense.agents[id].state, 'pursue', st);
+    assert.equal(s.defense.agents[id].why, 'ballCommitted', st);
+  }
+  const t = stubCues(setup({ call: 'twoGap' }), 'base', ball);
+  const tg = Object.keys(t.defense.agents).find((k) => t.defense.agents[k].behavior === 'twoGap');
+  step(t, 0.01);
+  assert.equal(t.defense.agents[tg].state, 'twoGapFit');
+  for (const st of Object.values(BEHAVIORS.contain.states)) assert.ok(!st.exits.some((x) => x.when === 'ballCommitted'));
+});
+
+test('T-57 #3: an inside pursuer of a sideways ball aims PURSUE_LEVER inside the intercept point; outside, slow or still gets the plain intercept', () => {
+  const d = { x: 0, y: 30, speed: 7 };
+  const mk = (ball, v) => ({ ballPos: ball, defense: { ballV: v }, cues: () => null });
+  const e = {};
+  for (const s of [-1, 1]) {
+    const ball = { x: 5 * s, y: 25 };
+    const v = { x: 4 * s, y: 0 };
+    const p = intercept(d, ball, v, d.speed);
+    const g = GOALS.pursue(d, e, mk(ball, v));
+    near(g.x, p.x - s * PURSUE_LEVER);
+    near(g.y, p.y);
+    const out = { x: -5 * s, y: 25 }; // the pursuer is on the ball's outside
+    assert.deepEqual(GOALS.pursue(d, e, mk(out, v)), intercept(d, out, v, d.speed));
+  }
+  for (const v of [{ x: 0, y: 4 }, { x: LEVER_V * 0.9, y: 0 }, { x: 0, y: 0 }]) {
+    const ball = { x: 5, y: 25 };
+    assert.deepEqual(GOALS.pursue(d, e, mk(ball, v)), intercept(d, ball, v, d.speed));
+  }
+});
+
+test('T-57 #3a: pursue uses the ball cue spot and velocity, not an exchange spike; no cue keeps the env ball', () => {
+  const d = { x: 0, y: 30, speed: 7 };
+  const e = {};
+  const cue = { x: 2, y: 22, vx: 1.5, vy: 3.8, carried: true, past: false, committed: true };
+  const env = { ballPos: { x: 10, y: 50 }, defense: { ballV: { x: 10, y: 33 } }, cues: () => ({ ball: cue }) };
+  const p = intercept(d, { x: cue.x, y: cue.y }, { x: cue.vx, y: cue.vy }, d.speed);
+  const g = GOALS.pursue(d, e, env);
+  near(g.y, p.y);
+  // inside pursuer (d.x < cue.x, vx > 0) gets the lever
+  near(g.x, p.x - PURSUE_LEVER);
+  const none = { ...env, cues: () => null };
+  assert.deepEqual(GOALS.pursue(d, e, { ...none, defense: { ballV: { x: 0, y: 0 } } }), intercept(d, none.ballPos, { x: 0, y: 0 }, d.speed));
 });
