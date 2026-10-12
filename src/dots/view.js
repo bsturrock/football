@@ -3,7 +3,7 @@
 
 import { createPlay, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
 import { FRONTS, PERSONNEL, FORMATIONS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH } from './roster.js';
-import { SCRIPTS } from './defense.js';
+import { SCRIPTS, CALLS } from './defense.js';
 import { TRACK_HALF, TRACK_DEPTH } from './perceive.js';
 import { BODY_RADIUS } from './blocking.js';
 import { wrapAngle, angleDiff, facingDir } from './facing.js';
@@ -114,6 +114,12 @@ export function defPersonnelOptions() {
 export function scriptOptions() {
   return [{ key: '', name: 'No script' },
     ...Object.entries(SCRIPTS).map(([key, s]) => ({ key, name: s.name }))];
+}
+
+// Picker options for the defensive call ('' = by personnel).
+export function callOptions() {
+  return [{ key: '', name: 'Call: by personnel' },
+    ...Object.entries(CALLS).map(([key, c]) => ({ key, name: c.name }))];
 }
 
 // Picker options for the pre-snap run direction.
@@ -857,6 +863,7 @@ export function initDotsView(container) {
   const formationSelect = document.getElementById('formation-select');
   const defenseSelect = document.getElementById('defense-select');
   const scriptSelect = document.getElementById('script-select');
+  const callSelect = document.getElementById('call-select');
   const playsideSelect = document.getElementById('playside-select');
   const syncPickers = () => {
     if (frontSelect) frontSelect.value = play.front;
@@ -865,6 +872,7 @@ export function initDotsView(container) {
     if (formationSelect) formationSelect.value = play.formation ?? '';
     if (defenseSelect) defenseSelect.value = play.defPersonnel ?? '';
     if (scriptSelect) scriptSelect.value = play.script ?? '';
+    if (callSelect) callSelect.value = play.call ?? '';
   };
   const wirePicker = (select, options, apply) => {
     if (!select) return;
@@ -889,6 +897,7 @@ export function initDotsView(container) {
   wirePicker(formationSelect, formationOptions(), (k) => play.setFormation(k));
   wirePicker(defenseSelect, defPersonnelOptions(), (k) => play.setDefPersonnel(k));
   wirePicker(scriptSelect, scriptOptions(), (k) => play.setScript(k));
+  wirePicker(callSelect, callOptions(), (k) => play.setCall(k));
   frontSelect?.addEventListener('change', () => { if (defenseSelect) defenseSelect.value = play.defPersonnel ?? ''; });
 
   window.addEventListener('keydown', (e) => {
