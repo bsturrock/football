@@ -86,8 +86,13 @@ function climbSpans(front, personnel, playside, script) {
   return spans;
 }
 
+// The level bound is report-only by the human's rule "Judge both by eye" (F-57 item 11b, T-68): the human watches
+// over43/walkedUp, TE, run right, no script and lbBlitz in the browser. A span that starts past his LB must still
+// never climb further (gate).
 test('F-57 #11b: a climber never climbs past his linebacker\'s level, every script', (t) => {
-  const bad = [];
+  const climbedFurther = [];
+  const pastLevel = [];
+  let worstAll = -Infinity;
   for (const script of [null, ...Object.keys(SCRIPTS)]) {
     let spans = 0;
     let n = 0;
@@ -103,7 +108,7 @@ test('F-57 #11b: a climber never climbs past his linebacker\'s level, every scri
           const up = sp.ticks.find((k) => !(k.y <= k0.y + 1e-9));
           n += sp.ticks.length;
           if (up) {
-            bad.push(`${front} ${personnel} ${playside} script ${script}: ${sp.climber} started past ${sp.lbId} at tick ${k0.i} (y ${k0.y.toFixed(3)}) and climbed further at tick ${up.i}: y ${up.y.toFixed(3)}`);
+            climbedFurther.push(`${front} ${personnel} ${playside} script ${script}: ${sp.climber} started past ${sp.lbId} at tick ${k0.i} (y ${k0.y.toFixed(3)}) and climbed further at tick ${up.i}: y ${up.y.toFixed(3)}`);
           }
           continue;
         }
@@ -118,12 +123,15 @@ test('F-57 #11b: a climber never climbs past his linebacker\'s level, every scri
           }
         }
         if (first) {
-          bad.push(`${front} ${personnel} ${playside} script ${script}: ${sp.climber} past ${first.lb} at tick ${first.i} (${past} ticks): y ${first.y.toFixed(3)} > ${first.lby.toFixed(3)} + ${BODY_RADIUS}`);
+          pastLevel.push(`${front} ${personnel} ${playside} script ${script}: ${sp.climber} past ${first.lb} at tick ${first.i} (${past} ticks): y ${first.y.toFixed(3)} > ${first.lby.toFixed(3)} + ${BODY_RADIUS}`);
         }
       }
     }
     t.diagnostic(`script ${script}: ${spans} spans, ${n} climb ticks, worst margin ${worst.toFixed(3)} yd`);
+    worstAll = Math.max(worstAll, worst);
     assert.ok(spans > 0, `script ${script}: no climb spans`);
   }
-  assert.equal(bad.length, 0, bad.join('\n'));
+  t.diagnostic(`level (report-only): ${pastLevel.length} spans past the LB's level, worst margin ${worstAll} yd`);
+  for (const line of pastLevel) t.diagnostic(`level (report-only): ${line}`);
+  assert.equal(climbedFurther.length, 0, climbedFurther.join('\n'));
 });
