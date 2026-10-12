@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
-import { zonePlan, zoneSwitch, pickClimber, PICK_LEAD, PICK_PRIOR, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, INSIDE_ZONE, ZONE_READ, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, pickClimber, PICK_LEAD, PICK_PRIOR, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, INSIDE_ZONE, ZONE_READ, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN, WALL_GAP } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH, runScheme } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
@@ -751,4 +751,37 @@ test('F-54 #2 tightened: no line-level defender inside the surface goes unblocke
       assert.ok(vals.includes(d.id), `${label} ${d.id}`);
     }
   });
+});
+
+// F-66 #5: a climber whose LB is walled off by another blocker's engaged block (a non-line defender) drops him for a reachable LB.
+test('F-66: walled-off LB is dropped for an unclaimed LB with a clear path', () => {
+  const run = (mut) => {
+    const s = sw(); // fresh ctx per case (lineIds caches per ctx)
+    s.ctx.combos = [];
+    s.ctx.los = 24;
+    s.ctx.side = 1;
+    const lbs = s.players.filter((p) => LB_ROLES.includes(p.role));
+    lbs.forEach((p) => Object.assign(p, { x: 40, y: 40, vel: { x: 0, y: 0 } }));
+    const [a, b, c] = lbs;
+    Object.assign(s.g('C'), { x: 0, y: 25 });
+    s.g('C').block = { target: a.id, angle: 'straight', engaged: false, seq: 1 };
+    Object.assign(a, { x: 0, y: 29 });
+    Object.assign(b, { x: 0, y: 27 });
+    Object.assign(s.g('LG'), { x: 0, y: 26.5 });
+    s.g('LG').block = { target: b.id, angle: 'straight', engaged: true, seq: 1, held: HELD };
+    Object.assign(c, { x: 2, y: 29 });
+    s.a = a; s.b = b; s.c = c;
+    mut?.(s);
+    return { out: zoneSwitch(s.players, null, s.ctx), s };
+  };
+  const a = run();
+  assert.ok(WALL_GAP > 0);
+  assert.deepEqual(a.out, [{ blocker: 'C', target: a.s.c.id }], '(a) takes C');
+  assert.deepEqual(run((s) => Object.assign(s.c, { x: 40, y: 40 })).out, [], '(b) no other LB');
+  assert.deepEqual(run((s) => {
+    Object.assign(s.b, { x: 0, y: 25.5 }); // (c) the wall is line-level
+    Object.assign(s.g('LG'), { x: 0, y: 25.2 });
+    s.ctx.los = 25;
+  }).out, [], '(c) a line-level defender is no wall');
+  assert.deepEqual(run((s) => { s.g('LG').block.engaged = false; s.g('LG').block.target = 'RDT'; }).out, [], '(d) nobody engaged on B');
 });

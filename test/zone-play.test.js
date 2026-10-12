@@ -6,7 +6,7 @@ import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, leadSpot, HINGE_GIVE, stepDir, stepLenOf, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH, READ_STEP_DOWN, keyRead } from '../src/dots/defense.js';
-import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, WALL_GAP, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { readFront, HEAD_UP, LINE_DEPTH } from '../src/dots/front.js';
 import { FRONT_NAMES, frontPlayers } from './fixtures/fronts.js';
@@ -1578,4 +1578,40 @@ test('T-76: a combo member leaving the DL goes to an LB upfield of the DL, or on
     for (let i = 0; i < 150 && play.ball.phase !== 'dead'; i++) play.step(FIXED_DT);
   }
   t.diagnostic(`${checked} releases judged`);
+});
+
+// F-66 #4: C drops L2 for L1 only once another blocker's engaged block on a non-line defender walls L2 off.
+test('F-66 #4: under43 te right, C leaves a walled-off L2 for L1', () => {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'under43', personnel: 'te', playside: 'right' });
+  play.snap();
+  const orig = play.retargetRule;
+  const seen = [];
+  const segDist = (pt, a, b) => {
+    const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+    const u = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2));
+    return Math.hypot(pt.x - (a.x + u * dx), pt.y - (a.y + u * dy));
+  };
+  play.retargetRule = (players, ballPos, ctx) => {
+    const before = players.find((q) => q.id === 'C').block?.target;
+    const out = orig(players, ballPos, ctx);
+    const e = out.find((x) => x.blocker === 'C');
+    if (e && before === 'L2') {
+      const g = (id) => players.find((q) => q.id === id);
+      const wall = players.filter((q) => q.id !== 'C' && q.block?.engaged && q.block.target !== 'L2' && ['L3'].includes(q.block.target));
+      seen.push({
+        e,
+        rtTarget: g('RT').block.target, rtEngaged: g('RT').block.engaged,
+        gap: Math.min(segDist(g('L3'), g('C'), g('L2')), segDist(g('RT'), g('C'), g('L2'))),
+        wall: wall.length,
+      });
+    }
+    return out;
+  };
+  for (let i = 0; i < 150 && play.ball.phase !== 'dead'; i++) play.step(FIXED_DT);
+  assert.ok(seen.length > 0, 'C retargets off L2');
+  const r = seen[0];
+  assert.equal(r.rtTarget, 'L3');
+  assert.equal(r.rtEngaged, true);
+  assert.ok(r.gap <= WALL_GAP, `a wall lies on the C-L2 segment (${r.gap})`);
+  assert.equal(r.e.target, 'L1');
 });
