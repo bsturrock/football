@@ -790,6 +790,7 @@ test('stepBlocking: a shed frees the defender from every blocker for REENGAGE_DE
   assert.equal(a.block.released, 'shed');
   assert.ok(DL.shedFree > 0);
   assert.ok(DL.shedFree <= REENGAGE_DELAY + 1e-9);
+  assert.equal(DL.shedHow, 'leverage');
   assert.equal(canEngage(b, DL, contactSpot(ps, b), ballPos), null);
 });
 
@@ -946,6 +947,7 @@ test('a won swim sheds the block with beat swim', () => {
   runMove(ps, ctx, Math.ceil((MOVE_SETUP + MOVES.swim.time) / DT) + 6, { kind: 'swim', side: 1 });
   assert.equal(ps[0].block.released, 'shed');
   assert.equal(ps[0].block.beat, 'swim');
+  assert.equal(ps[1].shedHow, 'swim');
 });
 
 test('a lost swim goes try, lost, rest and never sheds', () => {
