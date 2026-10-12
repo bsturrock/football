@@ -51,3 +51,4 @@
 - 2026-10-11 F-4 Perception layer, read trace and scenario harness (R-7) 6fe1145
 - 2026-10-11 F-53 Version stamp on dots.html (R-11) e1f1951
 - 2026-10-11 F-54 Zone rules v2: covered/uncovered pairing, Mike point, box count, either direction (R-8) 0cdd5b5
+- 2026-10-12 F-55 Zone rules v2: post-snap lineman rules (four eyes, track, footwork, hinge, climb path) (R-8) 180a70f
