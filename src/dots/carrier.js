@@ -1,6 +1,9 @@
 // Ball carrier movement: live lane read on both sides of the center (laneWindows, freeLane,
 // scoreLanes, chooseLane), the QB/RB mesh handoff check (the QB must hold
 // the snap SECURE_TIME before handing off), and carrier steering. Pure: no THREE, DOM, timers.
+// F-57: after the handoff he presses the playside guard's outside leg at a steady pace, declares bang, bend or bounce
+// from the READS table over his perception cues (ctx.cues.run), commits on that read, picks his crease only among the
+// call's lanes, and makes at most one cut, only before he reaches the hole.
 import { steerStep, hardCore, PACES } from './steering.js';
 import { BODY_RADIUS, engagedOn } from './blocking.js';
 import { PLAYSIDE_SIGN } from './numbering.js';
@@ -36,8 +39,6 @@ export const ROOM_CAP = 4 * BODY_RADIUS; // room beyond this scores no more
 export const TRACK_COST = 0.5; // score per yard from the track point
 export const CUT_COST = 0.25; // score per yard from the RB's own x
 export const CLOSING_FRACTION = 1 / 8; // a free defender moving downhill faster than this fraction of his top speed is closing at full speed
-// The RB's reaction time (s): his lane must read closed this long before he gives it up.
-export const CLOSE_HOLD = 0.1;
 export const SWITCH_MARGIN =BODY_RADIUS / 2; // score a rival lane must beat the current one by
 
 // Vision (F-48): the RB looks past the line band to the second level when scoring a hole.
@@ -65,17 +66,66 @@ const AVOID_RAY_STEP = 0.25; // yd
 // Patience tunables (F-35): the RB presses toward the track point behind the line while he re-reads lanes, then commits.
 export const PATIENCE_MAX = 0.8; // s: longest patience window
 export const PRESS_DEPTH = 3 * BODY_RADIUS; // press point depth behind the los; must exceed LOCK_DEPTH so pressing never line-locks
-export const CLEAR_ROOM = 4 * BODY_RADIUS; // a picked open lane with this much room to every free defender is clear
-export const CLEAR_HOLD = 0.25; // s a lane must stay clear before it ends the patience (stays below the play's patience)
+export const AIM_LEG = BODY_RADIUS; // yd from the playside guard's centre to his outside leg: the press aiming point
 export const PRESSURE_DIST = 8 * BODY_RADIUS; // an unblocked defender this close ends the patience
-export const BEND_MAX = 1; // times a committed RB may re-pick his lane while still behind the los (at most 2)
+export const BEND_MAX = 1; // times a committed RB may cut to another lane before he reaches the hole (at most 2)
 export const CUT_ALLOW = BODY_RADIUS / 2; // after the commit, how far the aim x may move from run.x
 // The RB's pace per phase, as data.
-export const SHUFFLE_WIDTH = BODY_RADIUS; // yd: lateral half-width of the patience shuffle around the track point
-export const SHUFFLE_STEP = 0.12; // s: quick feet, time spent shuffling toward one side before flipping
-export const SHUFFLE_LEAD = 0.5 * SHUFFLE_WIDTH; // yd: while he is farther than this from the track point the shuffle centers this far ahead of him, so the sides still reverse on the way in
-export const SHUFFLE_CREEP = BODY_RADIUS; // yd: how far ahead of the RB (toward the press depth) the shuffle goal sits, so he creeps forward
 export const PHASE_PACE = Object.freeze({ press: PACES.press, commit: PACES.burst });
+
+// The read (inside-zone spec, "RB"): "bang (key driven or widens: hit it playside A or B), bend (playside clogged: key
+// squeezes or Mike fills fast: cut back into backside A or B behind the C/LG double), bounce (rarely: playside end reached
+// and edge open: take it outside)". Rows are checked in order, first match wins; a row's conditions all hold.
+// key/end: allowed moves of the key defender / allowed felt cues of the end defender; noPlayFlow: no playside LB flowing
+// playside; lbFill: some playside LB is filling.
+export const READS = Object.freeze([
+  Object.freeze({ call: 'bang', why: 'key driven', key: Object.freeze(['driven']) }),
+  Object.freeze({ call: 'bang', why: 'key widen', key: Object.freeze(['widen']) }),
+  Object.freeze({ call: 'bounce', why: 'edge reached', key: Object.freeze(['squeeze', 'upfield']), end: Object.freeze(['reach']), noPlayFlow: true }),
+  Object.freeze({ call: 'bend', why: 'key squeeze', key: Object.freeze(['squeeze']) }),
+  Object.freeze({ call: 'bend', why: 'key upfield', key: Object.freeze(['upfield']) }),
+  Object.freeze({ call: 'bend', why: 'playside LB fills', lbFill: true }),
+]);
+
+// The call's lanes, in preference order, and the call he falls back to when none of them is open.
+const lane = (side, name) => Object.freeze({ side, name });
+export const CALL_LANES = Object.freeze({
+  bang: Object.freeze([lane('play', 'A'), lane('play', 'B')]),
+  bend: Object.freeze([lane('back', 'A'), lane('back', 'B')]),
+  bounce: Object.freeze([lane('play', 'C')]),
+});
+export const CALL_FALLBACK = Object.freeze({ bang: 'bend', bend: 'bang', bounce: 'bang' });
+
+const playLbs = (cue) => Object.values(cue.lbs ?? {}).filter((l) => l.side === 'play' || l.side === 'head');
+const readMatches = (row, cue) => {
+  const k = cue.key != null ? cue.dl?.[cue.key] : null;
+  if (row.key && !(k && row.key.includes(k.move))) return false;
+  if (row.end) {
+    const e = cue.end != null && cue.end !== cue.key ? cue.dl?.[cue.end] : null;
+    if (!e || !row.end.includes(e.felt)) return false;
+  }
+  if (row.noPlayFlow && playLbs(cue).some((l) => l.state === 'flowing' && l.dir === 1)) return false;
+  if (row.lbFill && !playLbs(cue).some((l) => l.state === 'filling')) return false;
+  return true;
+};
+
+// The call his cues declare: { call, why } of the first matching row, or null (keep pressing).
+export function readCall(cue) {
+  if (!cue) return null;
+  const row = READS.find((r) => readMatches(r, cue));
+  return row ? { call: row.call, why: row.why } : null;
+}
+
+// The crease: the best open lane among the call's lanes, else among the fallback call's, else the call's widest lane.
+export function pickCrease(lanes, call) {
+  if (!lanes.length) return null;
+  const of = (c) => CALL_LANES[c].map((cl) => lanes.find((l) => l.side === cl.side && l.name === cl.name)).filter(Boolean);
+  const bestOpen = (ls) => ls.reduce((b, l) => (l.open && (!b || l.score > b.score) ? l : b), null);
+  const mine = of(call);
+  const pick = bestOpen(mine) ?? bestOpen(of(CALL_FALLBACK[call]));
+  if (pick) return pick;
+  return mine.reduce((b, l) => (!b || l.width > b.width + 1e-12 ? l : b), null) ?? lanes[0];
+}
 
 // Patience window in seconds. `rb.patience` is the per-back rating hook (no roster value yet; absent means 1).
 export function patienceWindow(runDef, rb) {
@@ -146,6 +196,17 @@ export function freeLane(players, win, carrierId, los, proj) {
   const width = best ? best.w : 0;
   const open = width >= MIN_LANE;
   const x = open ? best.x : mid;
+  // seg: where a closed window is least blocked: the widest remaining slot, else the point farthest from every defender body.
+  let seg = best ? best.x : mid;
+  if (!best) {
+    const xs = bodies.filter((p) => p.team === 'defense').map((p) => p.x).filter((v) => v > win.lo && v < win.hi).sort((a, b) => a - b);
+    const cands = [win.lo, ...xs.slice(1).map((v, i) => (v + xs[i]) / 2), win.hi];
+    if (!xs.length) cands.push(mid);
+    else cands.push((win.lo + xs[0]) / 2, (xs[xs.length - 1] + win.hi) / 2);
+    const clear = (c) => Math.min(Infinity, ...bodies.filter((p) => p.team === 'defense').map((p) => Math.abs(p.x - c)));
+    let bd = -1;
+    for (const c of cands) if (clear(c) > bd + 1e-12) { bd = clear(c); seg = c; }
+  }
   const rb = players.find((p) => p.id === carrierId);
   const yLo = rb ? rb.y : -Infinity;
   let room = Infinity;
@@ -153,7 +214,7 @@ export function freeLane(players, win, carrierId, los, proj) {
     if (!free(d) || d.y < yLo) continue;
     room = Math.min(room, Math.abs(d.x - x) - H);
   }
-  return { x, width, open, room };
+  return { x, seg, width, open, room };
 }
 
 // Live x of the track point: the numbered line player run.track, else the center, else the RB.
@@ -183,12 +244,12 @@ export function scoreLanes(players, run, rb, los, proj, flow) {
     for (const px of second) room2 = Math.min(room2, Math.abs(px - f.x) - H);
     const level2 = vision * LEVEL2_COST * Math.max(0, LEVEL2_CAP - room2);
     const score = Math.min(f.room, ROOM_CAP) - TRACK_COST * Math.abs(f.x - trackX) - CUT_COST * Math.abs(f.x - rb.x) - level2;
-    return { side: w.side, name: w.name, lo: w.lo, hi: w.hi, x: f.x, width: f.width, room: f.room, open: f.open, score, level2 };
+    return { side: w.side, name: w.name, lo: w.lo, hi: w.hi, x: f.x, seg: f.seg, width: f.width, room: f.room, open: f.open, score, level2 };
   });
 }
 
 // R-45: seeded randomness chooses among open lanes within SWITCH_MARGIN of the best here; nothing else picks a lane.
-// chooseLane is pure; stepCarrier adds the hold: a lane that read open keeps the RB (and his aim) through a closure shorter than CLOSE_HOLD.
+// chooseLane is pure (kept for callers; stepCarrier now picks through pickCrease).
 export function chooseLane(lanes, current) {
   const cur = current ? lanes.find((l) => l.side === current.side && l.name === current.name) : undefined;
   let best = null;
@@ -223,12 +284,9 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     lane: { side: 'play', name: 'A' },
     lanes: [],
     gap: 'A',
-    closedFor: null, // seconds the current lane has read closed in a row; null: not open since picked
     locked: false,
     patience: patienceWindow(runDef, rb),
     pressTime: 0,
-    clearTime: 0,
-    clearLane: null,
     bends: 0,
     pastLos: false,
     avoid: null,
@@ -240,6 +298,8 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     cut: 0,
     press: null,
     commitBy: null,
+    call: null,
+    why: null,
     carried: false,
     heldTime: 0,
     x: null,
@@ -371,7 +431,7 @@ function openFieldAim(players, run, rb, dt) {
   return heldAim();
 }
 
-export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
+export function stepCarrier(players, run, { los, ballHeld, holdId, cues }, dt) {
   const rb = players.find((p) => p.id === run.carrier);
   let handoff = false;
   if (!run.carried && ballHeld) run.heldTime += dt;
@@ -387,33 +447,14 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
   let justCommitted = false;
   const proj = readProjection(players, run, rb, los, dt);
   if (run.carried && !run.locked) {
+    run.press = { x: trackPointX(players, run, rb) + run.side * AIM_LEG, y: los - PRESS_DEPTH };
+    run.aim = { ...run.press };
     run.lanes = scoreLanes(players, run, rb, los, undefined, proj.flow);
-    let pick = null;
-    if (run.lanes.length) {
-      const cur = run.lanes.find((l) => l.side === run.lane.side && l.name === run.lane.name);
-      if (cur && cur.open) run.closedFor = 0;
-      else if (cur && run.closedFor !== null) run.closedFor += dt;
-      if (cur && !cur.open && run.closedFor !== null && run.closedFor < CLOSE_HOLD - 1e-9) {
-        pick = cur; // a brief closure: keep the lane and the last aim
-      } else {
-        pick = chooseLane(run.lanes, run.lane);
-        const changed = !cur || pick.side !== cur.side || pick.name !== cur.name;
-        run.lane = { side: pick.side, name: pick.name };
-        run.gap = pick.name;
-        run.aim = { x: pick.x, y: los };
-        if (changed) run.closedFor = pick.open ? 0 : null;
-      }
-    } else {
-      run.aim = { x: rb.x, y: los };
-    }
     run.pressTime += dt;
-    const clear = !!(pick && pick.open && pick.room >= CLEAR_ROOM);
-    if (clear && run.clearLane && run.clearLane.side === pick.side && run.clearLane.name === pick.name) run.clearTime += dt;
-    else run.clearTime = clear ? dt : 0;
-    run.clearLane = clear ? { side: pick.side, name: pick.name } : null;
+    const read = readCall(cues?.run);
     let by = null;
-    if (run.pressTime >= run.patience - 1e-9) by = 'window';
-    else if (run.clearTime >= CLEAR_HOLD - 1e-9) by = 'clear';
+    if (read) by = 'read';
+    else if (run.pressTime >= run.patience - 1e-9) by = 'window';
     else if (rb.y >= los - LOCK_DEPTH) by = 'line';
     else if (
       players.some(
@@ -422,8 +463,17 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     ) by = 'pressure';
     if (by) {
       run.commitBy = by;
+      run.call = read ? read.call : 'bang';
+      run.why = read ? read.why : by;
+      const pick = pickCrease(run.lanes, run.call);
+      if (pick) {
+        run.lane = { side: pick.side, name: pick.name };
+        run.gap = pick.name;
+        run.x = pick.open ? pick.x : pick.seg;
+      } else {
+        run.x = rb.x;
+      }
       run.locked = true;
-      run.x = run.aim.x;
       run.cut = 0;
       justCommitted = true;
     }
@@ -434,36 +484,35 @@ export function stepCarrier(players, run, { los, ballHeld, holdId }, dt) {
     run.aim = { ...run.approach };
     goal = { x: run.approach.x, y: run.approach.y, key: 'mesh', ignore: holdId };
   } else if (!run.locked) {
-    run.press = { x: trackPointX(players, run, rb), y: los - PRESS_DEPTH };
-    // Shuffle around the anchor: side flips every SHUFFLE_STEP of pressTime, first side moves him toward the track point.
-    if (run.shuffleSide0 === undefined) run.shuffleSide0 = rb.x <= run.press.x ? 1 : -1;
-    const flips = Math.floor((run.pressTime - dt) / SHUFFLE_STEP + 1e-9);
-    const side = flips % 2 === 0 ? run.shuffleSide0 : -run.shuffleSide0;
-    goal = {
-      x: clamp(run.press.x, rb.x - SHUFFLE_LEAD, rb.x + SHUFFLE_LEAD) + side * SHUFFLE_WIDTH,
-      y: Math.min(run.press.y, rb.y + SHUFFLE_CREEP),
-      key: 'press:' + side,
-      pace: PHASE_PACE.press,
-      ignore: null,
-    };
+    goal = { x: run.press.x, y: run.press.y, key: 'press', pace: PHASE_PACE.press, ignore: null };
   } else {
     if (rb.y >= los) run.pastLos = true;
     if (!justCommitted && !run.pastLos && rb.y < los + LANE_AHEAD) {
       const w = laneWindows(players, run.line, run.side).find((e) => e.side === run.lane.side && e.name === run.lane.name);
       const free = w && freeLane(players, w, rb.id, los, proj);
-      if (free && free.open) run.cut = clamp(free.x - run.x, -CUT_ALLOW, CUT_ALLOW);
-      else if (!run.pastLos && (run.bends ?? 0) < BEND_MAX) {
-        // Committed lane closed before the line: bend once into the best open lane.
-        run.lanes = scoreLanes(players, run, rb, los, proj, proj.flow);
-        const pick = run.lanes.length ? chooseLane(run.lanes, null) : null;
-        if (pick && pick.open && (pick.side !== run.lane.side || pick.name !== run.lane.name)) {
-          run.lane = { side: pick.side, name: pick.name };
-          run.gap = pick.name;
-          run.x = pick.x;
-          run.cut = 0;
-          run.bends = (run.bends ?? 0) + 1;
+      const open = !!(free && free.open);
+      let cut = false;
+      // One cut, only before he reaches the hole: the lane reads closed, or the read now declares another call.
+      if (rb.y < los - GAP_BACK && run.bends < BEND_MAX) {
+        const now = readCall(cues?.run);
+        if (!open || (now && now.call !== run.call)) {
+          const call = now?.call ?? run.call;
+          const lanes = scoreLanes(players, run, rb, los, proj, proj.flow);
+          run.lanes = lanes;
+          const pick = pickCrease(lanes, call);
+          if (pick && pick.open && (pick.side !== run.lane.side || pick.name !== run.lane.name)) {
+            run.lane = { side: pick.side, name: pick.name };
+            run.gap = pick.name;
+            run.x = pick.x;
+            run.cut = 0;
+            run.bends++;
+            run.call = call;
+            run.why = 'cut: ' + (now?.why ?? run.why);
+            cut = true;
+          }
         }
       }
+      if (!cut && free) run.cut = clamp((open ? free.x : free.seg) - run.x, -CUT_ALLOW, CUT_ALLOW);
     }
     // Behind the line, run to the hole in his lane; turn vertical once at the line.
     // The turn is latched (pastLos): contact pushing him back behind the line must not flip the aim back.

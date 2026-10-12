@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  laneWindows, freeLane, scoreLanes, chooseLane, startRun, stepCarrier,
+  laneWindows, freeLane, scoreLanes, chooseLane, pickCrease, startRun, stepCarrier,
   LANES, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, LOCK_DEPTH, GOAL_LINE_Y,
   GAP_DEPTH, LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
   PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, BEND_MAX,
@@ -150,6 +150,19 @@ test('freeLane: an offensive player inside an open window pushes x clear of him 
   }
   const f = freeLane([...pl, { id: 'O', team: 'offense', x: -3, y: LOS + BODY_RADIUS }], { lo: -3.6, hi: -2.4 }, 'RB', LOS);
   assert.equal(f.open, false);
+});
+
+test('F-57 #5: freeLane seg of a closed window is not its middle when a body sits on the middle', () => {
+  const pl = parked(mk());
+  const win = { lo: -1.2, hi: 0 };
+  const f = freeLane([...pl, defAt('Z', -0.6, LOS + BODY_RADIUS)], win, 'RB', LOS);
+  assert.equal(f.open, false);
+  near(f.x, -0.6);
+  assert.ok(Math.abs(f.seg - -0.6) > 0.1, `seg ${f.seg}`);
+  assert.ok(f.seg >= win.lo && f.seg <= win.hi);
+  // a wider window with a body off the middle: seg is the widest segment's middle, open or not
+  const g = freeLane([...pl, defAt('Z', -1.9, LOS + 0.3)], { lo: -4, hi: 0 }, 'RB', LOS);
+  near(g.seg, g.x);
 });
 
 test('freeLane: x is the middle of the widest remaining segment', () => {
@@ -530,7 +543,8 @@ test('bend: committed lane closed behind the los with another lane open -> moves
   plugCommitted(e);
   assert.ok(e.rb.y < LOS);
   go(pl, run);
-  const pick = chooseLane(run.lanes, null);
+  const pick = pickCrease(run.lanes, run.call); // F-57: the crease is picked among the call's lanes
+  assert.equal(run.call, 'bang');
   assert.ok(pick.open);
   assert.notDeepEqual({ side: pick.side, name: pick.name }, before);
   assert.deepEqual(run.lane, { side: pick.side, name: pick.name });
