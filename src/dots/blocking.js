@@ -319,6 +319,28 @@ export function carryVelocity(prev, goal, impact, dt, tau, bump) {
   return { vx, vy, kick };
 }
 
+// The impulse ledger. Every body keeps what it still owes from impulses, in one place, as { ax, ay, t }
+// objects spread over IMPACT_TIME (t counts down), plus what the hit delivered this tick:
+//   p.impact    the hit: written by engageImpulses (contact impulse, both bodies; adds to a live one);
+//               read and advanced by carryVelocity (defender, defenderPass), by ridePass (blocker, own)
+//               and read by ridePass for his man (T) and by contactStopEngaged (defender); cleared by
+//               settle() once spent, and whenever a defender is free or a blocker is not engaged.
+//   p.bump      a body-contact stop of an engaged defender: written by contactStopEngaged, read and
+//               advanced by carryVelocity; not part of `delivered`; cleared like impact.
+//   p.delivered what the hit delivered to a defender this tick (carryVelocity's kick): written by
+//               defenderPass, read by ridePass (seeding and r0 / r1); reset for every body at the start
+//               of each stepBlocking, so a body not stepped as an engaged defender delivers zero.
+const NO_IMPULSE = Object.freeze({ x: 0, y: 0 });
+function owed(p, kind) {
+  return impactLeft(p[kind]);
+}
+function deliveredOf(p) {
+  return p.delivered ?? NO_IMPULSE;
+}
+function settle(p, kind) {
+  if (p[kind] && p[kind].t <= 0) p[kind] = null;
+}
+
 // Impulse the hit still has to deliver (zero when none).
 function impactLeft(impact) {
   return impact && impact.t > 0 ? { x: impact.ax * impact.t, y: impact.ay * impact.t } : { x: 0, y: 0 };
@@ -719,10 +741,10 @@ function engageImpulses(players, justEngaged) {
   }
 }
 
-// Defenders: a free one steps (stepped); an engaged one takes his hits (kicked, holders, carryVelocity
-// with impact and bump).
+// Defenders: a free one steps (stepped); an engaged one takes his hits (delivered, holders,
+// carryVelocity with impact and bump).
 function defenderPass(players, ballPos, dt, ctx, s) {
-  const { stepped, kicked, holders, holderId, fight } = s;
+  const { stepped, holders, holderId, fight } = s;
   for (const d of players) {
     if (!isDefense(d)) continue;
     if ((d.shedFree ?? 0) > 0) d.shedFree = Math.max(0, d.shedFree - dt);
@@ -738,11 +760,11 @@ function defenderPass(players, ballPos, dt, ctx, s) {
       // He carries his own block-resolved momentum (d.carry), not the measured p.vel, which also
       // holds body push-outs; on his first engaged tick it starts from his measured velocity.
       const v = carryVelocity(d.carry ?? d.vel ?? { x: 0, y: 0 }, { x: g.vx, y: g.vy }, d.impact, dt, ENGAGE_TAU, d.bump);
-      kicked.set(d.id, v.kick);
+      d.delivered = v.kick;
       d.carry = { x: v.vx, y: v.vy };
       holders.set(d.id, new Set(eng.map((p) => p.id)));
-      if (d.impact && d.impact.t <= 0) d.impact = null;
-      if (d.bump && d.bump.t <= 0) d.bump = null;
+      settle(d, 'impact');
+      settle(d, 'bump');
       d.x = Math.min(HW, Math.max(-HW, d.x + v.vx * dt));
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
     } else {
@@ -782,7 +804,7 @@ function holdTimers(players, dt, before) {
 // correction toward the follow spot. Only blockers' impacts are cleared here; a defender's is
 // cleared in the defender loop.
 function ridePass(players, dt, s) {
-  const { start, justEngaged, kicked } = s;
+  const { start, justEngaged } = s;
   for (const b of players) {
     if (!b.block || !b.block.engaged) {
       if (isBlocker(b) && b.impact) b.impact = null;
@@ -797,7 +819,7 @@ function ridePass(players, dt, s) {
       // steering and push-out, so the impulse would take the closing speed off twice.
       const vb = b.vel ?? { x: 0, y: 0 };
       const vt = T.vel ?? { x: 0, y: 0 };
-      const theirs = kicked.get(T.id) ?? { x: 0, y: 0 };
+      const theirs = deliveredOf(T);
       b.block.fu = { x: vb.x - vt.x - theirs.x, y: vb.y - vt.y - theirs.y };
       continue;
     }
@@ -816,11 +838,11 @@ function ridePass(players, dt, s) {
     // As for the defender (carryVelocity), the damped correction acts on the post-hit relative
     // velocity (u plus both hits' impulse still to deliver), so the damping and the impulse do not
     // both take the closing speed off; the part still undelivered after this tick is taken back out.
-    const ownR0 = impactLeft(b.impact);
+    const ownR0 = owed(b, 'impact');
     const own = impactStep(b.impact, dt);
-    if (b.impact && b.impact.t <= 0) b.impact = null;
-    const theirs = kicked.get(T.id) ?? { x: 0, y: 0 };
-    const theirR1 = impactLeft(T.impact);
+    settle(b, 'impact');
+    const theirs = deliveredOf(T);
+    const theirR1 = owed(T, 'impact');
     const r0 = { x: ownR0.x - theirR1.x - theirs.x, y: ownR0.y - theirR1.y - theirs.y };
     const r1 = { x: r0.x - own.x + theirs.x, y: r0.y - own.y + theirs.y };
     const sx = dampedFollow(ex, u.x + r0.x, dt, FOLLOW_TAU);
@@ -882,8 +904,8 @@ function contactStopEngaged(players, pushes, holders) {
     const own = holders.get(d.id);
     const got = pushes.get(d.id);
     if (!own || !got || !d.carry) continue;
-    const ri = impactLeft(d.impact);
-    let rb = impactLeft(d.bump);
+    const ri = owed(d, 'impact');
+    let rb = owed(d, 'bump');
     for (const [oid, s] of got) {
       if (own.has(oid)) continue;
       const len = Math.hypot(s.x, s.y);
@@ -893,7 +915,7 @@ function contactStopEngaged(players, pushes, holders) {
       const into = (d.carry.x + ri.x + rb.x) * nx + (d.carry.y + ri.y + rb.y) * ny;
       if (into < 0) rb = { x: rb.x - into * nx, y: rb.y - into * ny };
     }
-    const left = impactLeft(d.bump);
+    const left = owed(d, 'bump');
     if (rb.x !== left.x || rb.y !== left.y) d.bump = { ax: rb.x / IMPACT_TIME, ay: rb.y / IMPACT_TIME, t: IMPACT_TIME };
   }
 }
@@ -947,13 +969,13 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     start: players.map((p) => ({ x: p.x, y: p.y })),
     engagedAtStart: players.filter((p) => p.block?.engaged).map((p) => p.id),
     stepped: new Map(), // free mover id -> velocity of his own step this pass (before any push-out)
-    kicked: new Map(), // defender id -> velocity his hit added this pass
     holders: new Map(), // engaged defender id -> ids of the blockers engaged on him this pass
     justEngaged: new Set(),
     fight: false,
     holderId: null,
     before: null,
   };
+  for (const p of players) p.delivered = null;
   // 1. the retarget rule
   applyRetargets(players, ballPos, ctx);
   // 2. who holds the ball, and whether defenders fight blocks
