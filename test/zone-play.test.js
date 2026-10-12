@@ -1491,3 +1491,37 @@ test('F-59 #3: walkedUp te run right, C comes off the nose double to the Mike (n
   assert.equal(r.e.blocker, 'C');
   assert.ok(r.dC < r.dRG, `C ${r.dC} nearer than RG ${r.dRG}`);
 });
+
+// T-76: a combo never comes off its DL onto an LB the double has already driven the DL past, unless he has declared.
+// Judges the rule at every release (his depth against the DL's, or the cues), not an outcome.
+test('T-76: a combo member leaving the DL goes to an LB upfield of the DL, or one declared to the pair', (t) => {
+  const configs = [
+    ['over43', 'te', 'right', 'lbSits'],
+    ['under43', 'noTe', 'left', 'lbSits'],
+    ['odd34', 'noTe', 'right', 'lbSits'],
+    ['odd34', 'noTe', 'left', 'endCrash'],
+  ];
+  let checked = 0;
+  for (const [front, personnel, playside, script] of configs) {
+    const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front, personnel, playside, script });
+    const orig = play.retargetRule;
+    play.retargetRule = (pl, b, ctx) => {
+      const out = orig(pl, b, ctx);
+      const byId = (id) => pl.find((q) => q.id === id);
+      for (const c of ctx.combos) {
+        if (!unswitched(pl, c)) continue;
+        const e = out.find((o) => o.blocker === c.owner || o.blocker === c.partner);
+        if (!e) continue;
+        const lb = byId(e.target), dl = byId(c.target);
+        const cues = Object.fromEntries([c.owner, c.partner].map((id) => [id, ctx.cues(id)]));
+        const declared = declaredIn(cues, [c.owner, c.partner], lb.id);
+        checked++;
+        assert.ok(lb.y > dl.y || declared, `${front} ${personnel} ${playside} ${script} ${e.blocker} > ${lb.id} (y ${lb.y.toFixed(2)}) with the DL at y ${dl.y.toFixed(2)}, undeclared`);
+      }
+      return out;
+    };
+    assert.ok(play.snap(), `${front} ${personnel} ${playside} ${script}`);
+    for (let i = 0; i < 150 && play.ball.phase !== 'dead'; i++) play.step(FIXED_DT);
+  }
+  t.diagnostic(`${checked} releases judged`);
+});

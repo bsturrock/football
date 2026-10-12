@@ -246,6 +246,7 @@ const sw = () => {
   g('LG').block = { ...blk };
   Object.assign(g('C'), { x: 0, y: 24.3 });
   Object.assign(g('LG'), { x: -2.2, y: 23.8 });
+  g('RDT').y = 24.9; // T-76: the DL is shallower than the LBs the tests place at y 25 (a behind LB is not climbed to)
   const ctx = { combos: [{ owner: 'C', partner: 'LG', target: 'RDT', watch: 'MLB' }] };
   return { players, g, ctx };
 };
@@ -483,6 +484,25 @@ test('F-55 #2 (restated F-59): a sitting LB never releases at any hold until the
     }
   }
 });
+// T-76: the double drove the DL past an LB (he is at or under the DL's depth) and he has not declared: no climb to him.
+test('T-76: an undeclared LB behind the DL is not climbed to; an LB upfield of the DL is; a declared one is taken wherever he is', () => {
+  const ride = (mut) => (s) => {
+    s.ctx.los = 20;
+    s.g('RDT').y = 20 + RIDE_DEPTH;
+    joint(1)(s);
+    for (const l of lbs(s)) place(s, [[l.id, 40, 40]]);
+    mut?.(s);
+  };
+  const behindY = 20 + RIDE_DEPTH - 0.2;
+  // (a) the only LB in reach is behind the DL: the pair keeps driving the DL
+  assert.deepEqual(at(-1.3, behindY, (s) => { sees('sitting')(s); ride()(s); place(s, [['MLB', -1.3, behindY]]); }), []);
+  // (b) a second LB is upfield of the DL: the pair takes him
+  const b = at(-1.3, behindY, (s) => { sees('sitting')(s); ride()(s); place(s, [['MLB', -1.3, behindY], ['WLB', -1.6, 20 + RIDE_DEPTH + 3]]); });
+  assert.deepEqual(b.map((e) => e.target), ['WLB']);
+  // (c) the LB behind the DL has declared (filling in a member's track): he is taken
+  const c = at(-1.3, behindY, (s) => { sees('filling')(s); ride()(s); place(s, [['MLB', -1.3, behindY]]); });
+  assert.deepEqual(c.map((e) => e.target), ['MLB']);
+});
 test('F-55 #2: ride depth needs both members on the DL, and no ctx.los means no ride', () => {
   assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(1)(s); s.ctx.los = 20; s.g('RDT').y = 26; s.g('LG').block.engaged = false; }), []);
   assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(1)(s); s.g('RDT').y = 26; }), []);
@@ -566,6 +586,7 @@ test('T-162: the plan watch holds inside the margin, a clearly more dangerous LB
   s.ctx.side = 1;
   place(s, [['MLB', -1.3, 25.0], ['WLB', 2, 30]]);
   const ball = { x: -1.3, y: 24 };
+  s.g('RDT').y = 24.0; // T-76: both LBs stay upfield of the DL
   for (const l of lbs(s)) if (l.id !== 'MLB' && l.id !== 'WLB') place(s, [[l.id, 40, 40]]);
   assert.ok(DANGER_MARGIN > 0.5 && DANGER_MARGIN < 1.5);
   // inside the margin: the plan MLB (1.0 away) keeps the double against a WLB 0.5 away
@@ -589,6 +610,7 @@ test('T-162: cross-combo handoff, a claimed LB is never picked twice in one call
   s.ctx.side = 1;
   // playside combo (RT/RG on LDT, plan MLB's neighbour) and backside combo C/LG (plan WLB-side)
   const blk = (t) => ({ target: t, angle: 'straight', engaged: true, seq: 1, held: HELD });
+  s.g('LDT').y = 24.9; // T-76: the LBs placed below are upfield of both DL
   for (const [id, x] of [['RG', 1.5], ['RT', 3.3]]) { s.g(id).block = blk('LDT'); place(s, [[id, x, 24.3]]); }
   s.ctx.combos = [
     { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' },

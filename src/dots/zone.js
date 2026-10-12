@@ -125,9 +125,14 @@ export function zoneSwitch(players, ballPos, ctx) {
     if (o.block?.target !== c.target || p.block?.target !== c.target) continue; // already switched
     const dl = byId.get(c.target);
     const on = (x) => x.block?.target === c.target && x.block.engaged;
-    const plan = byId.get(c.watch);
-    const free = unclaimedInReach(players, ballPos, ctx, claimed, mid(c));
     const declaredBy = declaredFor(o, p, ctx);
+    // T-76: the double drove the DL past him: an LB at or under the DL's depth who has not declared is not worth climbing to
+    // (going sideways or backwards); keep driving the DL, or take an LB still upfield. A declared LB (filling into a
+    // member's track, crossing his face: a blitzing or fast-filling LB) is taken wherever he is.
+    const behind = (d) => !!d && !!dl && d.y <= dl.y && !declaredBy(d);
+    const planAll = byId.get(c.watch);
+    const plan = behind(planAll) ? null : planAll;
+    const free = unclaimedInReach(players, ballPos, ctx, claimed, mid(c)).filter((d) => !behind(d));
     const w = watchFor(plan, free, claimed, ballPos, ctx, declaredBy);
     if (!w) continue;
     claimed.add(w.id);
