@@ -11,6 +11,8 @@ export const COMBO_TOUCH = 0.1;
 export const RIDE_DEPTH = 5.0;
 // Human track rule: a blocker owns the vertical runway this far either side of him; an LB who declares in a member's track (or across his face) is what releases the climber. A sitting LB never does.
 export const TRACK_HALF = 1.5;
+// F-55 #8: an LB moving away from the playside at least this fast (yd/s) is leaving the play. Human: "let the LB leave the play and look for more dangerous players to block".
+export const LB_AWAY_V = 1.5;
 
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
@@ -135,6 +137,26 @@ export function zoneSwitch(players, ballPos, ctx) {
       if (ok) out.push({ blocker: taker.id, target: w.id });
     };
     go();
+  }
+  // F-55 #8, the human: "why would this ever happen? let the LB leave the play and look for more dangerous players to block".
+  // A climber not yet on his LB drops him once the LB is backside of the climber and running away from the play, and takes the most dangerous unclaimed LB in reach (none: he keeps his man).
+  const leaving = (lb, from) => {
+    const v = lb.selfVel ?? lb.vel ?? { x: 0, y: 0 };
+    return ctx.side * (lb.x - from.x) < 0 && ctx.side * v.x <= -LB_AWAY_V;
+  };
+  const gone = new Set(out.map((e) => e.blocker));
+  for (const c of (ctx && ctx.combos) || []) {
+    for (const m of [byId.get(c.owner), byId.get(c.partner)]) {
+      const t = m?.block?.target;
+      if (t == null || t === c.target || m.block.engaged || gone.has(m.id)) continue;
+      const lb = byId.get(t);
+      if (!lb || !LB_ROLES.includes(lb.role) || !leaving(lb, m)) continue;
+      const next = unclaimedInReach(players, ballPos, ctx, claimed, m.x).find((d) => d.id !== lb.id && !leaving(d, m));
+      if (!next) continue;
+      out.push({ blocker: m.id, target: next.id });
+      claimed.add(next.id);
+      gone.add(m.id);
+    }
   }
   trackPickup(players, ballPos, ctx, out, claimed);
   return out;

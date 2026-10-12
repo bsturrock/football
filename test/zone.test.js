@@ -327,6 +327,32 @@ test('F-19 #8 (restated F-55): purity with cues', () => {
   assert.deepEqual(ctxNoFn(ctx), c0);
 });
 
+// F-55 #8: C already switched to MLB (LB1), LG still on RDT; the other LBs are WLB/SLB (LB2).
+test('F-55 #8: a climber lets an LB leaving the play go for the most dangerous unclaimed LB', () => {
+  const run = (side, mut) => {
+    const s = sw();
+    const k = side; // mirror x about the playside sign
+    s.ctx.side = side;
+    s.g('C').block = { target: 'MLB', angle: 'straight', engaged: false, seq: 1 };
+    Object.assign(s.g('C'), { x: 0, y: 25 });
+    Object.assign(s.g('MLB'), { x: -k * 1, y: 29, vel: { x: -k * 3, y: 0 } });
+    const others = s.players.filter((p) => LB_ROLES.includes(p.role) && p.id !== 'MLB');
+    others.forEach((p) => Object.assign(p, { x: 40, y: 40, vel: { x: 0, y: 0 } }));
+    s.lb2 = others[0];
+    mut?.(s, k);
+    return { out: zoneSwitch(s.players, null, s.ctx), s };
+  };
+  const nearLb2 = (s, k) => Object.assign(s.lb2, { x: k * 1, y: 29 });
+  for (const side of [1, -1]) {
+    const a = run(side, nearLb2);
+    assert.deepEqual(a.out, [{ blocker: 'C', target: a.s.lb2.id }], `(a/f) side ${side}`);
+    assert.deepEqual(run(side).out, [], `(b) side ${side}: no other LB`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('C').block.engaged = true; }).out, [], `(c) side ${side}: engaged`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('MLB').vel = { x: k * 3, y: 0 }; }).out, [], `(d) side ${side}: flowing playside`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('MLB').x = k * 1; }).out, [], `(e) side ${side}: playside of the climber`);
+  }
+});
+
 const dl = (x) => ({ id: 'D', x });
 const blkAt = (x) => ({ id: 'B' + x, x });
 test('pickClimber: playside fit sends the playside blocker', () => {

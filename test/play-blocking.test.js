@@ -548,7 +548,8 @@ const liveClimb = (play, c) => [c.owner, c.partner].map((id) => play.player(id).
 // 2.0 s and, if it engages him, he must be met before the line. A climber that never engages passes unless the LB
 // got past the line unmet (his y at the window end is below 25 + GAP_DEPTH); a miss that passes is logged with
 // t.diagnostic. F-55: the climb now waits for the LB to declare, and tests judge no meet time, so a climber that
-// misses an LB still above the line at the window end is fine.
+// misses an LB still above the line at the window end is fine. See .work/maps/climb-spec.md (a climber may also
+// drop an LB leaving the play for a more dangerous one, F-55 #8).
 const judgeClimb = (t, probe, front, c) => {
   const n = Math.round(2.0 / DT);
   const who = `${front} combo ${c.owner}/${c.partner}`;
