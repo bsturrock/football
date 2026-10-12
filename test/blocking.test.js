@@ -752,6 +752,30 @@ test('stepBlocking: a shed frees the defender from every blocker for REENGAGE_DE
   assert.equal(canEngage(b, DL, contactSpot(ps, b), ballPos), null);
 });
 
+test('stepBlocking: a released climb block leaves no ride or seal latch on the foot', () => {
+  const DL = D('dl', 0, 10, { speed: 0 });
+  const a = O('a', -CONTACT_DIST * 0.6, 10 - CONTACT_DIST * 0.8, { block: blk('dl', { engaged: true, seq: 1 }) });
+  a.block.foot = startFoot('climb', 'none', null, a);
+  const ps = [a, DL];
+  const ballPos = { x: 0, y: 10 - 3 };
+  // the target travels toward the blocker's side (-x), so the climb seal latches and the ride turns
+  for (let i = 0; i < 30; i++) {
+    DL.vel = { x: -3, y: 0 };
+    stepBlocking(ps, ballPos, DT, { rule: null, seq: 1 });
+  }
+  assert.equal(a.block.engaged, true);
+  assert.equal(a.block.foot.sealed, true);
+  assert.ok(a.block.foot.ride !== 0);
+  // the ball goes RELEASE_PAST upfield of him: the block ends
+  stepBlocking(ps, { x: 0, y: DL.y + RELEASE_PAST + 1 }, DT, { rule: null, seq: 1 });
+  assert.equal(a.block.engaged, false);
+  assert.equal(a.block.released, 'past');
+  assert.equal(a.block.foot.push, null);
+  assert.equal(a.block.foot.ride, 0);
+  assert.equal('sealed' in a.block.foot, false);
+  assert.equal('sealSide' in a.block.foot, false);
+});
+
 test('separateBodies: a free body wedged against an anchor is not pushed back by a free body behind him', () => {
   const ps = [
     O('o', 0, 10, { block: blk('t', { engaged: true, seq: 1 }) }),

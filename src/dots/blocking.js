@@ -19,10 +19,10 @@ export const PEEL_DIST = 2.0;
 export const Y_MIN = -10;
 export const Y_MAX = 110;
 export const SEPARATION_ITERS = 30;
-// Per-tick allowance over speed * dt for an engaging blocker (separation push).
 // Engage only this close to the target (inside canRelease's 'lost' range of ENGAGE_TOL), so a
 // fresh block is not dropped on the next tick when the target steps away.
 const ENGAGE_NEAR = 0.75 * ENGAGE_TOL;
+// Per-tick allowance over speed * dt for an engaging blocker (separation push).
 export const ENGAGE_SLACK = BODY_RADIUS / 10;
 // Tunable: seconds the target must be 'winning' before the block is shed.
 export const SHED_TIME = 0.3;
@@ -161,6 +161,28 @@ export const CONTACT_TURN = Math.PI / 2;
 // the turn, and he never snaps to the fixed BLOCK_ANGLES spot. When another blocker has the same
 // target (engaged or still closing, e.g. a combo partner) the contactSpot group placement applies
 // unchanged and fa resets, so the pair keeps its geometry and the climb timing.
+// Unit vector from blocker b to target T (T less its displacement dT), or null when they coincide.
+function unitTo(b, T, dT = { x: 0, y: 0 }) {
+  const dx = T.x - dT.x - b.x;
+  const dy = T.y - dT.y - b.y;
+  const dist = Math.hypot(dx, dy);
+  return dist < 1e-9 ? null : { x: dx / dist, y: dy / dist };
+}
+
+// What an engagement start and an engagement end reset alike: the contact bearing and relative
+// velocity, and the foot's ride angle and seal latch (a fresh foot has neither seal field).
+function endContact(b) {
+  b.block.fa = null;
+  b.block.fu = null;
+  const foot = b.block.foot;
+  if (foot) {
+    foot.push = null;
+    foot.ride = 0;
+    delete foot.sealed;
+    delete foot.sealSide;
+  }
+}
+
 function followSpot(players, b, dt, dT = { x: 0, y: 0 }) {
   const T = byId(players, b.block.target);
   if (players.some((p) => p !== b && isBlocker(p) && p.block && p.block.target === b.block.target)) {
@@ -170,10 +192,7 @@ function followSpot(players, b, dt, dT = { x: 0, y: 0 }) {
   }
   const base = BLOCK_ANGLES[b.block.angle];
   if (b.block.fa == null) {
-    const dx = T.x - dT.x - b.x;
-    const dy = T.y - dT.y - b.y;
-    const dist = Math.hypot(dx, dy);
-    const a = dist < 1e-9 ? base : { x: dx / dist, y: dy / dist };
+    const a = unitTo(b, T, dT) ?? base;
     b.block.fa = Math.atan2(a.x, a.y);
     b.block.fw = null;
     b.block.fd = 0;
@@ -211,10 +230,9 @@ function followSpot(players, b, dt, dT = { x: 0, y: 0 }) {
   let n = Math.atan2(Math.sin(cur + turn), Math.cos(cur + turn));
   // His own momentum carrying him further round in the held direction is kept, not pulled back
   // (#12): the bearing moves up to his actual contact line (blocker and target at the same instant).
-  const cx = T.x - dT.x - b.x;
-  const cy = T.y - dT.y - b.y;
-  if (b.block.fd && Math.hypot(cx, cy) > 1e-9) {
-    const ca = Math.atan2(cx, cy);
+  const cu = b.block.fd ? unitTo(b, T, dT) : null;
+  if (cu) {
+    const ca = Math.atan2(cu.x, cu.y);
     if (Math.sign(Math.atan2(Math.sin(ca - n), Math.cos(ca - n))) === b.block.fd) n = ca;
   }
   b.block.fa = n;
@@ -660,8 +678,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       b.block.held = 0;
       b.block.winT = 0;
       if ('released' in b.block) b.block.released = null;
-      b.block.fa = null;
-      b.block.fu = null;
+      endContact(b);
       justEngaged.add(b.id);
       b.steer = null;
       b.block.seq = ++ctx.seq;
@@ -674,10 +691,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const foot = b.block?.foot;
     if (!foot || !b.block.engaged) continue;
     const T = byId(players, b.block.target);
-    const dx = T.x - b.x;
-    const dy = T.y - b.y;
-    const dist = Math.hypot(dx, dy);
-    const contact = dist < 1e-9 ? null : { x: dx / dist, y: dy / dist };
+    const contact = unitTo(b, T);
     const { ride, push, sealed, sealSide } = footPush(foot, T.vel ?? { x: 0, y: 0 }, contact, dt, ctx?.side);
     foot.ride = ride;
     foot.push = push;
@@ -816,9 +830,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     b.block.engaged = false;
     b.block.seq = null;
     b.block.released = reason;
-    b.block.fa = null;
-    b.block.fu = null;
-    if (b.block.foot) b.block.foot.push = null;
+    endContact(b);
     if (reason !== 'past') b.block.cool = REENGAGE_DELAY;
     if (reason === 'shed') byId(players, b.block.target).shedFree = REENGAGE_DELAY;
   }
