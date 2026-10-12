@@ -271,9 +271,13 @@ test('F-57 #3: readCall rows', () => {
   assert.equal(who(cue({ dl: { K: dlc('widen') } })), 'bang:key widen');
   assert.equal(who(cue({ dl: { K: dlc('squeeze') } })), 'bend:key squeeze');
   assert.equal(who(cue({ dl: { K: dlc('upfield') } })), 'bend:key upfield');
-  assert.equal(who(cue({ dl: { K: dlc('held') }, lbs: { M: lbc('filling') } })), 'bend:playside LB fills');
-  assert.equal(who(cue({ dl: { K: dlc('held') }, lbs: { M: lbc('filling', 'head') } })), 'bend:playside LB fills');
-  assert.equal(who(cue({ dl: { K: dlc('held') }, lbs: { M: lbc('filling', 'back') } })), null);
+  const whoLate = (c) => readCall(c, true) && `${readCall(c, true).call}:${readCall(c, true).why}`;
+  // the linebacker row is late: it matches only once the patience window is up
+  assert.equal(who(cue({ dl: { K: dlc('held') }, lbs: { M: lbc('filling') } })), null);
+  assert.equal(who(cue({ dl: { K: dlc('held') }, lbs: { M: lbc('filling', 'head') } })), null);
+  assert.equal(whoLate(cue({ dl: { K: dlc('held') }, lbs: { M: lbc('filling') } })), 'bend:playside LB fills');
+  assert.equal(whoLate(cue({ dl: { K: dlc('held') }, lbs: { M: lbc('filling', 'head') } })), 'bend:playside LB fills');
+  assert.equal(whoLate(cue({ dl: { K: dlc('held') }, lbs: { M: lbc('filling', 'back') } })), null);
   // first match wins
   assert.equal(who(cue({ dl: { K: dlc('widen') }, lbs: { M: lbc('filling') } })), 'bang:key widen');
   assert.equal(who(cue({ dl: { K: dlc('driven') }, lbs: { M: lbc('filling') } })), 'bang:key driven');
@@ -291,7 +295,7 @@ test('F-57 #3: readCall rows', () => {
   assert.equal(who(cue({ key: 'K', end: 'K', dl: { K: dlc('squeeze', 'reach') } })), 'bend:key squeeze');
   // a null key fails every key row
   assert.equal(who(cue({ key: null, end: null, dl: {} })), null);
-  assert.equal(who(cue({ key: null, end: null, dl: {}, lbs: { M: lbc('filling') } })), 'bend:playside LB fills');
+  assert.equal(whoLate(cue({ key: null, end: null, dl: {}, lbs: { M: lbc('filling') } })), 'bend:playside LB fills');
   assert.equal(readCall(null), null);
   assert.equal(readCall(undefined), null);
   assert.equal(who(cue({ dl: { K: dlc('held'), E: dlc('held') }, lbs: { M: lbc('sitting'), N: lbc('covering') } })), null);
@@ -387,6 +391,7 @@ test('F-57 #3/#4: commit on the read', (t) => {
       assert.ok(Object.hasOwn(CALL_LANES, run.call), `${tag} call ${run.call}`);
       const ok = [...CALL_LANES[run.call], ...CALL_LANES[CALL_FALLBACK[run.call]]].some((l) => l.side === run.lane.side && l.name === run.lane.name);
       assert.ok(ok, `${tag} call ${run.call} lane ${JSON.stringify(run.lane)}`);
+      if (run.why === 'playside LB fills') assert.ok(run.pressTime >= run.patience - 1e-9, `${tag} linebacker call before the window: ${run.pressTime} < ${run.patience}`);
     }
     const k = `${front}: ${run.commitBy}/${run.call}/${run.why}`;
     tally[k] = (tally[k] ?? 0) + 1;
@@ -394,8 +399,26 @@ test('F-57 #3/#4: commit on the read', (t) => {
   for (const [k, v] of Object.entries(tally)) t.diagnostic(`call ${k} x${v}`);
 });
 
+test('F-57 #3: no early linebacker call', (t) => {
+  const dist = {};
+  for (const front of FRONT_KEYS) for (const playside of SIDES) for (const personnel of PERSONNEL) {
+    const tag = `${front} ${playside} ${personnel}`;
+    const play = createPlay(LOS, 'insideZone', { front, playside, personnel });
+    play.snap();
+    const run = play.run;
+    for (let n = 1; n <= CAP && play.ball.phase !== 'dead' && !run.locked; n++) play.step(DT);
+    if (!run.locked) continue;
+    if (run.commitBy === 'read' && run.why === 'playside LB fills') {
+      assert.ok(run.pressTime >= run.patience - 1e-9, `${tag} linebacker call at ${run.pressTime} before the window ${run.patience}`);
+    }
+    const k = `${front}: ${run.call}/${run.why}`;
+    dist[k] = (dist[k] ?? 0) + 1;
+  }
+  for (const [k, v] of Object.entries(dist)) t.diagnostic(`call ${k} x${v}`);
+});
+
 test('F-57 #3/#4: commit on the read, scripted key', (t) => {
-  for (const [script, want] of [['dtSlantBack', 'bend'], ['dtSlant', 'bang']]) {
+  for (const [script, want, aboutMove] of [['dtSlantBack', 'bend', 'squeeze'], ['dtSlant', 'bang', 'widen']]) {
     let judged = 0;
     for (const front of FRONT_KEYS) for (const playside of SIDES) {
       const tag = `${script} ${front} ${playside}`;
@@ -406,14 +429,20 @@ test('F-57 #3/#4: commit on the read, scripted key', (t) => {
       const run = play.run;
       const rb = play.player('RB');
       let key = null;
+      let move = null;
       for (let n = 1; n <= CAP && play.ball.phase !== 'dead' && !run.locked; n++) {
         play.step(DT);
-        if (run.locked) key = play.cuesOf('RB')?.run?.key ?? null;
+        if (run.locked) {
+          const cr = play.cuesOf('RB')?.run;
+          key = cr?.key ?? null;
+          move = key != null ? cr?.dl?.[key]?.move ?? null : null;
+        }
       }
-      if (!run.locked || run.commitBy !== 'read' || key !== dtId) {
-        t.diagnostic(`${tag}: skipped (key ${key}, DT ${dtId}, commitBy ${run.commitBy}, call ${run.call})`);
+      if (!run.locked || run.commitBy !== 'read' || key !== dtId || move !== aboutMove) {
+        t.diagnostic(`${tag}: skipped (key ${key}, DT ${dtId}, move ${move}, commitBy ${run.commitBy}, call ${run.call})`);
         continue;
       }
+      if (run.why === 'playside LB fills') assert.ok(run.pressTime >= run.patience - 1e-9, `${tag} linebacker call before the window`);
       if (run.call === 'bounce') { t.diagnostic(`${tag}: skipped (the end also reached, the table calls bounce first)`); continue; }
       judged++;
       assert.equal(run.call, want, `${tag} call ${run.call} (${run.why})`);

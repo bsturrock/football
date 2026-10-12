@@ -77,14 +77,17 @@ export const PHASE_PACE = Object.freeze({ press: PACES.press, commit: PACES.burs
 // squeezes or Mike fills fast: cut back into backside A or B behind the C/LG double), bounce (rarely: playside end reached
 // and edge open: take it outside)". Rows are checked in order, first match wins; a row's conditions all hold.
 // key/end: allowed moves of the key defender / allowed felt cues of the end defender; noPlayFlow: no playside LB flowing
-// playside; lbFill: some playside LB is filling.
+// playside; lbFill: some playside LB is filling. late: checked only once his patience window is up.
+// The RB keys the first down lineman playside of the center; the linebacker row is his tiebreak when the key has not
+// declared by the end of his patience (spec: "Mike fills fast"), because linebackers read 'filling' soon after nearly
+// every handoff.
 export const READS = Object.freeze([
   Object.freeze({ call: 'bang', why: 'key driven', key: Object.freeze(['driven']) }),
   Object.freeze({ call: 'bang', why: 'key widen', key: Object.freeze(['widen']) }),
   Object.freeze({ call: 'bounce', why: 'edge reached', key: Object.freeze(['squeeze', 'upfield']), end: Object.freeze(['reach']), noPlayFlow: true }),
   Object.freeze({ call: 'bend', why: 'key squeeze', key: Object.freeze(['squeeze']) }),
   Object.freeze({ call: 'bend', why: 'key upfield', key: Object.freeze(['upfield']) }),
-  Object.freeze({ call: 'bend', why: 'playside LB fills', lbFill: true }),
+  Object.freeze({ call: 'bend', why: 'playside LB fills', lbFill: true, late: true }),
 ]);
 
 // The call's lanes, in preference order, and the call he falls back to when none of them is open.
@@ -110,9 +113,9 @@ const readMatches = (row, cue) => {
 };
 
 // The call his cues declare: { call, why } of the first matching row, or null (keep pressing).
-export function readCall(cue) {
+export function readCall(cue, late = false) {
   if (!cue) return null;
-  const row = READS.find((r) => readMatches(r, cue));
+  const row = READS.find((r) => (late || !r.late) && readMatches(r, cue));
   return row ? { call: row.call, why: row.why } : null;
 }
 
@@ -451,7 +454,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId, cues }, dt) {
     run.aim = { ...run.press };
     run.lanes = scoreLanes(players, run, rb, los, undefined, proj.flow);
     run.pressTime += dt;
-    const read = readCall(cues?.run);
+    const read = readCall(cues?.run, run.pressTime >= run.patience - 1e-9);
     let by = null;
     if (read) by = 'read';
     else if (run.pressTime >= run.patience - 1e-9) by = 'window';
@@ -465,6 +468,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId, cues }, dt) {
       run.commitBy = by;
       run.call = read ? read.call : 'bang';
       run.why = read ? read.why : by;
+      run.lanes = scoreLanes(players, run, rb, los, proj, proj.flow);
       const pick = pickCrease(run.lanes, run.call);
       if (pick) {
         run.lane = { side: pick.side, name: pick.name };
@@ -494,7 +498,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId, cues }, dt) {
       let cut = false;
       // One cut, only before he reaches the hole: the lane reads closed, or the read now declares another call.
       if (rb.y < los - GAP_BACK && run.bends < BEND_MAX) {
-        const now = readCall(cues?.run);
+        const now = readCall(cues?.run, true);
         if (!open || (now && now.call !== run.call)) {
           const call = now?.call ?? run.call;
           const lanes = scoreLanes(players, run, rb, los, proj, proj.flow);
