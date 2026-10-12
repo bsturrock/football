@@ -13,29 +13,36 @@ import { separateBodies, BODY_RADIUS } from '../src/dots/blocking.js';
 const MAX_JUMP = 1.5; // yd/s per tick
 const SPAN = 2.0; // seconds
 
-test('F-55 #9: RG climbing between two engaged DTs never jumps lateral velocity by more than 1.5 yd/s a tick', () => {
+test('F-55 #9: the climber off the BT double, passing between engaged bodies, never jumps lateral velocity by more than 1.5 yd/s a tick (restated F-59)', () => {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'under43', personnel: 'te', playside: 'left' });
   assert.ok(play.snap());
-  const rg = play.player('RG');
-  const first = rg.block.target;
-  let climbing = false;
+  const combo = play.combos.find((c) => c.target === 'BT');
+  assert.ok(combo, `no BT combo in ${play.combos.map((c) => `${c.owner}+${c.partner}->${c.target}`).join(', ')}`);
+  const first = { [combo.owner]: play.player(combo.owner).block.target, [combo.partner]: play.player(combo.partner).block.target };
+  let m = null;
   let prev = null;
   let checked = 0;
   for (let i = 0; i < Math.round(SPAN / FIXED_DT); i++) {
     play.step(FIXED_DT);
-    if (!climbing && rg.block && rg.block.target !== first) climbing = true;
-    if (climbing && rg.block?.engaged) break;
-    if (climbing && prev) {
+    if (!m) {
+      for (const id of [combo.owner, combo.partner]) {
+        const p = play.player(id);
+        if (p.block && p.block.target !== first[id]) { m = p; break; }
+      }
+    }
+    if (m && m.block?.engaged) break;
+    if (m && prev) {
       const touched = play.players
-        .filter((o) => o !== rg && Math.hypot(o.x - rg.x, o.y - rg.y) < 1)
+        .filter((o) => o !== m && Math.hypot(o.x - m.x, o.y - m.y) < 1)
         .map((o) => `${o.id}${o.block?.engaged ? '(engaged)' : ''}`);
-      const dv = Math.abs(rg.vel.x - prev.x);
-      assert.ok(dv <= MAX_JUMP + 1e-9, `tick ${play.ticks}: RG vel.x ${prev.x.toFixed(2)} -> ${rg.vel.x.toFixed(2)} (jump ${dv.toFixed(2)}), near ${touched.join(', ')}`);
+      const dv = Math.abs(m.vel.x - prev.x);
+      assert.ok(dv <= MAX_JUMP + 1e-9, `tick ${play.ticks}: ${m.id} vel.x ${prev.x.toFixed(2)} -> ${m.vel.x.toFixed(2)} (jump ${dv.toFixed(2)}), near ${touched.join(', ')}`);
       checked++;
     }
-    if (climbing) prev = { x: rg.vel.x, y: rg.vel.y };
+    if (m) prev = { x: m.vel.x, y: m.vel.y };
   }
-  assert.ok(checked > 20, `RG climbed for ${checked} ticks`);
+  assert.ok(m, 'nobody climbed off the BT double');
+  assert.ok(checked > 20, `${m.id} climbed for ${checked} ticks`);
 });
 
 test('F-55 #9: a mover with accel squeezing up a gap between two anchored bodies changes lateral velocity <= 1.5 yd/s a tick and gets through', () => {
