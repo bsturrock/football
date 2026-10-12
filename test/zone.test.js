@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
-import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_HOLD, COMBO_TOUCH, LB_FILL_V, TRACK_HALF, INSIDE_ZONE, ZONE_READ, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, INSIDE_ZONE, ZONE_READ, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH, runScheme } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
@@ -235,10 +235,12 @@ test('F-36 #3/#4: shifted lineups, edge blocked, no reach past a teammate, no ta
   }
 });
 
+// F-55: COMBO_HOLD is gone; the tests keep a pair that has been on the DL a while (0.3 s) as their default hold
+const HELD = 0.3;
 const sw = () => {
   const players = buildLineup(25, 'insideZone', { lbShift: -6 * LB_SHIFT_STEP });
   const g = (id) => players.find((p) => p.id === id);
-  const blk = { target: 'RDT', angle: 'straight', engaged: true, seq: 1, held: COMBO_HOLD };
+  const blk = { target: 'RDT', angle: 'straight', engaged: true, seq: 1, held: HELD };
   g('C').block = { ...blk };
   g('LG').block = { ...blk };
   Object.assign(g('C'), { x: 0, y: 24.3 });
@@ -281,39 +283,77 @@ test('F-12 #4k: purity', () => {
   assert.deepEqual(ctx, c0);
 });
 
-const commit = (id, x) => (s) => { s.ctx.committed = { [id]: { x, t: 0.35 } }; };
-test('F-19 #8: committed, MLB out of range, fit past pair picks LG', () =>
-  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.ctx.defGoals = { MLB: { x: -1.5 } }; }), [{ blocker: 'LG', target: 'MLB' }]));
-test('F-19 #8: the commit only triggers; the fit (defGoals) picks the climber', () =>
-  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', -1.5)(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]));
-test('F-19 #8: commit with no goal falls back to the watch position', () =>
-  assert.deepEqual(at(-1.6, 29.5, commit('MLB', 0.4)), [{ blocker: 'LG', target: 'MLB' }]));
-test('F-19 #8: fit lateral tie goes to owner', () =>
-  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', 0)(s); s.ctx.defGoals = { MLB: { x: -1.1 } }; }), [{ blocker: 'C', target: 'MLB' }]));
-test('F-19 #8: commit beats range', () =>
-  assert.deepEqual(at(-1.6, 29.5, (s) => { commit('MLB', 0.4)(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]));
-test('F-19 #8: commit for another id does not trigger', () =>
-  assert.deepEqual(at(-1.6, 29.5, (s) => { s.ctx.committed = { WLB: { x: -1.5, t: 0 } }; }), []));
-test('F-19 #8: null committed uses range rule', () => {
-  assert.deepEqual(at(-1.6, 29.5, (s) => { s.ctx.committed = null; }), []);
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.committed = null; }), [{ blocker: 'LG', target: 'MLB' }]);
+// F-55 #1/#2: zoneSwitch reads the LB only through ctx.cues(memberId) = { track: { ids, lb }, lbs: { [lbId]: state } }.
+// sees(state, inTrack, id): both members see `id` (default MLB) in `state`; inTrack puts him in their track ids.
+const sees = (state, inTrack = true, id = 'MLB') => (s) => {
+  s.ctx.cues = () => ({ track: { ids: inTrack ? [id] : [], lb: inTrack ? id : null }, lbs: { [id]: state } });
+};
+// seesBy(memberId, state, inTrack): only that member sees him
+const seesBy = (member, state, inTrack = true, id = 'MLB') => (s) => {
+  s.ctx.cues = (m) => (m === member
+    ? { track: { ids: inTrack ? [id] : [], lb: inTrack ? id : null }, lbs: { [id]: state } }
+    : { track: { ids: [], lb: null }, lbs: {} });
+};
+const ctxNoFn = (ctx) => { const { cues, ...rest } = ctx; return structuredClone(rest); };
+test('F-19 #8 (restated F-55 #1): declared (filling in track), MLB out of range, fit past pair picks LG', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: -1.5 } }; }), [{ blocker: 'LG', target: 'MLB' }]));
+test('F-19 #8 (restated F-55 #1): the declaration only triggers; the fit (defGoals) picks the climber', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8 (restated F-55 #1): declaration with no goal falls back to the watch position', () =>
+  assert.deepEqual(at(0.4, 29.5, sees('filling')), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8 (restated F-55 #1): fit lateral tie goes to owner', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: -1.1 } }; }), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8 (restated F-55 #1): a declaration beats range', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8 (restated F-55 #1): a declaration for another id does not trigger the watched LB', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling', true, 'WLB')(s); place(s, [['WLB', 40, 40]]); }), []));
+test('F-19 #8 (restated F-55): no ctx.cues (or null) -> nobody declared, range rule only', () => {
+  assert.deepEqual(at(-1.6, 29.5, (s) => { s.ctx.cues = null; }), []);
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.cues = null; }), [{ blocker: 'LG', target: 'MLB' }]);
 });
-test('F-19 #8: already switched with commit -> none', () =>
+test('F-19 #8 (restated F-55): already switched with a declaration -> none', () =>
   assert.deepEqual(at(-1.6, 29.5, (s) => {
     s.g('C').block.target = 'MLB';
-    s.ctx.committed = { MLB: { x: 0.4, t: 0.35 } };
+    sees('filling')(s);
   }), []));
-test('F-19 #8: purity with committed', () => {
+test('F-19 #8 (restated F-55): purity with cues', () => {
   const { g, players, ctx } = sw();
   Object.assign(g('MLB'), { x: -1.6, y: 29.5 });
-  ctx.committed = { MLB: { x: -1.5, t: 0.35 } };
+  sees('filling')({ ctx });
   const p0 = structuredClone(players);
-  const c0 = structuredClone(ctx);
+  const c0 = ctxNoFn(ctx);
   zoneSwitch(players, null, ctx);
   assert.deepEqual(players, p0);
-  assert.deepEqual(ctx, c0);
+  assert.deepEqual(ctxNoFn(ctx), c0);
 });
 
+// F-55 #8: C already switched to MLB (LB1), LG still on RDT; the other LBs are WLB/SLB (LB2).
+test('F-55 #8: a climber lets an LB leaving the play go for the most dangerous unclaimed LB', () => {
+  const run = (side, mut) => {
+    const s = sw();
+    const k = side; // mirror x about the playside sign
+    s.ctx.side = side;
+    s.g('C').block = { target: 'MLB', angle: 'straight', engaged: false, seq: 1 };
+    Object.assign(s.g('C'), { x: 0, y: 25 });
+    Object.assign(s.g('MLB'), { x: -k * 2.5, y: 29, vel: { x: -k * 3, y: 0 } });
+    const others = s.players.filter((p) => LB_ROLES.includes(p.role) && p.id !== 'MLB');
+    others.forEach((p) => Object.assign(p, { x: 40, y: 40, vel: { x: 0, y: 0 } }));
+    s.lb2 = others[0];
+    mut?.(s, k);
+    return { out: zoneSwitch(s.players, null, s.ctx), s };
+  };
+  const nearLb2 = (s, k) => Object.assign(s.lb2, { x: k * 1, y: 29 });
+  for (const side of [1, -1]) {
+    const a = run(side, nearLb2);
+    assert.deepEqual(a.out, [{ blocker: 'C', target: a.s.lb2.id }], `(a/f) side ${side}`);
+    assert.deepEqual(run(side).out, [], `(b) side ${side}: no other LB`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('C').block.engaged = true; }).out, [], `(c) side ${side}: engaged`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('MLB').vel = { x: k * 3, y: 0 }; }).out, [], `(d) side ${side}: flowing playside`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('MLB').x = k * 2.5; }).out, [], `(e) side ${side}: playside of the climber`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); Object.assign(s.g('MLB'), { x: -k * 1, vel: { x: -k * 3, y: 0 } }); }).out, [], `(g) side ${side}: backside but inside the track`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); Object.assign(s.g('MLB'), { vel: { x: -k * 2, y: -3 } }); }).out, [], `(h) side ${side}: backside outside the track but filling downhill`);
+  }
+});
 
 const dl = (x) => ({ id: 'D', x });
 const blkAt = (x) => ({ id: 'B' + x, x });
@@ -356,32 +396,32 @@ test('zoneSwitch: playside sign picks by the DL, not the nearer blocker', () => 
   assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'LG', target: 'MLB' }]);
 });
 
-// Restated by T-9 (F-3 #1, round 3): the climber now comes off in response to his LB, so each case names what the LB does. Was: joint hold COMBO_HOLD and a DL driven the old drive gate gated every climb.
+// Restated by T-9 (F-3 #1, round 3), again by F-55 #1/#2: the climber comes off only when the watched LB declares (cues), judged from the members' perception, never from LB velocity or defense internals. HELD was COMBO_HOLD.
 const joint = (j) => (s) => { s.g('C').block.held = j; s.g('LG').block.held = j; };
-const lbMove = (vx, vy) => (s) => { s.g('MLB').vel = { x: vx, y: vy }; };
 const far = [-1.6, 29.5]; // beyond SWITCH_DIST of both blockers
-test('gate: stayer just engaged, climber held COMBO_HOLD -> switch', () => {
-  // restated: a committed LB that is not attacking needs the joint hold (min of both) at COMBO_HOLD; one man's hold is not enough
-  const m = (extra) => (s) => { commit('MLB', -1.5)(s); extra(s); };
-  assert.deepEqual(at(...far, m((s) => { s.g('C').block.held = 0; s.g('LG').block.held = COMBO_HOLD + 0.2; })), [], 'stayer held 0: not yet a double');
-  assert.deepEqual(at(...far, m((s) => { s.g('C').block.held = COMBO_HOLD; s.g('LG').block.held = COMBO_HOLD + 0.2; })), [{ blocker: 'LG', target: 'MLB' }]);
+test('gate: stayer just engaged, climber held -> switch (F-55 #1: declared LB; joint hold counted)', () => {
+  // restated: a declared LB needs the joint hold (min of both) at COMBO_TOUCH; one man's hold is not enough
+  const m = (extra) => (s) => { sees('filling')(s); extra(s); };
+  assert.deepEqual(at(...far, m((s) => { s.g('C').block.held = 0; s.g('LG').block.held = HELD + 0.2; })), [], 'stayer held 0: not yet a double');
+  assert.deepEqual(at(...far, m((s) => { s.g('C').block.held = HELD; s.g('LG').block.held = HELD + 0.2; })), [{ blocker: 'LG', target: 'MLB' }]);
 });
-test('gate: climber not engaged -> none', () => {
-  // restated: a committed LB far away and a climber not yet on the DL: the hold counted is the stayer's alone, so a stayer just on (held 0) releases nothing; once he has held COMBO_HOLD the climber (who has nothing to leave) goes
-  const m = (h) => (s) => { commit('MLB', -1.5)(s); s.g('LG').block.engaged = false; s.g('C').block.held = h; };
+test('gate: climber not engaged -> none (F-55 #1)', () => {
+  // restated: a declared LB far away and a climber not yet on the DL: the hold counted is the stayer's alone, so a stayer just on (held 0) releases nothing; once he has held COMBO_TOUCH the climber (who has nothing to leave) goes
+  const m = (h) => (s) => { sees('filling')(s); s.g('LG').block.engaged = false; s.g('C').block.held = h; };
   assert.deepEqual(at(...far, m(0)), []);
-  assert.deepEqual(at(...far, m(COMBO_HOLD)), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(...far, m(COMBO_TOUCH)), [{ blocker: 'LG', target: 'MLB' }]);
 });
-test('F-3 #1 (i): joint under COMBO_TOUCH, LB committed and attacking downhill -> none', () =>
-  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_TOUCH - 0.01)(s); lbMove(0, -(LB_FILL_V + 1))(s); }), []));
-test('F-3 #1 (ii): joint at COMBO_TOUCH, LB committed and attacking -> switch', () =>
-  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_TOUCH)(s); lbMove(0, -(LB_FILL_V + 1))(s); }), [{ blocker: 'LG', target: 'MLB' }]));
-test('F-3 #1 (iii): joint at COMBO_TOUCH, LB committed but moving sideways -> none; at COMBO_HOLD -> switch', () => {
-  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_TOUCH)(s); lbMove(3, 0)(s); }), []);
-  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_HOLD)(s); lbMove(3, 0)(s); }), [{ blocker: 'LG', target: 'MLB' }]);
+test('F-3 #1 (i) (restated F-55 #1): joint under COMBO_TOUCH, LB declared -> none', () =>
+  assert.deepEqual(at(...far, (s) => { sees('filling')(s); joint(COMBO_TOUCH - 0.01)(s); }), []));
+test('F-3 #1 (ii) (restated F-55 #1): joint at COMBO_TOUCH, LB declared (filling in track) -> switch', () =>
+  assert.deepEqual(at(...far, (s) => { sees('filling')(s); joint(COMBO_TOUCH)(s); }), [{ blocker: 'LG', target: 'MLB' }]));
+test('F-3 #1 (iii) (restated F-55 #2): LB sitting or flowing outside the track never releases, however long the pair holds', () => {
+  for (const [st, inTrack] of [['sitting', true], ['covering', true], ['flowing', true], ['flowing', false], ['sitting', false]]) {
+    assert.deepEqual(at(...far, (s) => { sees(st, inTrack)(s); joint(5)(s); }), [], `${st} inTrack ${inTrack}`);
+  }
 });
-test('F-3 #1 (iv): LB uncommitted, beyond SWITCH_DIST, joint at COMBO_HOLD -> none', () =>
-  assert.deepEqual(at(...far, (s) => { joint(COMBO_HOLD)(s); lbMove(0, -4)(s); }), []));
+test('F-3 #1 (iv) (restated F-55 #2): LB undeclared (no cues), beyond SWITCH_DIST, long joint hold -> none', () =>
+  assert.deepEqual(at(...far, (s) => { joint(5)(s); }), []));
 test('F-3 #1 (v): LB within SWITCH_DIST, only the stayer engaged -> switch (forced, no joint hold)', () =>
   // LG is the climber (fit is backside of the DL), C the stayer
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('LG').block.engaged = false; joint(0)(s); }), [{ blocker: 'LG', target: 'MLB' }]));
@@ -390,21 +430,67 @@ test('F-3 #1 (vi): LB within SWITCH_DIST but the stayer not engaged -> none', ()
 test('F-3 #1 (vii): DL winning -> none, even forced', () =>
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('RDT').react = { state: 'winning' }; }), []));
 test('gate: neither held long enough -> none', () =>
-  // restated: a committed LB that is not attacking and a joint hold just under COMBO_HOLD
-  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); joint(COMBO_HOLD - 0.01)(s); }), []));
+  // restated (F-55 #1): a declared LB and a joint hold just under COMBO_TOUCH
+  assert.deepEqual(at(...far, (s) => { sees('filling')(s); joint(COMBO_TOUCH - 0.01)(s); }), []));
 test('gate: stayer not engaged -> none', () =>
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('C').block.engaged = false; }), []));
 test('gate: winning DL -> none', () =>
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.g('RDT').react = { state: 'winning' }; }), []));
-test('gate: commit trigger uses the same gate', () => {
-  // restated: the joint hold (min of both) gates a committed, non-attacking LB
-  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); s.g('LG').block.held = COMBO_HOLD + 0.2; }), [{ blocker: 'LG', target: 'MLB' }]);
-  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; }), []);
-  assert.deepEqual(at(...far, (s) => { commit('MLB', -1.5)(s); s.g('C').block.held = 0; s.g('LG').block.held = 0; }), []);
+test('gate: declaration trigger uses the same gate (F-55 #1)', () => {
+  // restated: the joint hold (min of both) gates a declared LB
+  assert.deepEqual(at(...far, (s) => { sees('filling')(s); s.g('LG').block.held = HELD + 0.2; }), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(...far, (s) => { sees('filling')(s); s.g('C').block.held = 0; }), []);
+  assert.deepEqual(at(...far, (s) => { sees('filling')(s); s.g('C').block.held = 0; s.g('LG').block.held = 0; }), []);
 });
-test('F-3 #1 (viii): committed LB outside both tracks does not release the climber', () =>
+test('F-3 #1 (viii) (restated F-55 #1): a filling LB outside both tracks is not declared; only crossing declares from outside', () => {
   // human track rule: only an LB in a member's track (or across his face) pulls a blocker off the DL
-  assert.deepEqual(at(-2.2 - TRACK_HALF - 0.5, 29.5, (s) => { commit('MLB', -5)(s); joint(COMBO_HOLD)(s); lbMove(0, -4)(s); }), []));
+  const out = [-2.2 - TRACK_HALF - 0.5, 29.5];
+  assert.deepEqual(at(...out, (s) => { sees('filling', false)(s); joint(HELD)(s); }), []);
+  assert.deepEqual(at(...out, (s) => { sees('crossing', false)(s); joint(HELD)(s); }), [{ blocker: 'LG', target: 'MLB' }]);
+});
+// F-55 #1/#2 new rule tests
+test('F-55 #2: a sitting LB never releases at any hold until the DL reaches los + RIDE_DEPTH, then the man on the LB side comes off', () => {
+  for (const [fx, who] of [[-1.5, 'LG'], [0.4, 'C']]) {
+    for (const h of [0.3, 1, 3]) {
+      assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(h)(s); s.ctx.los = 20; s.g('RDT').y = 20 + RIDE_DEPTH - 0.1; s.ctx.defGoals = { MLB: { x: fx } }; }), [], `held ${h} before ride depth`);
+      assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(h)(s); s.ctx.los = 20; s.g('RDT').y = 20 + RIDE_DEPTH; s.ctx.defGoals = { MLB: { x: fx } }; }), [{ blocker: who, target: 'MLB' }], `held ${h} at ride depth, fit ${fx}`);
+    }
+  }
+});
+test('F-55 #2: ride depth needs both members on the DL, and no ctx.los means no ride', () => {
+  assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(1)(s); s.ctx.los = 20; s.g('RDT').y = 26; s.g('LG').block.engaged = false; }), []);
+  assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(1)(s); s.g('RDT').y = 26; }), []);
+});
+test('F-55 #1: filling in the owner track releases the owner when the LB fits on his side, the partner when on the other side', () => {
+  // C is the owner (x 0), LG the partner (x -2.2); the DL sits at its lineup x between them; side +1 puts playside at +x
+  const run = (fx, track) => at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; s.ctx.defGoals = { MLB: { x: fx } }; joint(HELD)(s); if (track) track(s); });
+  assert.deepEqual(run(0.4), [{ blocker: 'C', target: 'MLB' }]);
+  assert.deepEqual(run(-2.6), [{ blocker: 'LG', target: 'MLB' }]);
+  // only the owner sees the fill in his track
+  assert.deepEqual(at(...far, (s) => { seesBy('C', 'filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]);
+  assert.deepEqual(at(...far, (s) => { seesBy('LG', 'filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; s.ctx.defGoals = { MLB: { x: -2.6 } }; }), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('F-55 #1: crossing releases, with or without being in the track', () => {
+  assert.deepEqual(at(...far, (s) => { sees('crossing', false)(s); }), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(...far, (s) => { sees('crossing', true)(s); }), [{ blocker: 'LG', target: 'MLB' }]);
+});
+test('F-55 #1: flowing outside both tracks does not release', () =>
+  assert.deepEqual(at(...far, (s) => { sees('flowing', false)(s); }), []));
+test('F-55 #1: forced (LB within SWITCH_DIST) releases at once, with no cues and no hold', () => {
+  assert.deepEqual(at(0, 24.3 + SWITCH_DIST - 0.05, (s) => { s.ctx.cues = () => ({ track: { ids: [], lb: null }, lbs: {} }); joint(0)(s); }), [{ blocker: 'C', target: 'MLB' }]);
+});
+test('F-55 #1: declared but held under COMBO_TOUCH does not release', () =>
+  assert.deepEqual(at(...far, (s) => { sees('crossing')(s); joint(COMBO_TOUCH - 0.01)(s); }), []));
+test('F-55 #1: the planned watch sits while another unclaimed LB fills into a member track: the climber goes to the filling LB', () => {
+  const s = sw();
+  s.ctx.side = 1;
+  for (const l of lbs(s)) place(s, [[l.id, 40, 40]]);
+  place(s, [['MLB', -1.6, 29.5], ['WLB', -1.3, 28.0]]);
+  s.ctx.cues = () => ({ track: { ids: ['WLB'], lb: 'WLB' }, lbs: { MLB: 'sitting', WLB: 'filling' } });
+  const out = zoneSwitch(s.players, { x: -1, y: 24 }, s.ctx);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].target, 'WLB');
+});
 test('gate: zoneSwitch leaves ctx and players alone (no climber lock)', () => {
   const s = sw();
   Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
@@ -476,7 +562,7 @@ test('T-162: cross-combo handoff, a claimed LB is never picked twice in one call
   const s = sw();
   s.ctx.side = 1;
   // playside combo (RT/RG on LDT, plan MLB's neighbour) and backside combo C/LG (plan WLB-side)
-  const blk = (t) => ({ target: t, angle: 'straight', engaged: true, seq: 1, held: COMBO_HOLD });
+  const blk = (t) => ({ target: t, angle: 'straight', engaged: true, seq: 1, held: HELD });
   for (const [id, x] of [['RG', 1.5], ['RT', 3.3]]) { s.g(id).block = blk('LDT'); place(s, [[id, x, 24.3]]); }
   s.ctx.combos = [
     { owner: 'C', partner: 'LG', target: 'RDT', watch: 'WLB' },

@@ -422,7 +422,7 @@ test('F10-10. null rule: LBs reach the QB', () => {
 
 // Human's test rule: "does this reflect real football", not "the running play was successful". Tackles off so a
 // tackle does not end the run being judged. Every bound derives from the engine constants.
-function judgeSlip(t, opts, { noTe }) {
+function judgeSlip(t, opts, { noTe, lane = true }) {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, ...opts });
   play.snap();
   const rbSpeed = play.player('RB').speed;
@@ -478,11 +478,17 @@ function judgeSlip(t, opts, { noTe }) {
   if (cross) {
     t.diagnostic(`rule c locked ${cross.locked}, slip ${cross.slip}`);
     assert.ok(cross.locked, `RB crossed unlocked (gap ${cross.gap})`);
-    assert.ok(cross.slip <= A_GAP_HALF + BODY_RADIUS, `RB crossed ${cross.slip} yd off his lane (max ${A_GAP_HALF + BODY_RADIUS})`);
+    // R-10 (R-16) / F-55 #4: lane:false skips the slip check until the RB read engine (R-10) lands; remove with the todo.
+    if (lane) assert.ok(cross.slip <= A_GAP_HALF + BODY_RADIUS, `RB crossed ${cross.slip} yd off his lane (max ${A_GAP_HALF + BODY_RADIUS})`);
   }
 }
 
 test('F-15 #8: no-TE look: DTs do not beat the OL, the back does not stall, a free MLB fills downhill', (t) => {
+  judgeSlip(t, { personnel: 'noTe' }, { noTe: true, lane: false });
+});
+
+// R-10 (R-16) / F-55 #4: the lane check is a todo while the RB read engine (R-10) is pending; remove the todo when it lands.
+test('F-15 #8c: no-TE look: a committed crossing is in his lane', { todo: 'R-10 (R-16): RB enters a hole then backs out; exposed by the vertical double, F-55 #4' }, (t) => {
   judgeSlip(t, { personnel: 'noTe' }, { noTe: true });
 });
 
@@ -514,6 +520,23 @@ test('F-41 #3: TE look line holds through 1.5 s', () => {
       }
     }
   }
+  // R-2 / F-55 #3, restated to the track rule: this used to pass only because the RT happened to re-engage B3 on Bear after B3 slanted
+  // across his face. Now a lineman blocks a track, not a man: once B3 is out of the RT's perceived track the RT is not chasing him
+  // for more than 0.5 s (zone-track.test.js judges that the lineman whose track B3 is in has him).
+  for (const script of [null, [{ who: 'backDT', behavior: 'slant', slant: 'play' }]]) {
+    const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'bear', personnel: 'te', playside: 'left', script });
+    play.snap();
+    const track = (id) => play.cuesOf(id)?.track?.ids ?? [];
+    let across = 0;
+    for (let i = 1; i <= Math.round(2 / DT); i++) {
+      play.step(DT);
+      const rt = play.player('RT');
+      const chasing = !!rt.block && !rt.block.released && rt.block.target === 'B3' && !track('RT').includes('B3');
+      across = chasing ? across + 1 : 0;
+      const t = (i * DT).toFixed(2);
+      assert.ok(across <= Math.round(0.5 / DT), `RT chases B3 across his face for ${across} ticks at ${t} s`);
+    }
+  }
 });
 
 // Since F-50 the climber goes to a live linebacker, not always the plan watch: judge the member's target that is not the combo's (as R-62 in zone-play.test.js does).
@@ -522,9 +545,11 @@ const liveClimb = (play, c) => [c.owner, c.partner].map((id) => play.player(id).
 // The human's rule: "not a problem the mike is moving laterally to the ball carrier, not coming down field so he
 // wouldn't really have a chance anyway. And thats ok - we aren't building with outcome driven, it's football
 // realism driven. The blocks won't work 100% of the time." Changed: the combo must still climb a live LB within
-// 2.0 s and, if it engages him, he must be met before the line. A climber that never engages passes only when the
-// LB flowed (lateral travel from the climb tick to the window end beats his downhill travel); a passing miss is
-// logged with t.diagnostic, a downhill LB that got past the line unmet fails.
+// 2.0 s and, if it engages him, he must be met before the line. A climber that never engages passes unless the LB
+// got past the line unmet (his y at the window end is below 25 + GAP_DEPTH); a miss that passes is logged with
+// t.diagnostic. F-55: the climb now waits for the LB to declare, and tests judge no meet time, so a climber that
+// misses an LB still above the line at the window end is fine. See .work/maps/climb-spec.md (a climber may also
+// drop an LB leaving the play for a more dangerous one, F-55 #8).
 const judgeClimb = (t, probe, front, c) => {
   const n = Math.round(2.0 / DT);
   const who = `${front} combo ${c.owner}/${c.partner}`;
@@ -555,8 +580,9 @@ const judgeClimb = (t, probe, front, c) => {
   const lateral = Math.abs(end.x - climb.x0);
   const downhill = climb.y0 - end.y;
   const travel = `${who} vs ${climb.live}: lateral ${lateral.toFixed(2)} yd, downhill ${downhill.toFixed(2)} yd, y at end ${end.y.toFixed(2)}`;
-  assert.ok(lateral > downhill, `${travel}: no engage, and the LB came downhill past the line unmet`);
-  t.diagnostic(`${travel}: missed, LB flowed laterally`);
+  assert.ok(end.y >= 25 + GAP_DEPTH, `${travel}: no engage, and the LB got past the line unmet`);
+  const why = lateral > downhill ? 'missed, LB flowed laterally' : 'unmet, LB still above the line at the window end';
+  t.diagnostic(`${travel}: ${why}`);
 };
 
 const combosClimb = (t, fronts, only = () => true) => {

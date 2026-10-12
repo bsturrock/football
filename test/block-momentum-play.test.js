@@ -6,15 +6,16 @@ import { RIDE_MIN } from '../src/dots/technique.js';
 import { IMPACT_TIME } from '../src/dots/blocking.js';
 
 // F-49 #7: both bodies keep their momentum through a block. A climbing OL meets a moving linebacker;
-// neither velocity jumps, the blocker rides the side opposite the LB's lateral travel, his push turns
-// with the LB, the block holds, and nothing wobbles (PRINCIPLES #11).
+// neither velocity jumps, the LB never crosses the blocker's face, a blocker on the trail side runs with the LB
+// and squares up when the LB comes downhill (the human's climb spec, .work/maps/climb-spec.md), the block holds,
+// and nothing wobbles (PRINCIPLES #11).
 // Velocity rule (7a): 1.75 yd/s per tick inside the IMPACT_TIME window after the engage, 1.5 elsewhere.
-// Lateral rule (7b): a blocker within 0.05 yd of the LB's x is head-up, not crossed.
+// Lateral rule (7b): a blocker within HEAD_UP of the LB's x is head-up, not crossed.
 const FRONTS = ['base', 'odd34', 'over43'];
 const MAX_JUMP = 1.5; // yd/s per tick
 const HIT_JUMP = 1.75; // yd/s per tick inside the IMPACT_TIME window after the engage (F-49 #7a)
 const HEAD_UP = 0.05; // yd; a blocker this close to the LB's x is head-up, not crossed (F-49 #7b)
-const WOBBLE_MIN = 0.2; // degrees; smaller per-tick changes are ignored when counting reversals
+const WOBBLE_AMP = 1.0; // degrees; a swing back smaller than this from the last extreme is not a reversal (F-55)
 const MAX_REVERSALS = 1;
 const WINDOW_BEFORE = 3;
 const WINDOW_AFTER = 30;
@@ -72,15 +73,25 @@ function record(front) {
 
 const deg = (r) => (r * 180) / Math.PI;
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-// Direction reversals in a series of angles, ignoring per-tick changes under WOBBLE_MIN degrees.
+// Direction reversals in a series of angles: a reversal counts only when the angle has swung back by at least
+// WOBBLE_AMP degrees from the last extreme in the current direction (a visible swing, F-55). Per-tick twitches and
+// a small swing back are not reversals.
 function reversals(angles) {
-  let last = 0;
+  let dir = 0;
+  let ext = angles[0];
   let n = 0;
   for (let i = 1; i < angles.length; i++) {
-    const d = deg(wrap(angles[i] - angles[i - 1]));
-    if (Math.abs(d) < WOBBLE_MIN) continue;
-    if (last !== 0 && Math.sign(d) !== last) n++;
-    last = Math.sign(d);
+    const a = angles[i];
+    const d = deg(wrap(a - ext));
+    if (dir === 0) {
+      if (Math.abs(d) >= WOBBLE_AMP) { dir = Math.sign(d); ext = a; }
+    } else if (Math.sign(d) === dir || d === 0) {
+      ext = a;
+    } else if (Math.abs(d) >= WOBBLE_AMP) {
+      n++;
+      dir = -dir;
+      ext = a;
+    }
   }
   return n;
 }
@@ -108,29 +119,52 @@ for (const front of FRONTS) {
     }
   });
 
-  test(`F-49 #7 ${front}: the blocker stays on the side opposite the LB's lateral travel`, () => {
+  test(`F-49 #7 ${front}: the LB never crosses the blocker's face`, (t) => {
+    // side = sign(blocker x - LB x). side == sign(LB vx): blocker ahead of the LB's travel (sealed);
+    // side == -sign(LB vx): blocker trails him (running with him). Sealed, then trailing, is a face cross.
+    const counted = [];
     for (const i of win()) {
-      const v = r.vel(r.hit.lb, i);
-      if (Math.abs(v.x) < RIDE_MIN) continue;
+      if (!r.ticks[i].block[r.hit.blocker].engaged) continue;
       const dx = r.ticks[i].pos[r.hit.blocker].x - r.ticks[i].pos[r.hit.lb].x;
       if (Math.abs(dx) < HEAD_UP) continue; // head-up, not crossed
-      assert.equal(Math.sign(dx), -Math.sign(v.x), `${front} tick ${i}: blocker dx ${dx.toFixed(2)}, LB vx ${v.x.toFixed(2)}`);
+      counted.push({ i, dx, vx: r.vel(r.hit.lb, i).x });
+    }
+    if (counted.length) {
+      const c0 = counted[0];
+      t.diagnostic(`${front}: at the engage the blocker is on the ${Math.sign(c0.dx) === Math.sign(c0.vx) ? 'flow side (sealed)' : 'trail side (running with him)'} (dx ${c0.dx.toFixed(2)}, LB vx ${c0.vx.toFixed(2)})`);
+    }
+    let sealedAt = -1;
+    for (let k = 0; k < counted.length; k++) {
+      const c = counted[k];
+      if (sealedAt >= 0 && Math.abs(c.vx) >= RIDE_MIN && Math.sign(c.dx) === -Math.sign(c.vx)) {
+        assert.fail(`${front} tick ${c.i}: LB crossed the blocker's face, dx ${c.dx.toFixed(2)}, LB vx ${c.vx.toFixed(2)} (sealed at tick ${sealedAt})`);
+      }
+      if (sealedAt < 0 && Math.sign(c.dx) === Math.sign(c.vx)) sealedAt = c.i;
     }
   });
 
-  test(`F-49 #7 ${front}: the blocker's push follows the LB's lateral travel and turns over the block`, () => {
-    const angles = [];
+  test(`F-49 #7 ${front}: a trail-side blocker runs with the LB, and squares up when the LB comes downhill`, (t) => {
+    const SQUARE = Math.sin((15 * Math.PI) / 180);
+    let trail = 0;
+    let downhill = 0;
+    let streak = 0; // ticks in a row with the LB downhill (|vx| < RIDE_MIN, vy <= -RIDE_MIN)
     for (const i of win()) {
-      const push = r.ticks[i].block[r.hit.blocker].push;
-      if (!r.ticks[i].block[r.hit.blocker].engaged) continue; // no push before the engage
-      assert.ok(push, `${front} tick ${i}: engaged blocker has a push`);
-      angles.push(Math.atan2(push.x, push.y));
       const v = r.vel(r.hit.lb, i);
-      if (Math.abs(v.x) < RIDE_MIN) continue;
-      assert.equal(Math.sign(push.x), Math.sign(v.x), `${front} tick ${i}: push.x ${push.x.toFixed(2)}, LB vx ${v.x.toFixed(2)}`);
+      streak = Math.abs(v.x) < RIDE_MIN && v.y <= -RIDE_MIN ? streak + 1 : 0;
+      const b = r.ticks[i].block[r.hit.blocker];
+      if (!b.engaged) continue; // no push before the engage
+      assert.ok(b.push, `${front} tick ${i}: engaged blocker has a push`);
+      const dx = r.ticks[i].pos[r.hit.blocker].x - r.ticks[i].pos[r.hit.lb].x;
+      if (Math.abs(v.x) >= RIDE_MIN && Math.abs(dx) >= HEAD_UP && Math.sign(dx) === -Math.sign(v.x)) {
+        trail++;
+        assert.equal(Math.sign(b.push.x), Math.sign(v.x), `${front} tick ${i}: push.x ${b.push.x.toFixed(2)}, LB vx ${v.x.toFixed(2)}`);
+      }
+      if (streak * FIXED_DT >= 0.3) {
+        downhill++;
+        assert.ok(Math.abs(b.push.x) <= SQUARE, `${front} tick ${i}: LB downhill (vx ${v.x.toFixed(2)}, vy ${v.y.toFixed(2)}) but push.x ${b.push.x.toFixed(2)}`);
+      }
     }
-    const spread = deg(Math.max(...angles) - Math.min(...angles));
-    assert.ok(spread > 10, `${front}: push angle varies ${spread.toFixed(1)} degrees`);
+    t.diagnostic(`${front}: checked ${trail} trail-side ticks, ${downhill} downhill ticks`);
   });
 
   test(`F-49 #7 ${front}: the block holds to the end of the window (no lost release)`, () => {

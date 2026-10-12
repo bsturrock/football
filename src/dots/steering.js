@@ -6,7 +6,11 @@
 //    2 * radius; the preferred passing distance is R),
 //    the mover picks a pass side (left/right) and records it in p.steer.
 //  - Hold: he keeps that side every call, even if the obstacle jitters across
-//    his centre line, so he never flip-flops.
+//    his centre line, so he never flip-flops. The detour also holds while the
+//    first obstacle sits anywhere in the wider corridor (2 * radius + RELEASE_MARGIN),
+//    not only the touch-width one: a goal swinging across a body's line moves the
+//    body's lateral offset over the touch-width edge, and re-deciding the detour at that
+//    edge each tick swung the step between straight ahead and the tangent past the body.
 //  - Release: A) the obstacle leaves the wider corridor (2 * radius + RELEASE_MARGIN);
 //    B) the goal key changes; C) he makes < STUCK_PROGRESS of maxStep along
 //    the goal direction for STUCK_TIME seconds, judged as the lesser of the last
@@ -59,6 +63,15 @@ export const PACES = Object.freeze({
 // plant: it is not judged stuck (no side flip). CUT_ACCEL: an NFL linebacker's planted cut is roughly
 // 10-25 yd/s^2 (tunable).
 export const CUT_ACCEL = 20;
+// Bodies never snap a mover (PRINCIPLES #11). When a step is steered by bodies (a detour around a
+// body in the corridor or in the committed pass, a lane aim, or a contact slide) and the goal has no accel cap of its own, it
+// changes his velocity by at most this much (yd/s) in one tick. Measured (T-44): a free mover between
+// two engaged bodies took 2-4 yd/s jumps in one tick with no push-out at all: the plain-hit detour
+// around a touching body switches on and off as that body's lateral offset crosses the corridor edge
+// (|lat| < 2 * radius), and each switch swings the step from straight ahead to the tangent past it.
+// The limit spreads that swing over a few ticks. A step with no body in play is the caller's own
+// choice and is untouched (a goal.accel cap, or none).
+export const MAX_AVOID_DV = 1.0;
 
 export function steerStep(p, goal, players, maxStep, dt, radius) {
   const fullStep = maxStep;
@@ -106,10 +119,15 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     return best ? { o: best, t: bestT, lat: bestLat } : null;
   };
 
-  const hit = firstObstacle(2 * radius);
-  if (p.steer && p.steer.side !== 0 && firstObstacle(2 * radius + RELEASE_MARGIN) === null) {
-    p.steer.side = 0; p.steer.stuck = 0; p.steer.flips = 0;
-    p.steer.lane = null; p.steer.laneOff = false;
+  let hit = firstObstacle(2 * radius);
+  if (p.steer && p.steer.side !== 0) {
+    // Hold: a committed mover keeps detouring around the first obstacle in the wider corridor, so a goal
+    // sliding across the body's line does not switch the detour on and off at the touch-width edge.
+    const wide = firstObstacle(2 * radius + RELEASE_MARGIN);
+    if (wide === null) {
+      p.steer.side = 0; p.steer.stuck = 0; p.steer.flips = 0;
+      p.steer.lane = null; p.steer.laneOff = false;
+    } else if (hit === null) hit = wide;
   }
 
   const byId = (id) => {
@@ -265,6 +283,17 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       mv = clampStep(cx, cy);
       // Still carrying speed away from the goal: a plant, not a stall.
       plant = v0.x * ux + v0.y * uy < 0;
+    }
+  }
+  if (accel === null && dt > 0 && (laneMid || threading || hit || (p.steer && p.steer.side !== 0) || mv.x !== dx * Math.min(maxStep, D) || mv.y !== dy * Math.min(maxStep, D))) {
+    const v0 = p.selfVel ?? p.vel ?? { x: 0, y: 0 };
+    const ex = mv.x / dt - v0.x, ey = mv.y / dt - v0.y, el = Math.hypot(ex, ey);
+    // a mover without momentum to keep (at rest, or no measured velocity) starts freely
+    if (el > MAX_AVOID_DV && Math.hypot(v0.x, v0.y) > MAX_AVOID_DV) {
+      let cx = (v0.x + ex * MAX_AVOID_DV / el) * dt, cy = (v0.y + ey * MAX_AVOID_DV / el) * dt;
+      const cl = Math.hypot(cx, cy);
+      if (cl > maxStep) { cx *= maxStep / cl; cy *= maxStep / cl; }
+      mv = clampStep(cx, cy);
     }
   }
   p.x += mv.x;

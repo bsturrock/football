@@ -1,18 +1,18 @@
 // Inside zone: a rule table run by the assignment engine, plus the runtime switch rule.
-import { readFront, HEAD_UP } from './front.js';
+import { readFront, HEAD_UP, LINE_DEPTH } from './front.js';
 import { runScheme, CLIMB_REACH } from './assign.js';
 import { LB_ROLES } from './roster.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
-// the longer-held blocker on the DL must have held him this long before the climber leaves, and the stayer must be on him; a late-engaging stayer no longer delays a climber who has held since early
-export const COMBO_HOLD = 0.3;
-// F-3: a climb off a double that has been on together at least this long while the LB attacks downhill (the LB's own commit and speed decide, no fixed meet depth)
+// F-55: a combo comes off its DL only when the watched LB declares (see zoneSwitch), and then only after the pair has been on the DL together this long
 export const COMBO_TOUCH = 0.1;
-// F-3: the LB counts as attacking downhill (a fill) at this speed toward the line, yd/s; a filling LB runs about 3.5, a flowing one mostly sideways
-export const LB_FILL_V = 1.5;
-// Human track rule: a blocker owns the vertical runway this far either side of him; a committed LB in a member's track (or across his face) is what releases the climber. A passive LB never does.
+// F-55: while the LB sits the pair rides the DL; this many yd past the LOS the LB is forced to choose and the man on his side comes off
+export const RIDE_DEPTH = 5.0;
+// Human track rule: a blocker owns the vertical runway this far either side of him; an LB who declares in a member's track (or across his face) is what releases the climber. A sitting LB never does.
 export const TRACK_HALF = 1.5;
+// F-55 #8: an LB is leaving the play only when all three hold: he is backside of the climber's track (beyond TRACK_HALF), he moves away from the playside at least LB_AWAY_V (yd/s), and he runs laterally faster than he fills downhill. An LB who attacks downhill is walled off instead (climb-spec: "LB suddenly attacks downhill: square up and drive/wall off"). Human: "let the LB leave the play and look for more dangerous players to block".
+export const LB_AWAY_V = 1.5;
 
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
@@ -108,6 +108,14 @@ export function zoneSwitch(players, ballPos, ctx) {
       const best = free.find((d) => d !== w);
       if (best && dangerOf(w, ballPos, ctx) - dangerOf(best, ballPos, ctx) > DANGER_MARGIN) w = best;
     } else w = free[0] ?? null;
+    // F-55: an LB declares when either member sees him crossing his face, or filling/crossing inside his track (cues only)
+    const declaredBy = (d) => !!d && [o, p].some((m) => {
+      const cu = ctx.cues?.(m.id);
+      const st = cu?.lbs?.[d.id];
+      return st === 'crossing' || (st === 'filling' && !!cu.track?.ids?.includes(d.id));
+    });
+    // an LB who fills into my track is mine, whoever the plan watched
+    if (!declaredBy(w)) w = [plan, ...free].find((d) => d && !claimed.has(d.id) && declaredBy(d)) ?? w;
     if (!w) continue;
     claimed.add(w.id);
     // The climber is re-judged every tick from where the linebacker fits; nothing is locked.
@@ -120,17 +128,110 @@ export function zoneSwitch(players, ballPos, ctx) {
       const dO = Math.hypot(w.x - o.x, w.y - o.y);
       const dP = Math.hypot(w.x - p.x, w.y - p.y);
       const forced = Math.min(dO, dP) <= SWITCH_DIST; // a blitzing or fast-filling LB is on top of the double
-      let ok = forced;
-      if (!ok && ctx.committed?.[w.id]) {
-        const inTrack = Math.abs(w.x - o.x) <= TRACK_HALF || Math.abs(w.x - p.x) <= TRACK_HALF;
-        // a climber who has not yet reached the DL has nothing to leave: the hold is the stayer's alone
-        const joint = on(o) && on(p) ? Math.min(o.block.held ?? 0, p.block.held ?? 0) : stayer.block.held ?? 0;
-        const vy = -((w.selfVel ?? w.vel ?? { y: 0 }).y ?? 0);
-        ok = inTrack && ((joint >= COMBO_TOUCH - 1e-9 && vy >= LB_FILL_V - 1e-9) || joint >= COMBO_HOLD - 1e-9); // the committed LB is in a member's track: attacking, or the DL is controlled
-      }
+      const declared = declaredBy(w);
+      const bothOn = on(o) && on(p);
+      // a climber who has not yet reached the DL has nothing to leave: the hold is the stayer's alone
+      const joint = bothOn ? Math.min(o.block.held ?? 0, p.block.held ?? 0) : stayer.block.held ?? 0;
+      const ride = bothOn && !declared && ctx.los != null && dl.y >= ctx.los + RIDE_DEPTH - 1e-9; // the LB sat as long as the pair could ride
+      const ok = forced || (declared && joint >= COMBO_TOUCH - 1e-9) || ride;
       if (ok) out.push({ blocker: taker.id, target: w.id });
     };
     go();
+  }
+  // F-55 #8, the human: "why would this ever happen? let the LB leave the play and look for more dangerous players to block".
+  // A climber not yet on his LB drops him once the LB is clearly outside the climber's track on the backside, running away from the play (not filling downhill: see LB_AWAY_V), and takes the most dangerous unclaimed LB in reach (none: he keeps his man).
+  const leaving = (lb, from) => {
+    const v = lb.selfVel ?? lb.vel ?? { x: 0, y: 0 };
+    const away = -ctx.side * v.x;
+    return ctx.side * (lb.x - from.x) < -TRACK_HALF && away >= LB_AWAY_V && away > -v.y;
+  };
+  const gone = new Set(out.map((e) => e.blocker));
+  for (const c of (ctx && ctx.combos) || []) {
+    for (const m of [byId.get(c.owner), byId.get(c.partner)]) {
+      const t = m?.block?.target;
+      if (t == null || t === c.target || m.block.engaged || gone.has(m.id)) continue;
+      const lb = byId.get(t);
+      if (!lb || !LB_ROLES.includes(lb.role) || !leaving(lb, m)) continue;
+      const next = unclaimedInReach(players, ballPos, ctx, claimed, m.x).find((d) => d.id !== lb.id && !leaving(d, m));
+      if (!next) continue;
+      out.push({ blocker: m.id, target: next.id });
+      claimed.add(next.id);
+      gone.add(m.id);
+    }
+  }
+  trackPickup(players, ballPos, ctx, out, claimed);
+  return out;
+}
+
+// F-55 #3, the human's track rule: a lineman blocks a track (a runway), not a man; whoever enters it is his.
+// Line-level defenders are those within LINE_DEPTH of the LOS when the rule first runs (the snap), kept per play in ctx.
+const lineLevel = new WeakMap();
+function lineIds(players, ctx) {
+  let ids = lineLevel.get(ctx);
+  if (!ids) {
+    ids = new Set(players.filter((p) => p.team === 'defense' && ctx.los != null && p.y - ctx.los <= LINE_DEPTH).map((p) => p.id));
+    lineLevel.set(ctx, ids);
+  }
+  return ids;
+}
+
+// A line defender who left his blocker's track into another blocker's becomes that blocker's man; the vacated blocker
+// takes the line defender now in his own track, else climbs (his track's LB, else the nearest unclaimed in reach).
+// Appends retargets to `out`; nobody retargets twice per tick, a defender gets one new blocker per tick.
+export function trackPickup(players, ballPos, ctx, out, claimed = claimedSet(players)) {
+  if (!ctx?.cues || ctx.los == null) return out;
+  const line = lineIds(players, ctx);
+  const side = ctx.side === -1 ? -1 : 1;
+  const done = new Set(out.map((e) => e.blocker)); // retargeted this tick
+  const tracks = new Map(); // blocker id -> track ids
+  const blockers = players.filter((p) => p.block && p.block.target != null && !p.block.released).filter((p) => {
+    const t = ctx.cues(p.id)?.track;
+    if (t) tracks.set(p.id, t.ids);
+    return !!t;
+  });
+  const target = new Map(blockers.map((b) => [b.id, b.block.target])); // live targets as retargets are decided
+  for (const e of out) if (target.has(e.blocker)) target.set(e.blocker, e.target);
+  const holders = (id) => blockers.filter((b) => target.get(b.id) === id);
+  const inTrack = (b, id) => tracks.get(b.id).includes(id);
+  const order = (a, b) => side * b.x - side * a.x || (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
+  const fresh = new Set(); // defenders who got a new blocker this tick
+  const vacated = [];
+  const cands = players.filter((d) => d.team === 'defense' && line.has(d.id)).sort(order);
+  for (const d of cands) {
+    const cur = holders(d.id);
+    if (!cur.length || cur.some((b) => inTrack(b, d.id))) continue; // free, or still in his blocker's track
+    const takers = blockers.filter((b) => !done.has(b.id) && !cur.includes(b) && inTrack(b, d.id) && !(() => {
+      const e = target.get(b.id);
+      const eng = b.block.engaged && e !== d.id && inTrack(b, e) && line.has(e);
+      return eng && holders(e).length === 1; // two men in one track: the nearer stays his, unless he is double-teamed
+    })());
+    if (!takers.length) continue;
+    takers.sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x) || order(a, b));
+    const x = takers[0];
+    out.push({ blocker: x.id, target: d.id });
+    done.add(x.id);
+    fresh.add(d.id);
+    target.set(x.id, d.id);
+    for (const b of cur) if (!done.has(b.id)) vacated.push(b);
+  }
+  vacated.sort(order);
+  for (const v of vacated) {
+    if (done.has(v.id)) continue;
+    const mine = tracks.get(v.id);
+    const taken = (id) => holders(id).some((b) => b !== v);
+    let pick = mine.map((id) => players.find((p) => p.id === id)).find((d) => d && line.has(d.id) && !fresh.has(d.id) && d.id !== v.block.target && !taken(d.id));
+    if (!pick) {
+      const was = new Set(blockers.map((b) => b.block.target)); // claims this rule just rewrote are read from `target` instead
+      const live = new Set([...claimed].filter((id) => !was.has(id)));
+      for (const [b, t] of target) if (b !== v.id) live.add(t);
+      const cu = ctx.cues(v.id);
+      const lb = mine.find((id) => Object.hasOwn(cu.lbs ?? {}, id) && !live.has(id));
+      pick = lb ? players.find((p) => p.id === lb) : unclaimedInReach(players, ballPos, ctx, live, v.x)[0];
+    }
+    if (!pick) continue;
+    out.push({ blocker: v.id, target: pick.id });
+    done.add(v.id);
+    target.set(v.id, pick.id);
   }
   return out;
 }

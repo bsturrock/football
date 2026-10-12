@@ -634,8 +634,9 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (!b.block || b.block.engaged || b.block.released === 'past') continue;
     const spot = contactSpot(players, b);
     const foot = b.block.foot;
+    const T = byId(players, b.block.target);
     if (foot && (ctx?.side === 1 || ctx?.side === -1)) {
-      const { phase, goal } = footGoal(foot, b, spot, ctx.side, BODY_RADIUS);
+      const { phase, goal } = footGoal(foot, b, spot, ctx.side, BODY_RADIUS, { target: T, ballPos });
       foot.phase = phase;
       steerStep(
         b,
@@ -655,7 +656,6 @@ export function stepBlocking(players, ballPos, dt, ctx) {
         BODY_RADIUS,
       );
     }
-    const T = byId(players, b.block.target);
     const hit = canEngage(b, T, spot, ballPos);
     if (hit) {
       b.block.engaged = true;
@@ -681,9 +681,10 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const dy = T.y - b.y;
     const dist = Math.hypot(dx, dy);
     const contact = dist < 1e-9 ? null : { x: dx / dist, y: dy / dist };
-    const { ride, push } = footPush(foot, T, watch, T.vel ?? { x: 0, y: 0 }, contact, dt, ctx?.side);
+    const { ride, push, sealed } = footPush(foot, T, watch, T.vel ?? { x: 0, y: 0 }, contact, dt, ctx?.side);
     foot.ride = ride;
     foot.push = push;
+    foot.sealed = sealed;
   }
 
   for (const b of players) {

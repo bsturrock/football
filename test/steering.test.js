@@ -47,6 +47,30 @@ test('tunables', () => {
   assert.ok(Math.abs(S.hardCore(0.35) - 2 * 0.35 * (1 - S.SQUEEZE)) < 1e-12);
 });
 
+test('R-17: a goal sliding across the obstacle\'s line keeps the pass side', () => {
+  // The goal swings so the body's offset from the goal line crosses the touch-width edge (2 * RAD) and stays inside the release corridor.
+  const body = { id: 'b', x: 0, y: 2.5 };
+  const p = { id: 'p', x: 0, y: 0 };
+  let side = 0, last = 0, reversals = 0, ahead = 0;
+  for (let tick = 0; tick < 120 && p.y < 2; tick++) {
+    const g = { x: 5 * Math.sin(tick * 0.3), y: 8, key: 'k', ignore: null };
+    const x0 = p.x;
+    steerStep(p, g, [p, body], 2 * DT, DT, RAD);
+    ahead++;
+    if (p.steer && p.steer.side !== 0) {
+      if (side !== 0) assert.equal(p.steer.side, side, 'pass side changed at tick ' + tick);
+      side = p.steer.side;
+    }
+    const vx = (p.x - x0) / DT;
+    if (Math.abs(vx) > 0.3) {
+      if (last !== 0 && Math.sign(vx) !== last) reversals++;
+      last = Math.sign(vx);
+    }
+  }
+  assert.ok(ahead > 40 && side !== 0, 'body stayed ahead and was passed on a side: ' + ahead);
+  assert.ok(reversals <= 1, 'vel.x reversed ' + reversals + ' times');
+});
+
 test('free movement', () => {
   for (const bodies of [[], [{ id: 'b', x: 20, y: 3 }]]) {
     const p = { id: 'p', x: 0, y: 0 };
@@ -461,11 +485,12 @@ for (const front of FRONT_NAMES) {
         if (!(free[i][id] && free[i - 1][id] && free[i - 2][id])) continue;
         const a = vel(id, i - 1), b = vel(id, i);
         const os = others(id);
-        const hard = os.some((o) => [i - 2, i - 1, i].some((k) => distAt(id, o, k) < HE || crossAt(id, o, k) < HE));
+        // A body stopped at the hard core and relaxed one full soft step sits at HE to float precision; that is contact (F-55, like T-38).
+        const hard = os.some((o) => [i - 2, i - 1, i].some((k) => distAt(id, o, k) < HE + 1e-6 || crossAt(id, o, k) < HE + 1e-6));
         if (hard) {
           for (const o of os) {
             const d = distAt(id, o, i);
-            if (!(d < HE) || d === 0) continue;
+            if (!(d < HE + 1e-6) || d === 0) continue;
             const n = { x: (pos[i][id].x - pos[i][o].x) / d, y: (pos[i][id].y - pos[i][o].y) / d };
             const vo = vel(o, i);
             const reb = (b.x - vo.x) * n.x + (b.y - vo.y) * n.y;
