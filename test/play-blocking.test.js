@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { stepReact } from '../src/dots/react.js';
-import { POSITIONS, FRONTS } from '../src/dots/roster.js';
+import { POSITIONS, FRONTS, LB_ROLES } from '../src/dots/roster.js';
 import {
   BODY_RADIUS, CONTACT_DIST, ENGAGED_MAX_SPEED, ENGAGE_TOL, ENGAGE_SLACK, SHED_TIME, RELEASE_PAST, REENGAGE_DELAY,
   contactSpot, canEngage, canRelease, assignBlocks, setBlock,
@@ -548,7 +548,11 @@ const liveClimb = (play, c) => [c.owner, c.partner].map((id) => play.player(id).
 // t.diagnostic. F-55: the climb now waits for the LB to declare, and tests judge no meet time, so a climber that
 // misses an LB still above the line at the window end is fine. See .work/maps/climb-spec.md (a climber may also
 // drop an LB leaving the play for a more dangerous one, F-55 #8).
-const judgeClimb = (t, probe, front, c) => {
+// F-63: with LB avoidance on, meeting is a contest between two goals (the LB also steers away from the blocker), so
+// the outcome is reported, not asserted: "we can't have rules about did/did not meet the LB (unless we turn off LB
+// avoidance, navigating, which is ok)". The climb rule stays strict. With LB avoidance off (strict) the outcome is
+// asserted too (F-63 #12).
+const judgeClimb = (t, probe, front, c, strict = false) => {
   const n = Math.round(2.0 / DT);
   const who = `${front} combo ${c.owner}/${c.partner}`;
   let climb = null; // the LB on the climb tick, and where he was then
@@ -571,29 +575,42 @@ const judgeClimb = (t, probe, front, c) => {
     if (hit) engaged = { t: i * DT, y: lb.y };
   }
   assert.ok(climb, `${who} never climbed a live LB within 2.0 s`);
+  const tag = strict ? '' : 'report-only: ';
   if (engaged) {
-    assert.ok(engaged.y >= 25 + GAP_DEPTH, `${who} met ${climb.live} at ${engaged.t.toFixed(2)} s, y ${engaged.y}`);
+    const met = `${who} met ${climb.live} at ${engaged.t.toFixed(2)} s, y ${engaged.y}`;
+    const ok = engaged.y >= 25 + GAP_DEPTH;
+    if (strict) assert.ok(ok, met);
+    t.diagnostic(`${tag}${met}: ${ok ? 'before the line' : 'short of the line'}`);
     return;
   }
   const lateral = Math.abs(end.x - climb.x0);
   const downhill = climb.y0 - end.y;
   const travel = `${who} vs ${climb.live}: lateral ${lateral.toFixed(2)} yd, downhill ${downhill.toFixed(2)} yd, y at end ${end.y.toFixed(2)}`;
-  assert.ok(end.y >= 25 + GAP_DEPTH, `${travel}: no engage, and the LB got past the line unmet`);
-  const why = lateral > downhill ? 'missed, LB flowed laterally' : 'unmet, LB still above the line at the window end';
-  t.diagnostic(`${travel}: ${why}`);
+  const unmet = end.y < 25 + GAP_DEPTH;
+  if (strict) assert.ok(!unmet, `${travel}: no engage, and the LB got past the line unmet`);
+  const why = unmet ? 'no engage, and the LB got past the line unmet' : lateral > downhill ? 'missed, LB flowed laterally' : 'unmet, LB still above the line at the window end';
+  t.diagnostic(`${tag}${travel}: ${why}`);
 };
 
-const combosClimb = (t, fronts, only = () => true) => {
+// lbAvoid false (F-63): every LB's body avoidance is switched off (p.avoid = false), so the climber must meet him. Set
+// on the play that lists the combos and on each probe, right after snap().
+const combosClimb = (t, fronts, only = () => true, { lbAvoid = true } = {}) => {
   let count = 0;
+  const offLbAvoid = (play) => {
+    if (lbAvoid) return;
+    for (const p of play.players) if (p.team === 'defense' && LB_ROLES.includes(p.role)) p.avoid = false;
+  };
   for (const front of fronts) {
     const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front });
     play.snap();
+    offLbAvoid(play);
     for (const c of play.combos) {
       if (!only(front, c)) continue;
       count++;
       const probe = createPlay(25, 'insideZone', { accel: true, tackles: false, front });
       probe.snap();
-      judgeClimb(t, probe, front, c);
+      offLbAvoid(probe);
+      judgeClimb(t, probe, front, c, !lbAvoid);
     }
   }
   assert.ok(count > 0, 'no combo checked');
@@ -601,6 +618,10 @@ const combosClimb = (t, fronts, only = () => true) => {
 
 test('F-41 #4: combos climb before the watch reaches the line', (t) => {
   combosClimb(t, Object.keys(FRONTS));
+});
+
+test('F-63 #12: with LB avoidance off, every combo climber meets his LB before the line', (t) => {
+  combosClimb(t, Object.keys(FRONTS), () => true, { lbAvoid: false });
 });
 
 // F-54 #3: the base RT/RG double on the MLB is gone (RG blocks alone, RT climbs straight to the MLB), so its dedicated test was removed.

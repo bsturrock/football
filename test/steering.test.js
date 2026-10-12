@@ -609,3 +609,53 @@ test('T-58 (a) no lane between two bodies stacked along the path', () => {
   // never turns toward LDT's side further than the straight line to the goal does
   assert.ok(r.steps.every((dx, i) => dx <= r.straight[i] + 1e-9), `step x ${r.steps} vs ${r.straight}`);
 });
+
+// F-63: p.avoid === false is the test switch for body avoidance: no detour, lane or flip; contact still resolved.
+test('F-63 (a) avoid off: a body dead ahead is no detour; avoid unset detours', () => {
+  const body = { id: 'b', x: 0, y: 1.0 };
+  const unset = { id: 'p', x: 0, y: 0 };
+  call(unset, { x: 0, y: 8 }, [body]);
+  assert.ok(Math.abs(unset.x) > 1e-6, `unset x ${unset.x}`);
+  const off = { id: 'p', x: 0, y: 0, avoid: false };
+  call(off, { x: 0, y: 8 }, [body]);
+  assert.ok(Math.abs(off.x) < 1e-12, `avoid off x ${off.x}`);
+  assert.ok(off.y > 0);
+});
+
+test('F-63 (b) avoid off: a lane ahead, goal straight through one body, records no lane', () => {
+  const bodies = [{ id: 'a', x: 0, y: 1.0 }, { id: 'b', x: -2.0, y: 1.0 }];
+  const unset = { id: 'p', x: 0, y: 0 };
+  call(unset, { x: 0, y: 8 }, bodies);
+  assert.ok(unset.steer && unset.steer.lane, 'precondition: avoid unset records the lane');
+  const off = { id: 'p', x: 0, y: 0, avoid: false };
+  for (let i = 0; i < 10; i++) {
+    call(off, { x: 0, y: 8 }, bodies);
+    assert.ok(!off.steer || off.steer.lane == null, `tick ${i} lane ${off.steer && off.steer.lane}`);
+  }
+});
+
+test('F-63 (c) avoid off: walking 60 ticks into a still body never ends closer than hardCore', () => {
+  const H = S.hardCore(BODY_RADIUS);
+  const body = { id: 'b', x: 0, y: 3.0 };
+  const p = { id: 'p', x: 0, y: 0, avoid: false };
+  for (let i = 0; i < 60; i++) {
+    steerStep(p, { x: 0, y: 8, key: 'k', ignore: null }, [p, body], Math.min(6 * DT, 8 - p.y), DT, BODY_RADIUS);
+    const d = Math.hypot(p.x - body.x, p.y - body.y);
+    assert.ok(d >= H - 1e-9, `tick ${i} d ${d} < H ${H}`);
+  }
+  assert.ok(p.y > 1.5, `walked up to the body, y ${p.y}`);
+});
+
+test('F-63 (d) avoid true and avoid unset give bit-for-bit the same steps', () => {
+  const body = { id: 'b', x: 0, y: 1.0 };
+  const walk = (avoid) => {
+    const p = { id: 'p', x: 0, y: 0 };
+    if (avoid !== undefined) p.avoid = avoid;
+    const pos = [];
+    for (let i = 0; i < 10; i++) { call(p, { x: 0, y: 8 }, [body]); pos.push([p.x, p.y]); }
+    return { pos, steer: p.steer };
+  };
+  const unset = walk(undefined), yes = walk(true);
+  assert.deepEqual(yes, unset);
+  assert.ok(unset.steer && unset.steer.side !== 0, 'the scenario steers');
+});

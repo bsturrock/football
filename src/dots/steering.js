@@ -42,6 +42,7 @@
 //    the plain-hit detour never points against the goal; its backward part is
 //    dropped, leaving a sideways slide (side, flips and release rules unchanged).
 //    ceiling (number, opt-in): the step never ends at a y greater than it (see the step's end).
+//    p.avoid === false (test switch, F-63): no detours, lanes or flips; contact still resolved.
 export const AVOID_CLEARANCE = 0.3;
 export const LOOKAHEAD = 4.0;
 export const RELEASE_MARGIN = 0.3;
@@ -154,7 +155,10 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   // the mesh) at shoulder width and squeezes only past bodies in his way.
   const contact = (o) => (goal.ignore != null && o.id === goal.ignore ? 2 * radius : H);
 
+  // p.avoid === false (F-63 test switch): no body is ever in his way, so no detour, lane or flip; clampStep still applies.
+  const noAvoid = p.avoid === false;
   const firstObstacle = (width) => {
+    if (noAvoid) return null;
     let best = null, bestT = Infinity, bestLat = 0;
     const lim = Math.min(LOOKAHEAD, D);
     for (const o of players) {
@@ -191,6 +195,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
 
   // A recorded lane stays valid while both bodies are still ahead.
   let laneMid = null, threading = false, laneBodies = null;
+  if (noAvoid && p.steer) p.steer.lane = null;
   if (p.steer && p.steer.lane) {
     const a = byId(p.steer.lane[0]), b = byId(p.steer.lane[1]);
     const blockPair = a && b && (a.block?.target === b.id || b.block?.target === a.id);
