@@ -6,8 +6,8 @@ import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { steerStep, MAX_AVOID_DV, MAX_FLIPS } from '../src/dots/steering.js';
 
 // T-59: an offensive lineman climbing to a linebacker who comes downhill or turns to pursue moves on a
-// smooth path. Same span and reversal rule as test/zone-play.test.js 'F-55 #6d: a climber's path does
-// not wobble' and the 'F-55 #9' lateral jump bound (test/squeeze-momentum.test.js).
+// smooth path. Test (a) only reports the climber wobble (judged by eye, F-58 #8); test (b) is a physics
+// cap and stays a gate. MAX_JUMP and DEAD are reporting thresholds in test (a).
 const DT = 1 / 60;
 const MAX_JUMP = 1.5; // yd/s per tick (F-55 #9)
 const DEAD = 0.3; // yd/s: |vel.x| at or under this is no direction (F-55 #6d)
@@ -65,27 +65,29 @@ const judgeSpan = (sp, field = 'vx') => {
   return { flips, maxdvx, at };
 };
 
-// Judged spans: only climbs where the chased LB's own vel.x never reverses (same 0.3 dead band). Where the
-// LB himself zigzags (the lbFills pursue goal jumps in defense.js, e.g. under43 L1), a climber chasing his
-// intercept follows that zigzag, which is not a steering wobble. T-63 removes this exclusion after T-57
-// fixes the LB pursue target.
-test('T-59: climbers follow a downhill or pursuing LB smoothly', (t) => {
-  let spans = 0, skipped = 0;
-  const bad = [];
+// The climb wobble is judged by eye (F-58 #8, human rule: no numeric gates on looks); this test only reports
+// the numbers. Same span and reversal rule as test/zone-play.test.js 'F-55 #6d' and the 'F-55 #9' jump bound,
+// which stay as gates on their own cases.
+test('T-59: climber paths following a downhill or pursuing LB (info: reversals and lateral jumps)', (t) => {
+  const rows = [];
   for (const [front, personnel, playside, script] of climbCases()) {
     for (const sp of climbSpans(front, personnel, playside, script)) {
       const name = `${front} ${personnel} ${playside} ${script ?? 'none'} ${sp.climber} -> ${sp.lbId}`;
-      const lbFlips = judgeSpan(sp, 'lbvx').flips;
-      if (lbFlips > 0) { skipped++; t.diagnostic(`${name}: not judged, the LB's vel.x reversed ${lbFlips} times`); continue; }
-      spans++;
       const { flips, maxdvx, at } = judgeSpan(sp);
-      t.diagnostic(`${name}: ${sp.ticks.length} ticks, ${flips} x-reversals, max |dvx| ${maxdvx.toFixed(2)}`);
-      if (flips > 1 || maxdvx > MAX_JUMP + 1e-9) bad.push(`${name}: vel.x reversed ${flips} times, max |dvx| ${maxdvx.toFixed(2)} at tick ${at}`);
+      const lbFlips = judgeSpan(sp, 'lbvx').flips;
+      const line = `${name}: ${sp.ticks.length} ticks, ${flips} x-reversals, max |dvx| ${maxdvx.toFixed(2)} at tick ${at}, LB reversals ${lbFlips}`;
+      rows.push({ flips, maxdvx, line });
+      t.diagnostic(line);
     }
   }
-  t.diagnostic(`${spans} spans judged, ${skipped} not judged (the LB reversed)`);
+  const spans = rows.length;
+  const reversing = rows.filter((r) => r.flips > 1).length;
+  const jumping = rows.filter((r) => r.maxdvx > MAX_JUMP).length;
+  const worst = [...rows].sort((a, b) => b.flips - a.flips || b.maxdvx - a.maxdvx).slice(0, 5);
+  t.diagnostic(`summary: ${spans} spans, ${reversing} with more than 1 x-reversal, ${jumping} with a jump over ${MAX_JUMP} yd/s a tick`);
+  t.diagnostic('worst 5 spans (flips desc, then max |dvx| desc):');
+  for (const r of worst) t.diagnostic(`  ${r.line}`);
   assert.ok(spans > 0);
-  assert.equal(bad.length, 0, bad.join('\n'));
 });
 
 test('T-59: a mover coming off a detour at speed changes velocity by at most MAX_AVOID_DV a step while a body was in play', () => {
