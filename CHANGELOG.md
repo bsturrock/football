@@ -59,3 +59,4 @@
 - 2026-10-12 F-60 Blocking rules review: one climber-drop rule, dead modes out, latch and momentum fixes (R-19) cf582da
 - 2026-10-12 F-61 DL pass-rush moves: swim and power with success-rate ratings (R-13) e9816da
 - 2026-10-12 F-62 DL move tries resolve to won or lost on a played snap (R-20) e76f6de
+- 2026-10-12 F-64 Dots: one matchup only, 11 personnel vs nickel 4-3 (R-26) e9318d7
