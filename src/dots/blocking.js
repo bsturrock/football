@@ -621,17 +621,17 @@ function freeStep(d, goal, ballPos, rate, players, dt) {
 // the new target, so their neighbours keep splitting overlaps with them as before.
 const closingLeavers = new WeakSet();
 
-export function stepBlocking(players, ballPos, dt, ctx) {
-  const start = players.map((p) => ({ x: p.x, y: p.y }));
-  const engagedAtStart = players.filter((p) => p.block?.engaged).map((p) => p.id);
-  const stepped = new Map(); // free mover id -> velocity of his own step this pass (before any push-out)
+// The retarget rule: the scheme's switches are applied before anything moves.
+function applyRetargets(players, ballPos, ctx) {
   if (ctx && ctx.rule) {
     for (const e of ctx.rule(players, ballPos, ctx)) {
       setBlock(players, e.blocker, e.target, e.angle ?? 'straight');
     }
   }
+}
 
-  const fight = ctx?.fightBlocks !== false;
+// The id of the player standing on the ball, or null.
+function findHolder(players, ballPos) {
   let holderId = null;
   for (const p of players) {
     if (Math.hypot(p.x - ballPos.x, p.y - ballPos.y) < 1e-9) {
@@ -639,10 +639,13 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       break;
     }
   }
+  return holderId;
+}
 
-  const before = new Set(players.filter((p) => p.block?.engaged).map((p) => p.id));
-  const justEngaged = new Set();
-
+// Unengaged blockers approach their follow spots (steerStep), then each tries to engage; the engage-time
+// resets are applied on the hit. One loop: a blocker's step is seen by the ones after him.
+function approachAndEngage(players, ballPos, dt, ctx, s) {
+  const { stepped, justEngaged } = s;
   for (const b of players) {
     if (!b.block || b.block.engaged || b.block.released === 'past') continue;
     const spot = contactSpot(players, b);
@@ -686,7 +689,10 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       b.block.cool = Math.max(0, b.block.cool - dt);
     }
   }
+}
 
+// Engaged foot blockers: footPush, and the foot latch is written back.
+function footPass(players, dt, ctx) {
   for (const b of players) {
     const foot = b.block?.foot;
     if (!foot || !b.block.engaged) continue;
@@ -698,7 +704,10 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     foot.sealed = sealed;
     foot.sealSide = sealSide;
   }
+}
 
+// The hit on engaging: both bodies get the contact impulse, delivered over IMPACT_TIME.
+function engageImpulses(players, justEngaged) {
   for (const b of players) {
     if (!justEngaged.has(b.id)) continue;
     const d = byId(players, b.block.target);
@@ -708,9 +717,12 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       p.impact = { ax: old.ax + dv.x / IMPACT_TIME, ay: old.ay + dv.y / IMPACT_TIME, t: IMPACT_TIME };
     }
   }
+}
 
-  const kicked = new Map(); // defender id -> velocity his hit added this pass
-  const holders = new Map(); // engaged defender id -> ids of the blockers engaged on him this pass
+// Defenders: a free one steps (stepped); an engaged one takes his hits (kicked, holders, carryVelocity
+// with impact and bump).
+function defenderPass(players, ballPos, dt, ctx, s) {
+  const { stepped, kicked, holders, holderId, fight } = s;
   for (const d of players) {
     if (!isDefense(d)) continue;
     if ((d.shedFree ?? 0) > 0) d.shedFree = Math.max(0, d.shedFree - dt);
@@ -754,17 +766,23 @@ export function stepBlocking(players, ballPos, dt, ctx) {
       if (dt > 0) stepped.set(d.id, { x: (d.x - x0) / dt, y: (d.y - y0) / dt });
     }
   }
+}
 
+// Blockers engaged at the start of the tick count the time held and the time winning.
+function holdTimers(players, dt, before) {
   for (const b of players) {
     if (!b.block || !before.has(b.id)) continue;
     const T = byId(players, b.block.target);
     b.block.held += dt;
     b.block.winT = T.react?.state === 'winning' ? b.block.winT + dt : 0;
   }
+}
 
-  // Engaged blockers ride their target (his displacement this pass) plus a critically damped
-  // correction toward the follow spot. Only blockers' impacts are cleared here; a defender's is
-  // cleared in the defender loop.
+// Engaged blockers ride their target (his displacement this pass) plus a critically damped
+// correction toward the follow spot. Only blockers' impacts are cleared here; a defender's is
+// cleared in the defender loop.
+function ridePass(players, dt, s) {
+  const { start, justEngaged, kicked } = s;
   for (const b of players) {
     if (!b.block || !b.block.engaged) {
       if (isBlocker(b) && b.impact) b.impact = null;
@@ -822,7 +840,12 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     b.y += my;
     clampBody(b);
   }
+}
 
+// Release: a blocker whose block ends (canRelease) gets the release-time resets. Returns `leaving`, the
+// ids that were engaged at the start and are not now, plus the closing leavers still on their way.
+function releasePass(players, ballPos, s) {
+  const { justEngaged, fight, engagedAtStart } = s;
   for (const b of players) {
     if (!b.block || !b.block.engaged || justEngaged.has(b.id)) continue;
     const reason = canRelease(b, byId(players, b.block.target), ballPos, fight);
@@ -845,14 +868,16 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     if (!p.block || p.block.engaged || p.block.released) closingLeavers.delete(p);
     else if (!leaving.includes(p.id)) leaving.push(p.id);
   }
-  const pushes = new Map();
-  const out = separateBodies(players, dt, leaving, pushes);
-  // Contact with any body but his own blockers is inelastic: a push-out stops the engaged
-  // defender at that body (his velocity loses only the part pointing into it) and never becomes his
-  // own momentum. The push-out itself is not in d.carry (p.vel measures it, d.carry does not); the
-  // stop is a bump spread over IMPACT_TIME like a hit (no snap, PRINCIPLES #11), judged on his
-  // post-hit velocity (carry plus what the hit and earlier bumps still deliver), so a body he keeps
-  // pressing into is not counted twice. Contact with his own blockers is the block itself.
+  return leaving;
+}
+
+// Contact with any body but his own blockers is inelastic: a push-out stops the engaged
+// defender at that body (his velocity loses only the part pointing into it) and never becomes his
+// own momentum. The push-out itself is not in d.carry (p.vel measures it, d.carry does not); the
+// stop is a bump spread over IMPACT_TIME like a hit (no snap, PRINCIPLES #11), judged on his
+// post-hit velocity (carry plus what the hit and earlier bumps still deliver), so a body he keeps
+// pressing into is not counted twice. Contact with his own blockers is the block itself.
+function contactStopEngaged(players, pushes, holders) {
   for (const d of players) {
     const own = holders.get(d.id);
     const got = pushes.get(d.id);
@@ -871,16 +896,19 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const left = impactLeft(d.bump);
     if (rb.x !== left.x || rb.y !== left.y) d.bump = { ax: rb.x / IMPACT_TIME, ay: rb.y / IMPACT_TIME, t: IMPACT_TIME };
   }
-  // T-72 (F-55 #9): a free mover's own velocity (p.selfVel, the reference steerStep reads) is his own
-  // step, not the measured velocity: a push-out from a body that moves into him (a free LB closing on
-  // the engaged RT's side) differs from his last step by ~0.8 yd/s, broke the carry (|vm - carried| >
-  // MAX_AVOID_DV) and let the next step swing against a reference that held the push. Free blockers
-  // (closing on a target) now keep selfVel too, so the cap and carry judge his steps against each other.
-  // A free defender's own velocity (his planted-cut reference) is his own
-  // step, and body contact is inelastic for him too: a push-out takes off at most the velocity it
-  // applied (len / dt) from the part of his step pointing into that body, and never becomes his
-  // momentum (p.vel, the measurement, still holds the push-out). A graze keeps his speed; against a
-  // stationary body the steering clamp already stops his step, so he still loses the into component.
+}
+
+// T-72 (F-55 #9): a free mover's own velocity (p.selfVel, the reference steerStep reads) is his own
+// step, not the measured velocity: a push-out from a body that moves into him (a free LB closing on
+// the engaged RT's side) differs from his last step by ~0.8 yd/s, broke the carry (|vm - carried| >
+// MAX_AVOID_DV) and let the next step swing against a reference that held the push. Free blockers
+// (closing on a target) now keep selfVel too, so the cap and carry judge his steps against each other.
+// A free defender's own velocity (his planted-cut reference) is his own
+// step, and body contact is inelastic for him too: a push-out takes off at most the velocity it
+// applied (len / dt) from the part of his step pointing into that body, and never becomes his
+// momentum (p.vel, the measurement, still holds the push-out). A graze keeps his speed; against a
+// stationary body the steering clamp already stops his step, so he still loses the into component.
+function contactStopFree(players, dt, pushes, stepped) {
   for (const p of players) {
     const own = p.block?.engaged ? null : stepped.get(p.id);
     if (!own) {
@@ -903,10 +931,56 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
     p.selfVel = own;
   }
+}
+
+// Velocity measurement: p.vel is the displacement over the tick, push-outs included.
+function measure(players, dt, start) {
   if (dt > 0) {
     players.forEach((p, i) => {
       p.vel = { x: (p.x - start[i].x) / dt, y: (p.y - start[i].y) / dt };
     });
   }
+}
+
+export function stepBlocking(players, ballPos, dt, ctx) {
+  const s = {
+    start: players.map((p) => ({ x: p.x, y: p.y })),
+    engagedAtStart: players.filter((p) => p.block?.engaged).map((p) => p.id),
+    stepped: new Map(), // free mover id -> velocity of his own step this pass (before any push-out)
+    kicked: new Map(), // defender id -> velocity his hit added this pass
+    holders: new Map(), // engaged defender id -> ids of the blockers engaged on him this pass
+    justEngaged: new Set(),
+    fight: false,
+    holderId: null,
+    before: null,
+  };
+  // 1. the retarget rule
+  applyRetargets(players, ballPos, ctx);
+  // 2. who holds the ball, and whether defenders fight blocks
+  s.fight = ctx?.fightBlocks !== false;
+  s.holderId = findHolder(players, ballPos);
+  s.before = new Set(players.filter((p) => p.block?.engaged).map((p) => p.id));
+  // 3-4. unengaged blockers approach and engage
+  approachAndEngage(players, ballPos, dt, ctx, s);
+  // 5. engaged foot blockers
+  footPass(players, dt, ctx);
+  // 3b. the hit on engaging
+  engageImpulses(players, s.justEngaged);
+  // 6. defenders step or take their hits
+  defenderPass(players, ballPos, dt, ctx, s);
+  holdTimers(players, dt, s.before);
+  // 7. engaged blockers ride their target
+  ridePass(players, dt, s);
+  // 8. release
+  const leaving = releasePass(players, ballPos, s);
+  // 9. separation
+  const pushes = new Map();
+  const out = separateBodies(players, dt, leaving, pushes);
+  // 10. engaged defenders stop at bodies that are not their blockers
+  contactStopEngaged(players, pushes, s.holders);
+  // 11. free movers keep their own step as selfVel
+  contactStopFree(players, dt, pushes, s.stepped);
+  // 12. measure velocities
+  measure(players, dt, s.start);
   return out;
 }
