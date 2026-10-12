@@ -54,3 +54,4 @@
 - 2026-10-12 F-55 Zone rules v2: post-snap lineman rules (four eyes, track, footwork, hinge, climb path) (R-8) 180a70f
 - 2026-10-12 F-56 Defensive calls as data and DL hat reads (R-9) c415cc1
 - 2026-10-12 F-58 LB keys, flow fits, climbers and pursuit angles (R-9) aa8540f
+- 2026-10-12 F-57 RB read engine: bang, bend, bounce (R-10) 5a697b3
