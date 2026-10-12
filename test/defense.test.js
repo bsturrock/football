@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
   LB_READ_TIME, KEY_MOVE, FLOW_MAX, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, intercept, CONTAIN_DEPTH, CONTAIN_WIDTH, CONTAIN_SPEED,
+  MAN_ROLES, PERSONNEL_CALLS, callFor, shiftGap,
 } from '../src/dots/defense.js';
+import { createPlay } from '../src/dots/play.js';
 import { readFront } from '../src/dots/front.js';
 import { numberPlay } from '../src/dots/numbering.js';
 import { buildLineup } from '../src/dots/roster.js';
@@ -606,4 +608,112 @@ test('F-43 #2: the get-off aim is the live gap middle, also while the gap moves'
   g = GOALS.penetrate(d, e, env());
   near(g.x, mid());
   near(g.y, LOS - PENETRATE_DEPTH);
+});
+
+test('T-48 #1: validateCall accepts every CALLS key; bad row fields and man values throw', () => {
+  for (const k of Object.keys(CALLS)) validateCall(k);
+  const ok = { who: 'lb', type: 'zone', key: 'triangle', fit: 'spill', cover: 'man', man: 'WR', technique: 'twoGap', blitz: false, slant: 'back' };
+  validateRows('t', [ok]);
+  validateRows('t', [{ who: 'dl', type: 'attack' }]);
+  for (const [field, value] of [['key', 'x'], ['fit', 'x'], ['cover', 'x'], ['technique', 'x'], ['slant', 'x'], ['blitz', 'yes'], ['man', 'QB']]) {
+    assert.throws(() => validateRows('t', [{ who: 'dl', type: 'attack', [field]: value }]), new RegExp(`bad ${field} "${value}"`), field);
+  }
+  assert.throws(() => validateRows('t', [{ who: 'lb', type: 'zone', cover: 'man' }]), /bad man/);
+  assert.throws(() => validateRows('t', [{ who: 'lb', type: 'zone', cover: 'man', man: 'DE' }]), /bad man/);
+  for (const r of MAN_ROLES) validateRows('t', [{ who: 'lb', type: 'zone', cover: 'man', man: r }]);
+  assert.deepEqual(MAN_ROLES, ['RB', 'TE', 'FB', 'WR']);
+});
+
+test('T-48 #2: startDefense with each call sends every row field to assign', () => {
+  for (const key of Object.keys(CALLS)) {
+    const s = setup({ call: key });
+    for (const f of s.front.defenders) {
+      const d = by(s.players, f.id);
+      const row = CALLS[key].rows.find((r) => WHO[r.who](d, f, s.front, s.players));
+      if (!row || !s.defense.agents[f.id]) continue;
+      const { who, ...rest } = row;
+      assert.deepEqual(s.defense.agents[f.id].assign, rest, `${key} ${f.id}`);
+    }
+  }
+  const n = setup({ call: 'nickel' });
+  const playLB = n.front.defenders.find((f) => WHO.playLB(by(n.players, f.id), f, n.front, n.players));
+  const backLB = n.front.defenders.find((f) => WHO.backLB(by(n.players, f.id), f, n.front, n.players));
+  assert.ok(playLB && backLB, 'nickel front has a playside and a backside LB');
+  assert.equal(n.defense.agents[playLB.id].assign.key, 'guard');
+  assert.equal(n.defense.agents[backLB.id].assign.key, 'triangle');
+  assert.equal(n.defense.agents[playLB.id].assign.cover, 'zone');
+  assert.equal(n.defense.call, 'nickel');
+});
+
+test('T-48 #3: blitz call makes the playside LB blitz from the snap; a script still wins', () => {
+  const p = createPlay(LOS, 'insideZone', { call: 'blitz' });
+  p.snap();
+  const id = Object.keys(p.defense.agents).find((k) => p.defense.agents[k].assign?.blitz === true);
+  assert.ok(id, 'a blitz agent exists');
+  assert.equal(p.defense.agents[id].behavior, 'blitz');
+  assert.equal(p.defense.agents[id].assign.cover, 'run');
+  p.step(1 / 60);
+  assert.equal(p.defense.agents[id].state, 'blitz');
+  const q = createPlay(LOS, 'insideZone', { call: 'blitz', script: 'lbSits' });
+  q.snap();
+  assert.equal(q.defense.agents[id].behavior, 'sit', 'script row overrides the call flag');
+  q.step(1 / 60);
+  assert.equal(q.defense.agents[id].state, 'sit');
+});
+
+test('T-48 #4: slant call sends each non-edge DL on a slant playside, fit shifted one gap', () => {
+  const s = setup({ call: 'slant' });
+  let n = 0;
+  for (const f of s.front.defenders) {
+    const d = by(s.players, f.id);
+    if (!WHO.dl(d, f) || f.id === s.front.edge) continue;
+    const e = s.defense.agents[f.id];
+    assert.equal(e.behavior, 'slant', f.id);
+    assert.deepEqual(e.fit, shiftGap(f.fit, 'play'), f.id);
+    assert.equal(e.at, 0, f.id);
+    n++;
+  }
+  assert.ok(n > 0, 'the front has non-edge DL');
+  assert.equal(s.defense.agents[s.front.edge].behavior, 'contain');
+});
+
+test('T-48 #5: callFor and PERSONNEL_CALLS: nickel personnel plays nickel, others and null play base', () => {
+  assert.equal(callFor('nickel'), 'nickel');
+  assert.equal(callFor('base11'), 'base');
+  assert.equal(callFor(null), 'base');
+  assert.equal(callFor(undefined), 'base');
+  assert.equal(callFor('constructor'), 'base');
+  assert.deepEqual(PERSONNEL_CALLS, { nickel: 'nickel' });
+});
+
+test('T-48 #6: createPlay call defaults, explicit call, setCall presnap only, unknown call throws', () => {
+  assert.equal(createPlay(LOS, 'insideZone', { formation: '11' }).currentCall(), 'nickel');
+  assert.equal(createPlay(LOS, 'insideZone', { defPersonnel: 'base11' }).currentCall(), 'base');
+  assert.equal(createPlay(LOS, 'insideZone').currentCall(), 'base');
+  assert.equal(createPlay(LOS, 'insideZone', { formation: '11', call: 'twoGap' }).currentCall(), 'twoGap');
+  assert.throws(() => createPlay(LOS, 'insideZone', { call: 'zz' }), /unknown call/);
+  const p = createPlay(LOS, 'insideZone', { formation: '11' });
+  assert.equal(p.setCall('blitz'), 'blitz');
+  assert.equal(p.currentCall(), 'blitz');
+  assert.equal(p.setCall('zz'), false);
+  assert.equal(p.currentCall(), 'blitz', 'an unknown key changes nothing');
+  assert.equal(p.setCall(null), null);
+  assert.equal(p.currentCall(), 'nickel');
+  p.snap();
+  assert.equal(p.setCall('base'), false, 'no change after the snap');
+  assert.equal(p.currentCall(), 'nickel');
+  assert.equal(p.defense.call, p.currentCall());
+});
+
+test('T-48 #7: stepDefense runs with and without cues; every CALLS key snaps and steps 120 ticks', () => {
+  const s = setup();
+  const withCues = stepDefense(s.players, s.defense, { run: s.run, ballPos: s.ball, cues: () => null }, 0.05);
+  const without = stepDefense(s.players, s.defense, { run: s.run, ballPos: s.ball }, 0.05);
+  assert.deepEqual(Object.keys(withCues).sort(), Object.keys(without).sort());
+  for (const call of Object.keys(CALLS)) {
+    const p = createPlay(LOS, 'insideZone', { call });
+    p.snap();
+    for (let i = 0; i < 120; i++) p.step(1 / 60);
+    assert.equal(p.defense.call, call);
+  }
 });

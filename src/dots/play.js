@@ -12,7 +12,7 @@ import { readFront } from './front.js';
 import { ACCEL_TAU } from './steering.js';
 import { playEnd } from './tackle.js';
 import { initFacing, stepFacing } from './facing.js';
-import { SCRIPTS, startDefense, stepDefense } from './defense.js';
+import { CALLS, SCRIPTS, callFor, startDefense, stepDefense } from './defense.js';
 import {
   BODY_RADIUS,
   assignBlocks,
@@ -41,9 +41,11 @@ const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zone
 
 // formation: a FORMATIONS key (full-11 offense), or null. defPersonnel: a DEF_PERSONNEL key, or null
 // for the FRONTS defense. Left undefined, it takes the formation's default defense, unless the caller passed front.
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined, script = null, trace = false, playside = undefined } = {}) {
+// call: a CALLS key, or null for the default call by defensive personnel (callFor).
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, formation = null, defPersonnel = undefined, script = null, call = null, trace = false, playside = undefined } = {}) {
   const sideKey = playside === undefined ? PLAYS[playKey].playside ?? null : playside;
   if (sideKey !== null && !Object.hasOwn(PLAYSIDE_SIGN, sideKey)) throw new Error(`createPlay: bad playside ${playside}`);
+  if (call !== null && !Object.hasOwn(CALLS, call)) throw new Error(`createPlay: unknown call "${call}"`);
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const defP = defPersonnel !== undefined ? defPersonnel : (front === undefined ? FORMATIONS[formation]?.defense ?? null : null);
   const play = {
@@ -58,6 +60,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     formation,
     defPersonnel: defP,
     script,
+    call,
     accel,
     tackles,
     // off = defenders never win leverage or shed; blocks still release 'past' and 'lost'.
@@ -133,6 +136,19 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     play.reset();
     return key;
   };
+
+  // Pre-snap defensive call, a CALLS key or null (null = the call for the defensive personnel).
+  // Only changes while the ball is presnap.
+  play.setCall = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (key !== null && !Object.hasOwn(CALLS, key)) return false;
+    play.call = key;
+    play.reset();
+    return key;
+  };
+
+  // The call the defence plays: the explicit call, else the call for its personnel.
+  play.currentCall = () => play.call ?? callFor(play.defPersonnel);
 
   // Pre-snap offensive personnel, a key of PERSONNEL. Only changes while the ball is presnap.
   // Offensive personnel: no-TE look or attached TE.
@@ -242,6 +258,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
         los,
         carrierId: play.run.carrier,
         script: play.script,
+        call: play.currentCall(),
       });
     }
     if (trace || play.run) {
@@ -297,7 +314,11 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
       }
     }
     ctx.defGoals = play.defense
-      ? stepDefense(play.players, play.defense, { run: play.run, ballPos: play.ballPosition() }, sdt)
+      ? stepDefense(play.players, play.defense, {
+        run: play.run,
+        ballPos: play.ballPosition(),
+        cues: (id) => (play.perception ? cuesFor(play.perception, id) : null),
+      }, sdt)
       : null;
     ctx.committed = play.defense ? play.defense.committed : null;
     ctx.rule = play.retargetRule;

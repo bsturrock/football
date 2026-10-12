@@ -216,21 +216,73 @@ export const BEHAVIORS = Object.freeze({
   },
 });
 
+// The offensive roles a `cover: 'man'` row may name (the nearest one of that role is the man).
+export const MAN_ROLES = Object.freeze(['RB', 'TE', 'FB', 'WR']);
+
 // A call is a data table of assignment rows. A new call is a new key; per-player changes are
 // rows (selectors in WHO) or a roster row's `def.assign`. LB types belong to the LB AI
 // (R-43 edits only the `lb` row and adds LB types). Row order decides: first match wins.
 // The edge row comes first so the backside edge defender keeps contain whatever his role
 // (odd34's edge is an LB).
+// Row fields beyond who/type/gap/depth (all optional; validateRows checks each value):
+//   key       'guard' | 'triangle'   the read key the defender reads (guard: the gap, triangle: the back's key)
+//   fit       'spill' | 'box'        the gap fit: spill to the ball's side, or stay in the box
+//   cover     'run' | 'zone' | 'man' the coverage duty; 'man' names the offensive MAN_ROLES role in `man`
+//   technique 'oneGap' | 'twoGap'    one-gap penetration or two-gap control
+//   blitz     boolean                a blitz: behaviour 'blitz' from the snap (flag, see startDefense)
+//   slant     'play' | 'back'        a slant one gap over, playside or backside (flag, see startDefense)
 export const CALLS = Object.freeze({
   base: Object.freeze({
     name: 'Base',
     rows: Object.freeze([
-      Object.freeze({ who: 'edge', type: 'contain' }),
-      Object.freeze({ who: 'dl', type: 'attack', gap: 'fit' }),
-      Object.freeze({ who: 'lb', type: 'zone', depth: ZONE_DEPTH }),
+      Object.freeze({ who: 'edge', type: 'contain', fit: 'box' }),
+      Object.freeze({ who: 'dl', type: 'attack', gap: 'fit', technique: 'oneGap', fit: 'spill' }),
+      Object.freeze({ who: 'lb', type: 'zone', depth: ZONE_DEPTH, key: 'guard', cover: 'zone' }),
+    ]),
+  }),
+  nickel: Object.freeze({
+    name: 'Nickel',
+    rows: Object.freeze([
+      Object.freeze({ who: 'edge', type: 'contain', fit: 'box' }),
+      Object.freeze({ who: 'dl', type: 'attack', gap: 'fit', technique: 'oneGap', fit: 'spill' }),
+      Object.freeze({ who: 'playLB', type: 'zone', depth: ZONE_DEPTH, key: 'guard', cover: 'zone' }),
+      Object.freeze({ who: 'backLB', type: 'zone', depth: ZONE_DEPTH, key: 'triangle', cover: 'zone' }),
+      Object.freeze({ who: 'lb', type: 'zone', depth: ZONE_DEPTH, key: 'guard', cover: 'zone' }),
+    ]),
+  }),
+  twoGap: Object.freeze({
+    name: 'Two-gap',
+    rows: Object.freeze([
+      Object.freeze({ who: 'edge', type: 'contain', fit: 'box' }),
+      Object.freeze({ who: 'dl', type: 'attack', gap: 'fit', technique: 'twoGap', fit: 'box' }),
+      Object.freeze({ who: 'lb', type: 'zone', depth: ZONE_DEPTH, key: 'guard', cover: 'zone' }),
+    ]),
+  }),
+  slant: Object.freeze({
+    name: 'Slant (DL slant playside)',
+    rows: Object.freeze([
+      Object.freeze({ who: 'edge', type: 'contain', fit: 'box' }),
+      Object.freeze({ who: 'dl', type: 'attack', gap: 'fit', technique: 'oneGap', fit: 'spill', slant: 'play' }),
+      Object.freeze({ who: 'lb', type: 'zone', depth: ZONE_DEPTH, key: 'guard', cover: 'zone' }),
+    ]),
+  }),
+  blitz: Object.freeze({
+    name: 'Blitz (playside LB)',
+    rows: Object.freeze([
+      Object.freeze({ who: 'edge', type: 'contain', fit: 'box' }),
+      Object.freeze({ who: 'dl', type: 'attack', gap: 'fit', technique: 'oneGap', fit: 'spill' }),
+      Object.freeze({ who: 'playLB', type: 'zone', depth: ZONE_DEPTH, key: 'guard', cover: 'run', blitz: true }),
+      Object.freeze({ who: 'lb', type: 'zone', depth: ZONE_DEPTH, key: 'guard', cover: 'zone' }),
     ]),
   }),
 });
+
+// Defensive personnel (a DEF_PERSONNEL key) -> the call it plays by default. Others play 'base'.
+export const PERSONNEL_CALLS = Object.freeze({ nickel: 'nickel' });
+
+export function callFor(defPersonnel) {
+  return defPersonnel != null && Object.hasOwn(PERSONNEL_CALLS, defPersonnel) ? PERSONNEL_CALLS[defPersonnel] : 'base';
+}
 
 // Walks one gap over along the line. Gaps in playside order: back F..B, back A, play A, play B..F.
 export function shiftGap(fit, dir) {
@@ -336,11 +388,27 @@ export function pickAssign(rows, d, f, front, players) {
   return rest;
 }
 
+// Optional row fields and their allowed values; an absent field is fine.
+const ROW_VALUES = Object.freeze({
+  key: Object.freeze(['guard', 'triangle']),
+  fit: Object.freeze(['spill', 'box']),
+  cover: Object.freeze(['run', 'zone', 'man']),
+  technique: Object.freeze(['oneGap', 'twoGap']),
+  slant: Object.freeze(['play', 'back']),
+});
+
 export function validateRows(name, rows) {
   for (const row of rows) {
     if (!Object.hasOwn(WHO, row.who)) throw new Error(`defense: call "${name}" unknown who "${row.who}"`);
     if (!Object.hasOwn(ASSIGNMENTS, row.type)) throw new Error(`defense: call "${name}" unknown type "${row.type}"`);
     validateBehavior(ASSIGNMENTS[row.type].behavior);
+    for (const [field, allowed] of Object.entries(ROW_VALUES)) {
+      if (row[field] !== undefined && !allowed.includes(row[field])) throw new Error(`defense: call "${name}" bad ${field} "${row[field]}"`);
+    }
+    if (row.blitz !== undefined && typeof row.blitz !== 'boolean') throw new Error(`defense: call "${name}" bad blitz "${row.blitz}"`);
+    if (row.man !== undefined || row.cover === 'man') {
+      if (!MAN_ROLES.includes(row.man)) throw new Error(`defense: call "${name}" bad man "${row.man}"`);
+    }
   }
 }
 
@@ -381,7 +449,9 @@ export function startDefense(players, front, { los, call = 'base', carrierId, sc
     let assign = d.def?.assign ?? pickAssign(table.rows, d, f, front, players);
     if (assign && !Object.hasOwn(ASSIGNMENTS, assign.type)) throw new Error(`defense: unknown type "${assign.type}"`);
     if (assign?.type === 'zone' && assign.depth === undefined) assign = { ...assign, depth: ZONE_DEPTH };
-    const name = srow ? srow.behavior : (d.def?.behavior ?? (assign ? ASSIGNMENTS[assign.type].behavior : null) ?? ROLE_BEHAVIORS[d.role] ?? null);
+    // A call's blitz or slant flag picks the behaviour after the script row and def.behavior.
+    const flag = assign?.blitz === true ? 'blitz' : assign?.slant ? 'slant' : null;
+    const name = srow ? srow.behavior : (d.def?.behavior ?? flag ?? (assign ? ASSIGNMENTS[assign.type].behavior : null) ?? ROLE_BEHAVIORS[d.role] ?? null);
     if (!name) continue;
     if (!checked.has(name)) { validateBehavior(name); checked.add(name); }
     const agent = {
@@ -399,6 +469,9 @@ export function startDefense(players, front, { los, call = 'base', carrierId, sc
       if (srow.slant) agent.fit = shiftGap(agent.fit, srow.slant);
       agent.at = srow.at ?? 0;
       agent.script = srow.who;
+    } else if (flag && !d.def?.behavior) {
+      agent.at = 0;
+      if (flag === 'slant') agent.fit = shiftGap(agent.fit, assign.slant);
     }
     defense.agents[d.id] = agent;
   }
@@ -424,8 +497,9 @@ export function startDefense(players, front, { los, call = 'base', carrierId, sc
   return defense;
 }
 
-export function stepDefense(players, defense, { run, ballPos }, dt) {
+export function stepDefense(players, defense, { run, ballPos, cues }, dt) {
   defense.t += dt;
+  const cueOf = cues ?? (() => null);
   defense.ballV = defense.ballPrev && dt > 0
     ? { x: (ballPos.x - defense.ballPrev.x) / dt, y: (ballPos.y - defense.ballPrev.y) / dt }
     : { x: 0, y: 0 };
@@ -435,7 +509,7 @@ export function stepDefense(players, defense, { run, ballPos }, dt) {
     const d = players.find((p) => p.id === id);
     if (!d) continue;
     const behavior = BEHAVIORS[e.behavior];
-    const env = { players, defense, run, ballPos, los: defense.los, behavior };
+    const env = { players, defense, run, ballPos, los: defense.los, behavior, cues: cueOf };
     e.st += dt;
     const hit = behavior.states[e.state].exits.find((x) => TRIGGERS[x.when](d, e, env));
     if (hit) { e.state = hit.to; e.st = 0; e.why = hit.when; }
