@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { FRONTS } from '../src/dots/roster.js';
-import { BODY_RADIUS } from '../src/dots/blocking.js';
+import { BODY_RADIUS, RELEASE_PAST } from '../src/dots/blocking.js';
 import { SCRIPTS } from '../src/dots/defense.js';
 import { footGoal, levelCeiling, LEVEL_LEAD, TECHNIQUES } from '../src/dots/technique.js';
 import { steerStep } from '../src/dots/steering.js';
@@ -77,6 +77,8 @@ function climbSpans(front, personnel, playside, script) {
         if (!sp) continue;
         if (m.block?.engaged || m.block?.target == null || m.block.target !== sp.lbId) { open.delete(key); continue; }
         const lb = play.player(sp.lbId);
+        // the ball is past the LB (blocking.js canEngage forbids engaging him from here): the climb is over
+        if (play.ballPosition().y >= lb.y + RELEASE_PAST) { open.delete(key); continue; }
         sp.ticks.push({ i, y: m.y, vx: m.vel.x, lb: lb.id, lby: lb.y });
       }
     }
@@ -93,6 +95,18 @@ test('F-57 #11b: a climber never climbs past his linebacker\'s level, every scri
     for (const front of Object.keys(FRONTS)) for (const personnel of ['noTe', 'te']) for (const playside of ['left', 'right']) {
       for (const sp of climbSpans(front, personnel, playside, script)) {
         spans++;
+        const k0 = sp.ticks[0];
+        if (k0 && !(k0.y <= k0.lby + BODY_RADIUS + 1e-9)) {
+          // the double drove his DL past the LB before he took a climb step: he cannot be held to the level
+          // he already started past; he must not climb any further
+          t.diagnostic(`already past: ${front} ${personnel} ${playside} script ${script}: ${sp.climber}>${sp.lbId} tick ${k0.i}, start margin ${(k0.y - (k0.lby + BODY_RADIUS)).toFixed(3)} yd`);
+          const up = sp.ticks.find((k) => !(k.y <= k0.y + 1e-9));
+          n += sp.ticks.length;
+          if (up) {
+            bad.push(`${front} ${personnel} ${playside} script ${script}: ${sp.climber} started past ${sp.lbId} at tick ${k0.i} (y ${k0.y.toFixed(3)}) and climbed further at tick ${up.i}: y ${up.y.toFixed(3)}`);
+          }
+          continue;
+        }
         let first = null;
         let past = 0;
         for (const k of sp.ticks) {
