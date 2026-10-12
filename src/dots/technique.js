@@ -14,7 +14,8 @@
 //   aim      fraction of the radius the aim point sits playside of the target spot
 //   drive    push mode once engaged: 'vertical', 'watch' (lean toward watched player) or
 //            'playside' (lean back and toward the play (side) by COMBO_LEAN; every blocker on the
-//            man shares the base (no blindside bend)) or 'wall' (lean toward the backside by
+//            man shares the base (no blindside bend); no row uses it since F-55 #4) or 'double'
+//            (straight upfield, hips together, with the same shared base as 'playside') or 'wall' (lean toward the backside by
 //            WALL_LEAN from straight upfield, to wall the man away from the play)
 //   next     technique entered after coming off onto a new target
 //   phases   pre-contact phases, in order ('step', 'aim', or 'hinge' for the cutoff wall spot)
@@ -52,7 +53,7 @@ export const TECHNIQUES = Object.freeze({
   // none = short zone step.
   zone: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 55 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
   // Same as zone for the covered member; none = the uncovered helper's short step playside, shoulders square.
-  combo: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 45 }, aim: 0.5, drive: 'playside', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  combo: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 45 }, aim: 0.5, drive: 'double', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   // F-55 #5. Step inside and flat to protect the inside gap, then hinge out to wall the end man off.
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'wall', next: 'cutoff', phases: ['step', 'hinge'], retarget: 'hinge' }),
@@ -129,6 +130,8 @@ export const PHASES = Object.freeze({
 
 // Drive direction for a push mode. 'watch': lean toward the watched player. 'playside': lean back
 // and toward the play (side = +1 or -1) by COMBO_LEAN; the watch is ignored. Other modes: straight back.
+const SHARED_BASE = new Set(['playside', 'double']); // drive modes whose blockers all push from the same base
+
 export function leanDir(mode, target, watch, side) {
   if (mode === 'watch') {
     if (watch == null) return { x: 0, y: 1 };
@@ -144,6 +147,7 @@ export function leanDir(mode, target, watch, side) {
     const lean = (side === 1 || side === -1 ? side * rad(COMBO_LEAN) : 0);
     return { x: Math.sin(lean), y: Math.cos(lean) };
   }
+  if (mode === 'double') return { x: 0, y: 1 }; // F-55 #4: vertical double-team drive, no playside lean
   if (mode === 'wall') {
     const lean = (side === 1 || side === -1 ? -side * rad(WALL_LEAN) : 0);
     return { x: Math.sin(lean), y: Math.cos(lean) };
@@ -153,7 +157,7 @@ export function leanDir(mode, target, watch, side) {
 
 export function driveDir(tech, target, watch, side) {
   const row = TECHNIQUES[tech];
-  if (row && (row.drive === 'watch' || row.drive === 'playside' || row.drive === 'wall')) return leanDir(row.drive, target, watch, side);
+  if (row && (row.drive === 'watch' || row.drive === 'playside' || row.drive === 'double' || row.drive === 'wall')) return leanDir(row.drive, target, watch, side);
   return { x: 0, y: 1 };
 }
 
@@ -236,7 +240,7 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
   const drive = driveDir(foot.tech, target, watch, side);
   const c = contact ?? drive;
   let base;
-  if (TECHNIQUES[foot.tech]?.drive === 'playside') {
+  if (SHARED_BASE.has(TECHNIQUES[foot.tech]?.drive)) {
     // Shared base: every blocker on the man pushes from the drive, not from his own contact line.
     base = drive;
   } else {
@@ -264,7 +268,7 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
   }
   const desired = rotate(base, ride);
   // A 'playside' push starts on the shared base (not the contact line), so partners agree from the first tick.
-  const from = foot.push ?? (TECHNIQUES[foot.tech]?.drive === 'playside' ? base : c);
+  const from = foot.push ?? (SHARED_BASE.has(TECHNIQUES[foot.tech]?.drive) ? base : c);
   const fl = Math.hypot(from.x, from.y);
   const start = fl > 0 ? { x: from.x / fl, y: from.y / fl } : drive;
   const push = rotateToward(start, desired, dt > 0 ? PUSH_TURN * dt : 0);

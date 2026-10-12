@@ -203,7 +203,7 @@ test('F-17 #4: C and LG sit side by side on RDT', () => {
 });
 
 test('F-17 #5: push directions', () => {
-  // Restated for F-3 (combo row drive 'playside'; was: toward the watch): a combo blocker's drive is back and playside, sign of drive.x equals ctx.side, angle from vertical equals COMBO_LEAN (30). Counted only when the push is settled (turned less than the rate cap) and base is the drive, so push = rotate(drive, ride).
+  // Restated for F-55 #4 (combo row drive 'double'; was 'playside' lean, before that toward the watch): a combo blocker's drive is straight upfield, drive.x is 0 and the angle from vertical is 0. Counted only when the push is settled (turned less than the rate cap) and base is the drive, so push = rotate(drive, ride).
   const play = createPlay(25, 'insideZone');
   let side = 0;
   const rule = play.retargetRule;
@@ -235,8 +235,8 @@ test('F-17 #5: push directions', () => {
       counts[s.gi]++;
       const unrot = rotate(f.push, -f.ride);
       assert.ok(Math.abs(ang(unrot, drive)) <= 1, `${s.id} unrot vs drive ${ang(unrot, drive)}`);
-      assert.equal(Math.sign(drive.x), side, s.id);
-      assert.ok(Math.abs(deg(Math.acos(Math.min(1, drive.y))) - COMBO_LEAN) <= 1e-6, s.id);
+      assert.equal(drive.x, 0, s.id);
+      assert.equal(drive.y, 1, s.id);
     }
   }
   assert.ok(groups.length > 0 && counts.every((n) => n > 0), `counts ${counts}`);
@@ -1092,6 +1092,7 @@ test('F-55 #2: with lbFills and lbBlitz the first member to leave does so on a d
   t.diagnostic(`lbFills/lbBlitz: ${leaves} first releases`);
 });
 
+// Restated for F-55 #4 (vertical combo drive, no playside lean): the double never gives ground, and its lateral drift stays smaller than its upfield travel.
 test('F-3 #3b: while both are on, the double never gives ground or drifts backside', (t) => {
   let minDy = Infinity;
   let minDx = Infinity;
@@ -1102,7 +1103,8 @@ test('F-3 #3b: while both are on, the double never gives ground or drifts backsi
     minDy = Math.min(minDy, dy);
     minDx = Math.min(minDx, dx);
     assert.ok(dy >= -0.02, `DL y moved ${dy.toFixed(3)} toward the offense's goal`);
-    assert.ok(dx >= -0.02, `DL drifted backside ${dx.toFixed(3)}`);
+    // vertical drive: no playside demand, but he must not be walked sideways more than a few inches either way
+    assert.ok(Math.abs(dx) <= Math.max(0.25, dy), `DL drifted sideways ${dx.toFixed(3)} (upfield ${dy.toFixed(3)})`);
   };
   for (const front of Object.keys(FRONTS)) {
     for (const opts of [{}, { personnel: 'te' }]) doubleRun(front, opts, { tick: look, check: look });
