@@ -45,6 +45,38 @@ test('F-55 #9: the climber off the BT double, passing between engaged bodies, ne
   assert.ok(checked > 20, `${m.id} climbed for ${checked} ticks`);
 });
 
+test('F-55 #9: the climber off the double on the nose (under43, 1 TE, run right), passing the engaged RT and free L3, never jumps lateral velocity by more than 1.5 yd/s a tick (T-72)', () => {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'under43', personnel: 'te', playside: 'right' });
+  assert.ok(play.snap());
+  const combo = play.combos.find((c) => c.target === 'PN');
+  assert.ok(combo, `no BT combo in ${play.combos.map((c) => `${c.owner}+${c.partner}->${c.target}`).join(', ')}`);
+  const first = { [combo.owner]: play.player(combo.owner).block.target, [combo.partner]: play.player(combo.partner).block.target };
+  let m = null;
+  let prev = null;
+  let checked = 0;
+  for (let i = 0; i < Math.round(SPAN / FIXED_DT); i++) {
+    play.step(FIXED_DT);
+    if (!m) {
+      for (const id of [combo.owner, combo.partner]) {
+        const p = play.player(id);
+        if (p.block && p.block.target !== first[id]) { m = p; break; }
+      }
+    }
+    if (m && m.block?.engaged) break;
+    if (m && prev) {
+      const touched = play.players
+        .filter((o) => o !== m && Math.hypot(o.x - m.x, o.y - m.y) < 1)
+        .map((o) => `${o.id}${o.block?.engaged ? '(engaged)' : ''}`);
+      const dv = Math.abs(m.vel.x - prev.x);
+      assert.ok(dv <= MAX_JUMP + 1e-9, `tick ${play.ticks}: ${m.id} vel.x ${prev.x.toFixed(2)} -> ${m.vel.x.toFixed(2)} (jump ${dv.toFixed(2)}), near ${touched.join(', ')}`);
+      checked++;
+    }
+    if (m) prev = { x: m.vel.x, y: m.vel.y };
+  }
+  assert.ok(m, 'nobody climbed off the PN double');
+  assert.ok(checked > 20, `${m.id} climbed for ${checked} ticks`);
+});
+
 test('F-55 #9: a mover with accel squeezing up a gap between two anchored bodies changes lateral velocity <= 1.5 yd/s a tick and gets through', () => {
   const dt = FIXED_DT;
   // two engaged pairs, one each side, leave a gap between the nearest bodies narrower than 2 * BODY_RADIUS

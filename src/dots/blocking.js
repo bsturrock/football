@@ -606,6 +606,7 @@ const closingLeavers = new WeakSet();
 export function stepBlocking(players, ballPos, dt, ctx) {
   const start = players.map((p) => ({ x: p.x, y: p.y }));
   const engagedAtStart = players.filter((p) => p.block?.engaged).map((p) => p.id);
+  const stepped = new Map(); // free mover id -> velocity of his own step this pass (before any push-out)
   if (ctx && ctx.rule) {
     for (const e of ctx.rule(players, ballPos, ctx)) {
       setBlock(players, e.blocker, e.target, e.angle ?? 'straight');
@@ -629,6 +630,8 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const spot = contactSpot(players, b);
     const foot = b.block.foot;
     const T = byId(players, b.block.target);
+    const bx0 = b.x;
+    const by0 = b.y;
     if (foot && (ctx?.side === 1 || ctx?.side === -1)) {
       const { phase, goal } = footGoal(foot, b, spot, ctx.side, BODY_RADIUS, { target: T, ballPos });
       foot.phase = phase;
@@ -650,6 +653,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
         BODY_RADIUS,
       );
     }
+    if (dt > 0) stepped.set(b.id, { x: (b.x - bx0) / dt, y: (b.y - by0) / dt });
     const hit = canEngage(b, T, spot, ballPos);
     if (hit) {
       b.block.engaged = true;
@@ -692,7 +696,6 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     }
   }
 
-  const stepped = new Map(); // free defender id -> velocity of his own step this pass
   const kicked = new Map(); // defender id -> velocity his hit added this pass
   const holders = new Map(); // engaged defender id -> ids of the blockers engaged on him this pass
   for (const d of players) {
@@ -857,18 +860,24 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const left = impactLeft(d.bump);
     if (rb.x !== left.x || rb.y !== left.y) d.bump = { ax: rb.x / IMPACT_TIME, ay: rb.y / IMPACT_TIME, t: IMPACT_TIME };
   }
-  // A free defender's own velocity (p.selfVel, his planted-cut reference in steerStep) is his own
+  // T-72 (F-55 #9): a free mover's own velocity (p.selfVel, the reference steerStep reads) is his own
+  // step, not the measured velocity: a push-out from a body that moves into him (a free LB closing on
+  // the engaged RT's side) differs from his last step by ~0.8 yd/s, broke the carry (|vm - carried| >
+  // MAX_AVOID_DV) and let the next step swing against a reference that held the push. Free blockers
+  // (closing on a target) now keep selfVel too, so the cap and carry judge his steps against each other.
+  // A free defender's own velocity (his planted-cut reference) is his own
   // step, and body contact is inelastic for him too: a push-out takes off at most the velocity it
   // applied (len / dt) from the part of his step pointing into that body, and never becomes his
   // momentum (p.vel, the measurement, still holds the push-out). A graze keeps his speed; against a
   // stationary body the steering clamp already stops his step, so he still loses the into component.
   for (const p of players) {
-    const own = stepped.get(p.id);
+    const own = p.block?.engaged ? null : stepped.get(p.id);
     if (!own) {
       if (p.selfVel) p.selfVel = null;
       continue;
     }
-    const got = pushes.get(p.id);
+    // (a free blocker's reference stays his raw step: the push-out is not his choice and not his momentum)
+    const got = isDefense(p) ? pushes.get(p.id) : null;
     if (got) {
       for (const s of got.values()) {
         const len = Math.hypot(s.x, s.y);

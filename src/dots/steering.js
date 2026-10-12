@@ -343,10 +343,24 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     const ex = mv.x / dt - v0.x, ey = mv.y / dt - v0.y, el = Math.hypot(ex, ey);
     // a mover without momentum to keep (at rest, or no measured velocity) starts freely, unless the carry holds
     if (el > MAX_AVOID_DV && (wasSteered || Math.hypot(v0.x, v0.y) > MAX_AVOID_DV)) {
-      let cx = (v0.x + ex * MAX_AVOID_DV / el) * dt, cy = (v0.y + ey * MAX_AVOID_DV / el) * dt;
-      const cl = Math.hypot(cx, cy);
-      if (cl > maxStep) { cx *= maxStep / cl; cy *= maxStep / cl; }
-      mv = clampStep(cx, cy);
+      // The contact clamps can slide the capped step off a touched body and so move it further from v0 than
+      // MAX_AVOID_DV (T-72, F-55 #9: ~0.9 yd/s extra beside a free LB, on top of the cap). The cap is judged
+      // on the step he will actually take: shrink the change until the clamped step is within MAX_AVOID_DV.
+      const fit = (k) => {
+        let ax = (v0.x + ex * MAX_AVOID_DV * k / el) * dt, ay = (v0.y + ey * MAX_AVOID_DV * k / el) * dt;
+        const al = Math.hypot(ax, ay);
+        if (al > maxStep) { ax *= maxStep / al; ay *= maxStep / al; }
+        return clampStep(ax, ay);
+      };
+      mv = fit(1);
+      if (Math.hypot(mv.x / dt - v0.x, mv.y / dt - v0.y) > MAX_AVOID_DV + 1e-9) {
+        let lo = 0, hi = 1;
+        for (let it = 0; it < 12; it++) {
+          const mid = (lo + hi) / 2, f = fit(mid);
+          if (Math.hypot(f.x / dt - v0.x, f.y / dt - v0.y) > MAX_AVOID_DV + 1e-9) hi = mid; else lo = mid;
+        }
+        mv = fit(lo);
+      }
       capped = true;
     }
   }
