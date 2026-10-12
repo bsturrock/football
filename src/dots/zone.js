@@ -2,7 +2,7 @@
 import { readFront, LINE_DEPTH } from './front.js';
 import { runScheme, CLIMB_REACH } from './assign.js';
 import { LB_ROLES } from './roster.js';
-import { ballPast, project } from './geometry.js';
+import { ballPast, project, BODY_RADIUS } from './geometry.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
@@ -14,6 +14,8 @@ export const RIDE_DEPTH = 5.0;
 export const TRACK_HALF = 1.5;
 // F-55 #8: an LB is leaving the play only when all three hold: he is backside of the climber's track (beyond TRACK_HALF), he moves away from the playside at least LB_AWAY_V (yd/s), and he runs laterally faster than he fills downhill. An LB who attacks downhill is walled off instead (climb-spec: "LB suddenly attacks downhill: square up and drive/wall off"). Human: "let the LB leave the play and look for more dangerous players to block".
 export const LB_AWAY_V = 1.5;
+// F-66: a body this close (yd) to the straight line from a climber to his LB walls that LB off (two body radii).
+export const WALL_GAP = 2 * BODY_RADIUS;
 // T-94: how far ahead (s) the double projects the LB's motion when deciding who climbs (tunable)
 export const PICK_LEAD = 0.2;
 // T-94: how much nearer (yd) the LB's projected spot the partner must be before he climbs instead of the uncovered owner (tunable; judged by eye)
@@ -169,7 +171,27 @@ export function zoneSwitch(players, ballPos, ctx) {
     const away = -side * v.x;
     return side * (lb.x - from.x) < -TRACK_HALF && away >= LB_AWAY_V && away > -v.y;
   };
-  const lbGone = (lb, from) => leaving(lb, from) || (ballPos != null && ballPast(lb, ballPos));
+  // F-66: walled off = a non-line defender engaged by another blocker, he or his blocker on the climber-to-LB segment.
+  // Distance from pt to the segment a-b (projection clamped); a body that projects behind a (not ahead of the climber) is no wall.
+  const segDist = (pt, a, b) => {
+    const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+    const raw = l2 === 0 ? 0 : ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2;
+    if (raw <= 0) return Infinity;
+    const u = Math.min(1, raw);
+    return Math.hypot(pt.x - (a.x + u * dx), pt.y - (a.y + u * dy));
+  };
+  const walled = (lb, from) => {
+    if (ctx?.los == null) return false;
+    const line = lineIds(players, ctx);
+    for (const q of players) {
+      if (q === from || !q.block?.engaged) continue;
+      const d = byId.get(q.block.target);
+      if (!d || d.id === lb.id || line.has(d.id)) continue;
+      if (segDist(d, from, lb) <= WALL_GAP || segDist(q, from, lb) <= WALL_GAP) return true;
+    }
+    return false;
+  };
+  const lbGone = (lb, from) => leaving(lb, from) || (ballPos != null && ballPast(lb, ballPos)) || walled(lb, from);
   const gone = new Set(out.map((e) => e.blocker));
   for (const m of players) {
     const t = m.block?.target;
