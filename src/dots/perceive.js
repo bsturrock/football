@@ -26,7 +26,15 @@
 //          DOWN_MOVE away), 'pass' (across man vy <= -HAT_V), else 'none'.
 //   hat    defender: mean line vy >= HAT_V 'low', <= -HAT_V 'high', else 'none'.
 //   flow   defender: { kind: 'split' | 'fast' | 'slow' | 'none', dir } from mean line vx and the carrier's vx.
-//   key    second-level box defender: { id } of the guard nearer his creation x.
+//   key    second-level box defender: { id, action, dir } of the guard nearer his creation x.
+//          action from the guard's seen velocity v and contacts: 'run' (he is a blocker, or v.y >= HAT_V
+//          or |v.x| >= REACH_V), 'pass' (v.y <= -HAT_V, |v.x| < PULL_V), 'pull' (|v.x| >= PULL_V, v.y <= 0),
+//          else 'none'. dir = sign(v.x) when |v.x| >= REACH_V, else 0.
+//   climber defender off the line (y - los > LINE_DEPTH): { id, side } of the nearest unengaged offensive
+//          line player within CLIMB_SEE closing on him at >= CLOSE_V; side = sign of his x vs. mine. Else null.
+//   ball   defender: { x, y, vx, vy, carried, past, committed } of the ball spot: the seen holder when in
+//          view, else the center (velocity 0). carried = holder is the carrier; past = carried and y > los;
+//          committed = carried and (past or moving downfield at >= COMMIT_V and >= |vx|). Offense: null.
 import { LINE_ROLES } from './numbering.js';
 import { HEAD_UP, LINE_DEPTH, shade } from './front.js';
 import { TRACK_HALF } from './zone.js';
@@ -48,6 +56,10 @@ export const MIRROR_V = 1.0;
 export const DOWN_MOVE = 0.5;
 export const BOX_OUTSIDE = 2.0;
 export const BOX_COUNT_DEPTH = 7.0;
+export const PULL_V = 2.0;
+export const CLIMB_SEE = 4.0;
+export const CLOSE_V = 1.5;
+export const COMMIT_V = 2.0;
 
 const EPS = 1e-9;
 const LABELS = [['0', '1', '1'], ['2', '2i', '3'], ['4', '4i', '5'], ['6', '7', '9']];
@@ -58,7 +70,7 @@ const isLine = (p) => p.team === 'offense' && LINE_ROLES.includes(p.role);
 const byId = (snapshot, id) => snapshot.players.find((p) => p.id === id);
 
 // The adapter: the only function that reads live player objects.
-export function worldSnapshot(players, { t, los, side, carrierId = null }) {
+export function worldSnapshot(players, { t, los, side, carrierId = null, holderId = null }) {
   const out = [];
   const contacts = [];
   for (const p of players) {
@@ -67,7 +79,7 @@ export function worldSnapshot(players, { t, los, side, carrierId = null }) {
     out.push(e);
     if (p.block && p.block.engaged && p.block.target != null) contacts.push({ blocker: p.id, defender: p.block.target });
   }
-  return { t, los, side, carrierId, players: out, contacts };
+  return { t, los, side, carrierId, holderId, players: out, contacts };
 }
 
 export function createPerception(snapshot, { centerId }) {
@@ -239,7 +251,15 @@ function flowCue(lineV, carrierV) {
   return { kind: 'none', dir: 0 };
 }
 
-function keyCue(state, view, id) {
+function keyAction(view, gid, v) {
+  if (view.contacts.some((c) => c.blocker === gid)) return 'run';
+  if (v.y <= -HAT_V && Math.abs(v.x) < PULL_V) return 'pass';
+  if (Math.abs(v.x) >= PULL_V && v.y <= 0) return 'pull';
+  if (v.y >= HAT_V || Math.abs(v.x) >= REACH_V) return 'run';
+  return 'none';
+}
+
+function keyCue(state, view, id, vOf) {
   const cx = byId(view, state.centerId)?.x ?? 0;
   const guards = view.players
     .filter((p) => isLine(p) && p.id !== state.centerId)
@@ -253,7 +273,43 @@ function keyCue(state, view, id) {
     const bs = state.snap[best.id] ?? best;
     if (Math.abs(gs.x - at.x) < Math.abs(bs.x - at.x) - EPS) best = g;
   }
-  return { id: best.id };
+  const v = vOf(best.id);
+  return {
+    id: best.id,
+    action: keyAction(view, best.id, v),
+    dir: Math.abs(v.x) >= REACH_V ? Math.sign(v.x) : 0,
+  };
+}
+
+// Nearest unengaged offensive line player closing on me (defender off the line) within CLIMB_SEE.
+function climberCue(view, me, vOf) {
+  if (me.team !== 'defense' || me.y - view.los <= LINE_DEPTH) return null;
+  const engaged = new Set(view.contacts.map((c) => c.blocker));
+  let best = null;
+  for (const p of view.players) {
+    if (!isLine(p) || engaged.has(p.id)) continue;
+    const dx = me.x - p.x;
+    const dy = me.y - p.y;
+    const d = Math.hypot(dx, dy);
+    if (d < EPS || d > CLIMB_SEE) continue;
+    const v = vOf(p.id);
+    if ((v.x * dx + v.y * dy) / d < CLOSE_V) continue;
+    if (!best || d < best.d - EPS || (Math.abs(d - best.d) <= EPS && cmpId(p.id, best.p.id) < 0)) best = { p, d };
+  }
+  return best ? { id: best.p.id, side: Math.sign(best.p.x - me.x) } : null;
+}
+
+// The ball spot: the seen holder when in view, else the center. Defenders only.
+function ballCue(state, view, me, holderId, vOf) {
+  if (me.team !== 'defense') return null;
+  const held = holderId != null ? byId(view, holderId) : undefined;
+  const spot = held ?? byId(view, state.centerId);
+  if (!spot) return null;
+  const v = held ? vOf(held.id) : { x: 0, y: 0 };
+  const carried = holderId != null && holderId === state.carrierId;
+  const past = carried && spot.y > view.los;
+  const committed = carried && (past || (v.y >= COMMIT_V && v.y >= Math.abs(v.x)));
+  return { x: spot.x, y: spot.y, vx: v.x, vy: v.y, carried, past, committed };
 }
 
 function techCue(view, me, centerId) {
@@ -278,10 +334,11 @@ export function cuesFor(state, id) {
   const me = byId(view, id);
   const vOf = (pid) => velocityOf(state, pid, seen.t);
   const lineV = view.players.filter(isLine).map((p) => vOf(p.id));
-  const cues = { seen: seen.t, delay, tech: null, track: null, lbs: null, felt: null, hat: null, flow: null, key: null };
+  const cues = { seen: seen.t, delay, tech: null, track: null, lbs: null, felt: null, hat: null, flow: null, key: null, climber: null, ball: null };
   if (!me) return cues;
   const centerId = state.centerId;
   cues.tech = techCue(view, me, centerId);
+  cues.ball = ballCue(state, view, me, seen.holderId ?? null, vOf);
   if (isLine(me)) {
     const ids = trackOf(view, me);
     cues.lbs = lbCue(state, view, me, ids, vOf);
@@ -291,7 +348,8 @@ export function cuesFor(state, id) {
     if (me.y - view.los <= LINE_DEPTH) cues.felt = feltCue(view, id, state, vOf);
     cues.hat = hatCue(lineV);
     cues.flow = flowCue(lineV, state.carrierId != null ? vOf(state.carrierId) : { x: 0, y: 0 });
-    if (state.lbIds.includes(id)) cues.key = keyCue(state, view, id);
+    if (state.lbIds.includes(id)) cues.key = keyCue(state, view, id, vOf);
+    cues.climber = climberCue(view, me, vOf);
   }
   return cues;
 }

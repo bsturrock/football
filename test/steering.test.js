@@ -570,3 +570,42 @@ test('T-12: a forward goal never detours backward around a body on the held side
   assert.equal(b.x, a.x);
   assert.equal(b.y, a.y);
 });
+
+// ---- T-58: no lane along the path ----
+// Measured (F-55 #6d with T-49): climber C, LDT engaged by RG, MLB free. LDT and MLB sit one behind the
+// other along C's path, so the midpoint between them lies on LDT's side, not across the path.
+function t58Run(goalPt, n) {
+  const R = 0.28;
+  const bodies = [
+    { id: 'LDT', x: 0.850, y: 26.545 },
+    { id: 'RG', x: 1.008, y: 25.996, block: { target: 'LDT' } },
+    { id: 'MLB', x: 1.051, y: 28.170 },
+    { id: 'WLB', x: -0.017, y: 28.891 },
+    { id: 'RT', x: 1.848, y: 26.514 },
+    { id: 'RDT', x: 0.045, y: 25.606 },
+    { id: 'LG', x: -0.016, y: 25.049 },
+  ];
+  const p = {
+    id: 'C', x: 0.129, y: 26.470, v: 3.07, speed: 6,
+    vel: { x: -0.55, y: 3.02 }, selfVel: { x: -0.55, y: 3.02 },
+    steer: { key: 'aim:WLB', side: 1, stuck: 0, flips: 0, lane: null },
+  };
+  const steps = [], lanes = [], straight = [];
+  for (let i = 0; i < n; i++) {
+    const x0 = p.x, y0 = p.y;
+    straight.push(6 * DT * (goalPt.x - p.x) / Math.hypot(goalPt.x - p.x, goalPt.y - p.y));
+    steerStep(p, { x: goalPt.x, y: goalPt.y, key: 'aim:WLB' }, [p, ...bodies], 6 * DT, DT, R);
+    const v = { x: (p.x - x0) / DT, y: (p.y - y0) / DT };
+    p.selfVel = v; p.vel = v;
+    steps.push(p.x - x0);
+    lanes.push(p.steer && p.steer.lane ? p.steer.lane.join(',') : null);
+  }
+  return { steps, lanes, straight };
+}
+
+test('T-58 (a) no lane between two bodies stacked along the path', () => {
+  const r = t58Run({ x: 0.5, y: 28.7 }, 6);
+  assert.ok(r.lanes.every((l) => l !== 'LDT,MLB'), `lanes ${r.lanes}`);
+  // never turns toward LDT's side further than the straight line to the goal does
+  assert.ok(r.steps.every((dx, i) => dx <= r.straight[i] + 1e-9), `step x ${r.steps} vs ${r.straight}`);
+});

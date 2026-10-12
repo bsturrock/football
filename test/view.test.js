@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { angleDiff } from '../src/dots/facing.js';
 import { FRONTS, PERSONNEL, BALL_LENGTH } from '../src/dots/roster.js';
+import { CALLS } from '../src/dots/defense.js';
 
 test('frontOptions has one entry per FRONTS key, in order, with matching names', () => {
   const opts = frontOptions();
@@ -17,6 +18,13 @@ test('personnelOptions has one entry per PERSONNEL key, in order, with matching 
   const opts = personnelOptions();
   assert.deepEqual(opts.map((o) => o.key), Object.keys(PERSONNEL));
   assert.deepEqual(opts.map((o) => o.name), Object.values(PERSONNEL).map((p) => p.name));
+});
+
+test('callOptions has a by-personnel entry, then one entry per CALLS key, in order, with matching names', () => {
+  const opts = callOptions();
+  assert.deepEqual(opts[0], { key: '', name: 'Call: by personnel' });
+  assert.deepEqual(opts.slice(1).map((o) => o.key), Object.keys(CALLS));
+  assert.deepEqual(opts.slice(1).map((o) => o.name), Object.values(CALLS).map((c) => c.name));
 });
 
 const players = () => createPlay(25).players;
