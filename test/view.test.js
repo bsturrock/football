@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel, PAGE_MATCHUP, MATCHUP_LOCKED } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { angleDiff } from '../src/dots/facing.js';
@@ -259,4 +259,28 @@ test('versionLabel returns version unknown without a matching entry', () => {
   assert.equal(versionLabel(''), 'version unknown');
   assert.equal(versionLabel(undefined), 'version unknown');
   assert.equal(versionLabel(42), 'version unknown');
+});
+
+// F-64 #1, #2: dots.html opens on one fixed matchup (11 personnel, nickel, inside zone left), pickers locked.
+test('F-64 #1: PAGE_MATCHUP builds 11 personnel against the nickel 4-2-5', () => {
+  const play = createPlay(25, 'insideZone', { ...PAGE_MATCHUP });
+  const off = play.players.filter((p) => p.team === 'offense');
+  const def = play.players.filter((p) => p.team !== 'offense');
+  const offIds = off.map((p) => p.id);
+  for (const id of ['LT', 'LG', 'C', 'RG', 'RT', 'QB', 'RB', 'TE', 'X', 'H', 'Z']) {
+    assert.ok(offIds.includes(id), `offense has ${id}`);
+  }
+  assert.equal(off.length, 11);
+  assert.equal(def.length, 11);
+  assert.equal(def.filter((p) => p.role === 'DE' || p.role === 'DT').length, 4);
+  assert.equal(def.filter((p) => p.role === 'LB').length, 2);
+  assert.equal(def.filter((p) => p.role === 'CB' || p.role === 'S').length, 5);
+  assert.equal(play.defPersonnel, 'nickel');
+  assert.equal(play.playside, 'left');
+  assert.equal(play.script, null);
+  assert.equal(play.currentCall(), 'nickel');
+});
+
+test('F-64 #2: the matchup is locked on the page', () => {
+  assert.equal(MATCHUP_LOCKED, true);
 });
