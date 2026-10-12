@@ -42,7 +42,7 @@ export const LEVER_V = 1.0; // yd/s: the ball must move sideways at least this f
 export const PURSUE_LEVER = 0.5; // yd: an inside pursuer aims this far inside the intercept point (tunable)
 
 // Pursuit (GOALS.pursue) aims at this point, then the inside-out lever shifts it: a pursuer inside of a
-// sideways-moving ball aims PURSUE_LEVER inside it, so he arrives from the inside, never from behind.
+// sideways-moving ball aims up to PURSUE_LEVER inside it (fading to zero as he reaches the ball's x), so he arrives from the inside, never from behind.
 // Where a pursuer at d running at `speed` meets a ball at `ball` moving at v: the earliest
 // non-negative meeting time, capped at LEAD_MAX (also used when no meeting exists). The lead
 // time is also capped at the pursuer's time to reach the ball's current spot, so a close
@@ -231,25 +231,30 @@ export const GOALS = Object.freeze({
   // and meet him. Engaged: through his gap-side shoulder (the ball cannot come back through the gap).
   takeOn: (d, e, env) => {
     const cue = env.cues?.(d.id);
-    if (e.st === 0) { e.back = e.from; e.climber = cue?.climber?.id ?? e.climber; }
-    const eng = engagerOf(d, env, e.climber);
-    const free = cue?.climber ? env.players.find((p) => p.id === cue.climber.id) : null;
-    const b = eng ?? free ?? env.players.find((p) => p.id === e.climber);
+    if (e.st === 0) { e.back = e.from; e.climber = cue?.climber?.id ?? e.climber; e.gs = undefined; }
+    const b = engagerOf(d, env, e.climber) ?? env.players.find((p) => p.id === e.climber);
     if (!b) return GOALS.fitGap(d, e, env);
-    e.climber = b.id;
-    const gs = gapSide(d, e, env, b) || Math.sign((cue?.ball?.x ?? b.x) - b.x) || 1;
-    return eng ? { x: b.x + gs * BODY_RADIUS, y: b.y - PENETRATE_DEPTH } : { x: b.x + gs * BODY_RADIUS, y: b.y + BODY_RADIUS };
+    if (b.id !== e.climber || !e.gs) {
+      e.climber = b.id;
+      e.gs = gapSide(d, e, env, b) || Math.sign((cue?.ball?.x ?? b.x) - b.x) || 1;
+    }
+    if (engagerOf(d, env, e.climber)) return { x: b.x + e.gs * BODY_RADIUS, y: b.y - PENETRATE_DEPTH };
+    // Unengaged: stay in his gap, at or in front of his fit depth.
+    const span = e.fit ? gapSpan(env.players, env.defense, e.fit) : null;
+    let x = b.x + e.gs * BODY_RADIUS;
+    if (span && span.lo + BODY_RADIUS <= span.hi - BODY_RADIUS) x = clamp(x, span.lo + BODY_RADIUS, span.hi - BODY_RADIUS);
+    return { x, y: Math.max(b.y + BODY_RADIUS, env.los + FILL_DEPTH) };
   },
   // Pursue the ball from the inside out. The ball cue (the holder's own seen spot and velocity, which do not
   // jump when the ball changes hands) leads the intercept; without a cue, the env ball spot and velocity.
-  // A pursuer inside of a ball moving sideways at >= LEVER_V aims PURSUE_LEVER inside the intercept point.
+  // A pursuer inside of a ball moving sideways at >= LEVER_V aims min(PURSUE_LEVER, his x distance to the ball) inside the intercept point.
   pursue: (d, e, env) => {
     const c = env.cues?.(d.id)?.ball;
     const B = c ? { x: c.x, y: c.y } : env.ballPos;
     const V = c ? { x: c.vx, y: c.vy } : env.defense.ballV;
     const p = intercept(d, B, V, d.speed);
     const s = Math.abs(V.x) >= LEVER_V ? Math.sign(V.x) : 0;
-    return s !== 0 && s * (d.x - B.x) < 0 ? { x: p.x - s * PURSUE_LEVER, y: p.y } : p;
+    return s !== 0 && s * (d.x - B.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - B.x)), y: p.y } : p;
   },
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
 });

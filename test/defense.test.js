@@ -950,7 +950,7 @@ test('F-56: validateBehavior rejects a felt exit with an unknown value', () => {
 const envOf = (s) => ({ players: s.players, defense: s.defense, run: s.run, ballPos: s.ball, los: LOS, cues: s.cues });
 const inFit = (s) => { stubLB(s, RUN); step(s, 1); assert.equal(s.defense.agents.MLB.state, 'fit'); return s; };
 
-test('T-57 #1: an LB in fit, scrape or split with a climber cue goes to takeOn; his goal is on his gap side of the climber, both sides', () => {
+test('T-57 #1: an LB in fit, scrape or split with a climber cue goes to takeOn; his goal is on his gap side of the climber (clamped into his gap, at or in front of fit depth), both sides', () => {
   for (const side of [-1, 1]) {
     const s = inFit(setup());
     const e = s.defense.agents.MLB;
@@ -961,8 +961,10 @@ test('T-57 #1: an LB in fit, scrape or split with a climber cue goes to takeOn; 
     stubLB(s, { ...RUN, climber: { id: 'LG', side: -side } });
     const g = step(s, 0.01).MLB;
     assert.equal(e.state, 'takeOn');
-    near(g.x, lg.x + side * BODY_RADIUS);
-    near(g.y, lg.y + BODY_RADIUS);
+    const lo = span.lo + BODY_RADIUS;
+    const hi = span.hi - BODY_RADIUS;
+    near(g.x, Math.min(hi, Math.max(lo, lg.x + side * BODY_RADIUS)));
+    near(g.y, Math.max(lg.y + BODY_RADIUS, LOS + FILL_DEPTH));
   }
   for (const st of ['scrape', 'split']) {
     const s = setup();
@@ -971,6 +973,55 @@ test('T-57 #1: an LB in fit, scrape or split with a climber cue goes to takeOn; 
     step(s, 0.01);
     assert.equal(s.defense.agents.MLB.state, 'takeOn', st);
   }
+});
+
+test('T-57 #1: the unengaged takeOn goal clamps into his gap at the far edge, and follows a climber deeper than fit depth', () => {
+  const s = inFit(setup());
+  const e = s.defense.agents.MLB;
+  const span = gapSpan(s.players, s.defense, e.fit);
+  const lg = by(s.players, 'LG');
+  for (const side of [-1, 1]) {
+    lg.x = side > 0 ? span.hi : span.lo; // the far edge on his gap side: the shoulder would leave the gap
+    lg.y = LOS - 1;
+    e.state = 'fit';
+    e.gs = undefined;
+    stubLB(s, { ...RUN, climber: { id: 'LG', side: -side } });
+    step(s, 0.01);
+    e.gs = side;
+    const g = GOALS.takeOn(by(s.players, 'MLB'), e, envOf(s));
+    assert.ok(g.x <= span.hi - BODY_RADIUS + 1e-9 && g.x >= span.lo + BODY_RADIUS - 1e-9, `x ${g.x} in gap`);
+  }
+  lg.x = (span.lo + span.hi) / 2;
+  lg.y = LOS + FILL_DEPTH + 2; // deeper than fit depth: y follows the climber
+  e.state = 'fit';
+  e.gs = undefined;
+  stubLB(s, { ...RUN, climber: { id: 'LG', side: 1 } });
+  step(s, 0.01);
+  const g = GOALS.takeOn(by(s.players, 'MLB'), e, envOf(s));
+  near(g.y, lg.y + BODY_RADIUS);
+});
+
+test('T-57 #1: gs and the climber do not change while unengaged in takeOn, when the climber crosses the gap centre or the cue names another', () => {
+  const s = inFit(setup());
+  const e = s.defense.agents.MLB;
+  const span = gapSpan(s.players, s.defense, e.fit);
+  const mid = (span.lo + span.hi) / 2;
+  const lg = by(s.players, 'LG');
+  lg.x = mid - 0.5;
+  lg.y = LOS - 1;
+  stubLB(s, { ...RUN, climber: { id: 'LG', side: 1 } });
+  step(s, 0.01);
+  assert.equal(e.state, 'takeOn');
+  const gs0 = e.gs;
+  assert.ok(gs0 === 1 || gs0 === -1);
+  lg.x = mid + 0.5; // crosses the gap centre
+  stubLB(s, { ...RUN, climber: { id: 'LG', side: 1 } });
+  step(s, 0.01);
+  assert.equal(e.gs, gs0);
+  stubLB(s, { ...RUN, climber: { id: 'RG', side: 1 } }); // the cue names another climber
+  step(s, 0.01);
+  assert.equal(e.climber, 'LG');
+  assert.equal(e.gs, gs0);
 });
 
 test('T-57 #1: climberGone returns takeOn to fit (from fit or split) or scrape; engaged he stays', () => {
@@ -1034,7 +1085,8 @@ test('T-57 #2: ballCommitted sends a DL in getoff, hold, anchor and squeeze to p
   for (const st of Object.values(BEHAVIORS.contain.states)) assert.ok(!st.exits.some((x) => x.when === 'ballCommitted'));
 });
 
-test('T-57 #3: an inside pursuer of a sideways ball aims PURSUE_LEVER inside the intercept point; outside, slow or still gets the plain intercept', () => {
+// Restated for the T-57 revision: the inside shift fades to zero as the pursuer reaches the ball's x.
+test('T-57 #3: an inside pursuer of a sideways ball aims min(PURSUE_LEVER, his x distance) inside the intercept point; outside, slow or still gets the plain intercept', () => {
   const d = { x: 0, y: 30, speed: 7 };
   const mk = (ball, v) => ({ ballPos: ball, defense: { ballV: v }, cues: () => null });
   const e = {};
@@ -1045,6 +1097,11 @@ test('T-57 #3: an inside pursuer of a sideways ball aims PURSUE_LEVER inside the
     const g = GOALS.pursue(d, e, mk(ball, v));
     near(g.x, p.x - s * PURSUE_LEVER);
     near(g.y, p.y);
+    const close = { x: 0.2 * s, y: 25 }; // 0.2 yd inside
+    const pc = intercept(d, close, v, d.speed);
+    const gc = GOALS.pursue(d, e, mk(close, v));
+    near(gc.x, pc.x - s * 0.2);
+    near(gc.y, pc.y);
     const out = { x: -5 * s, y: 25 }; // the pursuer is on the ball's outside
     assert.deepEqual(GOALS.pursue(d, e, mk(out, v)), intercept(d, out, v, d.speed));
   }
