@@ -38,7 +38,7 @@
 //    his turn is bounded by his own accel cap and the contact rules (inelastic, no rebound), and
 //    measured on the T-56 build an exit flip on a pursuing LB changed the bodies a free DL met
 //    and pushed that DL's contact rebound over its bound.
-//  - Goal fields: accel, pace, ignore, squeeze, and forward (boolean, opt-in):
+//  - Goal fields: accel, pace, ignore, and forward (boolean, opt-in):
 //    the plain-hit detour never points against the goal; its backward part is
 //    dropped, leaving a sideways slide (side, flips and release rules unchanged).
 //    ceiling (number, opt-in): the step never ends at a y greater than it (see the step's end).
@@ -98,6 +98,28 @@ export const CUT_ACCEL = 20;
 // drop) swung a mover 4 yd/s in one tick. The carry runs until he steps freely at his own choice again;
 // a mover at rest, without a measured velocity, or moved by others between calls starts freely as before.
 export const MAX_AVOID_DV = 1.0;
+
+// Rotate (vx, vy), a vector to a body at distance d, toward `sign` (+1 / -1) by the angle whose
+// tangent line just clears a circle of the given clearance round the body: asin(clearance / d), a
+// quarter turn when he is already inside the clearance. The result keeps the length of (vx, vy), so
+// a unit vector gives a unit tangent and a raw offset gives d times that.
+function tangent(vx, vy, d, clearance, sign) {
+  const ang = sign * (d > clearance ? Math.asin(clearance / d) : Math.PI / 2), c = Math.cos(ang), sn = Math.sin(ang);
+  return { x: vx * c - vy * sn, y: vx * sn + vy * c };
+}
+
+// The one pass-side flip, shared by two triggers, each with its own gate and resets (the caller's):
+//  - lane exit: the side was judged against a lane body he has left, and the detour round the body now in
+//    his way points back against his goal; flipping goes on through the gap. A flip clears the stuck
+//    clock (the new side starts fresh) and the caller takes that body as the one he detours round.
+//  - stuck: STUCK_TIME without progress; the caller has already dropped the lane and barred new ones
+//    (laneOff) and clears the clock whether or not a flip is left, so the next judgement starts anew.
+// Counted against MAX_FLIPS; returns whether it flipped.
+function flipSide(s) {
+  if (s.flips >= MAX_FLIPS) return false;
+  s.side = -s.side; s.flips++;
+  return true;
+}
 
 export function steerStep(p, goal, players, maxStep, dt, radius) {
   const fullStep = maxStep;
@@ -184,9 +206,9 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       const s = p.steer;
       if (accel === null && !goal.forward && h2 && s.side !== 0 && s.flips < MAX_FLIPS) {
         const rx = h2.o.x - p.x, ry = h2.o.y - p.y, d = Math.hypot(rx, ry);
-        const a = (d > R ? Math.asin(R / d) : Math.PI / 2) * s.side;
-        if (((rx * Math.cos(a) - ry * Math.sin(a)) * ux + (rx * Math.sin(a) + ry * Math.cos(a)) * uy) / d < 0) {
-          s.side = -s.side; s.flips++; s.stuck = 0;
+        const tg = tangent(rx, ry, d, R, s.side);
+        if ((tg.x * ux + tg.y * uy) / d < 0 && flipSide(s)) {
+          s.stuck = 0;
           hit = h2;
         }
       }
@@ -201,7 +223,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     if (!p.steer) p.steer = { key: goal.key, side: 0, stuck: 0, flips: 0 };
     const s = p.steer;
     if (s.lane === undefined) s.lane = null;
-    if (s.side === 0) s.side = hit.lat > 1e-9 ? -1 : hit.lat < -1e-9 ? 1 : 1;
+    if (s.side === 0) s.side = hit.lat > 1e-9 ? -1 : 1;
     if (!s.laneOff) {
       // Find the body bounding the lane on the pass side of the obstacle.
       let n = null, nd = Infinity;
@@ -225,7 +247,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     }
   }
   // Lane aim: bend around a lane body the straight line to the midpoint would graze.
-  if (laneBodies && (laneMid || threading)) {
+  if (laneBodies) {
     const [la, lb] = laneBodies;
     const mx = (la.x + lb.x) / 2, my = (la.y + lb.y) / 2;
     const w = Math.hypot(la.x - lb.x, la.y - lb.y);
@@ -244,10 +266,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       // lane side: the side of the line to the body on which the midpoint lies
       const cr = rx * (my - p.y) - ry * (mx - p.x);
       const nx = rx / pd, ny = ry / pd;
-      const tang = (sg) => {
-        const ang = sg * Math.asin(rc / pd), c = Math.cos(ang), sn = Math.sin(ang);
-        return { x: nx * c - ny * sn, y: nx * sn + ny * c };
-      };
+      const tang = (sg) => tangent(nx, ny, pd, rc, sg);
       // a side is plugged when a body within 2 * H of the picked edge body lies within H of that side's tangent before the lane midpoint (no room to squeeze between them)
       const plugged = (v) => {
         const tl = Math.hypot(mx - p.x, my - p.y);
@@ -270,11 +289,9 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     const s = p.steer;
     const rx = hit.o.x - p.x, ry = hit.o.y - p.y;
     const d = Math.hypot(rx, ry);
-    const a = d > R ? Math.asin(R / d) : Math.PI / 2;
-    const ang = s.side * a, c = Math.cos(ang), sn = Math.sin(ang);
-    const nx = rx / d, ny = ry / d;
-    dx = nx * c - ny * sn;
-    dy = nx * sn + ny * c;
+    const tg = tangent(rx / d, ry / d, d, R, s.side);
+    dx = tg.x;
+    dy = tg.y;
     if (goal.forward) {
       const al = dx * ux + dy * uy;
       if (al < 0) {
@@ -406,7 +423,7 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     if (s.stuck >= STUCK_TIME - 1e-9) {
       s.stuck = 0;
       if (s.lane) { s.lane = null; s.laneOff = true; }
-      if (s.flips < MAX_FLIPS) { s.side = -s.side; s.flips++; }
+      flipSide(s);
     }
   }
   if (p.steer) {
