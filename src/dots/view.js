@@ -79,6 +79,26 @@ export function fightLabel(on) {
   return `Defense fights blocks: ${on ? 'on' : 'off'} (F)`;
 }
 
+// Label for the DL pass-rush moves toggle (M key or button).
+export function movesLabel(on) {
+  return `Moves: ${on ? 'on' : 'off'} (M)`;
+}
+
+// Hint text for the play's seed (shown on each Reset).
+export function seedLabel(seed) {
+  return `Seed ${seed}`;
+}
+
+// Short on-field label for a defender's live pass-rush move ('' = none, or the move is at rest).
+export function moveLabel(p) {
+  const m = p?.move;
+  if (!m) return '';
+  if (m.phase === 'try') return m.kind;
+  if (m.phase === 'won') return `${m.kind} won`;
+  if (m.phase === 'lost') return `${m.kind} lost`;
+  return '';
+}
+
 // Sim speed step per -/+ press (keys or buttons).
 export const SPEED_STEP = 0.05;
 
@@ -260,7 +280,7 @@ export function versionLabel(text) {
 }
 
 export function initDotsView(container) {
-  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true });
+  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true });
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
   const versionEl = document.getElementById('version');
@@ -297,6 +317,11 @@ export function initDotsView(container) {
     if (lbReadout) lbReadout.textContent = shiftLabel(play.lbShift, 'LB', '⇧←/→');
   };
   showLB();
+  const seedReadout = hint ? hint.appendChild(document.createElement('span')) : null;
+  const showSeed = () => {
+    if (seedReadout) seedReadout.textContent = seedLabel(play.seed);
+  };
+  showSeed();
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -634,6 +659,25 @@ export function initDotsView(container) {
     for (const [key, m] of pairLabels) if (!usedPairs.has(key)) m.visible = false;
   }
 
+  // ---- DL move labels (shown whether the overlay is on or off) ----
+  // Sits under the decision label, toward the offense, so the two never overlap.
+  const moveLabels = new Map();
+  function syncMoveLabels() {
+    const used = new Set();
+    for (const p of play.players) {
+      const text = moveLabel(p);
+      if (text === '') continue;
+      const m = spriteFor(moveLabels, p.id);
+      paintLabel(m, text);
+      const d = drawPos(play, p);
+      const w = fieldToWorld(d.x, d.y - BODY_RADIUS - OV_LABEL_H * 1.5);
+      m.position.set(w.x, 0.16, w.z);
+      m.visible = true;
+      used.add(p.id);
+    }
+    for (const [id, m] of moveLabels) if (!used.has(id)) m.visible = false;
+  }
+
   // ---- Ball marker ----
   // Unit circles scaled to the ball's width (x) and length (y) before the -PI/2 x turn, so length runs along z.
   const ball = new THREE.Group();
@@ -707,6 +751,7 @@ export function initDotsView(container) {
     syncNoses();
     syncLabels();
     syncOverlay();
+    syncMoveLabels();
     const holder = play.ball.holder && play.player(play.ball.holder);
     let bw;
     if (holder) {
@@ -801,7 +846,21 @@ export function initDotsView(container) {
     fightBtn.blur();
   });
 
-  const doReset = () => { play.reset(); showShift(); showLB(); showFight(); };
+  const movesBtn = document.getElementById('moves-btn');
+  const showMoves = () => {
+    if (movesBtn) movesBtn.textContent = movesLabel(play.moves);
+  };
+  showMoves();
+  const toggleMoves = () => {
+    play.moves = !play.moves;
+    showMoves();
+  };
+  movesBtn?.addEventListener('click', () => {
+    toggleMoves();
+    movesBtn.blur();
+  });
+
+  const doReset = () => { play.seed += 1; play.reset(); showShift(); showLB(); showFight(); showSeed(); };
   resetBtn?.addEventListener('click', doReset);
   // Buttons sit outside #field, so no pointer handlers here; blur keeps the -/= keys working.
   const speedBtn = (btn, dir) => {
@@ -923,6 +982,7 @@ export function initDotsView(container) {
     }
     if (e.key.toLowerCase() === 'r') doReset();
     if (e.key.toLowerCase() === 'f') { toggleFight(); return; }
+    if (e.key.toLowerCase() === 'm') { toggleMoves(); return; }
     if (e.key.toLowerCase() === 'o' && document.activeElement?.tagName !== 'SELECT') toggleOverlay();
   });
 

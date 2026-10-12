@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { angleDiff } from '../src/dots/facing.js';
@@ -105,6 +105,29 @@ test('shiftLabel supports the LB group', () => {
 test('T-117: fightLabel shows the defense-fights-blocks state and the F key', () => {
   assert.equal(fightLabel(true), 'Defense fights blocks: on (F)');
   assert.equal(fightLabel(false), 'Defense fights blocks: off (F)');
+});
+
+test('T-84: movesLabel shows the DL moves state and the M key', () => {
+  assert.equal(movesLabel(true), 'Moves: on (M)');
+  assert.equal(movesLabel(false), 'Moves: off (M)');
+});
+
+test('T-84: seedLabel shows the play seed', () => {
+  assert.equal(seedLabel(1), 'Seed 1');
+  assert.equal(seedLabel(42), 'Seed 42');
+});
+
+test('T-84: moveLabel is empty without a move or at rest, and names each phase', () => {
+  assert.equal(moveLabel({ id: 'DL1' }), '');
+  assert.equal(moveLabel({ id: 'DL1', move: null }), '');
+  assert.equal(moveLabel({ id: 'DL1', move: { kind: 'swim', phase: 'rest' } }), '');
+  assert.equal(moveLabel({ id: 'DL1', move: { kind: 'power', phase: 'rest' } }), '');
+  assert.equal(moveLabel({ id: 'DL1', move: { kind: 'swim', phase: 'try' } }), 'swim');
+  assert.equal(moveLabel({ id: 'DL1', move: { kind: 'swim', phase: 'won' } }), 'swim won');
+  assert.equal(moveLabel({ id: 'DL1', move: { kind: 'swim', phase: 'lost' } }), 'swim lost');
+  assert.equal(moveLabel({ id: 'DL1', move: { kind: 'power', phase: 'try' } }), 'power');
+  assert.equal(moveLabel({ id: 'DL1', move: { kind: 'power', phase: 'won' } }), 'power won');
+  assert.equal(moveLabel({ id: 'DL1', move: { kind: 'power', phase: 'lost' } }), 'power lost');
 });
 
 test('F-14 #9: formatYards keeps two decimals, drops trailing zeros', () => {
