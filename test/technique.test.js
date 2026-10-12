@@ -162,9 +162,22 @@ test('footPush (b) mirrored', () => {
   near(ang(r.push), -rad(RIDE_MAX));
 });
 
+// Holds because the target is neither scraping nor coming into the drive (no along component).
 test('footPush (c) ride holds under RIDE_MIN', () => {
   const r = footPush(mkFoot({ ride: 0.4, push: V }), { x: 0, y: 5 }, null, { x: RIDE_MIN - 0.01, y: 0 }, V, DT);
   near(r.ride, 0.4);
+});
+
+test('footPush squares up when the target comes downhill into the drive (climb spec case 3)', () => {
+  const p0 = { x: Math.sin(0.4), y: Math.cos(0.4) };
+  let f = mkFoot({ ride: 0.4, push: p0 });
+  let r;
+  for (let i = 0; i < Math.round(0.3 / DT); i++) {
+    r = footPush(f, { x: 0, y: 5 }, null, { x: 0, y: -2 }, V, DT);
+    f = { ...f, ride: r.ride, push: r.push };
+  }
+  assert.ok(Math.abs(r.ride) < 0.05, `ride ${r.ride}`);
+  assert.ok(Math.abs(ang(r.push)) < rad(5), `push angle ${ang(r.push)}`);
 });
 
 test('footPush (d) turn bound', () => {

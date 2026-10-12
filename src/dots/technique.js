@@ -4,7 +4,9 @@
 // Push (footPush): drive = vertical or combo watch lean. On a blindside hit the base
 // bends from the drive toward the contact line (BLIND_START..BLIND_FULL degrees). The
 // target's lateral velocity (relative to the base) rotates the base by up to RIDE_MAX,
-// smoothed by RIDE_TAU, and the push turns toward that at most PUSH_TURN rad/s.
+// smoothed by RIDE_TAU, and the push turns toward that at most PUSH_TURN rad/s. Under RIDE_MIN of lateral
+// speed the ride holds, unless the target is coming into the drive (along < -RIDE_MIN): then the ride decays
+// to 0 and the blocker squares up (.work/maps/climb-spec.md case 3: no lateral push on a downhill LB).
 //
 // Row fields:
 //   step     first-step angle in degrees from the line of scrimmage toward playside
@@ -264,6 +266,7 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
   if (dt > 0) {
     let target_ride = foot.ride;
     if (sp >= RIDE_MIN) target_ride = Math.sign(signedAngle(base, lat)) * rad(RIDE_MAX) * Math.min(1, sp / RIDE_FULL);
+    else if (along < -RIDE_MIN) target_ride = 0; // target stopped scraping and comes into the drive: square up
     ride = first ? target_ride : foot.ride + (target_ride - foot.ride) * (1 - Math.exp(-dt / RIDE_TAU));
   }
   const desired = rotate(base, ride);
