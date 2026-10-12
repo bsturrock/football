@@ -335,7 +335,7 @@ test('F-55 #8: a climber lets an LB leaving the play go for the most dangerous u
     s.ctx.side = side;
     s.g('C').block = { target: 'MLB', angle: 'straight', engaged: false, seq: 1 };
     Object.assign(s.g('C'), { x: 0, y: 25 });
-    Object.assign(s.g('MLB'), { x: -k * 1, y: 29, vel: { x: -k * 3, y: 0 } });
+    Object.assign(s.g('MLB'), { x: -k * 2.5, y: 29, vel: { x: -k * 3, y: 0 } });
     const others = s.players.filter((p) => LB_ROLES.includes(p.role) && p.id !== 'MLB');
     others.forEach((p) => Object.assign(p, { x: 40, y: 40, vel: { x: 0, y: 0 } }));
     s.lb2 = others[0];
@@ -349,7 +349,9 @@ test('F-55 #8: a climber lets an LB leaving the play go for the most dangerous u
     assert.deepEqual(run(side).out, [], `(b) side ${side}: no other LB`);
     assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('C').block.engaged = true; }).out, [], `(c) side ${side}: engaged`);
     assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('MLB').vel = { x: k * 3, y: 0 }; }).out, [], `(d) side ${side}: flowing playside`);
-    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('MLB').x = k * 1; }).out, [], `(e) side ${side}: playside of the climber`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); s.g('MLB').x = k * 2.5; }).out, [], `(e) side ${side}: playside of the climber`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); Object.assign(s.g('MLB'), { x: -k * 1, vel: { x: -k * 3, y: 0 } }); }).out, [], `(g) side ${side}: backside but inside the track`);
+    assert.deepEqual(run(side, (s, k) => { nearLb2(s, k); Object.assign(s.g('MLB'), { vel: { x: -k * 2, y: -3 } }); }).out, [], `(h) side ${side}: backside outside the track but filling downhill`);
   }
 });
 

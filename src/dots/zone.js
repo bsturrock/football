@@ -11,7 +11,7 @@ export const COMBO_TOUCH = 0.1;
 export const RIDE_DEPTH = 5.0;
 // Human track rule: a blocker owns the vertical runway this far either side of him; an LB who declares in a member's track (or across his face) is what releases the climber. A sitting LB never does.
 export const TRACK_HALF = 1.5;
-// F-55 #8: an LB moving away from the playside at least this fast (yd/s) is leaving the play. Human: "let the LB leave the play and look for more dangerous players to block".
+// F-55 #8: an LB is leaving the play only when all three hold: he is backside of the climber's track (beyond TRACK_HALF), he moves away from the playside at least LB_AWAY_V (yd/s), and he runs laterally faster than he fills downhill. An LB who attacks downhill is walled off instead (climb-spec: "LB suddenly attacks downhill: square up and drive/wall off"). Human: "let the LB leave the play and look for more dangerous players to block".
 export const LB_AWAY_V = 1.5;
 
 const row = (r) => Object.freeze(r);
@@ -139,10 +139,11 @@ export function zoneSwitch(players, ballPos, ctx) {
     go();
   }
   // F-55 #8, the human: "why would this ever happen? let the LB leave the play and look for more dangerous players to block".
-  // A climber not yet on his LB drops him once the LB is backside of the climber and running away from the play, and takes the most dangerous unclaimed LB in reach (none: he keeps his man).
+  // A climber not yet on his LB drops him once the LB is clearly outside the climber's track on the backside, running away from the play (not filling downhill: see LB_AWAY_V), and takes the most dangerous unclaimed LB in reach (none: he keeps his man).
   const leaving = (lb, from) => {
     const v = lb.selfVel ?? lb.vel ?? { x: 0, y: 0 };
-    return ctx.side * (lb.x - from.x) < 0 && ctx.side * v.x <= -LB_AWAY_V;
+    const away = -ctx.side * v.x;
+    return ctx.side * (lb.x - from.x) < -TRACK_HALF && away >= LB_AWAY_V && away > -v.y;
   };
   const gone = new Set(out.map((e) => e.blocker));
   for (const c of (ctx && ctx.combos) || []) {
