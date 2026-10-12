@@ -989,6 +989,8 @@ function releasePass(players, ballPos, s) {
       const T = byId(players, b.block.target);
       T.shedFree = REENGAGE_DELAY;
       if (T.move?.phase === 'won' && T.move.by === b.id) b.block.beat = T.move.kind;
+      // shedHow: how the last shed was won ('leverage', 'swim' or 'power'); the view reads it while shedFree > 0.
+      T.shedHow = b.block.beat ?? 'leverage';
     }
   }
 
