@@ -133,6 +133,25 @@ test('freeLane with a projection: a free defender closing downhill from beyond t
   assert.ok(closing.room < still.room);
 });
 
+test('T-90: freeLane with a projection: a free defender in the band flowing sideways into the window narrows it; flowing away does not', () => {
+  const pl = parked(mk());
+  const win = { lo: -1.2, hi: 0 };
+  const withD = () => [...pl, defAt('Z', 2.5, LOS + 0.5)]; // in the band, beside the window
+  const proj = (vx) => ({ vel: { Z: { vx, vy: 0 } }, horizon: 0.5 });
+  const without = freeLane(withD(), win, 'RB', LOS);
+  const into = freeLane(withD(), win, 'RB', LOS, proj(-6));
+  const away = freeLane(withD(), win, 'RB', LOS, proj(6));
+  const still = freeLane(withD(), win, 'RB', LOS, proj(0));
+  assert.equal(without.open, true);
+  assert.equal(into.open, false);
+  assert.ok(into.room < without.room);
+  assert.equal(away.open, true);
+  assert.equal(away.width, without.width);
+  assert.equal(away.room, without.room);
+  assert.equal(still.width, without.width);
+  assert.equal(still.room, without.room);
+});
+
 test('freeLane: the carrier himself is ignored', () => {
   const pl = parked(mk());
   const rb = by(pl, 'RB');
@@ -664,11 +683,15 @@ const seenClose = (play, rb) => {
   });
 };
 const place = (d, x, y) => { d.x = x; d.y = y; d.speed = d.speed || 7; };
+// A hand-placed defender is a man standing there: tell the carrier's memory he was already at his spot, so the placing jump
+// is not read as a velocity.
+const settle = (run, ds) => { for (const d of ds) run.seen[d.id] = { x: d.x, y: d.y }; };
 
 test('F-48 #5: a free defender ahead and to one side bends the aim to the other side', () => {
   for (const sgn of [1, -1]) {
     const { pl, run, rb, ds } = past(1);
     place(ds[0], rb.x + sgn * 0.4, rb.y + 3);
+    settle(run, ds);
     const at = { x: rb.x, y: rb.y }; // the aim is chosen from where he stands before the step
     go(pl, run);
     assert.ok(run.aim.y > at.y);
@@ -698,6 +721,28 @@ test('F-48 #5: over a run of ticks the aim is never toward a free defender ahead
   assert.ok(checked > 10);
 });
 
+test('T-90: past the los a man off his vertical but running across into it makes the vertical heading count as at him', () => {
+  const DT = 1 / 60;
+  const run1 = (vx) => {
+    const { pl, run, rb, ds } = past(1);
+    place(ds[0], rb.x + 1.5, rb.y + 3);
+    ds[0].speed = 0.01; // too slow to win a reach race: only where he is going matters
+    settle(run, ds);
+    // one tick earlier he stood vx * dt farther out, so the carrier reads him moving across at vx
+    run.seen[ds[0].id] = { x: ds[0].x - vx * DT, y: ds[0].y };
+    const at = { x: rb.x, y: rb.y };
+    go(pl, run);
+    return { run, at };
+  };
+  const still = run1(0);
+  const across = run1(-6);
+  // standing off the vertical, the vertical heading passes him: the RB holds it
+  assert.equal(still.run.avoid, 0);
+  // running across into the vertical, it is "at" him: a different heading
+  assert.notEqual(across.run.avoid, 0);
+  assert.ok(Math.abs(bearing(across.at, across.run.aim)) > 1e-6);
+});
+
 test('F-48 #6: nobody in sight gives the vertical aim exactly', () => {
   const { pl, run, rb } = past(1);
   go(pl, run);
@@ -710,6 +755,7 @@ test('F-48 #7: vision sets his sight; a man inside the minimum range bends every
   const bends = (vision, dist) => {
     const { pl, run, rb, ds } = past(vision);
     place(ds[0], rb.x + 0.3, rb.y + dist);
+    settle(run, ds);
     const y0 = rb.y;
     go(pl, run);
     return Math.abs(run.aim.x - (run.x + run.cut)) > 0.1 && run.aim.y > y0;
@@ -780,6 +826,7 @@ test('F-48 #5 (T-175): when every heading is caught at about the same short dist
     place(ds[2], rb.x - sgn * 1.7, rb.y - 0.3);
     ds[0].speed = ds[1].speed = 7.5;
     ds[2].speed = 6.5;
+    settle(run, ds);
     const at = { x: rb.x, y: rb.y };
     go(pl, run);
     const dist = Math.hypot(ds[0].x - at.x, ds[0].y - at.y);

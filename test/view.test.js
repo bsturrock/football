@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel, PAGE_MATCHUP, MATCHUP_LOCKED } from '../src/dots/view.js';
-import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX } from '../src/dots/play.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel, PAGE_MATCHUP, MATCHUP_LOCKED, SETUP_FIELDS, playSetup, applySetup, REVIEW_PLAYS, reviewOptions, stepOneTick, tickLabel } from '../src/dots/view.js';
+import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, FIXED_DT } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { angleDiff } from '../src/dots/facing.js';
 import { FRONTS, PERSONNEL, BALL_LENGTH } from '../src/dots/roster.js';
@@ -283,4 +283,94 @@ test('F-64 #1: PAGE_MATCHUP builds 11 personnel against the nickel 4-2-5', () =>
 
 test('F-64 #2: the matchup is locked on the page', () => {
   assert.equal(MATCHUP_LOCKED, true);
+});
+
+// F-63 #14: the review picker's setups, the one-tick step and the tick label.
+// The page play is built exactly as initDotsView builds it.
+const pagePlay = () => createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true, ...PAGE_MATCHUP });
+const positions = (play) => play.players.map((p) => ({ id: p.id, x: p.x, y: p.y }));
+
+// Each review entry's own test, built from the literal options its test file uses.
+const REVIEW_TESTS = {
+  'climb-under43': () => createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'under43', personnel: 'te', playside: 'right' }),
+  'steer-dlMinus4': () => {
+    const play = createPlay(25, 'insideZone', {});
+    for (let i = 0; i < 4; i++) play.shiftDL(-1);
+    return play;
+  },
+  'stall-bear': () => createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe', front: 'bear' }),
+  'slip-noTe': () => createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe' }),
+  'slip-te': () => createPlay(25, 'insideZone', { accel: true, tackles: false }),
+  'stall-over43': () => createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe', front: 'over43' }),
+  'shed-backedOff': () => createPlay(25, 'insideZone', { front: 'backedOff', tackles: false }),
+};
+
+test('F-63 #14: every review entry has a literal test build, and its setup has exactly the setup fields', () => {
+  assert.equal(SETUP_FIELDS.length, 14);
+  assert.deepEqual([...REVIEW_PLAYS.map((e) => e.key)].sort(), Object.keys(REVIEW_TESTS).sort());
+  for (const entry of REVIEW_PLAYS) {
+    assert.deepEqual(Object.keys(entry.setup).sort(), [...SETUP_FIELDS].sort(), entry.key);
+  }
+});
+
+test('F-63 #14: reviewOptions starts with the page matchup, then one entry per review play', () => {
+  const opts = reviewOptions();
+  assert.deepEqual(opts[0], { key: '', name: 'Page matchup' });
+  assert.deepEqual(opts.slice(1), REVIEW_PLAYS.map(({ key, name }) => ({ key, name })));
+});
+
+test('F-63 #14: tickLabel shows the tick and its time in seconds', () => {
+  assert.equal(tickLabel(102), 'Tick 102 · 1.70 s');
+  assert.equal(tickLabel(0), 'Tick 0 · 0.00 s');
+});
+
+for (const entry of REVIEW_PLAYS) {
+  test(`F-63 #14: review ${entry.key} replays its test's exact positions, tick by tick`, () => {
+    const page = pagePlay();
+    applySetup(page, entry.setup);
+    page.snap();
+    const own = REVIEW_TESTS[entry.key]();
+    own.snap();
+    for (let i = 1; i <= 150; i++) {
+      stepOneTick(page);
+      own.step(FIXED_DT);
+      assert.equal(page.ticks, own.ticks, `${entry.key} ticks at step ${i}`);
+      assert.deepEqual(positions(page), positions(own), `${entry.key} positions at tick ${i}`);
+    }
+  });
+}
+
+test('F-63 #14: stepOneTick advances exactly one tick per call, after a partial accumulator, at each time scale', () => {
+  for (const ts of [0.1, SIM_SPEED, 2]) {
+    const play = createPlay(25, 'insideZone', { timeScale: ts, tackles: false });
+    play.snap();
+    play.step(0.013);
+    for (let i = 0; i < 200; i++) {
+      const before = play.ticks;
+      stepOneTick(play);
+      assert.equal(play.ticks - before, 1, `timeScale ${ts}, call ${i}`);
+    }
+  }
+});
+
+test('F-63 #14: stepOneTick does nothing before the snap', () => {
+  const play = createPlay(25, 'insideZone', { timeScale: 1 });
+  stepOneTick(play);
+  assert.equal(play.ticks, 0);
+  assert.equal(play.ball.phase, 'presnap');
+});
+
+test('F-63 #14: a review setup then home restores the page matchup', () => {
+  const play = pagePlay();
+  applySetup(play, REVIEW_PLAYS[0].setup);
+  applySetup(play, playSetup(pagePlay()));
+  const fresh = pagePlay();
+  assert.deepEqual(playSetup(play), playSetup(fresh));
+  play.snap();
+  fresh.snap();
+  for (let i = 0; i < 60; i++) {
+    stepOneTick(play);
+    stepOneTick(fresh);
+  }
+  assert.deepEqual(positions(play), positions(fresh));
 });

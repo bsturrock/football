@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
-import { zonePlan, zoneSwitch, pickClimber, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, INSIDE_ZONE, ZONE_READ, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
+import { zonePlan, zoneSwitch, pickClimber, PICK_LEAD, PICK_PRIOR, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, INSIDE_ZONE, ZONE_READ, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { RULES, CLIMB_REACH, runScheme } from '../src/dots/assign.js';
 import { readFront, HEAD_UP } from '../src/dots/front.js';
 import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.js';
@@ -404,6 +404,27 @@ test('pickClimber: exact tie goes to the owner whichever argument order', () => 
   const [a, b] = [blkAt(-1), blkAt(1)];
   assert.equal(pickClimber(a, b, lbAt(0)), a);
   assert.equal(pickClimber(b, a, lbAt(0)), b);
+});
+test('T-94: pickClimber: the uncovered owner is the default, the partner needs a PICK_PRIOR lead', () => {
+  const [o, p] = [blkAt(-1), blkAt(1)]; // a still LB at x makes the partner nearer by 2x
+  assert.equal(pickClimber(o, p, lbAt((PICK_PRIOR + 0.05) / 2)), p);
+  assert.equal(pickClimber(o, p, lbAt((PICK_PRIOR - 0.05) / 2)), o);
+  assert.equal(pickClimber(p, o, lbAt(-(PICK_PRIOR + 0.05) / 2)), o);
+  assert.equal(pickClimber(p, o, lbAt(-(PICK_PRIOR - 0.05) / 2)), p);
+});
+test('T-94: pickClimber: the LB direction decides, from his projected spot (selfVel read first)', () => {
+  const [o, p] = [blkAt(-1), blkAt(1)];
+  const v = 4 * (PICK_PRIOR + 0.05) / PICK_LEAD; // carries q well past the partner lead
+  const lb = { id: 'L', x: -0.3, vel: { x: v, y: 0 } }; // live x favours the owner
+  assert.ok(Math.abs(o.x - lb.x) < Math.abs(p.x - lb.x));
+  assert.equal(pickClimber(o, p, lb), p);
+  assert.equal(pickClimber(o, p, { ...lb, vel: { x: 0, y: 0 } }), o);
+  assert.equal(pickClimber(o, p, { ...lb, vel: { x: 0, y: 0 }, selfVel: lb.vel }), p);
+});
+test('T-94: zoneSwitch: once one member has left he is final; a crossing LB does not hand the pick over', () => {
+  // the human: "Only one person can leave the double team and once they leave, they are gone basically."
+  assert.deepEqual(at(-2.1, 25.0, (s) => { s.g('C').block.target = 'MLB'; sees('crossing')(s); }), []);
+  assert.deepEqual(at(-2.1, 25.0, (s) => { s.g('LG').block.target = 'MLB'; sees('crossing')(s); }), []);
 });
 test('zoneSwitch: the live LB position decides the climber, not defGoals (restated F-59)', () => {
   // the LB's live position names the climber; a goal far on the other side changes nothing

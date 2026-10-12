@@ -1,7 +1,7 @@
 // Dots view layer: top-down three.js rendering of the dots play state.
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
-import { createPlay, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
+import { createPlay, FIXED_DT, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
 import { FRONTS, PERSONNEL, FORMATIONS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH } from './roster.js';
 import { SCRIPTS, CALLS } from './defense.js';
 import { TRACK_HALF, TRACK_DEPTH } from './perceive.js';
@@ -284,8 +284,76 @@ export function versionLabel(text) {
   return 'version unknown';
 }
 
+// ---- Review plays (F-63 #14): the exact setup of each line-play test R-23 made report-only ----
+// The 14 setup fields play.reset() and snap() read. A review entry sets all of them.
+export const SETUP_FIELDS = Object.freeze([
+  'front', 'personnel', 'playside', 'formation', 'defPersonnel', 'script', 'call',
+  'dlShift', 'lbShift', 'moves', 'tackles', 'accel', 'fightBlocks', 'seed',
+]);
+
+// Plain copy of a play's setup fields.
+export function playSetup(play) {
+  const out = {};
+  for (const f of SETUP_FIELDS) out[f] = play[f];
+  return out;
+}
+
+// Assigns the setup fields directly (the setters each reset on their own), then resets the play.
+export function applySetup(play, setup) {
+  for (const f of SETUP_FIELDS) play[f] = setup[f];
+  play.reset();
+}
+
+const REVIEW_SHARED = Object.freeze({
+  formation: null, defPersonnel: null, script: null, call: null, lbShift: 0,
+  moves: false, accel: true, fightBlocks: true, seed: 1,
+});
+const reviewPlay = (key, name, watch, fields) =>
+  Object.freeze({ key, name, watch, setup: Object.freeze({ ...REVIEW_SHARED, ...fields }) });
+
+export const REVIEW_PLAYS = Object.freeze([
+  reviewPlay('climb-under43', 'Test: climber vs L2 (under43, TE, right)',
+    'zone F-55 #6d: C climbs past L2 near tick 102 · squeeze F-55 #9: C lateral jump near tick 111',
+    { front: 'under43', personnel: 'te', playside: 'right', dlShift: 0, tackles: false }),
+  reviewPlay('steer-dlMinus4', 'Test: DL shifted 4 left (base)',
+    'steering accel cap dlMinus4: collision rebound on a free defender',
+    { front: 'base', personnel: 'te', playside: 'left', dlShift: -4, tackles: true }),
+  reviewPlay('stall-bear', 'Test: RB stall (bear, no TE)',
+    'accel-stall F-25 #3: RB slow in the hole',
+    { front: 'bear', personnel: 'noTe', playside: 'left', dlShift: 0, tackles: false }),
+  reviewPlay('slip-noTe', 'Test: RB crossing (base, no TE)',
+    'play-blocking F-15 #8c: RB crossing off his lane',
+    { front: 'base', personnel: 'noTe', playside: 'left', dlShift: 0, tackles: false }),
+  reviewPlay('slip-te', 'Test: RB crossing (base, TE)',
+    'play-blocking F-40 #7: RB crossing off his lane',
+    { front: 'base', personnel: 'te', playside: 'left', dlShift: 0, tackles: false }),
+  reviewPlay('stall-over43', 'Test: RB stall (over43, no TE)',
+    'accel-stall F-25 #3: RB slow in the hole',
+    { front: 'over43', personnel: 'noTe', playside: 'left', dlShift: 0, tackles: false }),
+  reviewPlay('shed-backedOff', 'Test: shed DL closing (backedOff)',
+    'zone F-33 #8: PE after his shed near 1.78 s (tick 107)',
+    { front: 'backedOff', personnel: 'te', playside: 'left', dlShift: 0, tackles: false }),
+]);
+
+// Review select options: the page matchup first (key ''), then one per review play.
+export function reviewOptions() {
+  return [{ key: '', name: 'Page matchup' }, ...REVIEW_PLAYS.map(({ key, name }) => ({ key, name }))];
+}
+
+// Advances exactly one fixed tick: tops the accumulator up to one tick. Nothing runs before the snap or after the play is dead.
+export function stepOneTick(play) {
+  if (play.ball.phase === 'presnap' || play.ball.phase === 'dead') return;
+  play.step(FIXED_DT * (1 - play.alpha) / play.timeScale);
+}
+
+// Readout for the tick counter: the tick and its time in seconds.
+export function tickLabel(ticks) {
+  return `Tick ${ticks} · ${(ticks / 60).toFixed(2)} s`;
+}
+
 export function initDotsView(container) {
   const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true, ...PAGE_MATCHUP });
+  const home = playSetup(play);
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
   const versionEl = document.getElementById('version');
@@ -327,6 +395,27 @@ export function initDotsView(container) {
     if (seedReadout) seedReadout.textContent = seedLabel(play.seed);
   };
   showSeed();
+  const watchReadout = hint ? hint.appendChild(document.createElement('span')) : null;
+  const tickReadout = hint ? hint.appendChild(document.createElement('span')) : null;
+  let shownTicks = null;
+  const showTicks = () => {
+    if (!tickReadout || shownTicks === play.ticks) return;
+    shownTicks = play.ticks;
+    tickReadout.textContent = tickLabel(play.ticks);
+  };
+  showTicks();
+  // Review picker (F-63 #14): '' is the page matchup; reviewEntry is the test play loaded, or null.
+  const reviewSelect = document.getElementById('review-select');
+  if (reviewSelect) {
+    for (const { key, name } of reviewOptions()) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = name;
+      reviewSelect.appendChild(opt);
+    }
+    reviewSelect.value = '';
+  }
+  let reviewEntry = null;
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -865,7 +954,12 @@ export function initDotsView(container) {
     movesBtn.blur();
   });
 
-  const doReset = () => { play.seed += 1; play.reset(); showShift(); showLB(); showFight(); showSeed(); };
+  const doReset = () => {
+    // A review play replays its own setup (seed 1, so the same tick by tick); the page matchup bumps the seed.
+    if (reviewEntry) applySetup(play, reviewEntry.setup);
+    else { play.seed += 1; play.reset(); }
+    showShift(); showLB(); showFight(); showMoves(); showSeed();
+  };
   resetBtn?.addEventListener('click', doReset);
   // Buttons sit outside #field, so no pointer handlers here; blur keeps the -/= keys working.
   const speedBtn = (btn, dir) => {
@@ -970,6 +1064,38 @@ export function initDotsView(container) {
     }
   }
 
+  // Review picker change: load the chosen test's setup, or the page matchup for ''. Tapping the field still snaps.
+  reviewSelect?.addEventListener('change', () => {
+    const entry = REVIEW_PLAYS.find((r) => r.key === reviewSelect.value);
+    reviewEntry = entry ?? null;
+    applySetup(play, entry ? entry.setup : home);
+    if (selectedId && !play.player(selectedId)) selectedId = null;
+    if (watchReadout) watchReadout.textContent = reviewEntry ? reviewEntry.watch : '';
+    showShift(); showLB(); showFight(); showMoves(); showSeed();
+    syncPickers();
+    reviewSelect.blur();
+  });
+
+  // Pause (P) stops the sim clock; the view keeps drawing, so pan, zoom and tap-to-select still work.
+  // Step (.) walks one tick, only while paused.
+  let paused = false;
+  const pauseBtn = document.getElementById('pause-btn');
+  const showPause = () => {
+    if (pauseBtn) pauseBtn.textContent = paused ? 'Play (P)' : 'Pause (P)';
+  };
+  showPause();
+  const togglePause = () => { paused = !paused; showPause(); };
+  pauseBtn?.addEventListener('click', () => {
+    togglePause();
+    pauseBtn.blur();
+  });
+  const stepBtn = document.getElementById('step-btn');
+  const stepTick = () => { if (paused) stepOneTick(play); };
+  stepBtn?.addEventListener('click', () => {
+    stepTick();
+    stepBtn.blur();
+  });
+
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { selectedId = null; return; }
     if (!MATCHUP_LOCKED && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
@@ -994,6 +1120,8 @@ export function initDotsView(container) {
     if (e.key.toLowerCase() === 'r') doReset();
     if (e.key.toLowerCase() === 'f') { toggleFight(); return; }
     if (e.key.toLowerCase() === 'm') { toggleMoves(); return; }
+    if (e.key.toLowerCase() === 'p') { togglePause(); return; }
+    if (e.key === '.') { stepTick(); return; }
     if (e.key.toLowerCase() === 'o' && document.activeElement?.tagName !== 'SELECT') toggleOverlay();
   });
 
@@ -1003,8 +1131,9 @@ export function initDotsView(container) {
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    play.step(dt);
+    if (!paused) play.step(dt);
     sync();
+    showTicks();
     renderer.render(scene, camera);
     if (!readySet) {
       readySet = true;

@@ -2,7 +2,7 @@
 import { readFront, LINE_DEPTH } from './front.js';
 import { runScheme, CLIMB_REACH } from './assign.js';
 import { LB_ROLES } from './roster.js';
-import { ballPast } from './geometry.js';
+import { ballPast, project } from './geometry.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
@@ -14,6 +14,10 @@ export const RIDE_DEPTH = 5.0;
 export const TRACK_HALF = 1.5;
 // F-55 #8: an LB is leaving the play only when all three hold: he is backside of the climber's track (beyond TRACK_HALF), he moves away from the playside at least LB_AWAY_V (yd/s), and he runs laterally faster than he fills downhill. An LB who attacks downhill is walled off instead (climb-spec: "LB suddenly attacks downhill: square up and drive/wall off"). Human: "let the LB leave the play and look for more dangerous players to block".
 export const LB_AWAY_V = 1.5;
+// T-94: how far ahead (s) the double projects the LB's motion when deciding who climbs (tunable)
+export const PICK_LEAD = 0.2;
+// T-94: how much nearer (yd) the LB's projected spot the partner must be before he climbs instead of the uncovered owner (tunable; judged by eye)
+export const PICK_PRIOR = 0.3;
 
 const row = (r) => Object.freeze(r);
 export const INSIDE_ZONE = Object.freeze({
@@ -255,7 +259,8 @@ export function trackPickup(players, ballPos, ctx, out, claimed = claimedSet(pla
   return out;
 }
 
-// Who climbs: the member laterally nearer the linebacker, judged from where he is, comes off; tie to the owner.
+// Who climbs: the LB's direction decides (his spot PICK_LEAD ahead, same blocker-side velocity read as the climb row). The uncovered owner is the default; the partner climbs only when nearer that spot by more than PICK_PRIOR.
 export function pickClimber(o, p, lb) {
-  return Math.abs(p.x - lb.x) < Math.abs(o.x - lb.x) - 1e-9 ? p : o;
+  const q = project(lb, lb.selfVel ?? lb.vel, PICK_LEAD);
+  return Math.abs(o.x - q.x) - Math.abs(p.x - q.x) > PICK_PRIOR + 1e-9 ? p : o;
 }

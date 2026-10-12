@@ -11,6 +11,8 @@
 //
 // F-25 #3 (T-163) judges measured net displacement on every front; the 2.4 s crossing cap was dropped because it
 // measured which way a pile breaks (outcome), not crawling.
+// Since F-63, F-25 #3's stall time is report-only: the RB's lane read shifts with defender flow, and the human
+// judges it on the dots page review picker. The peak check still guards the ratchet.
 //
 // Fix. (1) steerStep judges stuck progress against the caller's uncapped maxStep.
 // (2) play.step gives p.v inertia: measured speed may fall no faster than
@@ -26,18 +28,19 @@ import { FRONTS } from '../src/dots/roster.js';
 
 const DT = 1 / 60;
 
-// Longest run, in seconds, of consecutive substeps where the sampled condition held.
+// Longest run of consecutive substeps where the sampled condition held.
 // samples: array of booleans, one per DT substep.
+// Returns { time, end }: time in seconds, end the index in samples where the longest run ends (-1 if none).
 function stallTime(samples) {
-  let best = 0, run = 0;
-  for (const s of samples) {
-    run = s ? run + 1 : 0;
-    if (run > best) best = run;
+  let best = 0, run = 0, end = -1;
+  for (let i = 0; i < samples.length; i++) {
+    run = samples[i] ? run + 1 : 0;
+    if (run > best) { best = run; end = i; }
   }
-  return best * DT;
+  return { time: best * DT, end };
 }
 
-test('F-25 #3: RB does not crawl in the hole with accel on', () => {
+test('F-25 #3: RB does not crawl in the hole with accel on (report-only stall)', (t) => {
   // Tackles off so a tackle before the hole cannot hide a crawl. Every front, both personnel.
   // Net speed is displacement over 6 substeps (0.1 s), so back-and-forth jitter reads as slow.
   // Window: committed and carried, ending at the hole (y >= los + GAP_DEPTH) or when a free defender is
@@ -50,6 +53,7 @@ test('F-25 #3: RB does not crawl in the hole with accel on', () => {
       const rb = play.player(play.run.carrier);
       const hist = [];
       const slow = [];
+      const slowTicks = [];
       let peak = 0;
       let ended = false;
       for (let i = 1; i <= 600 && !ended; i++) {
@@ -59,6 +63,7 @@ test('F-25 #3: RB does not crawl in the hole with accel on', () => {
           const o = hist[hist.length - 7];
           const v = Math.hypot(rb.x - o.x, rb.y - o.y) / (6 * DT);
           slow.push(v < 1);
+          slowTicks.push(play.ticks);
           if (v > peak) peak = v;
         }
         const met = play.players.some((d) => d.team === 'defense'
@@ -67,8 +72,10 @@ test('F-25 #3: RB does not crawl in the hole with accel on', () => {
         if (rb.y >= 25 + GAP_DEPTH || met) ended = true;
       }
       assert.ok(ended, `${tag}: window did not end within 600 ticks`);
-      const stall = stallTime(slow);
-      assert.ok(stall <= 0.2, `${tag}: RB net speed < 1 yd/s for ${stall.toFixed(2)}s (want <= 0.2)`);
+      const { time: stall, end } = stallTime(slow);
+      if (stall > 0.2) {
+        t.diagnostic(`stall (report-only): ${tag}: RB net speed < 1 yd/s for ${stall.toFixed(2)} s ending tick ${slowTicks[end]} (limit 0.2)`);
+      }
       assert.ok(peak >= 0.85 * rb.speed, `${tag}: peak net speed ${peak.toFixed(2)} < ${(0.85 * rb.speed).toFixed(2)}`);
     }
   }
@@ -107,7 +114,7 @@ test('F-25 #4: MLB and WLB reach the QB without wedging with accel on', () => {
     }
   }
   for (const id of ids) {
-    const stall = stallTime(samples[id]);
+    const { time: stall } = stallTime(samples[id]);
     assert.ok(stall <= 0.5, `${id} stalled for ${stall.toFixed(2)}s`);
     assert.ok(arrived(play.player(id)), `${id} at ${dist(play.player(id)).toFixed(2)} from QB at 5s`);
   }

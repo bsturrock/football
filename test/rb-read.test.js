@@ -46,6 +46,9 @@ test('F-35 #9: with the playside A, B, C filled he cuts back to the backside', (
       ds[k].x = mid + (prevMid[k] === undefined ? 0 : mid - prevMid[k]);
       ds[k].y = LOS + BODY_RADIUS;
       prevMid[k] = mid;
+      // The filler is re-placed to follow the sliding window: a man standing in his window, not one flowing backside. Tell the
+      // carrier's memory he was already at this spot so the re-placing jump is not read as lateral velocity.
+      run.seen[ds[k].id] = { x: ds[k].x, y: ds[k].y };
     });
     // Guard against fixture drift: each playside window holds a free defender in the read band.
     const after = laneWindows(play.players, run.line, run.side).filter((w) => w.side === 'play').slice(0, 3);

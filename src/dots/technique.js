@@ -1,5 +1,5 @@
 // Blocking technique table, footwork phase machine and drive/ride push math.
-// Pure: no imports, no mutation of arguments.
+// Pure: imports only the pure geometry helpers, no mutation of arguments.
 //
 // Push (footPush): drive = vertical, double or wall. On a blindside hit the base
 // bends from the drive toward the contact line (BLIND_START..BLIND_FULL degrees). The
@@ -23,15 +23,14 @@
 //   seal     optional; true on the climb row: once engaged on the target's flow side the blocker holds his seal (footPush
 //            never leans the push past the seal side while the target travels toward him; the seal side is latched with
 //            the seal, so a target sliding to head-up in front of him does not release the clamp)
-//   level    optional; true on the climb row: in the 'aim' phase footGoal sets goal.ceiling (levelCeiling: the target's
-//            depth projected LEVEL_LEAD s along his downhill velocity), and steerStep never ends the step upfield of it,
-//            so the climber never climbs past his linebacker's level (F-57 #11b)
 //   next     technique entered after coming off onto a new target
 //   phases   pre-contact phases, in order ('step', 'aim', or 'hinge' for the cutoff wall spot)
 //   retarget phase entered after coming off onto a new target
 //
 // Extending: add reach/down/kick/pull as new rows; a new drive mode is a new branch
 // in driveDir; a new phase is a PHASES entry plus its name in a row's phases.
+
+import { leadPoint } from './geometry.js';
 
 export const FIRST_STEP_LEN = 0.5; // yards, length of the first step (tunable)
 export const RIDE_MIN = 0.3; // yd/s, target lateral speed needed to set ride side (tunable)
@@ -44,9 +43,9 @@ export const BLIND_START = 30; // degrees, contact-vs-drive angle where the base
 export const BLIND_FULL = 75; // degrees, contact-vs-drive angle where the base is the contact line (tunable)
 
 export const HINGE_GIVE = 0.05; // yd, how far back toward the offense the hinge wall spot sits (tunable)
+export const BLOCK_LEAD_MAX = 0.3; // s, the longest a blocker leads his man's motion when closing on him (tunable)
 export const INTERCEPT_MIN_SPEED = 1; // yd/s, floor on the blocker speed used to solve the climb intercept (tunable)
 export const CLIMB_LANE_REACH = 5; // yd, generous bound on how far from the ball a climb aim may sit ("within reason": stops only wild intercepts, not a leash) (tunable)
-export const LEVEL_LEAD = 0.15; // s, how far ahead a climber projects a downhill linebacker's depth for his level ceiling; 0.15 so he starts giving ground before a 5 yd/s blitzer is level with him (0.1 still let one in by a few hundredths) without making climbers on a sitting or scraping LB any slower (tunable)
 export const WALL_LEAN = 30; // degrees from straight upfield toward the backside, lean of a 'wall' drive (tunable)
 
 const freezeRow = (r) => Object.freeze({
@@ -63,7 +62,7 @@ export const TECHNIQUES = Object.freeze({
   zone: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 55 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
   // Same as zone for the covered member; none = the uncovered helper's short step playside, shoulders square.
   combo: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 45 }, aim: 0.5, drive: 'double', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
-  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, seal: true, level: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, seal: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   // F-55 #5. Step inside and flat to protect the inside gap, then hinge out to wall the end man off.
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'wall', next: 'cutoff', phases: ['step', 'hinge'], retarget: 'hinge' }),
 });
@@ -105,6 +104,15 @@ export function aimPoint(spot, tech, side, radius) {
   return { x: spot.x + side * TECHNIQUES[tech].aim * radius, y: spot.y };
 }
 
+// The blocker-side use of the shared anticipation helper: the contact spot led by the man's velocity, up to
+// BLOCK_LEAD_MAX. blocking.js uses it for blocks without a technique row (T-88).
+export function leadSpot(blocker, spot, target) {
+  const v = target ? (target.selfVel ?? target.vel) : null;
+  if (!blocker || !v || Math.hypot(v.x, v.y) <= 1e-6) return spot;
+  const L = leadPoint(blocker, Math.max(blocker.speed ?? 1, INTERCEPT_MIN_SPEED), spot, v, { maxLead: BLOCK_LEAD_MAX });
+  return L.met ? { x: L.x, y: L.y } : { x: spot.x, y: spot.y };
+}
+
 export const PHASES = Object.freeze({
   step: Object.freeze({
     goal(foot, spot, side, radius) {
@@ -119,8 +127,8 @@ export const PHASES = Object.freeze({
   }),
   // Wall spot: the contact spot shifted aim radii playside and HINGE_GIVE back toward the offense.
   hinge: Object.freeze({
-    goal(foot, spot, side, radius) {
-      const p = aimPoint(spot, foot.tech, side, radius);
+    goal(foot, spot, side, radius, env) {
+      const p = aimPoint(leadSpot(env?.blocker, spot, env?.target), foot.tech, side, radius);
       return { x: p.x, y: p.y - HINGE_GIVE };
     },
     done() {
@@ -135,7 +143,7 @@ export const PHASES = Object.freeze({
     goal(foot, spot, side, radius, env) {
       const row = TECHNIQUES[foot.tech];
       if (!row.intercept) {
-        const a = aimPoint(spot, foot.tech, side, radius);
+        const a = aimPoint(leadSpot(env?.blocker, spot, env?.target), foot.tech, side, radius);
         const blocker = env?.blocker;
         return blocker && a.y < blocker.y ? { x: a.x, y: blocker.y } : a;
       }
@@ -144,9 +152,9 @@ export const PHASES = Object.freeze({
       const v = target ? (target.selfVel ?? target.vel) : null;
       let aim;
       if (blocker && v && Math.hypot(v.x, v.y) > 1e-6) {
-        const t = interceptTime(spot, v, blocker, Math.max(blocker.speed ?? 1, INTERCEPT_MIN_SPEED));
+        const lead = leadPoint(blocker, Math.max(blocker.speed ?? 1, INTERCEPT_MIN_SPEED), spot, v);
         // No meeting point: aim at the spot itself, no playside shift (climb-spec: contact at an achievable angle).
-        aim = t == null ? { x: spot.x, y: spot.y } : aimPoint({ x: spot.x + v.x * t, y: spot.y + v.y * t }, foot.tech, side, radius);
+        aim = !lead.met ? { x: spot.x, y: spot.y } : aimPoint({ x: lead.x, y: lead.y }, foot.tech, side, radius);
       } else {
         aim = aimPoint(spot, foot.tech, side, radius);
       }
@@ -161,21 +169,6 @@ export const PHASES = Object.freeze({
     },
   }),
 });
-
-// Smallest t > 0 with |spot + v t - blocker| = s t, or null when there is none.
-function interceptTime(spot, v, blocker, s) {
-  const dx = spot.x - blocker.x;
-  const dy = spot.y - blocker.y;
-  const a = v.x * v.x + v.y * v.y - s * s;
-  const b = 2 * (dx * v.x + dy * v.y);
-  const c = dx * dx + dy * dy;
-  if (Math.abs(a) < 1e-12) return b < 0 ? -c / b : null;
-  const disc = b * b - 4 * a * c;
-  if (disc < 0) return null;
-  const q = Math.sqrt(disc);
-  const roots = [(-b - q) / (2 * a), (-b + q) / (2 * a)].filter((r) => r > 1e-9).sort((p, r) => p - r);
-  return roots.length ? roots[0] : null;
-}
 
 // Drive direction for a push mode: 'double' is straight upfield (F-55 #4, vertical double-team drive), 'wall'
 // leans toward the backside by WALL_LEAN. Other modes: straight upfield.
@@ -251,15 +244,6 @@ export function retargetFoot(foot, blocker) {
   };
 }
 
-// Level ceiling of a 'level' row (F-57 #11b): the deepest y the climber's step may end at, the linebacker's depth
-// projected LEVEL_LEAD seconds along his downhill velocity (no projection while he holds or drops). A climber meets
-// his man at or below the man's level, between him and the backfield; when the man comes downhill fast under or
-// beside him he gives ground with him instead of climbing past him (climb-spec case 3: square up, do not run past).
-export function levelCeiling(target) {
-  const vy = (target.selfVel ?? target.vel)?.y ?? 0;
-  return target.y + Math.min(0, vy) * LEVEL_LEAD;
-}
-
 export function footGoal(foot, blocker, spot, side, radius, env) {
   const row = TECHNIQUES[foot.tech];
   const names = row.phases;
@@ -276,7 +260,6 @@ export function footGoal(foot, blocker, spot, side, radius, env) {
     def = get(phase);
   }
   const goal = def.goal(foot, spot, side, radius, { blocker, ...env });
-  if (row.level === true && phase === 'aim' && env?.target) goal.ceiling = levelCeiling(env.target);
   return { phase, goal };
 }
 

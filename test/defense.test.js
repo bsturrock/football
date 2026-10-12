@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
-  LB_READ_TIME, KEY_MOVE, READ_STEP, READ_STEP_DOWN, READ_SPEED, OVER_TOP, keyRead, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, intercept, CONTAIN_DEPTH, CONTAIN_WIDTH, CONTAIN_SPEED,
+  LB_READ_TIME, KEY_MOVE, READ_STEP, READ_STEP_DOWN, READ_SPEED, OVER_TOP, keyRead, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, REACH_LEAD, intercept, CONTAIN_DEPTH, CONTAIN_WIDTH, CONTAIN_SPEED,
   MAN_ROLES, PERSONNEL_CALLS, moveFor, callFor, shiftGap, DL_RESPONSES, GETOFF_TIME, GETOFF_DEPTH, ARM_FREE, RUSH_DEPTH, LEVER_V, PURSUE_LEVER,
 } from '../src/dots/defense.js';
 import { createPlay } from '../src/dots/play.js';
@@ -518,7 +518,7 @@ test('F-34 #7: intercept leads a crossing carrier, returns a still ball, caps at
   near(eq.y, ball.y + 7.5 * LEAD_MAX);
 });
 
-test('T-135: intercept leads a close pursuer no longer than his time to the ball', () => {
+test('T-135: intercept leads a close pursuer no longer than REACH_LEAD times his time to the ball', () => {
   const ball = { x: 0, y: 30 };
   const pursuer = { x: 1, y: 30 };
   const speed = 7.5;
@@ -527,14 +527,49 @@ test('T-135: intercept leads a close pursuer no longer than his time to the ball
   const b = intercept(pursuer, ball, { x: 0, y: 7.6 }, speed);
   const reachA = Math.hypot(a.x - ball.x, a.y - ball.y);
   const reachB = Math.hypot(b.x - ball.x, b.y - ball.y);
-  assert.ok(reachA <= 7.4 * (dist / speed) + 1e-9);
-  assert.ok(reachB <= 7.6 * (dist / speed) + 1e-9);
+  assert.ok(reachA <= 7.4 * REACH_LEAD * (dist / speed) + 1e-9);
+  assert.ok(reachB <= 7.6 * REACH_LEAD * (dist / speed) + 1e-9);
   assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < 0.1);
   const far = intercept({ x: 0, y: 20 }, ball, { x: 0, y: 9 }, speed);
   near(far.y, ball.y + 9 * LEAD_MAX);
   near(far.x, 0);
   const still = intercept(pursuer, ball, { x: 0, y: 7.6 }, 0);
   assert.ok(Number.isFinite(still.x) && Number.isFinite(still.y));
+});
+
+test('T-87: intercept with age 0 and reachLead 1 is the old intercept; age projects the seen spot first', () => {
+  const old = (d, ball, v, speed) => {
+    const rx = ball.x - d.x;
+    const ry = ball.y - d.y;
+    const a = v.x * v.x + v.y * v.y - speed * speed;
+    const b = 2 * (rx * v.x + ry * v.y);
+    const c = rx * rx + ry * ry;
+    let t = LEAD_MAX;
+    if (Math.abs(a) < 1e-12) {
+      if (Math.abs(b) > 1e-12 && -c / b >= 0) t = -c / b;
+    } else {
+      const disc = b * b - 4 * a * c;
+      if (disc >= 0) {
+        const q = Math.sqrt(disc);
+        const roots = [(-b - q) / (2 * a), (-b + q) / (2 * a)].filter((r) => r >= 0);
+        if (roots.length) t = Math.min(...roots);
+      }
+    }
+    t = Math.min(t, LEAD_MAX, speed > 0 ? Math.hypot(rx, ry) / speed : Infinity);
+    return { x: ball.x + v.x * t, y: ball.y + v.y * t };
+  };
+  for (const [d, ball, v, sp] of [[{ x: 1, y: 30 }, { x: 0, y: 30 }, { x: 0, y: 7.4 }, 7.5], [{ x: 8, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 6 }, 7.5], [{ x: 0, y: 20 }, { x: 3, y: 30 }, { x: 2, y: 9 }, 7], [{ x: 0, y: 20 }, { x: 3, y: 30 }, { x: 2, y: 9 }, 0]]) {
+    const a = intercept(d, ball, v, sp, 0, 1);
+    const b = old(d, ball, v, sp);
+    near(a.x, b.x);
+    near(a.y, b.y);
+  }
+  const d = { x: 3, y: 20 };
+  const v = { x: 2, y: 5 };
+  const aged = intercept(d, { x: 0, y: 25 }, v, 7, 0.2);
+  const moved = intercept(d, { x: 0.4, y: 26 }, v, 7);
+  near(aged.x, moved.x);
+  near(aged.y, moved.y);
 });
 
 test('F-34 #7: a chase from the side reaches TACKLE_DIST in fewer ticks with intercept than with the carrier spot', () => {
@@ -1109,6 +1144,24 @@ test('T-57 #3: an inside pursuer of a sideways ball aims min(PURSUE_LEVER, his x
     const ball = { x: 5, y: 25 };
     assert.deepEqual(GOALS.pursue(d, e, mk(ball, v)), intercept(d, ball, v, d.speed));
   }
+});
+
+test('T-87: a free pursuer solves from the cue spot projected by the cue delay; an engaged one keeps the unprojected solve; the live carrier is never read', () => {
+  const d = { id: 'X', x: 0, y: 30, speed: 7 };
+  const e = {};
+  const cue = { x: 5, y: 25, vx: 4, vy: 2, carried: true, past: false, committed: true };
+  const delayed = { ...cue, x: cue.x + 0.2 * cue.vx, y: cue.y + 0.2 * cue.vy };
+  const mk = (cues, players) => ({ ballPos: { x: 1, y: 2 }, defense: { ballV: { x: 0, y: 0 } }, cues: () => cues, players });
+  const free = GOALS.pursue(d, e, mk({ delay: 0.2, ball: cue }));
+  assert.deepEqual(free, GOALS.pursue(d, e, mk({ delay: 0, ball: delayed })));
+  assert.deepEqual(free, GOALS.pursue(d, e, mk({ delay: 0.2, ball: cue }, [{ id: 'O', x: 9, y: 9, block: { target: 'other', engaged: true } }])));
+  const eng = GOALS.pursue(d, e, mk({ delay: 0.2, ball: cue }, [{ id: 'O', block: { target: d.id, engaged: true } }]));
+  const p = intercept(d, { x: cue.x, y: cue.y }, { x: cue.vx, y: cue.vy }, d.speed, 0, 1);
+  near(eng.x, p.x - Math.min(PURSUE_LEVER, Math.abs(d.x - cue.x)));
+  near(eng.y, p.y);
+  // the live carrier moving differently from the cue changes nothing
+  const live = (x, y, vx, vy) => ({ ...mk({ delay: 0.2, ball: cue }, [{ id: 'C', x, y, vel: { x: vx, y: vy }, selfVel: { x: vx, y: vy } }]), ballPos: { x, y }, defense: { ballV: { x: vx, y: vy } } });
+  assert.deepEqual(GOALS.pursue(d, e, live(-9, 40, -3, 8)), GOALS.pursue(d, e, live(cue.x, cue.y, cue.vx, cue.vy)));
 });
 
 test('T-57 #3a: pursue uses the ball cue spot and velocity, not an exchange spike; no cue keeps the env ball', () => {
