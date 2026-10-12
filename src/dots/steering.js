@@ -6,7 +6,11 @@
 //    2 * radius; the preferred passing distance is R),
 //    the mover picks a pass side (left/right) and records it in p.steer.
 //  - Hold: he keeps that side every call, even if the obstacle jitters across
-//    his centre line, so he never flip-flops.
+//    his centre line, so he never flip-flops. The detour also holds while the
+//    first obstacle sits anywhere in the wider corridor (2 * radius + RELEASE_MARGIN),
+//    not only the touch-width one: a goal swinging across a body's line moves the
+//    body's lateral offset over the touch-width edge, and re-deciding the detour at that
+//    edge each tick swung the step between straight ahead and the tangent past the body.
 //  - Release: A) the obstacle leaves the wider corridor (2 * radius + RELEASE_MARGIN);
 //    B) the goal key changes; C) he makes < STUCK_PROGRESS of maxStep along
 //    the goal direction for STUCK_TIME seconds, judged as the lesser of the last
@@ -115,10 +119,15 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     return best ? { o: best, t: bestT, lat: bestLat } : null;
   };
 
-  const hit = firstObstacle(2 * radius);
-  if (p.steer && p.steer.side !== 0 && firstObstacle(2 * radius + RELEASE_MARGIN) === null) {
-    p.steer.side = 0; p.steer.stuck = 0; p.steer.flips = 0;
-    p.steer.lane = null; p.steer.laneOff = false;
+  let hit = firstObstacle(2 * radius);
+  if (p.steer && p.steer.side !== 0) {
+    // Hold: a committed mover keeps detouring around the first obstacle in the wider corridor, so a goal
+    // sliding across the body's line does not switch the detour on and off at the touch-width edge.
+    const wide = firstObstacle(2 * radius + RELEASE_MARGIN);
+    if (wide === null) {
+      p.steer.side = 0; p.steer.stuck = 0; p.steer.flips = 0;
+      p.steer.lane = null; p.steer.laneOff = false;
+    } else if (hit === null) hit = wide;
   }
 
   const byId = (id) => {

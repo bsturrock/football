@@ -47,6 +47,30 @@ test('tunables', () => {
   assert.ok(Math.abs(S.hardCore(0.35) - 2 * 0.35 * (1 - S.SQUEEZE)) < 1e-12);
 });
 
+test('R-17: a goal sliding across the obstacle\'s line keeps the pass side', () => {
+  // The goal swings so the body's offset from the goal line crosses the touch-width edge (2 * RAD) and stays inside the release corridor.
+  const body = { id: 'b', x: 0, y: 2.5 };
+  const p = { id: 'p', x: 0, y: 0 };
+  let side = 0, last = 0, reversals = 0, ahead = 0;
+  for (let tick = 0; tick < 120 && p.y < 2; tick++) {
+    const g = { x: 5 * Math.sin(tick * 0.3), y: 8, key: 'k', ignore: null };
+    const x0 = p.x;
+    steerStep(p, g, [p, body], 2 * DT, DT, RAD);
+    ahead++;
+    if (p.steer && p.steer.side !== 0) {
+      if (side !== 0) assert.equal(p.steer.side, side, 'pass side changed at tick ' + tick);
+      side = p.steer.side;
+    }
+    const vx = (p.x - x0) / DT;
+    if (Math.abs(vx) > 0.3) {
+      if (last !== 0 && Math.sign(vx) !== last) reversals++;
+      last = Math.sign(vx);
+    }
+  }
+  assert.ok(ahead > 40 && side !== 0, 'body stayed ahead and was passed on a side: ' + ahead);
+  assert.ok(reversals <= 1, 'vel.x reversed ' + reversals + ' times');
+});
+
 test('free movement', () => {
   for (const bodies of [[], [{ id: 'b', x: 20, y: 3 }]]) {
     const p = { id: 'p', x: 0, y: 0 };

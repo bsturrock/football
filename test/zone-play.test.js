@@ -1355,8 +1355,7 @@ test('F-55 #6d: a climber never climbs past his linebacker\'s level', (t) => {
   assert.ok(n > 0);
 });
 
-// Todo is removed when the steering side-flip bug (steerStep pass side, src/dots/steering.js) is fixed.
-test('F-55 #6d: a climber\'s path does not wobble', { todo: 'steering: steerStep obstacle-avoidance pass side flips when the goal crosses a blocked neighbour (src/dots/steering.js); F-55 #6d' }, (t) => {
+test('F-55 #6d: a climber\'s path does not wobble', (t) => {
   let spans = 0;
   const bad = [];
   for (const [front, personnel, playside] of climbCases()) {
