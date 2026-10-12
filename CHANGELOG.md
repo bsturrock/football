@@ -55,3 +55,4 @@
 - 2026-10-12 F-56 Defensive calls as data and DL hat reads (R-9) c415cc1
 - 2026-10-12 F-58 LB keys, flow fits, climbers and pursuit angles (R-9) aa8540f
 - 2026-10-12 F-57 RB read engine: bang, bend, bounce (R-10) 5a697b3
+- 2026-10-12 F-59 Combo climber: the blocker nearer the LB comes off (R-18) 2d8869d
