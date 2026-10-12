@@ -508,7 +508,7 @@ test('F-38: WHO.edge matches only the edge; pickAssign with and without front; c
   const rows = CALLS.base.rows;
   const edge = by(s.players, s.front.edge);
   const f = s.front.defenders.find((x) => x.id === s.front.edge);
-  assert.deepEqual(pickAssign(rows, edge, f, s.front), { type: 'contain' });
+  assert.deepEqual(pickAssign(rows, edge, f, s.front), { type: 'contain', fit: 'box' });
   assert.notEqual(pickAssign(rows, edge, f).type, 'contain');
   validateBehavior('contain');
 });
