@@ -2,7 +2,7 @@
 import { HW } from '../util.js';
 import { steerStep, hardCore, CUT_ACCEL } from './steering.js';
 import { stepReact } from './react.js';
-import { startFoot, retargetFoot, footGoal, footPush, RIDE_MIN } from './technique.js';
+import { startFoot, retargetFoot, footGoal, footPush, leadSpot, RIDE_MIN } from './technique.js';
 import { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
 import { MOVE_COUNTER, moveOdds } from './roster.js';
 export { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
@@ -654,14 +654,22 @@ export function stopSpeed(rem, accel, dt) {
 
 // A free defender's step: his goal under the planted-cut limit (goal.accel = CUT_ACCEL), never inside
 // CONTACT_DIST of the ball (the guard wins), slowing so he can stop at the nearer of goal and guard
-// within the cap. With nowhere to step (goal reached, at the guard) he brakes along his travel by
+// within the cap. The ball side counts the ball's own motion away from him (ballV, measured by stepBlocking):
+// the room grows by away * dt and the braking speed by away, so he does not brake for a carrier who runs
+// off; a still ball or one coming at him gives the plain limit. With nowhere to step (goal reached, at the guard) he brakes along his travel by
 // CUT_ACCEL * dt instead of freezing, unless that would carry him closer to the ball inside the guard.
-function freeStep(d, goal, ballPos, rate, players, dt) {
+function freeStep(d, goal, ballPos, rate, players, dt, ballV) {
   const gd = Math.hypot(goal.x - d.x, goal.y - d.y);
   const bd = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
   if (gd > 1e-9 && bd > CONTACT_DIST) {
-    const room = Math.min(gd, bd - CONTACT_DIST);
-    const limit = Math.min(rate * dt, room, stopSpeed(room, CUT_ACCEL, dt) * dt);
+    const br = bd - CONTACT_DIST;
+    const away = ballV ? Math.max(0, (ballV.x * (ballPos.x - d.x) + ballV.y * (ballPos.y - d.y)) / bd) : 0;
+    const limit = Math.min(
+      rate * dt,
+      gd,
+      br + away * dt,
+      Math.min(stopSpeed(gd, CUT_ACCEL, dt), stopSpeed(br, CUT_ACCEL, dt) + away) * dt,
+    );
     steerStep(d, { ...goal, accel: CUT_ACCEL }, players, limit, dt, BODY_RADIUS);
     return;
   }
@@ -726,9 +734,10 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
         BODY_RADIUS,
       );
     } else {
+      const led = leadSpot(b, spot, T);
       steerStep(
         b,
-        { x: spot.x, y: spot.y, key: 'block:' + b.block.target, ignore: b.block.target },
+        { x: led.x, y: led.y, key: 'block:' + b.block.target, ignore: b.block.target },
         players,
         b.speed * dt,
         dt,
@@ -816,14 +825,14 @@ function defenderPass(players, ballPos, dt, ctx, s) {
       const x0 = d.x;
       const y0 = d.y;
       // A free defender never steps inside contact of the ball; the tackle rule takes over at TACKLE_DIST.
-      if (g) freeStep(d, { x: g.x, y: g.y, key: g.key, ignore: holderId }, ballPos, g.rate, players, dt);
+      if (g) freeStep(d, { x: g.x, y: g.y, key: g.key, ignore: holderId }, ballPos, g.rate, players, dt, s.ballV);
       else {
         // Chasing the ball he runs to the guard point (CONTACT_DIST short of it on his line): a body
         // beyond the point he stops at is not in his way.
         const bd = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
         const k = bd > CONTACT_DIST ? (bd - CONTACT_DIST) / bd : 0;
         const at = { x: d.x + (ballPos.x - d.x) * k, y: d.y + (ballPos.y - d.y) * k };
-        freeStep(d, { ...at, key: 'ball', ignore: holderId }, ballPos, d.speed, players, dt);
+        freeStep(d, { ...at, key: 'ball', ignore: holderId }, ballPos, d.speed, players, dt, s.ballV);
       }
       if (dt > 0) stepped.set(d.id, { x: (d.x - x0) / dt, y: (d.y - y0) / dt });
     }
@@ -1064,6 +1073,7 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     justEngaged: new Set(),
     fight: false,
     holderId: null,
+    ballV: { x: 0, y: 0 }, // the ball's velocity from blocking's own memory of its spot (ctx.ballPrev)
     before: null,
   };
   for (const p of players) p.delivered = null;
@@ -1073,6 +1083,12 @@ export function stepBlocking(players, ballPos, dt, ctx) {
   s.fight = ctx?.fightBlocks !== false;
   s.holderId = findHolder(players, ballPos);
   s.before = new Set(players.filter((p) => p.block?.engaged).map((p) => p.id));
+  // The holder's own vel/selfVel cannot serve: the carrier steps before stepBlocking and measure() only sets
+  // vel from this pass's displacement, so his vel stays ~0 on a run. Measure the ball spot instead.
+  if (ctx && ctx.ballPrev && s.holderId !== null && dt > 0) {
+    s.ballV = { x: (ballPos.x - ctx.ballPrev.x) / dt, y: (ballPos.y - ctx.ballPrev.y) / dt };
+  }
+  if (ctx) ctx.ballPrev = { x: ballPos.x, y: ballPos.y };
   // 3-4. unengaged blockers approach and engage
   approachAndEngage(players, ballPos, dt, ctx, s);
   // 5. engaged foot blockers

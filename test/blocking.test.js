@@ -5,7 +5,7 @@ import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
   doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
   SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce, CONTACT_TURN,
-  contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
+  stopSpeed, contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
 } from '../src/dots/blocking.js';
 import { ballPast, RELEASE_PAST as GEO_RELEASE_PAST, BODY_RADIUS as GEO_BODY_RADIUS } from '../src/dots/geometry.js';
 import { hardCore, CUT_ACCEL } from '../src/dots/steering.js';
@@ -976,4 +976,75 @@ test('driveForce scales with the move phase', () => {
   near(driveForce({ ...p, move: { kind: 'swim', phase: 'lost' } }), 0.8 * LOST_DRIVE);
   near(driveForce({ ...p, move: { kind: 'swim', phase: 'won' } }), 0.8);
   near(driveForce({ ...p, move: { kind: 'swim', phase: 'rest' } }), 0.8);
+});
+
+// T-88: a free defender brakes on the ball's closing speed, measured by stepBlocking from the ball spot.
+function chase(carrierVy, dir, ticks, gap = 0.8) {
+  const c = O('c', 0, 10 + gap * dir.sign, { team: 'offense', role: 'RB' });
+  const d = D('d', 0, 10, { speed: 8, vel: { x: 0, y: dir.sign * 7 }, selfVel: { x: 0, y: dir.sign * 7 } });
+  const ps = [c, d];
+  const ctx = { rule: null, seq: 0, defGoals: { d: { x: 0, y: 10 + dir.sign * 40, key: 'def:pursue', rate: 8 } } };
+  const rows = [];
+  for (let i = 0; i < ticks; i++) {
+    c.y += carrierVy * DT;
+    const br = Math.hypot(c.x - d.x, c.y - d.y) - CONTACT_DIST;
+    const y0 = d.y;
+    stepBlocking(ps, { x: c.x, y: c.y }, DT, ctx);
+    rows.push({ br, step: Math.abs(d.y - y0), gap: Math.hypot(c.x - d.x, c.y - d.y) });
+  }
+  return rows;
+}
+
+test('T-88 #1: a free defender behind a carrier running away keeps more than the still-ball braking', () => {
+  const rows = chase(7, { sign: 1 }, 12);
+  for (const [i, r] of rows.entries()) {
+    if (i < 2 || r.br <= 0) continue;
+    assert.ok(r.step > stopSpeed(r.br, CUT_ACCEL, DT) * DT + 1e-6, `tick ${i}: step ${r.step} vs cap ${stopSpeed(r.br, CUT_ACCEL, DT) * DT}`);
+  }
+});
+
+test('T-88 #2: with a still carrier the defender never ends a tick inside CONTACT_DIST', () => {
+  for (const r of chase(0, { sign: 1 }, 30)) assert.ok(r.gap >= CONTACT_DIST - 1e-6, `gap ${r.gap}`);
+});
+
+test('T-88 #3: a carrier running at him still stops him at or outside CONTACT_DIST', () => {
+  // defender above the carrier, carrier running up at him
+  const c = O('c', 0, 0, { role: 'RB' });
+  const d = D('d', 0, 3, { speed: 8, vel: { x: 0, y: -7 }, selfVel: { x: 0, y: -7 } });
+  const ctx = { rule: null, seq: 0, defGoals: { d: { x: 0, y: -40, key: 'def:pursue', rate: 8 } } };
+  for (let i = 0; i < 40; i++) {
+    c.y += 7 * DT;
+    const before = Math.hypot(c.x - d.x, c.y - d.y);
+    stepBlocking([c, d], { x: c.x, y: c.y }, DT, ctx);
+    // the carrier's own step may close the gap; his step never makes it smaller than CONTACT_DIST
+    assert.ok(Math.hypot(c.x - d.x, c.y - d.y) >= Math.min(before, CONTACT_DIST) - 1e-6, `tick ${i}`);
+  }
+});
+
+test('T-88 #4: ball velocity is {0,0} on the first tick, and measured after', () => {
+  const c = O('c', 0, 10, { role: 'RB' });
+  const d = D('d', 5, 10);
+  const ctx = { rule: null, seq: 0 };
+  const goals = { d: { x: 5, y: 10, key: 'g', rate: 6 } };
+  ctx.defGoals = goals;
+  // the first tick: no ballPrev yet, so the defender's step equals the still-ball step
+  stepBlocking([c, d], { x: c.x, y: c.y }, DT, ctx);
+  assert.ok(ctx.ballPrev);
+  assert.equal(d.x, 5);
+  c.y += 7 * DT;
+  stepBlocking([c, d], { x: c.x, y: c.y }, DT, ctx);
+  assert.deepEqual(ctx.ballPrev, { x: 0, y: c.y });
+});
+
+test('T-88 #5: a no-foot blocker leads a sideways-moving man, and a still man steers as before', () => {
+  const run = (vx) => {
+    const b = O('b', 0, 0, { block: blk('d') });
+    const d = D('d', 0, 4, { vel: { x: vx, y: 0 }, selfVel: { x: vx, y: 0 } });
+    stepBlocking([b, d], { x: 0, y: -50 }, DT, { rule: null, seq: 0 });
+    return b;
+  };
+  const still = run(0);
+  const moving = run(5);
+  assert.ok(moving.x > still.x + 1e-4, `moving ${moving.x} still ${still.x}`);
+  assert.ok(Math.abs(still.x) < 1e-6, `still man: ${still.x}`);
 });
