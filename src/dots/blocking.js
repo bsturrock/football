@@ -485,6 +485,13 @@ export function canRelease(b, T, ballPos, fight = true) {
   return null;
 }
 
+// True when blocker b is past the plane of T's back: more than BODY_RADIUS behind his centre along his
+// facing. No finite facing: never behind.
+export function behindBack(b, T) {
+  if (!Number.isFinite(T.facing)) return false;
+  return (b.x - T.x) * Math.sin(T.facing) + (b.y - T.y) * Math.cos(T.facing) < -BODY_RADIUS;
+}
+
 // Single engage predicate: 'spot' (within ENGAGE_TOL of the spot), 'contact' (touching the target
 // in front), or null. Null also when: the re-engage cooldown runs (b.block.cool); the ball is past
 // the target (ballPos given and ballPast); the target shed a blocker within REENGAGE_DELAY
@@ -493,10 +500,11 @@ export function canEngage(b, T, spot, ballPos) {
   if ((b.block.cool ?? 0) > 0) return null;
   if (ballPos && ballPast(T, ballPos)) return null;
   if ((T.shedFree ?? 0) > 0) return null;
-  // "Blocks in the back are penalties so you have to be in front or to the side only": refuse a
-  // blocker behind the defender's facing (f = facingDir, sin/cos). Exactly 90 degrees off is the side.
-  // No finite facing: not restricted. Gates new engages only; never releases a block.
-  if (Number.isFinite(T.facing) && (b.x - T.x) * Math.sin(T.facing) + (b.y - T.y) * Math.cos(T.facing) < 0) return null;
+  // Human's rule: "blocks in the back are penalties so you have to be in front or to the side only".
+  // Behind = past the plane of his back (more than BODY_RADIUS behind his centre along his facing); level
+  // with his body is the side. Facing follows travel for a free defender, so a strict 90-degree line
+  // refused level blockers on a man flowing along the line. Gates new engages only; never releases a block.
+  if (behindBack(b, T)) return null;
   // Engage only well inside canRelease's 'lost' range, or the block would drop on the next tick.
   const near = Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_NEAR;
   if (near && Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL) return 'spot';

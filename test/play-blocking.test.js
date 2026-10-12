@@ -5,7 +5,7 @@ import { stepReact } from '../src/dots/react.js';
 import { POSITIONS, FRONTS, LB_ROLES } from '../src/dots/roster.js';
 import {
   BODY_RADIUS, CONTACT_DIST, ENGAGED_MAX_SPEED, ENGAGE_TOL, ENGAGE_SLACK, SHED_TIME, RELEASE_PAST, REENGAGE_DELAY,
-  contactSpot, canEngage, canRelease, assignBlocks, setBlock,
+  contactSpot, canEngage, canRelease, behindBack, assignBlocks, setBlock,
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
@@ -574,7 +574,7 @@ const judgeClimb = (t, probe, front, c, strict = false) => {
       const m = probe.player(id);
       if (Math.hypot(lb.x - m.x, lb.y - m.y) > CONTACT_DIST + ENGAGE_TOL) continue;
       near[id]++;
-      if (Number.isFinite(lb.facing) && (m.x - lb.x) * Math.sin(lb.facing) + (m.y - lb.y) * Math.cos(lb.facing) < 0) back[id]++;
+      if (behindBack(m, lb)) back[id]++;
     }
     const hit = [c.owner, c.partner].some((id) => {
       const b = probe.player(id).block;

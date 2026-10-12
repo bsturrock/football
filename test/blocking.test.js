@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { HW } from '../src/util.js';
 import {
   assignBlocks, setBlock, clearBlock, contactSpot, resolveBlock, stepBlocking,
-  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, SOFT_RATE,
+  doubleTeamPeel, CONTACT_DIST, ENGAGE_TOL, Y_MAX, DRIVE_RATE, BODY_RADIUS, SPREAD, separateBodies, canEngage, behindBack, SOFT_RATE,
   SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce, CONTACT_TURN,
   stopSpeed, contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
 } from '../src/dots/blocking.js';
@@ -713,24 +713,45 @@ test('canEngage', () => {
   assert.equal(canEngage(O('c', 0, 11.1, { block: blk('t') }), T, { x: 0, y: 10 - CONTACT_DIST }), null);
 });
 
-test('canEngage: no block in the back, only in front or to the side of the defender', () => {
+test('canEngage: no block in the back (past the plane of his back); front, side and hip engage', () => {
   const far = { x: 5, y: 5 };
   const at = (x, y, o = {}) => O('c', x, y, { facing: 0, block: blk('t'), ...o });
   const T = D('t', 0, 10, { facing: Math.PI }); // faces the offense (-y)
+  const d = CONTACT_DIST * 0.9;
+  const hip = { x: d * Math.sin((100 * Math.PI) / 180), y: 10 - d * Math.cos((100 * Math.PI) / 180) }; // dot about -0.09
   assert.equal(canEngage(at(0, 10 - CONTACT_DIST), T, far), 'contact'); // in front
-  assert.equal(canEngage(at(CONTACT_DIST, 10, { facing: -Math.PI / 2 }), T, far), 'contact'); // beside: dot 0
-  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI }), T, far), null); // behind, in contact range
-  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI }), T, { x: 0, y: 10 + CONTACT_DIST * 0.9 }), null);
+  assert.equal(canEngage(at(CONTACT_DIST, 10, { facing: -Math.PI / 2 }), T, far), 'contact'); // level beside him
+  assert.equal(canEngage(at(hip.x, hip.y, { facing: Math.atan2(-hip.x, 10 - hip.y) }), T, far), 'contact'); // at his hip, slightly behind
+  assert.equal(canEngage(at(0, 10 + d), T, far), null); // directly behind in contact range
+  assert.equal(canEngage(at(0, 10 + d), T, { x: 0, y: 10 + d }), null);
+  // the back plane is BODY_RADIUS behind his centre
+  const spot = { x: 0, y: 10 + BODY_RADIUS - 0.01 };
+  assert.equal(canEngage(at(0, 10 + BODY_RADIUS + 0.01), T, spot), null);
+  assert.equal(canEngage(at(0, 10 + BODY_RADIUS - 0.01), T, spot), 'spot');
   // turning the defender flips which side is behind
   const T2 = D('t', 0, 10, { facing: 0 });
-  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI }), T2, far), 'contact');
+  assert.equal(canEngage(at(0, 10 + d, { facing: Math.PI }), T2, far), 'contact');
   assert.equal(canEngage(at(0, 10 - CONTACT_DIST), T2, far), null);
   // re-engage after a shed: cool 0 and shedFree 0
   const free = D('t', 0, 10, { facing: Math.PI, shedFree: 0 });
-  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI, block: blk('t', { cool: 0 }) }), free, far), null);
+  assert.equal(canEngage(at(0, 10 + d, { facing: Math.PI, block: blk('t', { cool: 0 }) }), free, far), null);
   assert.equal(canEngage(at(0, 10 - CONTACT_DIST, { block: blk('t', { cool: 0 }) }), free, far), 'contact');
   // no facing: today's results
-  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI }), D('t', 0, 10), far), 'contact');
+  assert.equal(canEngage(at(0, 10 + d, { facing: Math.PI }), D('t', 0, 10), far), 'contact');
+});
+
+test('behindBack: only past the plane of his back', () => {
+  const T = { x: 0, y: 10, facing: Math.PI };
+  const d = CONTACT_DIST * 0.9;
+  assert.equal(behindBack({ x: 0, y: 10 - CONTACT_DIST }, T), false);
+  assert.equal(behindBack({ x: CONTACT_DIST, y: 10 }, T), false);
+  assert.equal(behindBack({ x: d * Math.sin((100 * Math.PI) / 180), y: 10 - d * Math.cos((100 * Math.PI) / 180) }, T), false);
+  assert.equal(behindBack({ x: 0, y: 10 + d }, T), true);
+  assert.equal(behindBack({ x: 0, y: 10 + BODY_RADIUS + 0.01 }, T), true);
+  assert.equal(behindBack({ x: 0, y: 10 + BODY_RADIUS - 0.01 }, T), false);
+  assert.equal(behindBack({ x: 0, y: 10 + d }, { x: 0, y: 10 }), false);
+  assert.equal(behindBack({ x: 0, y: 10 + d }, { x: 0, y: 10, facing: 0 }), false);
+  assert.equal(behindBack({ x: 0, y: 10 - d }, { x: 0, y: 10, facing: 0 }), true);
 });
 
 test('canEngage: ball past the target and shed-free targets refuse engage', () => {
