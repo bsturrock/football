@@ -199,7 +199,7 @@ test('F-58 #4: the side rule: a play-side fit scrapes, a back-side fit fits his 
   near(back.out.y, LOS + FILL_DEPTH);
 });
 
-test('F-58 #1: fit goal is the ball cue x inside his gap span at FILL_DEPTH; atFit pursues', () => {
+test('F-58 #1: fit goal is the ball cue x inside his gap span at FILL_DEPTH; he holds fit until the ball commits', () => {
   assert.ok(FILL_DEPTH >= 3 && FILL_DEPTH <= 5);
   const s = setup();
   const sp = gapSpan(s.players, s.defense, s.defense.agents.MLB.fit);
@@ -216,9 +216,14 @@ test('F-58 #1: fit goal is the ball cue x inside his gap span at FILL_DEPTH; atF
   const mlb = by(t.players, 'MLB');
   mlb.x = out.MLB.x;
   mlb.y = out.MLB.y;
+  // Rule now judged: at his fit with the ball uncommitted, carrier not past, no shed, he holds fit.
+  step(t, 0.01);
+  step(t, 0.01);
+  assert.equal(t.defense.agents.MLB.state, 'fit');
+  stubLB(t, { ...RUN, ball: { x: 0, y: LOS, vx: 0, vy: 0, carried: true, past: false, committed: true } });
   step(t, 0.01);
   assert.equal(t.defense.agents.MLB.state, 'pursue');
-  assert.equal(t.defense.agents.MLB.why, 'atFit');
+  assert.equal(t.defense.agents.MLB.why, 'ballCommitted');
   const pur = step(t, 0.01).MLB;
   assert.deepEqual({ x: pur.x, y: pur.y }, intercept(mlb, t.ball, t.defense.ballV, mlb.speed));
 });

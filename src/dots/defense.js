@@ -251,10 +251,6 @@ export const TRIGGERS = Object.freeze({
     if (x.cover !== undefined && (e.assign?.cover ?? 'zone') !== x.cover) return false;
     return true;
   },
-  atFit: (d, e, env) => {
-    const g = GOALS.fitGap(d, e, env);
-    return Math.hypot(d.x - g.x, d.y - g.y) <= BODY_RADIUS;
-  },
   atFill: (d, e, env) => {
     const g = GOALS.fill(d, e, env);
     return Math.hypot(d.x - g.x, d.y - g.y) <= BODY_RADIUS;
@@ -371,7 +367,7 @@ export const BEHAVIORS = Object.freeze({
           { when: 'read', is: 'run', to: 'fit' },
         ],
       },
-      fit: { goal: 'fitGap', speed: 1, exits: [...LB_PURSUE_EXITS, { when: 'atFit', to: 'pursue' }] },
+      fit: { goal: 'fitGap', speed: 1, exits: [...LB_PURSUE_EXITS] },
       scrape: { goal: 'scrapeGoal', speed: 1, exits: [...LB_PURSUE_EXITS] },
       split: { goal: 'split', speed: 1, exits: [...LB_PURSUE_EXITS] },
       drop: { goal: 'drop', speed: DROP_SPEED, exits: [...LB_PURSUE_EXITS] },
