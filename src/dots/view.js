@@ -25,6 +25,11 @@ export const RING_OUTER = 2.7 * BODY_RADIUS;
 
 const SHIFT_STEP = Object.freeze({ DL: DL_SHIFT_STEP, LB: LB_SHIFT_STEP });
 
+// The one matchup dots.html shows (R-26).
+export const PAGE_MATCHUP = Object.freeze({ formation: '11', playside: 'left', script: null, call: null });
+// true hides the matchup pickers and DL/LB shift controls; false brings them back.
+export const MATCHUP_LOCKED = true;
+
 // Yards with two decimals and trailing zeros dropped (0.35 -> '0.35', 0.7 -> '0.7', 2 -> '2').
 export function formatYards(y) {
   return String(Number(y.toFixed(2)));
@@ -280,7 +285,7 @@ export function versionLabel(text) {
 }
 
 export function initDotsView(container) {
-  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true });
+  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true, ...PAGE_MATCHUP });
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
   const versionEl = document.getElementById('version');
@@ -307,12 +312,12 @@ export function initDotsView(container) {
     speedDown.after(speedReadout);
     speedReadout.after(speedUp);
   }
-  const shiftReadout = hint ? hint.appendChild(document.createElement('span')) : null;
+  const shiftReadout = hint && !MATCHUP_LOCKED ? hint.appendChild(document.createElement('span')) : null;
   const showShift = () => {
     if (shiftReadout) shiftReadout.textContent = shiftLabel(play.dlShift);
   };
   showShift();
-  const lbReadout = hint ? hint.appendChild(document.createElement('span')) : null;
+  const lbReadout = hint && !MATCHUP_LOCKED ? hint.appendChild(document.createElement('span')) : null;
   const showLB = () => {
     if (lbReadout) lbReadout.textContent = shiftLabel(play.lbShift, 'LB', '⇧←/→');
   };
@@ -958,10 +963,16 @@ export function initDotsView(container) {
   wirePicker(scriptSelect, scriptOptions(), (k) => play.setScript(k));
   wirePicker(callSelect, callOptions(), (k) => play.setCall(k));
   frontSelect?.addEventListener('change', () => { if (defenseSelect) defenseSelect.value = play.defPersonnel ?? ''; });
+  if (MATCHUP_LOCKED) {
+    // Wiring stays in place above; the locked page only hides the pickers.
+    for (const s of [frontSelect, playsideSelect, personnelSelect, formationSelect, defenseSelect, scriptSelect, callSelect]) {
+      if (s) s.hidden = true;
+    }
+  }
 
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { selectedId = null; return; }
-    if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
+    if (!MATCHUP_LOCKED && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
         (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
       e.preventDefault();
       play.shiftLB(e.key === 'ArrowRight' ? 1 : -1);
@@ -974,7 +985,7 @@ export function initDotsView(container) {
       if (e.key === '=' || e.key === '+') { play.setTimeScale(speedStep(play.timeScale, 1)); showSpeed(); return; }
     }
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    if (!MATCHUP_LOCKED && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
       e.preventDefault();
       play.shiftDL(e.key === 'ArrowRight' ? 1 : -1);
       showShift();
