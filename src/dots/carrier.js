@@ -17,6 +17,7 @@ export const HANDOFF_DIST = BODY_RADIUS;
 export const GAP_BACK = 2 * BODY_RADIUS;
 export const GAP_DEPTH = 4 * BODY_RADIUS;
 export const LOCK_DEPTH = 2 * BODY_RADIUS;
+export const HOLE_EXIT = GAP_DEPTH - BODY_RADIUS / 2; // depth past the los where the hole ends and the open field begins
 // The opponent goal line in field y (the shared convention: y is the yard line, 0 own goal to 100 opponent goal).
 // The carrier runs to it once locked; the play-end rule (tackle.js) imports it for the touchdown check, so this is its single source.
 export const GOAL_LINE_Y = 100;
@@ -73,6 +74,8 @@ export const AIM_LEG = BODY_RADIUS; // yd from the playside guard's centre to hi
 export const PRESSURE_DIST = 8 * BODY_RADIUS; // an unblocked defender this close ends the patience
 export const BEND_MAX = 1; // times a committed RB may cut to another lane before he reaches the hole (at most 2)
 export const CUT_ALLOW = BODY_RADIUS / 2; // after the commit, how far the aim x may move from run.x
+export const BOUNCE_MAX = 1; // times a committed RB may bounce to a nearby open gap once he is in the hole
+export const BOUNCE_REACH = 8 * BODY_RADIUS; // yd: farthest an open gap may be from him (lateral) for a bounce
 // The RB's pace per phase, as data.
 export const PHASE_PACE = Object.freeze({ press: PACES.press, commit: PACES.burst });
 
@@ -297,6 +300,7 @@ export function startRun(players, runDef, { snapToId, playside, numbers }) {
     patience: patienceWindow(runDef, rb),
     pressTime: 0,
     bends: 0,
+    bounces: 0,
     pastLos: false,
     avoid: null,
     avoidAt: 0,
@@ -507,7 +511,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId, cues }, dt) {
   } else if (!run.locked) {
     goal = { x: run.press.x, y: run.press.y, key: 'press', pace: PHASE_PACE.press, ignore: null };
   } else {
-    if (rb.y >= los) run.pastLos = true;
+    if (rb.y >= los + HOLE_EXIT - 1e-9) run.pastLos = true;
     if (!justCommitted && !run.pastLos && rb.y < los + LANE_AHEAD) {
       const w = laneWindows(players, run.line, run.side).find((e) => e.side === run.lane.side && e.name === run.lane.name);
       const free = w && freeLane(players, w, rb.id, los, proj);
@@ -533,7 +537,32 @@ export function stepCarrier(players, run, { los, ballHeld, holdId, cues }, dt) {
           }
         }
       }
-      if (!cut && free) run.cut = clamp((open ? free.x : free.seg) - run.x, -CUT_ALLOW, CUT_ALLOW);
+      let bounced = false;
+      // In the hole (past the one-cut window) a closed lane bounces once to the nearest open gap in reach, else he commits.
+      if (!cut && rb.y >= los - GAP_BACK && !open) {
+        if (run.bounces < BOUNCE_MAX) {
+          const lanes = scoreLanes(players, run, rb, los, proj, proj.flow);
+          run.lanes = lanes;
+          let pick = null;
+          for (const l of lanes) {
+            if (!l.open || (l.side === run.lane.side && l.name === run.lane.name) || Math.abs(l.x - rb.x) > BOUNCE_REACH) continue;
+            const d = Math.abs(l.x - rb.x);
+            const pd = pick ? Math.abs(pick.x - rb.x) : Infinity;
+            if (!pick || d < pd - 1e-9 || (Math.abs(d - pd) <= 1e-9 && l.score > pick.score)) pick = l;
+          }
+          if (pick) {
+            run.lane = { side: pick.side, name: pick.name };
+            run.gap = pick.name;
+            run.x = pick.x;
+            run.cut = 0;
+            run.bounces++;
+            run.why = 'bounce: ' + pick.side + ' ' + pick.name;
+            bounced = true;
+          }
+        }
+        if (!bounced && run.why !== 'commit: hole closed') run.why = 'commit: hole closed';
+      }
+      if (!cut && !bounced && free) run.cut = clamp((open ? free.x : free.seg) - run.x, -CUT_ALLOW, CUT_ALLOW);
     }
     // Behind the line, run to the hole in his lane; turn vertical once at the line.
     // The turn is latched (pastLos): contact pushing him back behind the line must not flip the aim back.
