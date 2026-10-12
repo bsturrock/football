@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay, FIXED_DT } from '../src/dots/play.js';
+import { moveLabel } from '../src/dots/view.js';
 
 const TICKS = 240;
 const isDL = (p) => p.role === 'DT' || p.role === 'DE';
@@ -40,4 +41,17 @@ test('F-61 #7c: with moves off no DL ever has a move, even at swim 1', () => {
     const play = rated(opts, 1, 0);
     run(play, () => { for (const d of play.players) if (isDL(d)) assert.equal(d.move ?? null, null, d.id); });
   }
+});
+
+test('F-62 #3: a played snap with moves on shows a resolved won/lost label', () => {
+  const labels = new Set();
+  for (let seed = 1; seed <= 5; seed++) {
+    const play = createPlay(25, 'insideZone', { trace: true, moves: true, seed });
+    assert.ok(play.snap());
+    for (let t = 0; t < 400 && play.ball.phase !== 'dead'; t++) {
+      play.step(FIXED_DT);
+      for (const d of play.players) if (isDL(d)) labels.add(moveLabel(d));
+    }
+  }
+  assert.ok([...labels].some((l) => /^(swim|power) (won|lost)$/.test(l)), `labels seen: ${[...labels].join(', ')}`);
 });

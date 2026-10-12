@@ -948,6 +948,21 @@ test('a block ending mid-try clears d.move', () => {
   assert.equal(ps[1].move, null);
 });
 
+test('F-62 #1: a started try runs to its roll even when the goal drops the move', () => {
+  const gm = { kind: 'swim', side: 1 };
+  const ctx = { rule: null, seq: 1, moves: true };
+  const start = (ps) => {
+    for (let i = 0; i < 100 && ps[1].move?.phase !== 'try'; i++) runMove(ps, ctx, 1, gm);
+    assert.equal(ps[1].move?.phase, 'try');
+  };
+  const won = movePair();
+  start(won);
+  assert.ok(runMove(won, ctx, Math.ceil(MOVES.swim.time / DT) + 2, null).includes('won'));
+  const lost = movePair({ swim: 0 });
+  start(lost);
+  assert.ok(runMove(lost, ctx, Math.ceil(MOVES.swim.time / DT) + 2, null).includes('lost'));
+});
+
 test('identical runs give identical move sequences', () => {
   const run = () => runMove(movePair({ swim: 0.5 }), { rule: null, seq: 1, moves: true, seed: 7 }, 200, { kind: 'swim', side: 1 });
   assert.deepEqual(run(), run());

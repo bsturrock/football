@@ -842,6 +842,8 @@ function holdTimers(players, dt, before) {
 
 // Pass-rush moves: an engaged, single-blocked defender whose goal carries a move runs a timed try,
 // then a seeded roll against moveOdds decides won (the canRelease shed) or lost (a stall, then rest).
+// A started try runs to its roll even if the goal drops the move; only a block ending or changing
+// (or the moves gate closing) clears it.
 function movePass(players, dt, ctx, s) {
   for (const d of players) {
     if (d.move?.phase === 'won') {
@@ -866,10 +868,6 @@ function movePass(players, dt, ctx, s) {
         d.move = { kind: gm.kind, side: gm.side, phase: 'try', t: 0, n: (d.moveN = (d.moveN ?? 0) + 1), by: b.id };
       }
     } else if (m.phase === 'try') {
-      if (!gm) {
-        d.move = null;
-        continue;
-      }
       m.t += dt;
       if (m.t >= MOVES[m.kind].time) {
         const odds = moveOdds(d[m.kind], b[MOVE_COUNTER[m.kind]]);
