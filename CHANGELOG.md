@@ -61,3 +61,4 @@
 - 2026-10-12 F-62 DL move tries resolve to won or lost on a played snap (R-20) e76f6de
 - 2026-10-12 F-64 Dots: one matchup only, 11 personnel vs nickel 4-3 (R-26) e9318d7
 - 2026-10-12 F-63 One anticipation system: every chaser aims where his target will be (R-23) d4b0625
+- 2026-10-12 F-65 Label normal leverage sheds on the field (R-24) 33541ea
