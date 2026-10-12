@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlay } from '../src/dots/play.js';
+import { createPlay, FIXED_DT } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, stepDir, stepLenOf, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
+import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, stepDir, stepLenOf, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH, READ_STEP_DOWN, keyRead } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
@@ -229,7 +229,8 @@ test('F-17 #5: push directions', () => {
       const f = b.foot;
       if (!(b.engaged && b.target === s.tid && f && s.push && s.watch)) continue;
       if (Math.abs(ang(s.push, f.push)) >= deg(PUSH_TURN * DT) - 1e-6) continue;
-      const drive = driveDir(f.tech, s.tgt, s.watch, side);
+      assert.equal(TECHNIQUES[f.tech].drive, 'double', s.id);
+      const drive = { x: 0, y: 1 };
       const contact = { x: s.tgt.x - s.me.x, y: s.tgt.y - s.me.y };
       if (Math.abs(ang(drive, contact)) > BLIND_START) continue;
       counts[s.gi]++;
@@ -258,7 +259,7 @@ test('F-17 #6: ride a sideways-moving defender', () => {
   for (let i = 0; i < 40 && !reached; i++) {
     RDT.vel = { x: 1.2, y: 0 };
     play.step(DT);
-    reached = C.block.foot.ride < 0 && C.block.foot.push.x > driveDir('combo', RDT, null, side).x;
+    reached = C.block.foot.ride < 0 && C.block.foot.push.x > 0; // the combo drive is straight upfield (x 0)
   }
   assert.ok(reached, `ride ${C.block.foot.ride}`);
   for (let i = 0; i < 3; i++) {
@@ -980,6 +981,34 @@ test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch 
   void diffs;
 });
 
+// F-60 #4 (P-4): the release off a combo takes a declared LB, and a combo's watch is claimed before the pick.
+test('F-60 #4: under43 te, the combo releases pick the declared LB / the most dangerous unclaimed one', () => {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'under43', personnel: 'te', playside: 'left' });
+  play.snap();
+  const orig = play.retargetRule;
+  const seen = [];
+  play.retargetRule = (players, ballPos, ctx) => {
+    const claimedBefore = claimedSet(players);
+    const out = orig(players, ballPos, ctx);
+    for (const e of out) {
+      const c = ctx.combos.find((m) => (m.owner === e.blocker || m.partner === e.blocker) && unswitched(players, m));
+      if (!c) continue;
+      const o = players.find((q) => q.id === c.owner), pp = players.find((q) => q.id === c.partner);
+      const cues = Object.fromEntries([c.owner, c.partner].map((id) => [id, ctx.cues?.(id)]));
+      seen.push({ c, e, cues, claimedBefore, reach: unclaimedInReach(players, ballPos, ctx, claimedBefore, (o.x + pp.x) / 2).map((d) => d.id) });
+    }
+    return out;
+  };
+  for (let i = 0; i < 150 && play.ball.phase !== 'dead'; i++) play.step(FIXED_DT);
+  const first = seen.find((r) => r.c.watch === 'L1');
+  const second = seen.find((r) => r.c.watch === 'L2');
+  assert.ok(first && second, `releases seen ${seen.map((r) => r.c.watch)}`);
+  assert.equal(first.e.target, 'L2');
+  assert.ok(declaredIn(first.cues, [first.c.owner, first.c.partner], 'L2'), 'L2 declared for the pair');
+  assert.ok(second.claimedBefore.has('L2'), 'L2 is claimed at the BT release');
+  assert.equal(second.e.target, second.reach[0]);
+});
+
 test('F-3 #2: combo partners lean together', () => {
   // Partners agree from 0.1 s after both are engaged: a 'playside' push starts on the shared base (footPush), not on the contact line (which began C/LG about 80 degrees apart and took 0.35 s to converge).
   for (const front of Object.keys(FRONTS)) {
@@ -1461,4 +1490,38 @@ test('F-59 #3: walkedUp te run right, C comes off the nose double to the Mike (n
   assert.equal(r.e.target, 'MIK');
   assert.equal(r.e.blocker, 'C');
   assert.ok(r.dC < r.dRG, `C ${r.dC} nearer than RG ${r.dRG}`);
+});
+
+// T-76: a combo never comes off its DL onto an LB the double has already driven the DL past, unless he has declared.
+// Judges the rule at every release (his depth against the DL's, or the cues), not an outcome.
+test('T-76: a combo member leaving the DL goes to an LB upfield of the DL, or one declared to the pair', (t) => {
+  const configs = [
+    ['over43', 'te', 'right', 'lbSits'],
+    ['under43', 'noTe', 'left', 'lbSits'],
+    ['odd34', 'noTe', 'right', 'lbSits'],
+    ['odd34', 'noTe', 'left', 'endCrash'],
+  ];
+  let checked = 0;
+  for (const [front, personnel, playside, script] of configs) {
+    const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front, personnel, playside, script });
+    const orig = play.retargetRule;
+    play.retargetRule = (pl, b, ctx) => {
+      const out = orig(pl, b, ctx);
+      const byId = (id) => pl.find((q) => q.id === id);
+      for (const c of ctx.combos) {
+        if (!unswitched(pl, c)) continue;
+        const e = out.find((o) => o.blocker === c.owner || o.blocker === c.partner);
+        if (!e) continue;
+        const lb = byId(e.target), dl = byId(c.target);
+        const cues = Object.fromEntries([c.owner, c.partner].map((id) => [id, ctx.cues(id)]));
+        const declared = declaredIn(cues, [c.owner, c.partner], lb.id);
+        checked++;
+        assert.ok(lb.y > dl.y || declared, `${front} ${personnel} ${playside} ${script} ${e.blocker} > ${lb.id} (y ${lb.y.toFixed(2)}) with the DL at y ${dl.y.toFixed(2)}, undeclared`);
+      }
+      return out;
+    };
+    assert.ok(play.snap(), `${front} ${personnel} ${playside} ${script}`);
+    for (let i = 0; i < 150 && play.ball.phase !== 'dead'; i++) play.step(FIXED_DT);
+  }
+  t.diagnostic(`${checked} releases judged`);
 });

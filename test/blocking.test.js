@@ -7,6 +7,7 @@ import {
   SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce, CONTACT_TURN,
   contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
 } from '../src/dots/blocking.js';
+import { ballPast, RELEASE_PAST as GEO_RELEASE_PAST, BODY_RADIUS as GEO_BODY_RADIUS } from '../src/dots/geometry.js';
 import { hardCore, CUT_ACCEL } from '../src/dots/steering.js';
 import { startFoot, RIDE_MIN } from '../src/dots/technique.js';
 import { startReact, WIN_SPEED } from '../src/dots/react.js';
@@ -17,6 +18,13 @@ const O = (id, x, y, o = {}) => ({ id, team: 'offense', role: 'OL', x, y, speed:
 const D = (id, x, y, o = {}) => ({ id, team: 'defense', role: 'DT', x, y, speed: 6.5, strength: 0.6, block: null, ...o });
 const blk = (target, o = {}) => ({ target, angle: 'straight', engaged: false, seq: null, ...o });
 const mk = (angle) => ({ id: 'b', block: { target: 'd', angle, engaged: true, seq: 1 }, strength: 1 });
+
+test('geometry: ballPast', () => {
+  const T = { x: 0, y: 20 };
+  assert.equal(ballPast(T, { x: 0, y: T.y + GEO_RELEASE_PAST }), true);
+  assert.equal(ballPast(T, { x: 0, y: T.y + GEO_RELEASE_PAST - 0.01 }), false);
+  assert.equal(BODY_RADIUS, GEO_BODY_RADIUS);
+});
 
 test('resolveBlock exact values', () => {
   const def = { x: 0, y: 10, strength: 0.6 };
@@ -742,6 +750,30 @@ test('stepBlocking: a shed frees the defender from every blocker for REENGAGE_DE
   assert.ok(DL.shedFree > 0);
   assert.ok(DL.shedFree <= REENGAGE_DELAY + 1e-9);
   assert.equal(canEngage(b, DL, contactSpot(ps, b), ballPos), null);
+});
+
+test('stepBlocking: a released climb block leaves no ride or seal latch on the foot', () => {
+  const DL = D('dl', 0, 10, { speed: 0 });
+  const a = O('a', -CONTACT_DIST * 0.6, 10 - CONTACT_DIST * 0.8, { block: blk('dl', { engaged: true, seq: 1 }) });
+  a.block.foot = startFoot('climb', 'none', null, a);
+  const ps = [a, DL];
+  const ballPos = { x: 0, y: 10 - 3 };
+  // the target travels toward the blocker's side (-x), so the climb seal latches and the ride turns
+  for (let i = 0; i < 30; i++) {
+    DL.vel = { x: -3, y: 0 };
+    stepBlocking(ps, ballPos, DT, { rule: null, seq: 1 });
+  }
+  assert.equal(a.block.engaged, true);
+  assert.equal(a.block.foot.sealed, true);
+  assert.ok(a.block.foot.ride !== 0);
+  // the ball goes RELEASE_PAST upfield of him: the block ends
+  stepBlocking(ps, { x: 0, y: DL.y + RELEASE_PAST + 1 }, DT, { rule: null, seq: 1 });
+  assert.equal(a.block.engaged, false);
+  assert.equal(a.block.released, 'past');
+  assert.equal(a.block.foot.push, null);
+  assert.equal(a.block.foot.ride, 0);
+  assert.equal('sealed' in a.block.foot, false);
+  assert.equal('sealSide' in a.block.foot, false);
 });
 
 test('separateBodies: a free body wedged against an anchor is not pushed back by a free body behind him', () => {

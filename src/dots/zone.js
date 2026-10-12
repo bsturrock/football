@@ -2,6 +2,7 @@
 import { readFront, LINE_DEPTH } from './front.js';
 import { runScheme, CLIMB_REACH } from './assign.js';
 import { LB_ROLES } from './roster.js';
+import { ballPast } from './geometry.js';
 
 export { LINE_DEPTH } from './front.js';
 export const SWITCH_DIST = 2.0;
@@ -82,8 +83,31 @@ export function unclaimedInReach(players, ballPos, ctx, claimed, x) {
     .map((e) => e.d);
 }
 
+// F-55: an LB declares when either member sees him crossing his face, or filling/crossing inside his track (cues only)
+const declaredFor = (o, p, ctx) => (d) => !!d && [o, p].some((m) => {
+  const cu = ctx.cues?.(m.id);
+  const st = cu?.lbs?.[d.id];
+  return st === 'crossing' || (st === 'filling' && !!cu.track?.ids?.includes(d.id));
+});
+
+// The LB a combo watches this tick (or null). Precedence:
+// 1. an unclaimed LB who has declared (plan watch first, then `free` order): an LB who fills into my track is mine, whoever the plan watched;
+// 2. else the unclaimed plan watch, unless the most dangerous other free LB beats him by more than DANGER_MARGIN;
+// 3. else (no unclaimed plan watch) the most dangerous unclaimed LB in reach.
+// If the danger choice is itself declared it is kept.
+function watchFor(plan, free, claimed, ballPos, ctx, declaredBy) {
+  let w = plan && !claimed.has(plan.id) ? plan : null;
+  if (w) {
+    const best = free.find((d) => d !== w);
+    if (best && dangerOf(w, ballPos, ctx) - dangerOf(best, ballPos, ctx) > DANGER_MARGIN) w = best;
+  } else w = free[0] ?? null;
+  if (!declaredBy(w)) w = [plan, ...free].find((d) => d && !claimed.has(d.id) && declaredBy(d)) ?? w;
+  return w;
+}
+
 export function zoneSwitch(players, ballPos, ctx) {
   const byId = new Map(players.map((p) => [p.id, p]));
+  const side = ctx?.side === -1 ? -1 : 1;
   const out = [];
   const claimed = claimedSet(players);
   const mid = (c) => {
@@ -92,7 +116,7 @@ export function zoneSwitch(players, ballPos, ctx) {
   };
   const combos = [...((ctx && ctx.combos) || [])]
     .map((c, i) => ({ c, i }))
-    .sort((a, b) => ctx.side * mid(b.c) - ctx.side * mid(a.c) || a.i - b.i)
+    .sort((a, b) => side * mid(b.c) - side * mid(a.c) || a.i - b.i)
     .map((e) => e.c);
   for (const c of combos) {
     const o = byId.get(c.owner);
@@ -101,21 +125,15 @@ export function zoneSwitch(players, ballPos, ctx) {
     if (o.block?.target !== c.target || p.block?.target !== c.target) continue; // already switched
     const dl = byId.get(c.target);
     const on = (x) => x.block?.target === c.target && x.block.engaged;
-    const plan = byId.get(c.watch);
-    const free = unclaimedInReach(players, ballPos, ctx, claimed, mid(c));
-    let w = plan && !claimed.has(plan.id) ? plan : null;
-    if (w) {
-      const best = free.find((d) => d !== w);
-      if (best && dangerOf(w, ballPos, ctx) - dangerOf(best, ballPos, ctx) > DANGER_MARGIN) w = best;
-    } else w = free[0] ?? null;
-    // F-55: an LB declares when either member sees him crossing his face, or filling/crossing inside his track (cues only)
-    const declaredBy = (d) => !!d && [o, p].some((m) => {
-      const cu = ctx.cues?.(m.id);
-      const st = cu?.lbs?.[d.id];
-      return st === 'crossing' || (st === 'filling' && !!cu.track?.ids?.includes(d.id));
-    });
-    // an LB who fills into my track is mine, whoever the plan watched
-    if (!declaredBy(w)) w = [plan, ...free].find((d) => d && !claimed.has(d.id) && declaredBy(d)) ?? w;
+    const declaredBy = declaredFor(o, p, ctx);
+    // T-76: the double drove the DL past him: an LB at or under the DL's depth who has not declared is not worth climbing to
+    // (going sideways or backwards); keep driving the DL, or take an LB still upfield. A declared LB (filling into a
+    // member's track, crossing his face: a blitzing or fast-filling LB) is taken wherever he is.
+    const behind = (d) => !!d && !!dl && d.y <= dl.y && !declaredBy(d);
+    const planAll = byId.get(c.watch);
+    const plan = behind(planAll) ? null : planAll;
+    const free = unclaimedInReach(players, ballPos, ctx, claimed, mid(c)).filter((d) => !behind(d));
+    const w = watchFor(plan, free, claimed, ballPos, ctx, declaredBy);
     if (!w) continue;
     claimed.add(w.id);
     // The climber is re-judged every tick from where the linebacker is; nothing is locked.
@@ -138,25 +156,27 @@ export function zoneSwitch(players, ballPos, ctx) {
     go();
   }
   // F-55 #8, the human: "why would this ever happen? let the LB leave the play and look for more dangerous players to block".
-  // A climber not yet on his LB drops him once the LB is clearly outside the climber's track on the backside, running away from the play (not filling downhill: see LB_AWAY_V), and takes the most dangerous unclaimed LB in reach (none: he keeps his man).
+  // One rule for every unengaged climber (combo member or single, released blocks too): he drops his LB once the LB is gone,
+  // and takes the most dangerous unclaimed LB in reach who is not gone either (none: he keeps his man).
+  // Gone = clearly outside the climber's track on the backside, running away from the play (not filling downhill: see LB_AWAY_V);
+  // P-3: or the ball is already past him (RELEASE_PAST upfield), so the climber looks for other work.
   const leaving = (lb, from) => {
     const v = lb.selfVel ?? lb.vel ?? { x: 0, y: 0 };
-    const away = -ctx.side * v.x;
-    return ctx.side * (lb.x - from.x) < -TRACK_HALF && away >= LB_AWAY_V && away > -v.y;
+    const away = -side * v.x;
+    return side * (lb.x - from.x) < -TRACK_HALF && away >= LB_AWAY_V && away > -v.y;
   };
+  const lbGone = (lb, from) => leaving(lb, from) || (ballPos != null && ballPast(lb, ballPos));
   const gone = new Set(out.map((e) => e.blocker));
-  for (const c of (ctx && ctx.combos) || []) {
-    for (const m of [byId.get(c.owner), byId.get(c.partner)]) {
-      const t = m?.block?.target;
-      if (t == null || t === c.target || m.block.engaged || gone.has(m.id)) continue;
-      const lb = byId.get(t);
-      if (!lb || !LB_ROLES.includes(lb.role) || !leaving(lb, m)) continue;
-      const next = unclaimedInReach(players, ballPos, ctx, claimed, m.x).find((d) => d.id !== lb.id && !leaving(d, m));
-      if (!next) continue;
-      out.push({ blocker: m.id, target: next.id });
-      claimed.add(next.id);
-      gone.add(m.id);
-    }
+  for (const m of players) {
+    const t = m.block?.target;
+    if (t == null || m.block.engaged || gone.has(m.id)) continue;
+    const lb = byId.get(t);
+    if (!lb || !LB_ROLES.includes(lb.role) || !lbGone(lb, m)) continue;
+    const next = unclaimedInReach(players, ballPos, ctx, claimed, m.x).find((d) => d.id !== lb.id && !lbGone(d, m));
+    if (!next) continue;
+    out.push({ blocker: m.id, target: next.id });
+    claimed.add(next.id);
+    gone.add(m.id);
   }
   trackPickup(players, ballPos, ctx, out, claimed);
   return out;
