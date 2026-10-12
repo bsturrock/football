@@ -22,6 +22,8 @@
 //   intercept optional; true on the climb row: the 'aim' goal leads the target's velocity to the point
 //            where the blocker would meet him (near number on the run's side), aims at the spot with no
 //            shift when no meeting point exists, and keeps the aim within CLIMB_LANE_REACH of the ball
+//   seal     optional; true on the climb row: once engaged on the target's flow side the blocker holds his seal (footPush
+//            never leans the push past the contact line's side while the target travels toward him)
 //   next     technique entered after coming off onto a new target
 //   phases   pre-contact phases, in order ('step', 'aim', or 'hinge' for the cutoff wall spot)
 //   retarget phase entered after coming off onto a new target
@@ -35,6 +37,7 @@ export const FIRST_STEP_LEN = 0.5; // yards, length of the first step (tunable)
 export const RIDE_MIN = 0.3; // yd/s, target lateral speed needed to set ride side (tunable)
 export const RIDE_MAX = 70; // degrees, max ride rotation off the base (tunable)
 export const RIDE_FULL = 3; // yd/s, lateral speed giving the full RIDE_MAX (tunable)
+export const SEAL_MIN = 0.05; // lateral share of the contact line below which a blocker is head-up, not sealed (tunable)
 export const RIDE_TAU = 0.1; // s, ride angle smoothing time constant (tunable)
 export const PUSH_TURN = Math.PI; // rad/s, max push turn rate (tunable)
 export const BLIND_START = 30; // degrees, contact-vs-drive angle where the base starts bending (tunable)
@@ -61,7 +64,7 @@ export const TECHNIQUES = Object.freeze({
   zone: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 55 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
   // Same as zone for the covered member; none = the uncovered helper's short step playside, shoulders square.
   combo: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 45 }, aim: 0.5, drive: 'double', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
-  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, seal: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   // F-55 #5. Step inside and flat to protect the inside gap, then hinge out to wall the end man off.
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'wall', next: 'cutoff', phases: ['step', 'hinge'], retarget: 'hinge' }),
 });
@@ -306,11 +309,23 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
     else if (along < -RIDE_MIN) target_ride = 0; // target stopped scraping and comes into the drive: square up
     ride = first ? target_ride : foot.ride + (target_ride - foot.ride) * (1 - Math.exp(-dt / RIDE_TAU));
   }
-  const desired = rotate(base, ride);
+  let desired = rotate(base, ride);
+  // A sealed blocker (the target travels toward his side, so the push would lean away from the contact line's side)
+  // holds his seal (F-55 #7, the human's "gets his body between the defender and the lane"): the push never
+  // leans past the contact line's side, because the follow spot would then carry him round the target's face onto
+  // his trail side while the target still moves. He squares up (no lateral push) instead of riding into the target.
+  // Sealed is latched (foot.sealed) from the tick the target's lateral travel is toward the blocker's side, until that
+  // travel really reverses, so the clamp does not flicker as the target slows under RIDE_MIN (wobble, #11).
+  let sealed = foot.sealed === true;
+  if (TECHNIQUES[foot.tech]?.seal === true && contact != null && Math.abs(contact.x) >= SEAL_MIN && Math.abs(v.x) >= RIDE_MIN) sealed = v.x * contact.x < 0;
+  if (sealed && TECHNIQUES[foot.tech]?.seal === true && contact != null && Math.abs(contact.x) >= SEAL_MIN && desired.x * contact.x < 0) {
+    desired = { x: 0, y: Math.sign(desired.y || base.y || 1) };
+  }
+
   // A 'playside' push starts on the shared base (not the contact line), so partners agree from the first tick.
   const from = foot.push ?? (SHARED_BASE.has(TECHNIQUES[foot.tech]?.drive) ? base : c);
   const fl = Math.hypot(from.x, from.y);
   const start = fl > 0 ? { x: from.x / fl, y: from.y / fl } : drive;
   const push = rotateToward(start, desired, dt > 0 ? PUSH_TURN * dt : 0);
-  return { ride, push };
+  return { ride, push, sealed };
 }

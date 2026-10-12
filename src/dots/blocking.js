@@ -681,9 +681,10 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     const dy = T.y - b.y;
     const dist = Math.hypot(dx, dy);
     const contact = dist < 1e-9 ? null : { x: dx / dist, y: dy / dist };
-    const { ride, push } = footPush(foot, T, watch, T.vel ?? { x: 0, y: 0 }, contact, dt, ctx?.side);
+    const { ride, push, sealed } = footPush(foot, T, watch, T.vel ?? { x: 0, y: 0 }, contact, dt, ctx?.side);
     foot.ride = ride;
     foot.push = push;
+    foot.sealed = sealed;
   }
 
   for (const b of players) {
