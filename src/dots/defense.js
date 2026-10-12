@@ -5,6 +5,10 @@
 // The backside edge keeps contain: he reads run, squeezes to a point outside the backside end
 // lineman, and pursues only when the ball gets outside him, crosses the los, or the RB commits away.
 // A blitz or drop is a new GOALS entry plus a state row; linebackers do not blitz today.
+// A linebacker read-steps (a short step, never deeper than his alignment) and reads his call's key
+// through env.cues (keyRead: a guard, or the back's triangle with hat and flow). After def.read he
+// plays his flow class: slow run fits his gap downhill, fast flow or a pulling guard scrapes over the
+// top of the ball, split flow uses the side rule; only a pass read drops into zone (or picks up his man).
 // A one-gap DL gets off into his blocker's gap-side shoulder (not the gap centre), then reads the hat
 // through the DL_RESPONSES table (base: hold, reach: outside arm free, double: anchor, down: close,
 // pass: rush; nothing felt: squeeze). A two-gap DL plays his blocker head-up (control) until the ball
@@ -15,7 +19,10 @@ import { DL_ROLES, LB_ROLES } from './roster.js';
 
 export const LB_READ_TIME = 0.45; // s, fallback when a player has no def.read
 export const KEY_MOVE = BODY_RADIUS; // yd a line player must move to count as an OL-movement key
-export const FLOW_MAX = 0.5; // s in flow before he must fill
+export const READ_STEP = 0.5; // yd: the LB read step, sideways with flow (tunable)
+export const READ_STEP_DOWN = 0.25; // yd: the read step is a half step uphill, never back (tunable)
+export const READ_SPEED = 0.5; // fraction of speed during the read step (tunable)
+export const OVER_TOP = 1.0; // yd: a scraping LB stays this far behind the ball's flow, over the top (tunable)
 export const ZONE_DEPTH = 10; // yd past the los: the zone drop landmark depth (tunable)
 export const DROP_SPEED = 0.6; // fraction of speed while dropping, a backpedal (tunable)
 export const FILL_DEPTH = 3.5; // yd past the los where he fills: football depth (3-5 yd), not body geometry (tunable)
@@ -67,6 +74,19 @@ export function gapSpan(players, defense, fit) {
   const i = GAP_NAMES.indexOf(fit.name);
   const g = liveGaps(players, defense.lineIds, defense.side, fit.side === 'play' ? 1 : -1, i + 1)[i];
   return g ? { lo: g.lo, hi: g.hi } : null;
+}
+
+// The LB key read: 'run' | 'pull' | 'pass' | null. keyName is the call's key ('guard' default | 'triangle');
+// cues is the LB's cue object (key, hat, flow).
+export function keyRead(keyName, cues) {
+  const action = cues?.key?.action;
+  if (action === 'pull') return 'pull';
+  if (keyName === 'triangle') {
+    if (cues?.hat === 'high' && action !== 'run') return 'pass';
+    if ((action === 'run' || cues?.hat === 'low') && cues?.flow && cues.flow.kind !== 'none') return 'run';
+    return null;
+  }
+  return action === 'run' || action === 'pass' ? action : null;
 }
 
 const aimX = (env) => (env.run ? env.run.aim.x : env.ballPos.x);
@@ -128,10 +148,42 @@ export const KEYS = Object.freeze({
 
 export const GOALS = Object.freeze({
   drop: (d, e, env) => ({ x: e.x0, y: env.los + (e.assign?.depth ?? ZONE_DEPTH) }),
-  // Differs from brief item 5 (y: d.y) by pm decision (T-98 answer, option a): an LB who reads run out of his drop
-  // flows downhill back to at least his alignment depth y0 while moving laterally, instead of flowing at his dropped
-  // depth. That also keeps the F-32 combo-climb timing intact. Never shallower than the fill depth.
-  flow: (d, e, env) => ({ x: laneX(env, e.fit) ?? aimX(env), y: Math.max(e.y0, env.los + FILL_DEPTH) }),
+  // LB read goals (cues only). The read step: a short step with flow, a half step uphill, never deeper than y0.
+  readStep: (d, e, env) => {
+    const f = env.cues(d.id)?.flow;
+    const x = f && f.kind !== 'none' ? e.x0 + clamp((f.dir ?? 0) * READ_STEP, -READ_STEP, READ_STEP) : e.x0;
+    return { x, y: e.y0 - READ_STEP_DOWN };
+  },
+  // The ball cue x clamped into his gap span (shrunk a body each side), at fill depth.
+  fitGap: (d, e, env) => {
+    const span = e.fit ? gapSpan(env.players, env.defense, e.fit) : null;
+    const y = env.los + FILL_DEPTH;
+    if (!span) return { x: e.x0, y };
+    const bx = env.cues(d.id)?.ball?.x ?? e.x0;
+    const lo = span.lo + BODY_RADIUS;
+    const hi = span.hi - BODY_RADIUS;
+    return { x: lo <= hi ? clamp(bx, lo, hi) : (span.lo + span.hi) / 2, y };
+  },
+  // Over the top: one step behind the ball's flow, no deeper than he stands.
+  scrapeGoal: (d, e, env) => {
+    const c = env.cues(d.id);
+    const bx = c?.ball?.x ?? e.x0;
+    let s = keyRead(e.assign?.key, c) === 'pull' ? (c.key.dir ?? 0) : (c?.flow?.dir ?? 0);
+    if (!s) s = Math.sign(bx - e.x0);
+    return { x: bx - s * OVER_TOP, y: Math.max(env.los + FILL_DEPTH, Math.min(d.y, e.y0)) };
+  },
+  // Split flow: the play-side fit scrapes, the backside fit fits his gap.
+  split: (d, e, env) => (e.fit?.side === 'play' ? GOALS.scrapeGoal(d, e, env) : GOALS.fitGap(d, e, env)),
+  // Man coverage: the offensive player of role assign.man nearest his alignment at the snap, never shallower than los + 1.
+  man: (d, e, env) => {
+    if (e.manId == null) {
+      const c = env.players.filter((p) => p.team === 'offense' && p.role === e.assign?.man);
+      c.sort((a, b) => Math.hypot(a.x - e.x0, a.y - e.y0) - Math.hypot(b.x - e.x0, b.y - e.y0));
+      if (c.length) e.manId = c[0].id;
+    }
+    const m = e.manId != null ? env.players.find((p) => p.id === e.manId) : null;
+    return m ? { x: m.x, y: Math.max(m.y, env.los + 1) } : GOALS.drop(d, e, env);
+  },
   fill: (d, e, env) => ({ x: laneX(env, e.fit) ?? aimX(env), y: env.los + FILL_DEPTH }),
   penetrate: (d, e, env) => {
     const span = gapSpan(env.players, env.defense, e.fit);
@@ -174,7 +226,6 @@ export const TRIGGERS = Object.freeze({
   shed: (d, e, env) => env.players.some((p) => p.block?.target === d.id && p.block.released === 'shed'),
   recognized: (d, e, env) => env.defense.t >= e.read - 1e-9 && env.behavior.keys.some((k) => KEYS[k](env)),
   carrierPast: (d, e, env) => !!env.run?.carried && env.ballPos.y > env.los,
-  committed: (d, e, env) => !!env.run?.locked || e.st >= FLOW_MAX - 1e-9,
   ballClose: (d, e, env) => !!env.run?.carried && Math.hypot(env.ballPos.x - d.x, env.ballPos.y - d.y) <= PURSUE_REACH,
   // The ball (carrier or QB) is outside his contain x.
   ballOutside: (d, e, env) => env.defense.side * (env.ballPos.x - containX(e, env)) < 0,
@@ -191,6 +242,19 @@ export const TRIGGERS = Object.freeze({
   },
   // The ball commits (the carrier is past the line or moving downfield).
   ballCommitted: (d, e, env) => env.cues?.(d.id)?.ball?.committed === true,
+  // The LB read is in: after def.read, his key read is x.is (and flow class x.flow, coverage x.cover when named).
+  read: (d, e, env, x) => {
+    if (env.defense.t < e.read - 1e-9) return false;
+    const c = env.cues(d.id);
+    if (!c || keyRead(e.assign?.key, c) !== x.is) return false;
+    if (x.flow !== undefined && c.flow?.kind !== x.flow) return false;
+    if (x.cover !== undefined && (e.assign?.cover ?? 'zone') !== x.cover) return false;
+    return true;
+  },
+  atFit: (d, e, env) => {
+    const g = GOALS.fitGap(d, e, env);
+    return Math.hypot(d.x - g.x, d.y - g.y) <= BODY_RADIUS;
+  },
   atFill: (d, e, env) => {
     const g = GOALS.fill(d, e, env);
     return Math.hypot(d.x - g.x, d.y - g.y) <= BODY_RADIUS;
@@ -202,6 +266,8 @@ export const DL_RESPONSES = Object.freeze({ base: 'hold', reach: 'outsideArm', d
 export const FELT_VALUES = Object.freeze(['double', 'reach', 'base', 'pass', 'down', 'none']);
 
 const PURSUE_EXITS = Object.freeze([{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }]);
+// The LB pursue exits: a shed, the carrier past the line, or the ball committed (perceive.js ball.committed).
+export const LB_PURSUE_EXITS = Object.freeze([{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballCommitted', to: 'pursue' }]);
 // The felt exits generated from DL_RESPONSES, skipping the state he is already in.
 const feltExits = (self) => Object.entries(DL_RESPONSES).filter(([, to]) => to !== self).map(([is, to]) => ({ when: 'felt', is, to }));
 
@@ -287,13 +353,29 @@ export const BEHAVIORS = Object.freeze({
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
+  // The LB read: read-step, read the key, then play the flow class (fit, scrape, split) or, on a pass read, drop or man.
   zone: {
-    start: 'drop',
-    keys: ['runBlock', 'mesh', 'backfield'],
+    start: 'read',
+    keys: [],
     states: {
-      drop: { goal: 'drop', speed: DROP_SPEED, exits: [{ when: 'recognized', to: 'flow' }] },
-      flow: { goal: 'flow', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committed', to: 'fill' }] },
-      fill: { goal: 'fill', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'atFill', to: 'pursue' }] },
+      read: {
+        goal: 'readStep',
+        speed: READ_SPEED,
+        exits: [
+          ...LB_PURSUE_EXITS,
+          { when: 'read', is: 'pass', cover: 'zone', to: 'drop' },
+          { when: 'read', is: 'pass', cover: 'man', to: 'man' },
+          { when: 'read', is: 'pull', to: 'scrape' },
+          { when: 'read', is: 'run', flow: 'fast', to: 'scrape' },
+          { when: 'read', is: 'run', flow: 'split', to: 'split' },
+          { when: 'read', is: 'run', to: 'fit' },
+        ],
+      },
+      fit: { goal: 'fitGap', speed: 1, exits: [...LB_PURSUE_EXITS, { when: 'atFit', to: 'pursue' }] },
+      scrape: { goal: 'scrapeGoal', speed: 1, exits: [...LB_PURSUE_EXITS] },
+      split: { goal: 'split', speed: 1, exits: [...LB_PURSUE_EXITS] },
+      drop: { goal: 'drop', speed: DROP_SPEED, exits: [...LB_PURSUE_EXITS] },
+      man: { goal: 'man', speed: 1, exits: [...LB_PURSUE_EXITS] },
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
@@ -457,6 +539,11 @@ export function validateBehavior(name, behaviors = BEHAVIORS) {
     if (!Object.hasOwn(GOALS, row.goal)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown goal "${row.goal}"`);
     for (const ex of row.exits) {
       if (!Object.hasOwn(TRIGGERS, ex.when)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown trigger "${ex.when}"`);
+      if (ex.when === 'read') {
+        if (!['run', 'pull', 'pass'].includes(ex.is)) throw new Error(`defense: behavior "${name}" state "${sn}" bad read "${ex.is}"`);
+        if (ex.flow !== undefined && !['fast', 'slow', 'split', 'none'].includes(ex.flow)) throw new Error(`defense: behavior "${name}" state "${sn}" bad read flow "${ex.flow}"`);
+        if (ex.cover !== undefined && !['zone', 'man'].includes(ex.cover)) throw new Error(`defense: behavior "${name}" state "${sn}" bad read cover "${ex.cover}"`);
+      }
       if (ex.when === 'felt' && !FELT_VALUES.includes(ex.is)) throw new Error(`defense: behavior "${name}" state "${sn}" bad felt "${ex.is}"`);
       if (!Object.hasOwn(b.states, ex.to)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown exit target "${ex.to}"`);
     }
