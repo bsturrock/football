@@ -4,7 +4,7 @@ import { createPlay, FIXED_DT } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, stepDir, stepLenOf, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
+import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, leadSpot, HINGE_GIVE, stepDir, stepLenOf, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH, READ_STEP_DOWN, keyRead } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
@@ -514,10 +514,12 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
     play.retargetRule = (players, ballPos, ctx) => {
       const out = orig(players, ballPos, ctx);
       const byId = (id) => players.find((q) => q.id === id);
-      seen = out.map((e) => {
+      // T-89: a retarget with no unswitched combo (a released single climber, F-60 "LB gone") is judged by the F-60 tests.
+      seen = out.flatMap((e) => {
         const c = ctx.combos.find((m) => (m.owner === e.blocker || m.partner === e.blocker) && unswitched(players, m));
+        if (!c) return [];
         const want = pickClimber(byId(c.owner), byId(c.partner), byId(e.target));
-        return { blocker: e.blocker, want: want.id };
+        return [{ blocker: e.blocker, want: want.id }];
       });
       return out;
     };
@@ -926,11 +928,13 @@ test('R-64: every front, the climber on the switch tick is the blocker on the si
     let seen = null;
     play.retargetRule = (players, ballPos, ctx) => {
       const out = orig(players, ballPos, ctx);
-      seen = out.map((e) => {
+      // T-89: a retarget with no unswitched combo (a released single climber, F-60 "LB gone") is judged by the F-60 tests.
+      seen = out.flatMap((e) => {
         const c = ctx.combos.find((k) => (k.owner === e.blocker || k.partner === e.blocker) && unswitched(players, k));
+        if (!c) return [];
         const byId = (id) => players.find((q) => q.id === id);
         const want = pickClimber(byId(c.owner), byId(c.partner), byId(e.target));
-        return { front, blocker: e.blocker, want: want.id };
+        return [{ front, blocker: e.blocker, want: want.id }];
       });
       return out;
     };
@@ -971,14 +975,16 @@ test('T-162 (F-50 #5/#7): every front, a combo switches once, to the plan watch 
     play.retargetRule = (players, ballPos, ctx) => {
       const out = orig(players, ballPos, ctx);
       const claimed = claimedSet(players);
-      seen = out.map((e) => {
+      // T-89: a retarget with no unswitched combo (a released single climber, F-60 "LB gone") is judged by the F-60 tests.
+      seen = out.flatMap((e) => {
         const c = ctx.combos.find((m) => (m.owner === e.blocker || m.partner === e.blocker) && unswitched(players, m));
+        if (!c) return [];
         const o = players.find((q) => q.id === c.owner);
         const pp = players.find((q) => q.id === c.partner);
         const reach = unclaimedInReach(players, ballPos, ctx, claimed, (o.x + pp.x) / 2);
         const plan = players.find((q) => q.id === c.watch);
         const cues = Object.fromEntries([c.owner, c.partner].map((id) => [id, ctx.cues?.(id)]));
-        return { c, e, plan, reach, ballPos, ctx, cues };
+        return [{ c, e, plan, reach, ballPos, ctx, cues }];
       });
       return out;
     };
@@ -1388,9 +1394,15 @@ test('F-55 #6a: the climb aim leads to the intercept point on the near number', 
   nearPt(goal('climb', { vel: { x: 9, y: 9 }, selfVel: vel }), aimPoint(I, 'climb', 1, BODY_RADIUS), 'selfVel preferred');
   nearPt(goal('climb', { vel: { x: 0, y: 0 } }), aimPoint(spot, 'climb', 1, BODY_RADIUS), 'zero velocity');
   nearPt(goal('climb', undefined), aimPoint(spot, 'climb', 1, BODY_RADIUS), 'no target');
-  for (const tech of ['zone', 'combo', 'cutoff']) {
-    nearPt(goal(tech, { vel }), goal(tech, undefined), tech + ' ignores a moving target');
+  // T-89: zone and combo aim at the led spot (clamped to the blocker's depth); the cutoff hinge likewise, less HINGE_GIVE.
+  const led = leadSpot(blocker, spot, { vel });
+  for (const tech of ['zone', 'combo']) {
+    const a = aimPoint(led, tech, 1, BODY_RADIUS);
+    nearPt(goal(tech, { vel }), { x: a.x, y: Math.max(a.y, blocker.y) }, tech + ' aims at the led spot');
   }
+  const hinge = footGoal({ ...meetFoot('cutoff'), phase: 'hinge' }, blocker, spot, 1, BODY_RADIUS, { target: { vel } }).goal;
+  const h = aimPoint(led, 'cutoff', 1, BODY_RADIUS);
+  nearPt(hinge, { x: h.x, y: h.y - HINGE_GIVE }, 'cutoff hinge aims at the led spot');
 });
 
 test('F-55 #6b: no meeting point -> aim at the spot with no playside shift', () => {

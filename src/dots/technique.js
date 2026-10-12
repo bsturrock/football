@@ -43,6 +43,7 @@ export const BLIND_START = 30; // degrees, contact-vs-drive angle where the base
 export const BLIND_FULL = 75; // degrees, contact-vs-drive angle where the base is the contact line (tunable)
 
 export const HINGE_GIVE = 0.05; // yd, how far back toward the offense the hinge wall spot sits (tunable)
+export const BLOCK_LEAD_MAX = 0.3; // s, the longest a blocker leads his man's motion when closing on him (tunable)
 export const INTERCEPT_MIN_SPEED = 1; // yd/s, floor on the blocker speed used to solve the climb intercept (tunable)
 export const CLIMB_LANE_REACH = 5; // yd, generous bound on how far from the ball a climb aim may sit ("within reason": stops only wild intercepts, not a leash) (tunable)
 export const WALL_LEAN = 30; // degrees from straight upfield toward the backside, lean of a 'wall' drive (tunable)
@@ -103,6 +104,15 @@ export function aimPoint(spot, tech, side, radius) {
   return { x: spot.x + side * TECHNIQUES[tech].aim * radius, y: spot.y };
 }
 
+// The blocker-side use of the shared anticipation helper: the contact spot led by the man's velocity, up to
+// BLOCK_LEAD_MAX. blocking.js uses it for blocks without a technique row (T-88).
+export function leadSpot(blocker, spot, target) {
+  const v = target ? (target.selfVel ?? target.vel) : null;
+  if (!blocker || !v || Math.hypot(v.x, v.y) <= 1e-6) return spot;
+  const L = leadPoint(blocker, Math.max(blocker.speed ?? 1, INTERCEPT_MIN_SPEED), spot, v, { maxLead: BLOCK_LEAD_MAX });
+  return L.met ? { x: L.x, y: L.y } : { x: spot.x, y: spot.y };
+}
+
 export const PHASES = Object.freeze({
   step: Object.freeze({
     goal(foot, spot, side, radius) {
@@ -117,8 +127,8 @@ export const PHASES = Object.freeze({
   }),
   // Wall spot: the contact spot shifted aim radii playside and HINGE_GIVE back toward the offense.
   hinge: Object.freeze({
-    goal(foot, spot, side, radius) {
-      const p = aimPoint(spot, foot.tech, side, radius);
+    goal(foot, spot, side, radius, env) {
+      const p = aimPoint(leadSpot(env?.blocker, spot, env?.target), foot.tech, side, radius);
       return { x: p.x, y: p.y - HINGE_GIVE };
     },
     done() {
@@ -133,7 +143,7 @@ export const PHASES = Object.freeze({
     goal(foot, spot, side, radius, env) {
       const row = TECHNIQUES[foot.tech];
       if (!row.intercept) {
-        const a = aimPoint(spot, foot.tech, side, radius);
+        const a = aimPoint(leadSpot(env?.blocker, spot, env?.target), foot.tech, side, radius);
         const blocker = env?.blocker;
         return blocker && a.y < blocker.y ? { x: a.x, y: blocker.y } : a;
       }

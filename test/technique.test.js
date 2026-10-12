@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   TECHNIQUES, PHASES, stepDir, stepLenOf, techniqueLabel, HINGE_GIVE, WALL_LEAN, aimPoint, driveDir, leanDir, rotate, signedAngle, rotateToward, nextTech,
   RIDE_MAX, RIDE_FULL, RIDE_MIN, PUSH_TURN, SEAL_MIN,
-  startFoot, retargetFoot, footGoal, footPush,
+  startFoot, retargetFoot, footGoal, footPush, leadSpot, BLOCK_LEAD_MAX,
 } from '../src/dots/technique.js';
 
 const near = (a, b, m) => assert.ok(Math.abs(a - b) < 1e-9, `${m ?? ''} ${a} vs ${b}`);
@@ -381,4 +381,45 @@ test('T-61 (d): the climb intercept branch is not clamped, an intercept behind t
   const g = footGoal(foot, blocker, spot, 1, radius, { target: { vel } }).goal;
   nearPt(g, aimPoint(I, 'climb', 1, radius).x, aimPoint(I, 'climb', 1, radius).y);
   assert.ok(g.y < blocker.y, 'climb aim is not lifted to the blocker depth');
+});
+
+// ---- T-89: blockers lead their man ----
+test('T-89: leadSpot unit cases', () => {
+  const blocker = { x: 0, y: 0, speed: 5 };
+  const spot = { x: 3, y: 4 };
+  assert.deepEqual(leadSpot(blocker, spot, undefined), spot);
+  assert.deepEqual(leadSpot(null, spot, { vel: { x: 2, y: 0 } }), spot);
+  assert.deepEqual(leadSpot(blocker, spot, { vel: { x: 0, y: 0 } }), spot);
+  assert.deepEqual(leadSpot(blocker, spot, {}), spot);
+  // met: shifted along his travel, by at most BLOCK_LEAD_MAX * speed
+  const m = leadSpot(blocker, spot, { vel: { x: 2, y: 0 } });
+  assert.ok(m.x > spot.x && m.x - spot.x <= BLOCK_LEAD_MAX * 2 + 1e-9 && m.y === spot.y, JSON.stringify(m));
+  // selfVel preferred
+  near(leadSpot(blocker, spot, { vel: { x: 9, y: 9 }, selfVel: { x: 2, y: 0 } }).x, m.x, 'selfVel');
+  // no meeting: faster man running away -> the spot itself
+  assert.deepEqual(leadSpot(blocker, spot, { vel: { x: 0, y: 8 } }), spot);
+});
+
+test('T-89: zone aim and cutoff hinge lead a moving man; a still man changes nothing', () => {
+  const blocker = { x: 0, y: 20, speed: 5 };
+  const spot = { x: 1, y: 22 };
+  const radius = 0.35;
+  const mk = (tech, phase) => ({ tech, shade: 'playside', watch: null, phase, ox: 0, oy: 0, ride: 0, tx: 0, push: null });
+  const vel = { x: 3, y: 0 };
+  for (const [tech, phase, give] of [['zone', 'aim', 0], ['combo', 'aim', 0], ['cutoff', 'hinge', HINGE_GIVE]]) {
+    const base = aimPoint(spot, tech, 1, radius);
+    for (const target of [undefined, { vel: { x: 0, y: 0 } }, {}]) {
+      nearPt(footGoal(mk(tech, phase), blocker, spot, 1, radius, { target }).goal, base.x, base.y - give);
+    }
+    const g = footGoal(mk(tech, phase), blocker, spot, 1, radius, { target: { vel } }).goal;
+    assert.ok(g.x > base.x && g.x - base.x <= BLOCK_LEAD_MAX * 3 + 1e-9, `${tech} shifted toward travel: ${g.x - base.x}`);
+    near(g.y, base.y - give, tech + ' y');
+    // moving away from the shift side
+    const gl = footGoal(mk(tech, phase), blocker, spot, 1, radius, { target: { vel: { x: -3, y: 0 } } }).goal;
+    assert.ok(gl.x < base.x, tech + ' shifts the other way');
+  }
+  // the aim is never below the blocker's y, even with a man running toward the offense
+  const behind = { x: 1, y: 19.5 };
+  const g = footGoal(mk('zone', 'aim'), blocker, behind, 1, radius, { target: { vel: { x: 1, y: -3 } } }).goal;
+  assert.ok(g.y >= blocker.y, `aim y ${g.y}`);
 });
