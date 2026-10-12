@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { POSITIONS, PERSONNEL, PLAYS, FRONTS, BALL_LENGTH, BALL_WIDTH, emptyAssignment, buildLineup } from '../src/dots/roster.js';
+import { POSITIONS, PERSONNEL, PLAYS, FRONTS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH, MOVE_COUNTER, emptyAssignment, buildLineup, moveOdds } from '../src/dots/roster.js';
 import { BODY_RADIUS, CONTACT_DIST, SPREAD } from '../src/dots/blocking.js';
 import { DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { POSITION_COUNT, DEFENSE_IDS, ROLES, BASE_LB_IDS, LB_READ } from './fixtures/base-front.js';
@@ -475,4 +475,97 @@ test('F-39 #7: buildLineup personnel option', () => {
   assert.throws(() => buildLineup(25, 'base', { personnel: 'nope' }), /nope/);
   const shifted = buildLineup(25, 'insideZone', { personnel: 'te', dlShift: 1.2, lbShift: -2 });
   assert.equal(shifted.find((pl) => pl.id === 'TE').x, tePl.x);
+});
+
+const isRate = (v) => typeof v === 'number' && v >= 0 && v <= 1;
+
+test('move ratings: every DL row of POSITIONS, FRONTS and DEF_PERSONNEL has swim and power in [0,1]', () => {
+  const dlRows = [
+    ...POSITIONS.filter((p) => ['DE', 'DT'].includes(p.role)),
+    ...Object.values(FRONTS).flatMap((f) => f.defenders.filter((d) => ['DE', 'DT'].includes(d.role))),
+    ...Object.values(DEF_PERSONNEL).flatMap((dp) => dp.defenders.filter((d) => ['DE', 'DT'].includes(d.role))),
+  ];
+  assert.ok(dlRows.length > 0);
+  for (const d of dlRows) {
+    assert.ok(isRate(d.swim), `${d.id} swim ${d.swim}`);
+    assert.ok(isRate(d.power), `${d.id} power ${d.power}`);
+  }
+});
+
+test('move ratings: non-DL defender rows carry no swim or power', () => {
+  const rows = [
+    ...POSITIONS.filter((p) => p.team === 'defense' && !['DE', 'DT'].includes(p.role)),
+    ...Object.values(FRONTS).flatMap((f) => f.defenders.filter((d) => !['DE', 'DT'].includes(d.role))),
+    ...Object.values(DEF_PERSONNEL).flatMap((dp) => dp.defenders.filter((d) => !['DE', 'DT'].includes(d.role))),
+  ];
+  for (const d of rows) {
+    assert.equal(d.swim, undefined, `${d.id} swim`);
+    assert.equal(d.power, undefined, `${d.id} power`);
+  }
+});
+
+test('move ratings: every OL and TE row (POSITIONS plus PERSONNEL.te) has hands and anchor in [0,1]', () => {
+  const rows = [
+    ...POSITIONS.filter((p) => p.role === 'OL'),
+    ...PERSONNEL.te.rows.filter((p) => p.role === 'TE'),
+  ];
+  assert.equal(rows.length, 6);
+  for (const p of rows) {
+    assert.ok(isRate(p.hands), `${p.id} hands ${p.hands}`);
+    assert.ok(isRate(p.anchor), `${p.id} anchor ${p.anchor}`);
+  }
+});
+
+test('move ratings: buildLineup DL and OL players carry the fields', () => {
+  const lineup = buildLineup(25, 'insideZone', { defPersonnel: 'nickel' });
+  const de = lineup.find((pl) => pl.id === 'PE');
+  assert.equal(de.swim, 0.25);
+  assert.equal(de.power, 0.15);
+  const dt = lineup.find((pl) => pl.id === 'PT');
+  assert.equal(dt.swim, 0.15);
+  assert.equal(dt.power, 0.25);
+  const ol = lineup.find((pl) => pl.id === 'LG');
+  assert.equal(ol.hands, 0.5);
+  assert.equal(ol.anchor, 0.5);
+  const te = buildLineup(25, 'insideZone', { personnel: 'te' }).find((pl) => pl.id === 'TE');
+  assert.equal(te.hands, 0.4);
+  assert.equal(te.anchor, 0.35);
+  assert.equal(lineup.find((pl) => pl.id === 'MIK').swim, undefined);
+  assert.equal(lineup.find((pl) => pl.id === 'RB').vision, 0.8);
+});
+
+test('MOVE_COUNTER maps swim to hands and power to anchor, frozen', () => {
+  assert.deepEqual(MOVE_COUNTER, { swim: 'hands', power: 'anchor' });
+  assert.ok(Object.isFrozen(MOVE_COUNTER));
+});
+
+test('moveOdds: log5 cases', () => {
+  assert.equal(moveOdds(0, 0.5), 0);
+  assert.equal(moveOdds(1, 0.5), 1);
+  for (const r of [0.1, 0.25, 0.5, 0.8]) {
+    assert.ok(Math.abs(moveOdds(r, 0.5) - r) < 1e-12, `c=0.5 r=${r}`);
+  }
+  for (const r of [0.15, 0.25, 0.6]) {
+    let prev = Infinity;
+    for (let c = 0; c <= 1 + 1e-9; c += 0.05) {
+      const o = moveOdds(r, Math.min(c, 1));
+      assert.ok(o <= prev + 1e-12, `r=${r} c=${c} not falling`);
+      prev = o;
+    }
+  }
+  assert.equal(moveOdds(0, 1), 0);
+  assert.equal(moveOdds(1, 0), 1);
+  assert.equal(moveOdds(0.25, 0.5), 0.25);
+  assert.ok(Math.abs(moveOdds(0.25, 0.4) - (0.25 * 0.6) / (0.25 * 0.6 + 0.4 * 0.75)) < 1e-12);
+});
+
+test('moveOdds: defaults and clamping', () => {
+  assert.equal(moveOdds(), 0);
+  assert.equal(moveOdds(0.3), moveOdds(0.3, 0.5));
+  assert.equal(moveOdds(undefined, 0.2), 0);
+  assert.equal(moveOdds(0.25, undefined), 0.25);
+  assert.equal(moveOdds(null, null), 0);
+  assert.equal(moveOdds(1.5, 0.5), 1);
+  assert.equal(moveOdds(-0.5, 0.5), 0);
+  assert.equal(moveOdds(0.5, -1), moveOdds(0.5, 0));
 });

@@ -22,15 +22,18 @@ const pos = (id, name, team, role, dx, dy, speed, strength, def, ratings) =>
 // 40-yard-dash average); steering.js's ACCEL_TAU ramp models the start from rest.
 // strength is unitless force used by blocking: OL must stay above every defender's
 // strength / 0.7071 so the OL win at any block angle.
+// Move ratings (0-1) are success rates against an average (0.5) blocker. DL: swim and power
+// are the pass-rush moves. OL and TE: hands counters swim and anchor counters power.
+// A missing move rating counts as 0 (never tried); a missing counter as 0.5.
 export const POSITIONS = Object.freeze([
   // OL: linemen 1.2 yd center to center (body-to-body split 0.64 yd, about 1.9 ft, inside
   // the standard 1-2 ft). C's front edge sits on the ball's rear tip (dy = -BODY_RADIUS);
   // guards about 1 ft deeper, tackles 0.15 yd deeper still.
-  pos('LT', 'Left Tackle', 'offense', 'OL', -2.4, -0.75, 6.0, 1.0),
-  pos('LG', 'Left Guard', 'offense', 'OL', -1.2, -0.6, 6.0, 1.0),
-  pos('C', 'Center', 'offense', 'OL', 0, -0.28, 6.0, 1.0),
-  pos('RG', 'Right Guard', 'offense', 'OL', 1.2, -0.6, 6.0, 1.0),
-  pos('RT', 'Right Tackle', 'offense', 'OL', 2.4, -0.75, 6.0, 1.0),
+  pos('LT', 'Left Tackle', 'offense', 'OL', -2.4, -0.75, 6.0, 1.0, null, { hands: 0.5, anchor: 0.5 }),
+  pos('LG', 'Left Guard', 'offense', 'OL', -1.2, -0.6, 6.0, 1.0, null, { hands: 0.5, anchor: 0.5 }),
+  pos('C', 'Center', 'offense', 'OL', 0, -0.28, 6.0, 1.0, null, { hands: 0.5, anchor: 0.5 }),
+  pos('RG', 'Right Guard', 'offense', 'OL', 1.2, -0.6, 6.0, 1.0, null, { hands: 0.5, anchor: 0.5 }),
+  pos('RT', 'Right Tackle', 'offense', 'OL', 2.4, -0.75, 6.0, 1.0, null, { hands: 0.5, anchor: 0.5 }),
   // QB 5 yd behind the center (shotgun 5-7 yd); RB level with him, about 3 ft of daylight to his side.
   pos('QB', 'Quarterback', 'offense', 'QB', 0, -5.3, 7.0, 0.3),
   pos('RB', 'Running Back', 'offense', 'RB', 1.6, -5.3, 8.0, 0.5, null, { vision: 0.8 }),
@@ -38,10 +41,10 @@ export const POSITIONS = Object.freeze([
   // DL at dy 0.6: the body front sits just past the ball's front tip. Techniques use a
   // 0.25 yd (9 in) shade: 0 = 0, 1 = 0.25, 2i = 0.95, 3 = 1.45, 5 = 2.65, 7 = 3.35
   // (inside shoulder of a ghost TE at 3.6).
-  pos('LDE', 'Left Defensive End', 'defense', 'DE', 2.65, 0.6, 7.0, 0.5),
-  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 0.95, 0.6, 6.5, 0.6),
-  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -0.95, 0.6, 6.5, 0.6),
-  pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5),
+  pos('LDE', 'Left Defensive End', 'defense', 'DE', 2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15 }),
+  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 0.95, 0.6, 6.5, 0.6, null, { swim: 0.15, power: 0.25 }),
+  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -0.95, 0.6, 6.5, 0.6, null, { swim: 0.15, power: 0.25 }),
+  pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15 }),
   // LBs at 4.5 yd, inside the 3-5 yd range. MLB (Mike) at center-right of the box, WLB (Will) at -x,
   // SLB (Sam) outside the Mike on the offense-right (+x) side. Fronts inherit ratings and def from the nearest base row of the same role (roleRating).
   pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, 4.5, 7.5, 0.5, { read: 0.35 }),
@@ -59,13 +62,17 @@ export const PERSONNEL = Object.freeze({
     name: '1 TE (attached right)',
     // Attached: one OL split outside the right tackle, on the tackle's depth. His side is the
     // strong side. Strength 0.9 keeps him above every defender's strength / 0.7071 like the OL.
-    rows: Object.freeze([pos('TE', 'Tight End', 'offense', 'TE', RT.dx + (RT.dx - RG.dx), RT.dy, 6.5, 0.9)]),
+    rows: Object.freeze([pos('TE', 'Tight End', 'offense', 'TE', RT.dx + (RT.dx - RG.dx), RT.dy, 6.5, 0.9, null, { hands: 0.4, anchor: 0.35 })]),
   }),
 });
 
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
 // fronts are written for a playside-left play (the only play today).
+// Rating fields a row can carry beyond speed and strength: the RB's vision and the move ratings.
+const RATING_KEYS = Object.freeze(['vision', 'swim', 'power', 'hands', 'anchor']);
+const MOVE_KEYS = Object.freeze(['swim', 'power', 'hands', 'anchor']);
 // Nearest base defense row of the same role to the alignment (dx, dy); ties go to the earlier row.
+// Also returns the row's move ratings (only those the row defines).
 const roleRating = (role, dx, dy) => {
   let row = null;
   let best = Infinity;
@@ -74,7 +81,8 @@ const roleRating = (role, dx, dy) => {
     const d = Math.hypot(p.dx - dx, p.dy - dy);
     if (d < best) { best = d; row = p; }
   }
-  return { speed: row.speed, strength: row.strength, def: row.def };
+  const moves = Object.fromEntries(MOVE_KEYS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]]));
+  return { speed: row.speed, strength: row.strength, def: row.def, ...moves };
 };
 const NAMES = Object.freeze({
   PE: 'Playside End', BE: 'Backside End', PT: 'Playside Tackle', BT: 'Backside Tackle',
@@ -87,8 +95,8 @@ const NAMES = Object.freeze({
 });
 // rows: [id, role, dx, dy]
 const defenders = (rows) => Object.freeze(rows.map(([id, role, dx, dy]) => {
-  const r = roleRating(role, dx, dy);
-  return pos(id, NAMES[id], 'defense', role, dx, dy, r.speed, r.strength, r.def);
+  const { speed, strength, def, ...moves } = roleRating(role, dx, dy);
+  return pos(id, NAMES[id], 'defense', role, dx, dy, speed, strength, def, moves);
 }));
 const swap = (rows, id, dx, dy) => rows.map((r) => (r[0] === id ? [r[0], r[1], dx, dy] : r));
 
@@ -235,6 +243,23 @@ export function emptyAssignment() {
 export const DL_ROLES = Object.freeze(['DE', 'DT']);
 export const LB_ROLES = Object.freeze(['LB']);
 
+// Move counter: the OL/TE rating that answers each DL move (hands beats swim, anchor beats power).
+export const MOVE_COUNTER = Object.freeze({ swim: 'hands', power: 'anchor' });
+
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+// Log5 odds that a DL move with success rate `rating` beats a blocker whose counter is `counter`.
+// Both are success rates against an average (0.5) blocker. Missing args default to rating 0 and counter 0.5.
+// When both sides are certain (denominator 0), the result is the move rating.
+export function moveOdds(rating, counter) {
+  const r = clamp01(rating ?? 0);
+  const c = clamp01(counter ?? 0.5);
+  const win = r * (1 - c);
+  const lose = c * (1 - r);
+  const denom = win + lose;
+  if (denom === 0) return r;
+  return win / denom;
+}
+
 // front picks a key of FRONTS for the defense. dlShift is a lateral offset in yards
 // added to x of every DL player; lbShift does the same for LBs. personnel picks a key of
 // PERSONNEL (default: the play's personnel, else 'noTe').
@@ -271,7 +296,7 @@ export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0
       speed: p.speed,
       strength: p.strength,
       def: p.def,
-      ...(p.vision !== undefined ? { vision: p.vision } : {}),
+      ...Object.fromEntries(RATING_KEYS.filter((k) => p[k] !== undefined).map((k) => [k, p[k]])),
       assignment: a ? { ...a } : emptyAssignment(),
     };
   });
