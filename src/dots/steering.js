@@ -34,6 +34,10 @@
 //    the body now in his way, its detour points back against the goal (round the far
 //    side of a body he is level with), he flips it (counted, up to MAX_FLIPS) and goes
 //    on through the gap. A forward goal keeps its side (its backward part is dropped anyway).
+//    A planted-cut mover (goal.accel) keeps his side too, as he keeps the goal-line stuck rule:
+//    his turn is bounded by his own accel cap and the contact rules (inelastic, no rebound), and
+//    measured on the T-56 build an exit flip on a pursuing LB changed the bodies a free DL met
+//    and pushed that DL's contact rebound over its bound.
 //  - Goal fields: accel, pace, ignore, squeeze, and forward (boolean, opt-in):
 //    the plain-hit detour never points against the goal; its backward part is
 //    dropped, leaving a sideways slide (side, flips and release rules unchanged).
@@ -173,10 +177,11 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       // Lane exit: the pass side was judged against the lane's first body. If, held against the body now
       // in his way, its detour would point back against his goal (round the far side of a body he is
       // level with, out through the gap he came in by), he flips it (counted, up to MAX_FLIPS): the other
-      // tangent always points forward. A forward goal already drops that backward part, so it keeps its side.
+      // tangent always points forward. A forward goal already drops that backward part, so it keeps its side;
+      // a planted-cut mover (goal.accel) keeps his side as well (his cap and the contact rules shape his turn).
       const h2 = firstObstacle(2 * radius);
       const s = p.steer;
-      if (!goal.forward && h2 && s.side !== 0 && s.flips < MAX_FLIPS) {
+      if (accel === null && !goal.forward && h2 && s.side !== 0 && s.flips < MAX_FLIPS) {
         const rx = h2.o.x - p.x, ry = h2.o.y - p.y, d = Math.hypot(rx, ry);
         const a = (d > R ? Math.asin(R / d) : Math.PI / 2) * s.side;
         if (((rx * Math.cos(a) - ry * Math.sin(a)) * ux + (rx * Math.sin(a) + ry * Math.cos(a)) * uy) / d < 0) {

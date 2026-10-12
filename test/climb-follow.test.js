@@ -36,7 +36,7 @@ function climbSpans(front, personnel, playside, script) {
         if (!sp) continue;
         if (m.block?.engaged || m.block?.target == null || m.block.target !== sp.lbId) { open.delete(key); continue; }
         const lb = play.player(sp.lbId);
-        sp.ticks.push({ i, y: m.y, vx: m.vel.x, lb: lb.id, lby: lb.y });
+        sp.ticks.push({ i, y: m.y, vx: m.vel.x, lb: lb.id, lby: lb.y, lbvx: lb.vel.x });
       }
     }
   }
@@ -48,9 +48,10 @@ const climbCases = () => {
   return out;
 };
 
-const judgeSpan = (sp) => {
+const judgeSpan = (sp, field = 'vx') => {
   let sign = 0, flips = 0, maxdvx = 0, at = null, prev = null;
-  for (const k of sp.ticks) {
+  for (const t of sp.ticks) {
+    const k = { i: t.i, vx: t[field] };
     if (prev !== null) {
       const dv = Math.abs(k.vx - prev.vx);
       if (dv > maxdvx) { maxdvx = dv; at = k.i; }
@@ -64,18 +65,25 @@ const judgeSpan = (sp) => {
   return { flips, maxdvx, at };
 };
 
+// Judged spans: only climbs where the chased LB's own vel.x never reverses (same 0.3 dead band). Where the
+// LB himself zigzags (the lbFills pursue goal jumps in defense.js, e.g. under43 L1), a climber chasing his
+// intercept follows that zigzag, which is not a steering wobble. T-63 removes this exclusion after T-57
+// fixes the LB pursue target.
 test('T-59: climbers follow a downhill or pursuing LB smoothly', (t) => {
-  let spans = 0;
+  let spans = 0, skipped = 0;
   const bad = [];
   for (const [front, personnel, playside, script] of climbCases()) {
     for (const sp of climbSpans(front, personnel, playside, script)) {
+      const name = `${front} ${personnel} ${playside} ${script ?? 'none'} ${sp.climber} -> ${sp.lbId}`;
+      const lbFlips = judgeSpan(sp, 'lbvx').flips;
+      if (lbFlips > 0) { skipped++; t.diagnostic(`${name}: not judged, the LB's vel.x reversed ${lbFlips} times`); continue; }
       spans++;
       const { flips, maxdvx, at } = judgeSpan(sp);
-      const name = `${front} ${personnel} ${playside} ${script ?? 'none'} ${sp.climber} -> ${sp.lbId}`;
       t.diagnostic(`${name}: ${sp.ticks.length} ticks, ${flips} x-reversals, max |dvx| ${maxdvx.toFixed(2)}`);
       if (flips > 1 || maxdvx > MAX_JUMP + 1e-9) bad.push(`${name}: vel.x reversed ${flips} times, max |dvx| ${maxdvx.toFixed(2)} at tick ${at}`);
     }
   }
+  t.diagnostic(`${spans} spans judged, ${skipped} not judged (the LB reversed)`);
   assert.ok(spans > 0);
   assert.equal(bad.length, 0, bad.join('\n'));
 });
