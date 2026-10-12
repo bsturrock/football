@@ -9,6 +9,7 @@ import { LOS, FRONT_NAMES, frontPlayers, frontNumbers } from './fixtures/fronts.
 import { buildLineup, PLAYS, FRONTS, LB_ROLES } from '../src/dots/roster.js';
 import { LB_SHIFT_STEP, DL_SHIFT_STEP } from '../src/dots/play.js';
 import { numberPlay, A_GAP_HALF } from '../src/dots/numbering.js';
+import { RELEASE_PAST } from '../src/dots/geometry.js';
 import { IZ_PLAN_PINS } from './fixtures/base-front.js';
 
 test('scheme flag on insideZone', () => assert.equal(PLAYS.insideZone.scheme, 'zone'));
@@ -355,6 +356,40 @@ test('F-55 #8: a climber lets an LB leaving the play go for the most dangerous u
   }
 });
 
+// F-60 #1: one LB-gone rule for every unengaged climber: his LB is leaving the play, or the ball is RELEASE_PAST upfield of him.
+test('F-60 #1: an LB-gone climber (combo member or single) takes another unclaimed LB in reach', () => {
+  const run = (mut) => {
+    const s = sw();
+    s.g('C').block = { target: 'MLB', angle: 'straight', engaged: false, seq: 1 };
+    Object.assign(s.g('C'), { x: 0, y: 25 });
+    Object.assign(s.g('MLB'), { x: 0, y: 25, vel: { x: 0, y: 0 } });
+    const others = s.players.filter((p) => LB_ROLES.includes(p.role) && p.id !== 'MLB');
+    others.forEach((p) => Object.assign(p, { x: 40, y: 40, vel: { x: 0, y: 0 } }));
+    s.lb2 = others[0];
+    mut(s);
+    return { out: zoneSwitch(s.players, s.ball ?? null, s.ctx), s };
+  };
+  const past = (s) => { s.ball = { x: 0, y: 25 + RELEASE_PAST + 0.1 }; };
+  const nearLb2 = (s) => Object.assign(s.lb2, { x: 1, y: 29 });
+  // (a) combo member already switched to an LB; the ball is past him, another LB is not
+  const a = run((s) => { past(s); nearLb2(s); });
+  assert.deepEqual(a.out, [{ blocker: 'C', target: a.s.lb2.id }], '(a)');
+  // (b) a single climber (tech climb, in no combo) whose LB is leaving the play
+  const b = run((s) => {
+    s.ctx.combos = [];
+    s.ctx.side = 1;
+    s.ctx.tech = { C: 'climb' };
+    nearLb2(s);
+    Object.assign(s.g('MLB'), { x: -2.5, y: 29, vel: { x: -3, y: 0 } });
+  });
+  assert.deepEqual(b.out, [{ blocker: 'C', target: b.s.lb2.id }], '(b)');
+  // (c) no other LB in reach: he keeps his man
+  assert.deepEqual(run(past).out, [], '(c) ball past');
+  assert.deepEqual(run((s) => { past(s); nearLb2(s); s.lb2.y = 25; }).out, [], '(c) the other LB is past too');
+  // (d) an engaged blocker is not moved by this rule
+  assert.deepEqual(run((s) => { past(s); nearLb2(s); s.g('C').block.engaged = true; }).out, [], '(d)');
+});
+
 const blkAt = (x) => ({ id: 'B' + x, x });
 const lbAt = (x) => ({ id: 'L', x });
 test('pickClimber: the member laterally nearer the linebacker climbs, either side', () => {
@@ -369,13 +404,13 @@ test('pickClimber: exact tie goes to the owner whichever argument order', () => 
   assert.equal(pickClimber(a, b, lbAt(0)), a);
   assert.equal(pickClimber(b, a, lbAt(0)), b);
 });
-test('pickClimber: defGoals beats the watch position in zoneSwitch (restated F-59)', () => {
+test('zoneSwitch: the live LB position decides the climber, not defGoals (restated F-59)', () => {
   // the LB's live position names the climber; a goal far on the other side changes nothing
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: 2 } }; }), [{ blocker: 'LG', target: 'MLB' }]);
   assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: -3 } }; }), [{ blocker: 'LG', target: 'MLB' }]);
   assert.deepEqual(at(-0.2, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: -2 } }; }), [{ blocker: 'C', target: 'MLB' }]);
 });
-test('zoneSwitch: playside sign picks by the DL, not the nearer blocker (restated F-59)', () => {
+test('zoneSwitch: the nearer member climbs whatever the side or DL position (restated F-59)', () => {
   // the nearer member to the LB climbs whatever side or DL position; moving the DL past the LB changes nothing
   for (const side of [1, -1]) for (const dx of [-1.0, 1.0, -3, 3]) {
     const s = sw();
