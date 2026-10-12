@@ -48,7 +48,7 @@ export function assignBlocks(players, plan, techs) {
       b.block = { target: plan[b.id], angle: 'straight', engaged: false, seq: null };
       const t = techs?.[b.id];
       if (t) {
-        const foot = startFoot(t.tech, t.shade, t.watch, b, byId(players, plan[b.id]));
+        const foot = startFoot(t.tech, t.shade, t.watch, b);
         if (foot) b.block.foot = foot;
       }
       continue;
@@ -77,7 +77,7 @@ export function setBlock(players, blockerId, targetId, angle = 'straight') {
     const old = b.block;
     b.block = { target: targetId, angle, engaged: false, seq: null };
     if (old?.foot) {
-      const f = retargetFoot(old.foot, b, byId(players, targetId));
+      const f = retargetFoot(old.foot, b);
       if (f) b.block.foot = f;
     }
   }
@@ -673,13 +673,12 @@ export function stepBlocking(players, ballPos, dt, ctx) {
   for (const b of players) {
     const foot = b.block?.foot;
     if (!foot || !b.block.engaged) continue;
-    const watch = foot.watch ? byId(players, foot.watch) ?? null : null;
     const T = byId(players, b.block.target);
     const dx = T.x - b.x;
     const dy = T.y - b.y;
     const dist = Math.hypot(dx, dy);
     const contact = dist < 1e-9 ? null : { x: dx / dist, y: dy / dist };
-    const { ride, push, sealed, sealSide } = footPush(foot, T, watch, T.vel ?? { x: 0, y: 0 }, contact, dt, ctx?.side);
+    const { ride, push, sealed, sealSide } = footPush(foot, T.vel ?? { x: 0, y: 0 }, contact, dt, ctx?.side);
     foot.ride = ride;
     foot.push = push;
     foot.sealed = sealed;

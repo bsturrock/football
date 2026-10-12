@@ -1,7 +1,7 @@
 // Blocking technique table, footwork phase machine and drive/ride push math.
 // Pure: no imports, no mutation of arguments.
 //
-// Push (footPush): drive = vertical or combo watch lean. On a blindside hit the base
+// Push (footPush): drive = vertical, double or wall. On a blindside hit the base
 // bends from the drive toward the contact line (BLIND_START..BLIND_FULL degrees). The
 // target's lateral velocity (relative to the base) rotates the base by up to RIDE_MAX,
 // smoothed by RIDE_TAU, and the push turns toward that at most PUSH_TURN rad/s. Under RIDE_MIN of lateral
@@ -14,11 +14,9 @@
 //   stepLen  optional first-step length in yards (default FIRST_STEP_LEN): a number, or an
 //            object keyed by shade (read through stepLenOf)
 //   aim      fraction of the radius the aim point sits playside of the target spot
-//   drive    push mode once engaged: 'vertical', 'watch' (lean toward watched player) or
-//            'playside' (lean back and toward the play (side) by COMBO_LEAN; every blocker on the
-//            man shares the base (no blindside bend); no row uses it since F-55 #4) or 'double'
-//            (straight upfield, hips together, with the same shared base as 'playside') or 'wall' (lean toward the backside by
-//            WALL_LEAN from straight upfield, to wall the man away from the play)
+//   drive    push mode once engaged: 'vertical' (straight upfield), 'double' (straight upfield, hips
+//            together: every blocker on the man shares the base, no blindside bend) or 'wall' (lean toward
+//            the backside by WALL_LEAN from straight upfield, to wall the man away from the play)
 //   intercept optional; true on the climb row: the 'aim' goal leads the target's velocity to the point
 //            where the blocker would meet him (near number on the run's side), aims at the spot with no
 //            shift when no meeting point exists, and keeps the aim within CLIMB_LANE_REACH of the ball
@@ -33,9 +31,7 @@
 //   retarget phase entered after coming off onto a new target
 //
 // Extending: add reach/down/kick/pull as new rows; a new drive mode is a new branch
-// in driveDir; a new phase is a PHASES entry plus its name in a row's phases; an
-// optional row field `squeeze` is copied onto footGoal's goal for steerStep
-// (goal.squeeze ?? SQUEEZE, not read by steerStep yet).
+// in driveDir; a new phase is a PHASES entry plus its name in a row's phases.
 
 export const FIRST_STEP_LEN = 0.5; // yards, length of the first step (tunable)
 export const RIDE_MIN = 0.3; // yd/s, target lateral speed needed to set ride side (tunable)
@@ -46,8 +42,6 @@ export const RIDE_TAU = 0.1; // s, ride angle smoothing time constant (tunable)
 export const PUSH_TURN = Math.PI; // rad/s, max push turn rate (tunable)
 export const BLIND_START = 30; // degrees, contact-vs-drive angle where the base starts bending (tunable)
 export const BLIND_FULL = 75; // degrees, contact-vs-drive angle where the base is the contact line (tunable)
-export const COMBO_MAX_LEAN = 30; // degrees from vertical, max combo drive lean (tunable)
-export const COMBO_LEAN = 40; // degrees from vertical toward the play, lean of a 'playside' drive; 40 so a held double moves even a DL with no playside goal 1 yd sideways before the anchor spring levels him off (F-3 #3) (tunable)
 
 export const HINGE_GIVE = 0.05; // yd, how far back toward the offense the hinge wall spot sits (tunable)
 export const INTERCEPT_MIN_SPEED = 1; // yd/s, floor on the blocker speed used to solve the climb intercept (tunable)
@@ -183,26 +177,12 @@ function interceptTime(spot, v, blocker, s) {
   return roots.length ? roots[0] : null;
 }
 
-// Drive direction for a push mode. 'watch': lean toward the watched player. 'playside': lean back
-// and toward the play (side = +1 or -1) by COMBO_LEAN; the watch is ignored. Other modes: straight back.
-const SHARED_BASE = new Set(['playside', 'double']); // drive modes whose blockers all push from the same base
+// Drive direction for a push mode: 'double' is straight upfield (F-55 #4, vertical double-team drive), 'wall'
+// leans toward the backside by WALL_LEAN. Other modes: straight upfield.
+const SHARED_BASE = new Set(['double']); // a shared-base ('double') push: every blocker on the man pushes from the same base
 
-export function leanDir(mode, target, watch, side) {
-  if (mode === 'watch') {
-    if (watch == null) return { x: 0, y: 1 };
-    const vx = watch.x - target.x;
-    const vy = watch.y - target.y;
-    const max = rad(COMBO_MAX_LEAN);
-    let lean;
-    if (vy <= 0) lean = Math.sign(vx) * max;
-    else lean = Math.max(-max, Math.min(max, Math.atan2(vx, vy)));
-    return { x: Math.sin(lean), y: Math.cos(lean) };
-  }
-  if (mode === 'playside') {
-    const lean = (side === 1 || side === -1 ? side * rad(COMBO_LEAN) : 0);
-    return { x: Math.sin(lean), y: Math.cos(lean) };
-  }
-  if (mode === 'double') return { x: 0, y: 1 }; // F-55 #4: vertical double-team drive, no playside lean
+export function leanDir(mode, side) {
+  if (mode === 'double') return { x: 0, y: 1 };
   if (mode === 'wall') {
     const lean = (side === 1 || side === -1 ? -side * rad(WALL_LEAN) : 0);
     return { x: Math.sin(lean), y: Math.cos(lean) };
@@ -210,9 +190,9 @@ export function leanDir(mode, target, watch, side) {
   return { x: 0, y: 1 };
 }
 
-export function driveDir(tech, target, watch, side) {
+export function driveDir(tech, side) {
   const row = TECHNIQUES[tech];
-  if (row && (row.drive === 'watch' || row.drive === 'playside' || row.drive === 'double' || row.drive === 'wall')) return leanDir(row.drive, target, watch, side);
+  if (row && (row.drive === 'double' || row.drive === 'wall')) return leanDir(row.drive, side);
   return { x: 0, y: 1 };
 }
 
@@ -241,7 +221,7 @@ export function nextTech(tech) {
   return (has(TECHNIQUES, tech) ? TECHNIQUES[tech].next : null) ?? null;
 }
 
-export function startFoot(tech, shade, watch, blocker, target) {
+export function startFoot(tech, shade, watch, blocker) {
   if (!has(TECHNIQUES, tech)) return null;
   const row = TECHNIQUES[tech];
   return {
@@ -256,7 +236,7 @@ export function startFoot(tech, shade, watch, blocker, target) {
   };
 }
 
-export function retargetFoot(foot, blocker, target) {
+export function retargetFoot(foot, blocker) {
   const tech = nextTech(foot.tech);
   if (tech == null) return null;
   return {
@@ -296,13 +276,12 @@ export function footGoal(foot, blocker, spot, side, radius, env) {
     def = get(phase);
   }
   const goal = def.goal(foot, spot, side, radius, { blocker, ...env });
-  if (row.squeeze != null) goal.squeeze = row.squeeze;
   if (row.level === true && phase === 'aim' && env?.target) goal.ceiling = levelCeiling(env.target);
   return { phase, goal };
 }
 
-export function footPush(foot, target, watch, vel, contact, dt, side) {
-  const drive = driveDir(foot.tech, target, watch, side);
+export function footPush(foot, vel, contact, dt, side) {
+  const drive = driveDir(foot.tech, side);
   const c = contact ?? drive;
   let base;
   if (SHARED_BASE.has(TECHNIQUES[foot.tech]?.drive)) {
@@ -353,7 +332,7 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
     desired = { x: 0, y: Math.sign(desired.y || base.y || 1) };
   }
 
-  // A 'playside' push starts on the shared base (not the contact line), so partners agree from the first tick.
+  // A shared-base ('double') push starts on the shared base (not the contact line), so partners agree from the first tick.
   const from = foot.push ?? (SHARED_BASE.has(TECHNIQUES[foot.tech]?.drive) ? base : c);
   const fl = Math.hypot(from.x, from.y);
   const start = fl > 0 ? { x: from.x / fl, y: from.y / fl } : drive;

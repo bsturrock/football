@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   TECHNIQUES, PHASES, stepDir, stepLenOf, techniqueLabel, HINGE_GIVE, WALL_LEAN, aimPoint, driveDir, leanDir, rotate, signedAngle, rotateToward, nextTech,
   RIDE_MAX, RIDE_FULL, RIDE_MIN, PUSH_TURN, SEAL_MIN,
-  startFoot, retargetFoot, footGoal, footPush, COMBO_LEAN,
+  startFoot, retargetFoot, footGoal, footPush,
 } from '../src/dots/technique.js';
 
 const near = (a, b, m) => assert.ok(Math.abs(a - b) < 1e-9, `${m ?? ''} ${a} vs ${b}`);
@@ -28,37 +28,21 @@ test('aimPoint', () => {
 });
 
 test('driveDir', () => {
-  nearPt(driveDir('zone', { x: 0, y: 0 }, { x: 1, y: 4 }), 0, 1);
-  const T = { x: 0, y: 0 };
-  const cases = [[T, { x: 1, y: 4 }, 1], [T, { x: 1, y: 4 }, -1], [T, { x: 1, y: 4 }, undefined],
-    [T, { x: 5, y: 1 }, 1], [T, { x: -1, y: -1 }, -1], [T, { x: 0, y: -1 }, undefined], [T, null, 1]];
-  for (const [t, w, s] of cases) {
-    const a = driveDir('combo', t, w, s);
-    const b = leanDir(TECHNIQUES.combo.drive, t, w, s);
+  nearPt(driveDir('zone', 1), 0, 1);
+  for (const s of [1, -1, undefined]) {
+    const a = driveDir('combo', s);
+    const b = leanDir('double', s);
     near(a.x, b.x);
     near(a.y, b.y);
   }
 });
 
-test('leanDir watch', () => {
-  const T = { x: 0, y: 0 };
-  nearPt(leanDir('watch', T, null), 0, 1);
-  const l = Math.atan2(1, 4);
-  nearPt(leanDir('watch', T, { x: 1, y: 4 }), Math.sin(l), Math.cos(l));
-  nearPt(leanDir('watch', T, { x: 5, y: 1 }), 0.5, Math.cos(rad(30)));
-  nearPt(leanDir('watch', T, { x: -1, y: -1 }), -0.5, Math.cos(rad(30)));
-  nearPt(leanDir('watch', T, { x: 0, y: -1 }), 0, 1);
-});
-
-// The lean moved 30 -> 40 for F-3 #3; the cases stay and are restated on COMBO_LEAN.
-test('leanDir playside', () => {
-  const T = { x: 0, y: 0 };
-  nearPt(leanDir('playside', T, null, 1), Math.sin(rad(COMBO_LEAN)), Math.cos(rad(COMBO_LEAN)));
-  nearPt(leanDir('playside', T, null, -1), -Math.sin(rad(COMBO_LEAN)), Math.cos(rad(COMBO_LEAN)));
-  nearPt(leanDir('playside', T, null, undefined), 0, 1);
-  nearPt(leanDir('playside', T, { x: 5, y: 1 }, 1), Math.sin(rad(COMBO_LEAN)), Math.cos(rad(COMBO_LEAN)));
-  nearPt(leanDir('playside', T, { x: -1, y: -1 }, -1), -Math.sin(rad(COMBO_LEAN)), Math.cos(rad(COMBO_LEAN)));
-  nearPt(leanDir('vertical', T, { x: 1, y: 4 }, 1), 0, 1);
+test('leanDir', () => {
+  nearPt(leanDir('vertical', 1), 0, 1);
+  nearPt(leanDir('double', 1), 0, 1);
+  nearPt(leanDir('double', -1), 0, 1);
+  nearPt(leanDir('wall', 1), -Math.sin(rad(WALL_LEAN)), Math.cos(rad(WALL_LEAN)));
+  nearPt(leanDir('wall', -1), Math.sin(rad(WALL_LEAN)), Math.cos(rad(WALL_LEAN)));
 });
 
 test('rotate / signedAngle / rotateToward', () => {
@@ -76,17 +60,17 @@ test('nextTech', () => {
 });
 
 test('startFoot / retargetFoot', () => {
-  const f = startFoot('combo', 'playside', 'MLB', { x: 1, y: 2 }, { x: 0, y: 3 });
+  const f = startFoot('combo', 'playside', 'MLB', { x: 1, y: 2 });
   assert.deepEqual(f, { tech: 'combo', shade: 'playside', watch: 'MLB', phase: 'step', ox: 1, oy: 2, ride: 0, push: null });
-  assert.equal(startFoot('nope', 'head', null, { x: 0, y: 0 }, { x: 0, y: 0 }), null);
-  const g = startFoot('combo', undefined, undefined, { x: 0, y: 0 }, { x: 0, y: 0 });
+  assert.equal(startFoot('nope', 'head', null, { x: 0, y: 0 }), null);
+  const g = startFoot('combo', undefined, undefined, { x: 0, y: 0 });
   assert.equal(g.shade, 'none');
   assert.equal(g.watch, null);
   const clone = structuredClone(f);
-  const r = retargetFoot(f, { x: 1.5, y: 2.5 }, { x: 2, y: 6 });
+  const r = retargetFoot(f, { x: 1.5, y: 2.5 });
   assert.deepEqual(r, { tech: 'climb', shade: 'none', watch: null, phase: 'aim', ox: 1.5, oy: 2.5, ride: 0, push: null });
   assert.deepEqual(f, clone);
-  assert.equal(retargetFoot({ ...f, tech: 'nope' }, { x: 0, y: 0 }, { x: 0, y: 0 }), null);
+  assert.equal(retargetFoot({ ...f, tech: 'nope' }, { x: 0, y: 0 }), null);
 });
 
 test('footGoal', () => {
@@ -125,7 +109,7 @@ test('F-55 #4: zone and combo take a short step at >= 45 degrees, except the pla
         assert.ok(stepLenOf(tech, shade) <= 0.25, `${tech} ${shade} short`);
       }
       for (const side of [-1, 1]) {
-        const foot = startFoot(tech, shade, null, { x: 2, y: 3 }, { x: 0, y: 0 });
+        const foot = startFoot(tech, shade, null, { x: 2, y: 3 });
         const g = footGoal(foot, { x: 2, y: 3 }, { x: 0, y: 5 }, side, 0.35).goal;
         const dx = side * (g.x - 2);
         const dy = g.y - 3;
@@ -140,31 +124,31 @@ const DT = 1 / 60;
 const mkFoot = (extra) => ({ tech: 'zone', shade: 'none', watch: null, phase: 'aim', ox: 0, oy: 0, ride: 0, push: null, ...extra });
 const V = { x: 0, y: 1 };
 const ang = (p) => Math.atan2(p.x, p.y);
-function settle(foot, target, watch, vel, contact, n = 90) {
+function settle(foot, vel, contact, n = 90) {
   let f = foot;
   let r;
   for (let i = 0; i < n; i++) {
-    r = footPush(f, target, watch, vel, contact, DT);
+    r = footPush(f, vel, contact, DT);
     f = { ...f, ride: r.ride, push: r.push };
   }
   return r;
 }
 
 test('footPush (a) ride toward travel scales with speed', () => {
-  let r = settle(mkFoot(), { x: 0, y: 5 }, null, { x: 3, y: 0 }, V);
+  let r = settle(mkFoot(), { x: 3, y: 0 }, V);
   near(ang(r.push), rad(RIDE_MAX));
-  r = settle(mkFoot(), { x: 0, y: 5 }, null, { x: 1.5, y: 0 }, V);
+  r = settle(mkFoot(), { x: 1.5, y: 0 }, V);
   near(ang(r.push), rad(RIDE_MAX) * 1.5 / RIDE_FULL);
 });
 
 test('footPush (b) mirrored', () => {
-  const r = settle(mkFoot(), { x: 0, y: 5 }, null, { x: -3, y: 0 }, V);
+  const r = settle(mkFoot(), { x: -3, y: 0 }, V);
   near(ang(r.push), -rad(RIDE_MAX));
 });
 
 // Holds because the target is neither scraping nor coming into the drive (no along component).
 test('footPush (c) ride holds under RIDE_MIN', () => {
-  const r = footPush(mkFoot({ ride: 0.4, push: V }), { x: 0, y: 5 }, null, { x: RIDE_MIN - 0.01, y: 0 }, V, DT);
+  const r = footPush(mkFoot({ ride: 0.4, push: V }), { x: RIDE_MIN - 0.01, y: 0 }, V, DT);
   near(r.ride, 0.4);
 });
 
@@ -173,7 +157,7 @@ test('footPush squares up when the target comes downhill into the drive (climb s
   let f = mkFoot({ ride: 0.4, push: p0 });
   let r;
   for (let i = 0; i < Math.round(0.3 / DT); i++) {
-    r = footPush(f, { x: 0, y: 5 }, null, { x: 0, y: -2 }, V, DT);
+    r = footPush(f, { x: 0, y: -2 }, V, DT);
     f = { ...f, ride: r.ride, push: r.push };
   }
   assert.ok(Math.abs(r.ride) < 0.05, `ride ${r.ride}`);
@@ -182,28 +166,29 @@ test('footPush squares up when the target comes downhill into the drive (climb s
 
 test('footPush (d) turn bound', () => {
   const c = { x: Math.sin(rad(60)), y: Math.cos(rad(60)) };
-  const r = footPush(mkFoot(), { x: 0, y: 5 }, null, { x: 0, y: 0 }, c, DT);
+  const r = footPush(mkFoot(), { x: 0, y: 0 }, c, DT);
   const moved = Math.abs(signedAngle(c, r.push));
   assert.ok(moved > 0 && moved <= PUSH_TURN * DT + 1e-9, `moved ${moved}`);
   const f = mkFoot({ push: V, ride: 0 });
-  const r2 = footPush(f, { x: 0, y: 5 }, null, { x: 3, y: 0 }, V, DT);
+  const r2 = footPush(f, { x: 3, y: 0 }, V, DT);
   assert.ok(Math.abs(signedAngle(V, r2.push)) <= PUSH_TURN * DT + 1e-9);
-  const r3 = footPush(f, { x: 0, y: 5 }, null, { x: 3, y: 0 }, V, 0);
+  const r3 = footPush(f, { x: 3, y: 0 }, V, 0);
   nearPt(r3.push, 0, 1);
   near(r3.ride, 0);
 });
 
 test('footPush (e) blindside', () => {
-  const r = settle(mkFoot(), { x: 0, y: 5 }, null, { x: 0, y: 0 }, { x: 1, y: 0 });
+  const r = settle(mkFoot(), { x: 0, y: 0 }, { x: 1, y: 0 });
   nearPt(r.push, 1, 0);
   const c20 = { x: Math.sin(rad(20)), y: Math.cos(rad(20)) };
-  const r2 = settle(mkFoot(), { x: 0, y: 5 }, null, { x: 0, y: 0 }, c20);
+  const r2 = settle(mkFoot(), { x: 0, y: 0 }, c20);
   nearPt(r2.push, 0, 1);
 });
 
 test('footPush (f) combo lean is the base near the contact', () => {
-  const d = leanDir(TECHNIQUES.combo.drive, { x: 0, y: 0 }, { x: 1, y: 4 });
-  const r = settle(mkFoot({ tech: 'combo' }), { x: 0, y: 0 }, { x: 1, y: 4 }, { x: 0, y: 0 }, V);
+  const side = 1;
+  const d = leanDir(TECHNIQUES.combo.drive, side);
+  const r = settle(mkFoot({ tech: 'combo' }), { x: 0, y: 0 }, V);
   nearPt(r.push, d.x, d.y);
 });
 
@@ -213,15 +198,14 @@ test('footPush (g) pure', () => {
   const vel = { x: 2, y: 1 };
   const contact = { x: 0.6, y: 0.8 };
   const snap = structuredClone([foot, target, vel, contact]);
-  footPush(foot, target, { x: 1, y: 2 }, vel, contact, 0.1);
+  footPush(foot, vel, contact, 0.1);
   assert.deepEqual([foot, target, vel, contact], snap);
 });
 
 test('footPush (h) no wobble', () => {
   let f = mkFoot();
-  const tgt = { x: 0, y: 5 };
   const step = (vel) => {
-    const r = footPush(f, tgt, null, vel, V, DT);
+    const r = footPush(f, vel, V, DT);
     f = { ...f, ride: r.ride, push: r.push };
     return ang(r.push);
   };
@@ -245,7 +229,7 @@ function runSeal(f0, steps) {
   let f = f0;
   const out = [];
   for (const { v, s } of steps) {
-    const r = footPush(f, { x: 0, y: 5 }, null, { x: v, y: 0 }, unitAt(s), DT);
+    const r = footPush(f, { x: v, y: 0 }, unitAt(s), DT);
     out.push({ s, r });
     f = { ...f, ride: r.ride, push: r.push, sealed: r.sealed, sealSide: r.sealSide };
   }
@@ -314,7 +298,7 @@ test('F-55 #4 stepLenOf', () => {
   assert.equal(stepLenOf('cutoff', 'none'), 0.5);
   assert.equal(stepLenOf('nope', 'head'), 0.5);
   // The step phase reads it.
-  const foot = startFoot('zone', 'head', null, { x: 0, y: 0 }, { x: 0, y: 3 });
+  const foot = startFoot('zone', 'head', null, { x: 0, y: 0 });
   const g = footGoal(foot, { x: 0, y: 0 }, { x: 0, y: 3 }, 1, 0.35).goal;
   near(Math.hypot(g.x, g.y), stepLenOf('zone', 'head'));
 });
@@ -328,7 +312,7 @@ test('F-55 #5 hinge: the cutoff row steps then hinges, wall spot playside of and
   nearPt(stepDir('cutoff', 'backside', 1), Math.cos(rad(10)), Math.sin(rad(10)));
   const spot = { x: 3, y: 1 };
   for (const side of [-1, 1]) {
-    const foot = startFoot('cutoff', 'backside', null, { x: 0, y: 0 }, spot);
+    const foot = startFoot('cutoff', 'backside', null, { x: 0, y: 0 });
     const first = footGoal(foot, { x: 0, y: 0 }, spot, side, 0.35);
     assert.equal(first.phase, 'step');
     const after = footGoal(foot, { x: 0, y: 5 }, spot, side, 0.35);
@@ -336,12 +320,12 @@ test('F-55 #5 hinge: the cutoff row steps then hinges, wall spot playside of and
     nearPt(after.goal, spot.x + side * row.aim * 0.35, spot.y - HINGE_GIVE);
     assert.ok(side * (after.goal.x - spot.x) > 0, 'playside of the target');
     assert.ok(after.goal.y < spot.y, 'behind the target');
-    const d = leanDir('wall', { x: 0, y: 0 }, null, side);
+    const d = leanDir('wall', side);
     nearPt(d, -side * Math.sin(rad(WALL_LEAN)), Math.cos(rad(WALL_LEAN)));
-    nearPt(driveDir('cutoff', { x: 0, y: 0 }, null, side), d.x, d.y);
+    nearPt(driveDir('cutoff', side), d.x, d.y);
   }
-  nearPt(leanDir('wall', { x: 0, y: 0 }, null, undefined), 0, 1);
-  const re = retargetFoot(startFoot('cutoff', 'backside', null, { x: 0, y: 0 }, spot), { x: 1, y: 1 }, spot);
+  nearPt(leanDir('wall', undefined), 0, 1);
+  const re = retargetFoot(startFoot('cutoff', 'backside', null, { x: 0, y: 0 }), { x: 1, y: 1 });
   assert.equal(re.phase, 'hinge');
 });
 
