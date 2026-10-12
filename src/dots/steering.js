@@ -59,6 +59,15 @@ export const PACES = Object.freeze({
 // plant: it is not judged stuck (no side flip). CUT_ACCEL: an NFL linebacker's planted cut is roughly
 // 10-25 yd/s^2 (tunable).
 export const CUT_ACCEL = 20;
+// Bodies never snap a mover (PRINCIPLES #11). When a step is steered by bodies (a detour around a
+// body in the corridor or in the committed pass, a lane aim, or a contact slide) and the goal has no accel cap of its own, it
+// changes his velocity by at most this much (yd/s) in one tick. Measured (T-44): a free mover between
+// two engaged bodies took 2-4 yd/s jumps in one tick with no push-out at all: the plain-hit detour
+// around a touching body switches on and off as that body's lateral offset crosses the corridor edge
+// (|lat| < 2 * radius), and each switch swings the step from straight ahead to the tangent past it.
+// The limit spreads that swing over a few ticks. A step with no body in play is the caller's own
+// choice and is untouched (a goal.accel cap, or none).
+export const MAX_AVOID_DV = 1.0;
 
 export function steerStep(p, goal, players, maxStep, dt, radius) {
   const fullStep = maxStep;
@@ -265,6 +274,17 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       mv = clampStep(cx, cy);
       // Still carrying speed away from the goal: a plant, not a stall.
       plant = v0.x * ux + v0.y * uy < 0;
+    }
+  }
+  if (accel === null && dt > 0 && (laneMid || threading || hit || (p.steer && p.steer.side !== 0) || mv.x !== dx * Math.min(maxStep, D) || mv.y !== dy * Math.min(maxStep, D))) {
+    const v0 = p.selfVel ?? p.vel ?? { x: 0, y: 0 };
+    const ex = mv.x / dt - v0.x, ey = mv.y / dt - v0.y, el = Math.hypot(ex, ey);
+    // a mover without momentum to keep (at rest, or no measured velocity) starts freely
+    if (el > MAX_AVOID_DV && Math.hypot(v0.x, v0.y) > MAX_AVOID_DV) {
+      let cx = (v0.x + ex * MAX_AVOID_DV / el) * dt, cy = (v0.y + ey * MAX_AVOID_DV / el) * dt;
+      const cl = Math.hypot(cx, cy);
+      if (cl > maxStep) { cx *= maxStep / cl; cy *= maxStep / cl; }
+      mv = clampStep(cx, cy);
     }
   }
   p.x += mv.x;
