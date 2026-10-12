@@ -871,3 +871,94 @@ test('F-49 #10: a lone footless blocker settles straight below a still target wi
   }
   assert.ok(settled, `never settled, bearing ${prev}`);
 });
+
+// ---- F-61: pass-rush moves ----
+import { MOVES, LOST_DRIVE, MOVE_SETUP, MOVE_REST, moveRoll, driveForce } from '../src/dots/blocking.js';
+
+const movePair = (dOver = {}, bOver = {}) => [
+  O('a', 0, 10 - CONTACT_DIST, { hands: 0.5, anchor: 0.5, block: blk('d', { engaged: true, seq: 1, held: 0, winT: 0 }), ...bOver }),
+  D('d', 0, 10, { swim: 1, power: 1, ...dOver }),
+];
+const moveBall = { x: 0, y: 0 };
+const runMove = (ps, ctx, ticks, goalMove) => {
+  const log = [];
+  for (let i = 0; i < ticks; i++) {
+    ctx.defGoals = { d: { x: 0, y: 0, key: 'k', rate: 1, ...(goalMove ? { move: goalMove } : {}) } };
+    stepBlocking(ps, moveBall, DT, ctx);
+    log.push(ps[1].move ? `${ps[1].move.phase}` : '-');
+  }
+  return log;
+};
+
+test('moveRoll: pure, in [0,1), seeds differ', () => {
+  for (let n = 1; n <= 50; n++) {
+    const r = moveRoll(1, 'd', n);
+    assert.ok(r >= 0 && r < 1);
+    assert.equal(r, moveRoll(1, 'd', n));
+  }
+  assert.ok(Array.from({ length: 50 }, (_, i) => i + 1).some((n) => moveRoll(1, 'd', n) !== moveRoll(2, 'd', n)));
+});
+
+test('a won swim sheds the block with beat swim', () => {
+  const ps = movePair();
+  const ctx = { rule: null, seq: 1, moves: true };
+  runMove(ps, ctx, Math.ceil((MOVE_SETUP + MOVES.swim.time) / DT) + 6, { kind: 'swim', side: 1 });
+  assert.equal(ps[0].block.released, 'shed');
+  assert.equal(ps[0].block.beat, 'swim');
+});
+
+test('a lost swim goes try, lost, rest and never sheds', () => {
+  const ps = movePair({ swim: 0 });
+  const ctx = { rule: null, seq: 1, moves: true };
+  const log = runMove(ps, ctx, Math.ceil((MOVE_SETUP + MOVES.swim.time + MOVES.swim.stall + MOVE_REST) / DT) + 6, { kind: 'swim', side: 1 });
+  const phases = log.filter((p, i) => p !== log[i - 1] && p !== '-');
+  assert.deepEqual(phases.slice(0, 3), ['try', 'lost', 'rest']);
+  assert.ok(!log.includes('won'));
+  assert.notEqual(ps[0].block.released, 'shed');
+});
+
+test('no move runs without moves, fight, a lone blocker or a goal move', () => {
+  const gm = { kind: 'swim', side: 1 };
+  const base = movePair();
+  const ref = [base[0], base[1]].map((p) => ({ ...p, block: p.block ? { ...p.block } : null }));
+  runMove(ref, { rule: null, seq: 1 }, 40, null);
+  const cases = [
+    [{ rule: null, seq: 1 }, gm, movePair()],
+    [{ rule: null, seq: 1, moves: false }, gm, movePair()],
+    [{ rule: null, seq: 1, moves: true, fightBlocks: false }, gm, movePair()],
+    [{ rule: null, seq: 1, moves: true }, null, movePair()],
+  ];
+  for (const [ctx, g, ps] of cases) {
+    const log = runMove(ps, ctx, 40, g);
+    assert.ok(log.every((x) => x === '-'));
+    assert.equal(ps[1].move ?? null, null);
+  }
+  const two = [...movePair(), O('c', 0.3, 10 + CONTACT_DIST, { hands: 0.5, block: blk('d', { engaged: true, seq: 2, held: 0, winT: 0 }) })];
+  assert.ok(runMove(two, { rule: null, seq: 2, moves: true }, 40, gm).every((x) => x === '-'));
+});
+
+test('a block ending mid-try clears d.move', () => {
+  const ps = movePair({ swim: 0 });
+  const ctx = { rule: null, seq: 1, moves: true };
+  const gm = { kind: 'swim', side: 1 };
+  for (let i = 0; i < 100 && ps[1].move?.phase !== 'try'; i++) runMove(ps, ctx, 1, gm);
+  assert.equal(ps[1].move?.phase, 'try');
+  ps[0].block = null;
+  runMove(ps, ctx, 1, gm);
+  assert.equal(ps[1].move, null);
+});
+
+test('identical runs give identical move sequences', () => {
+  const run = () => runMove(movePair({ swim: 0.5 }), { rule: null, seq: 1, moves: true, seed: 7 }, 200, { kind: 'swim', side: 1 });
+  assert.deepEqual(run(), run());
+});
+
+test('driveForce scales with the move phase', () => {
+  const p = { strength: 0.8 };
+  near(driveForce(p), 0.8);
+  near(driveForce({ ...p, move: { kind: 'power', phase: 'try' } }), 0.8 * MOVES.power.drive);
+  near(driveForce({ ...p, move: { kind: 'swim', phase: 'try' } }), 0.8 * MOVES.swim.drive);
+  near(driveForce({ ...p, move: { kind: 'swim', phase: 'lost' } }), 0.8 * LOST_DRIVE);
+  near(driveForce({ ...p, move: { kind: 'swim', phase: 'won' } }), 0.8);
+  near(driveForce({ ...p, move: { kind: 'swim', phase: 'rest' } }), 0.8);
+});
