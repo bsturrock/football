@@ -14,6 +14,7 @@
 // pass: rush; nothing felt: squeeze). A two-gap DL plays his blocker head-up (control) until the ball
 // commits, then takes the ball's side (twoGapFit). Cues come from env.cues (perceive.js).
 import { BODY_RADIUS } from './blocking.js';
+import { leadPoint, project } from './geometry.js';
 import { GAP_NAMES, HEAD_UP, liveGaps } from './front.js';
 import { DL_ROLES, LB_ROLES, MOVE_COUNTER, moveOdds } from './roster.js';
 
@@ -38,37 +39,20 @@ export const CONTAIN_WIDTH = 2 * BODY_RADIUS; // yd outside the backside end lin
 export const CONTAIN_SPEED = 0.5; // fraction of speed while reading and squeezing: a controlled squeeze (tunable)
 
 export const LEAD_MAX = 1.0; // s, the longest lead a pursuer takes (tunable)
+export const REACH_LEAD = 2; // x his time to the ball's spot: the lead cap (tunable); it was effectively 1 (T-135), which made a close pursuer aim at the carrier's heels
 export const LEVER_V = 1.0; // yd/s: the ball must move sideways at least this fast before pursuers take the inside-out lever (tunable)
 export const PURSUE_LEVER = 0.5; // yd: an inside pursuer aims this far inside the intercept point (tunable)
 
 // Pursuit (GOALS.pursue) aims at this point, then the inside-out lever shifts it: a pursuer inside of a
 // sideways-moving ball aims up to PURSUE_LEVER inside it (fading to zero as he reaches the ball's x), so he arrives from the inside, never from behind.
 // Where a pursuer at d running at `speed` meets a ball at `ball` moving at v: the earliest
-// non-negative meeting time, capped at LEAD_MAX (also used when no meeting exists). The lead
-// time is also capped at the pursuer's time to reach the ball's current spot, so a close
-// pursuer's lead point shrinks with his distance and ball-velocity noise cannot throw it yards
-// away. A man 1 yd from the ball carrier plays the man, he does not run to where the carrier
-// will be in a second.
-export function intercept(d, ball, v, speed) {
-  const rx = ball.x - d.x;
-  const ry = ball.y - d.y;
-  const a = v.x * v.x + v.y * v.y - speed * speed;
-  const b = 2 * (rx * v.x + ry * v.y);
-  const c = rx * rx + ry * ry;
-  let t = LEAD_MAX;
-  if (Math.abs(a) < 1e-12) {
-    if (Math.abs(b) > 1e-12 && -c / b >= 0) t = -c / b;
-  } else {
-    const disc = b * b - 4 * a * c;
-    if (disc >= 0) {
-      const q = Math.sqrt(disc);
-      const roots = [(-b - q) / (2 * a), (-b + q) / (2 * a)].filter((r) => r >= 0);
-      if (roots.length) t = Math.min(...roots);
-    }
-  }
-  const reach = speed > 0 ? Math.hypot(rx, ry) / speed : Infinity;
-  t = Math.min(t, LEAD_MAX, reach);
-  return { x: ball.x + v.x * t, y: ball.y + v.y * t };
+// non-negative meeting time of the seen spot projected by `age`, capped at LEAD_MAX (also used when no meeting exists)
+// and at reachLead times his time to that spot, so a close pursuer's lead shrinks with his distance.
+export function intercept(d, ball, v, speed, age = 0, reachLead = REACH_LEAD) {
+  const s0 = project(ball, v, age);
+  const reach = speed > 0 ? Math.hypot(s0.x - d.x, s0.y - d.y) / speed : Infinity;
+  const p = leadPoint(d, speed, s0, v, { maxLead: Math.min(LEAD_MAX, reachLead * reach) });
+  return { x: p.x, y: p.y };
 }
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -264,12 +248,18 @@ export const GOALS = Object.freeze({
   // jump when the ball changes hands) leads the intercept; without a cue, the env ball spot and velocity.
   // A pursuer inside of a ball moving sideways at >= LEVER_V aims min(PURSUE_LEVER, his x distance to the ball) inside the intercept point.
   pursue: (d, e, env) => {
-    const c = env.cues?.(d.id)?.ball;
+    const cues = env.cues?.(d.id);
+    const c = cues?.ball;
     const B = c ? { x: c.x, y: c.y } : env.ballPos;
     const V = c ? { x: c.vx, y: c.vy } : env.defense.ballV;
-    const p = intercept(d, B, V, d.speed);
+    const age = c ? (cues.delay ?? 0) : 0;
+    // While he fights a block he fights toward the ball spot he sees; react.js leverage, and so the shed rate, reads this goal.
+    // Once free he runs to meet the carrier: the lead is solved from where the carrier is now, not where he was seen.
+    const engaged = (env.players ?? []).some((q) => q.block?.target === d.id && q.block.engaged);
+    const p = engaged ? intercept(d, B, V, d.speed, 0, 1) : intercept(d, B, V, d.speed, age);
+    const ref = engaged ? B : project(B, V, age);
     const s = Math.abs(V.x) >= LEVER_V ? Math.sign(V.x) : 0;
-    return s !== 0 && s * (d.x - B.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - B.x)), y: p.y } : p;
+    return s !== 0 && s * (d.x - ref.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ref.x)), y: p.y } : p;
   },
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
 });

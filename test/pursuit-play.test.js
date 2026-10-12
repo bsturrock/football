@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay, FIXED_DT } from '../src/dots/play.js';
 import { FRONTS } from '../src/dots/roster.js';
-import { GOALS, gapSpan, intercept, LEVER_V } from '../src/dots/defense.js';
+import { GOALS, gapSpan, intercept, LEVER_V, PURSUE_LEVER } from '../src/dots/defense.js';
 
 const LOS = 25;
 const TICKS = 240;
@@ -99,11 +99,44 @@ test('T-57 (d): a pursuer inside of a sideways-moving ball aims inside the ball\
       const s = Math.sign(c.vx);
       if (!(s * (d.x - c.x) < 0)) continue;
       const g = GOALS.pursue(d, e, envOf(play));
-      const p = intercept(d, { x: c.x, y: c.y }, { x: c.vx, y: c.vy }, d.speed);
+      const delay = play.cuesOf(id).delay ?? 0;
+      const p = engagers(play, id).length ? intercept(d, { x: c.x, y: c.y }, { x: c.vx, y: c.vy }, d.speed, 0, 1) : intercept(d, { x: c.x, y: c.y }, { x: c.vx, y: c.vy }, d.speed, delay);
       assert.ok(s * (g.x - p.x) <= 1e-9, `${name} ${id} tick ${t}`);
       k++;
     }
     return k;
   });
   assert.ok(n > 0);
+});
+
+test('T-87: a pursuer in state pursue aims at the lead point from the cue, projected by the cue delay when free, unprojected when engaged', () => {
+  const closest = {};
+  const n = run((play, t, name) => {
+    let k = 0;
+    for (const [id, e] of Object.entries(play.defense.agents)) {
+      if (e.state !== 'pursue') continue;
+      const d = play.player(id);
+      const cues = play.cuesOf(id);
+      const c = cues?.ball;
+      if (!c || !c.carried || Math.hypot(c.vx, c.vy) < 2) continue;
+      const B = { x: c.x, y: c.y };
+      const V = { x: c.vx, y: c.vy };
+      const free = !engagers(play, id).length;
+      const p = free ? intercept(d, B, V, d.speed, cues.delay ?? 0) : intercept(d, B, V, d.speed, 0, 1);
+      const g = GOALS.pursue(d, e, envOf(play));
+      const ref = free ? { x: B.x + V.x * (cues.delay ?? 0), y: B.y + V.y * (cues.delay ?? 0) } : B;
+      const s = Math.abs(V.x) >= LEVER_V ? Math.sign(V.x) : 0;
+      const want = s !== 0 && s * (d.x - ref.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ref.x)), y: p.y } : p;
+      assert.ok(Math.abs(g.x - want.x) < 1e-9 && Math.abs(g.y - want.y) < 1e-9, `${name} ${id} tick ${t}`);
+      if (free) {
+        const carrier = play.ballPosition();
+        const gap = Math.hypot(d.x - carrier.x, d.y - carrier.y);
+        closest[name] = Math.min(closest[name] ?? Infinity, gap);
+      }
+      k++;
+    }
+    return k;
+  });
+  assert.ok(n > 0);
+  console.log('closest free pursuer to the carrier:', JSON.stringify(closest));
 });
