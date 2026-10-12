@@ -246,7 +246,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     }
     if (trace || play.run) {
       play.perception = createPerception(
-        worldSnapshot(play.players, { t: 0, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null }),
+        worldSnapshot(play.players, { t: 0, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null, holderId: play.ball.holder ?? null }),
         { centerId: PLAYS[playKey].ball.start },
       );
     }
@@ -344,7 +344,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
       play.ticks += 1;
       if (play.perception && !wasDead) {
         const t = play.ticks * FIXED_DT;
-        observe(play.perception, worldSnapshot(play.players, { t, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null }));
+        observe(play.perception, worldSnapshot(play.players, { t, los, side: ctx.side ?? baseSide(), carrierId: play.run?.carrier ?? null, holderId: play.ball.holder ?? null }));
         if (play.trace) recordTick(play.trace, play.perception, play.players, { t, defense: play.defense, run: play.run });
       }
       n++;

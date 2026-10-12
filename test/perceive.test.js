@@ -12,7 +12,7 @@ const LOS = 25;
 const SIDE = -1;
 const DT = 1 / 60;
 const P = (id, team, role, x, y, extra = {}) => ({ id, team, role, x, y, ...extra });
-const snap = (t, players, contacts = [], carrierId = null) => ({ t, los: LOS, side: SIDE, carrierId, players, contacts });
+const snap = (t, players, contacts = [], carrierId = null, holderId = null) => ({ t, los: LOS, side: SIDE, carrierId, holderId, players, contacts });
 const lineup = (opts, play = 'insideZone') => buildLineup(LOS, play, opts)
   .map((p) => ({ id: p.id, team: p.team, role: p.role, x: p.x, y: p.y }));
 const lineupSnap = (opts, play) => snap(0, lineup(opts, play));
@@ -22,9 +22,9 @@ function stateOf(players0, contacts = []) {
   return createPerception(snap(0, players0, contacts), CENTER);
 }
 // Feed frames t = k/60 where fn(k, tSeconds) returns the player list.
-function run(players0, frames, fn, contacts = [], carrierId = null) {
-  const st = createPerception(snap(0, players0, contacts, carrierId), CENTER);
-  for (let k = 1; k <= frames; k++) observe(st, snap(k * DT, fn(k, k * DT), contacts, carrierId));
+function run(players0, frames, fn, contacts = [], carrierId = null, holderId = null) {
+  const st = createPerception(snap(0, players0, contacts, carrierId, holderId), CENTER);
+  for (let k = 1; k <= frames; k++) observe(st, snap(k * DT, fn(k, k * DT), contacts, carrierId, holderId));
   return st;
 }
 const moved = (players, id, dx, dy) => players.map((p) => (p.id === id ? { ...p, x: p.x + dx, y: p.y + dy } : p));
@@ -198,11 +198,76 @@ test('flow', () => {
 
 test('key on base', () => {
   const st = createPerception(lineupSnap({ front: 'base' }), CENTER);
-  assert.deepEqual(cuesFor(st, 'MLB').key, { id: 'RG' });
-  assert.deepEqual(cuesFor(st, 'WLB').key, { id: 'LG' });
+  assert.deepEqual(cuesFor(st, 'MLB').key, { id: 'RG', action: 'none', dir: 0 });
+  assert.deepEqual(cuesFor(st, 'WLB').key, { id: 'LG', action: 'none', dir: 0 });
   assert.equal(cuesFor(st, 'LDT').key, null);
   assert.equal(cuesFor(st, 'RT').key, null);
   assert.deepEqual(Object.keys(perceiveAll(st)).length, 15);
+});
+
+// Key guard of MLB (x 0.5) is RG (x 1.2): the guard nearer his creation x.
+const keyWorld = () => [...baseLine(), P('MLB', 'defense', 'LB', 0.5, 29.5)];
+const keyMove = (vx, vy, contacts = []) => run(keyWorld(), 30, (k, t) => moved(keyWorld(), 'RG', vx * t, vy * t), contacts);
+const keyOf = (st) => cuesFor(st, 'MLB').key;
+
+test('key action', () => {
+  assert.deepEqual(keyOf(keyMove(0, 0, [{ blocker: 'RG', defender: 'MLB' }])), { id: 'RG', action: 'run', dir: 0 });
+  assert.deepEqual(keyOf(keyMove(0, -1)), { id: 'RG', action: 'pass', dir: 0 });
+  assert.deepEqual(keyOf(keyMove(3, 0)), { id: 'RG', action: 'pull', dir: 1 });
+  assert.deepEqual(keyOf(keyMove(-3, 0)), { id: 'RG', action: 'pull', dir: -1 });
+  assert.deepEqual(keyOf(keyMove(0, 1)), { id: 'RG', action: 'run', dir: 0 });
+  assert.deepEqual(keyOf(keyMove(0, 0)), { id: 'RG', action: 'none', dir: 0 });
+});
+
+// Climber world: RT (x 2.4, y 24.25) is the line man; the LB sits 3.2 yd away, off the line.
+const climbWorld = (def = P('MLB', 'defense', 'LB', 1.2, 27.25)) => [...baseLine(), def];
+const climbMove = (world, vx, vy, contacts = []) => run(world, 30, (k, t) => moved(world, 'RT', vx * t, vy * t), contacts);
+
+test('climber', () => {
+  assert.deepEqual(cuesFor(climbMove(climbWorld(), 0, 3), 'MLB').climber, { id: 'RT', side: 1 });
+  assert.equal(cuesFor(climbMove(climbWorld(), 0, 3, [{ blocker: 'RT', defender: 'MLB' }]), 'MLB').climber, null);
+  assert.equal(cuesFor(climbMove(climbWorld(), 0, -3), 'MLB').climber, null);
+  const dl = [...baseLine(), P('DL', 'defense', 'DT', 1.2, 26.5)];
+  assert.equal(cuesFor(climbMove(dl, 0, 3), 'DL').climber, null);
+  assert.equal(cuesFor(climbMove(climbWorld(), 0, 3), 'RT').climber, null);
+});
+
+// Ball world: QB (carrier or holder) at x 0, MLB off the line.
+const ballWorld = (qbY = 23) => [...baseLine(), P('QB', 'offense', 'QB', 0, qbY), P('MLB', 'defense', 'LB', 0.5, 29.5)];
+const ballOf = (st, who = 'MLB') => cuesFor(st, who).ball;
+
+test('ball', () => {
+  const still = run(ballWorld(), 30, () => ballWorld(), [], null, 'QB');
+  assert.deepEqual(ballOf(still), { x: 0, y: 23, vx: 0, vy: 0, carried: false, past: false, committed: false });
+  const drive = run(ballWorld(), 30, (k, t) => moved(ballWorld(), 'QB', t, 3 * t), [], 'QB', 'QB');
+  assert.equal(ballOf(drive).carried, true);
+  assert.equal(ballOf(drive).committed, true);
+  const lateral = run(ballWorld(), 30, (k, t) => moved(ballWorld(), 'QB', 4 * t, t), [], 'QB', 'QB');
+  assert.equal(ballOf(lateral).carried, true);
+  assert.equal(ballOf(lateral).committed, false);
+  const past = run(ballWorld(26), 30, () => ballWorld(26), [], 'QB', 'QB');
+  assert.equal(ballOf(past).past, true);
+  assert.equal(ballOf(past).committed, true);
+  assert.equal(cuesFor(past, 'QB').ball, null);
+  assert.equal(cuesFor(past, 'RT').ball, null);
+});
+
+test('ball cue waits the reaction delay', () => {
+  const w = (t) => moved(ballWorld(), 'QB', 0, 3 * Math.max(0, t - 0.5));
+  const before = run(ballWorld(), 36, (k, t) => w(t), [], 'QB', 'QB'); // latest 0.6, seen 0.4
+  assert.equal(ballOf(before).committed, false);
+  const after = run(ballWorld(), 48, (k, t) => w(t), [], 'QB', 'QB'); // latest 0.8, seen 0.6
+  assert.equal(ballOf(after).committed, true);
+});
+
+test('ball carried after the handoff, seen by the MLB', () => {
+  const play = createPlay(25, 'insideZone');
+  play.snap();
+  for (let k = 0; k < 600 && !play.run?.carried; k++) play.step(FIXED_DT);
+  assert.ok(play.run.carried);
+  assert.equal(play.cuesOf('MLB').ball.carried, false); // the handoff is seen after the reaction delay
+  for (let k = 0; k < 30; k++) play.step(FIXED_DT);
+  assert.equal(play.cuesOf('MLB').ball.carried, true);
 });
 
 test('observe history window and seenAt', () => {
