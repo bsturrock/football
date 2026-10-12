@@ -58,6 +58,23 @@ test('defender with two engaged blockers faces their mean', () => {
   near(d.facing, bearing(d, { x: 0, y: 2 }));
 });
 
+test('T-60: a defender re-faces within FACE_TOL on the tick a double team splits', () => {
+  const D = { id: 'D', team: 'defense', x: -0.88, y: 25.98, facing: 0 };
+  const C = { id: 'C', team: 'offense', x: -0.57, y: 25.45, facing: 0, block: { target: 'D', engaged: true, held: 0.45 } };
+  const LG = { id: 'LG', team: 'offense', x: -1.20, y: 25.43, facing: 0, block: { target: 'D', engaged: true, held: 0.45 } };
+  const players = [D, C, LG];
+  const mid = { x: (C.x + LG.x) / 2, y: (C.y + LG.y) / 2 };
+  D.facing = bearing(D, mid);
+  C.facing = bearing(C, D);
+  LG.facing = bearing(LG, D);
+  LG.block = null;
+  const prev = Object.fromEntries(players.map((p) => [p.id, { x: p.x, y: p.y }]));
+  const before = D.facing;
+  stepFacing(players, prev, FIXED_DT);
+  assert.ok(Math.abs(angleDiff(before, D.facing)) <= FACE_RATE * FIXED_DT + 1e-9, 'turn rate');
+  assert.ok(Math.abs(angleDiff(D.facing, bearing(D, C))) <= FACE_TOL, `error ${angleDiff(D.facing, bearing(D, C))}`);
+});
+
 test('free straight mover reaches his travel bearing in PI/FACE_RATE then holds', () => {
   const p = mk('p', 'offense', 0, 0, { facing: Math.PI });
   const dt = 1 / 60;
