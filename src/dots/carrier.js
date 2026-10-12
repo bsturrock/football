@@ -9,6 +9,7 @@ import { BODY_RADIUS, engagedOn } from './blocking.js';
 import { PLAYSIDE_SIGN } from './numbering.js';
 import { liveGaps } from './front.js';
 import { HW } from '../util.js';
+import { project } from './geometry.js';
 
 const H = hardCore(BODY_RADIUS);
 export const MESH_AHEAD = 2 * BODY_RADIUS; // RB touching the QB's front
@@ -176,8 +177,11 @@ export function freeLane(players, win, carrierId, los, proj) {
     if (p.y >= los - GAP_BACK && p.y <= los + LANE_AHEAD) bodies.push(p);
     const v = proj && free(p) ? proj.vel[p.id] : null;
     if (v) {
-      const q = { id: p.id, team: p.team, projected: true, x: p.x + v.vx * proj.horizon, y: p.y + v.vy * proj.horizon };
-      if (q.y >= los - GAP_BACK && q.y <= los + LANE_AHEAD && q.y < p.y) bodies.push(q);
+      const q = { id: p.id, team: p.team, projected: true, ...project(p, { x: v.vx, y: v.vy }, proj.horizon) };
+      // Any defender who is going somewhere else adds a body where he is going (downhill closing and lateral flow alike); one
+      // who stays put adds none, his current-spot body (with THREAT_MARGIN) already stands in the band.
+      const moves = Math.hypot(q.x - p.x, q.y - p.y) > 1e-9;
+      if (q.y >= los - GAP_BACK && q.y <= los + LANE_AHEAD && moves) bodies.push(q);
     }
   }
   for (const p of bodies) {
@@ -242,7 +246,7 @@ export function scoreLanes(players, run, rb, los, proj, flow) {
   const near = los + LANE_AHEAD;
   const second = players
     .filter((d) => d.team === 'defense' && d.y > near && d.y <= near + SECOND_LEVEL_DEPTH && engagedOn(players, d.id).length === 0)
-    .map((d) => d.x + (flow?.[d.id] ?? 0) * t);
+    .map((d) => project(d, { x: flow?.[d.id] ?? 0, y: 0 }, t).x);
   return laneWindows(players, run.line, run.side).map((w) => {
     const f = freeLane(players, w, rb.id, los, proj);
     let room2 = Infinity;
@@ -326,7 +330,7 @@ function readProjection(players, run, rb, los, dt) {
       // A defender heading downhill is projected at his top speed along his heading (he is still accelerating); others at their velocity.
       const top = d.speed ?? 0;
       flow[d.id] = vx;
-      vel[d.id] = vy < 0 && sp > top * CLOSING_FRACTION && top > 0 ? { vx: 0, vy: (vy / sp) * top } : { vx: 0, vy };
+      vel[d.id] = vy < 0 && sp > top * CLOSING_FRACTION && top > 0 ? { vx: (vx / sp) * top, vy: (vy / sp) * top } : { vx, vy };
     }
     run.seen[d.id] = { x: d.x, y: d.y };
   }
@@ -362,7 +366,7 @@ function cutLine(x, y, th) {
 }
 
 // The committed aim past the los: vertical when nobody is seen, else the best held heading away from free defenders.
-function openFieldAim(players, run, rb, dt, los) {
+function openFieldAim(players, run, rb, dt, los, proj) {
   const fan = rb.y - los < NEAR_FIELD ? AVOID_FAN_NEAR : AVOID_FAN;
   const vertical = { x: run.x + run.cut, y: GOAL_LINE_Y };
   const sight = AVOID_SIGHT_MIN + visionOf(rb) * (AVOID_SIGHT_MAX - AVOID_SIGHT_MIN);
@@ -404,8 +408,12 @@ function openFieldAim(players, run, rb, dt, los) {
     // A heading is "at" a threat when it passes closer than AVOID_CONTACT, however short every safe run is.
     let miss = Infinity;
     for (const d of threats) {
-      const dx = d.x - rb.x, dy = d.y - rb.y;
-      if (dx * Math.sin(th) + dy * Math.cos(th) <= 0) continue;
+      const along = (d.x - rb.x) * Math.sin(th) + (d.y - rb.y) * Math.cos(th);
+      if (along <= 0) continue;
+      // Judge him where he will be when the RB gets to him (lateral flow included), not where he stands now.
+      const v = proj?.vel[d.id];
+      const q = project(d, v ? { x: v.vx, y: v.vy } : undefined, Math.min(FLOW_HORIZON, along / (rb.speed || 1)));
+      const dx = q.x - rb.x, dy = q.y - rb.y;
       miss = Math.min(miss, Math.abs(dx * Math.cos(th) - dy * Math.sin(th)));
     }
     return { off, S, miss, at: miss < AVOID_CONTACT, score: S * Math.cos(th) - AVOID_TURN_COST * Math.abs(th - thV) };
@@ -529,7 +537,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId, cues }, dt) {
     }
     // Behind the line, run to the hole in his lane; turn vertical once at the line.
     // The turn is latched (pastLos): contact pushing him back behind the line must not flip the aim back.
-    run.aim = !run.pastLos ? { x: run.x + run.cut, y: los + GAP_DEPTH } : openFieldAim(players, run, rb, dt, los);
+    run.aim = !run.pastLos ? { x: run.x + run.cut, y: los + GAP_DEPTH } : openFieldAim(players, run, rb, dt, los, proj);
     goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null, forward: true };
   }
   steerStep(rb, goal, players, rb.speed * dt, dt, BODY_RADIUS);
