@@ -540,6 +540,34 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
   assert.ok(checked > 0);
 });
 
+test('T-94: under43 te left RG/RT double: the uncovered guard climbs to L3 and the tackle stays', () => {
+  // the human: "Generally the player who is uncovered at play start will be the person taking the LB ... A tackle is almost never going to go to the second level"
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'under43', personnel: 'te', playside: 'left' });
+  play.snap();
+  const orig = play.retargetRule;
+  let first = null;
+  let combo = null;
+  play.retargetRule = (players, ballPos, ctx) => {
+    const out = orig(players, ballPos, ctx);
+    const c = ctx.combos.find((m) => m.owner === 'RG' && m.partner === 'RT');
+    if (c && !combo) combo = { ...c };
+    if (c && !first) {
+      const e = out.find((x) => x.blocker === 'RG' || x.blocker === 'RT');
+      if (e) first = { ...e, combo: { ...c } };
+    }
+    return out;
+  };
+  let rtLeft = null;
+  for (let i = 0; i * DT < 2.0; i++) {
+    play.step(DT);
+    if (combo && !rtLeft && play.player('RT').block?.target !== combo.target) rtLeft = i * DT;
+  }
+  assert.ok(first, 'the RG/RT double released');
+  assert.equal(first.blocker, 'RG', 'the uncovered guard is the one who leaves');
+  assert.equal(first.target, 'L3');
+  assert.equal(rtLeft, null, 'the tackle stays on the double target');
+});
+
 const HOLD_OK = (x, target) => x.block?.target === target && x.block.engaged && (x.block.held ?? 0) >= COMBO_TOUCH - 1e-9; // F-55: COMBO_HOLD is gone; the least a pair has held when a declared LB releases it is COMBO_TOUCH
 // T-152 gate: the stayer is engaged on the DL and one of the two had held him. The climber's own
 // hold vanishes once he retargets, so `best` is the larger hold seen on the previous tick.
