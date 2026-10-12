@@ -56,3 +56,4 @@
 - 2026-10-12 F-58 LB keys, flow fits, climbers and pursuit angles (R-9) aa8540f
 - 2026-10-12 F-57 RB read engine: bang, bend, bounce (R-10) 5a697b3
 - 2026-10-12 F-59 Combo climber: the blocker nearer the LB comes off (R-18) 2d8869d
+- 2026-10-12 F-60 Blocking rules review: one climber-drop rule, dead modes out, latch and momentum fixes (R-19) cf582da
