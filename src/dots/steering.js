@@ -18,8 +18,10 @@
 //    laneOff, which bars lanes until release A), flip once (up to MAX_FLIPS),
 //    then hold and lean on collision.
 //  - Accel: see ACCEL_TAU below; players with a numeric p.v ramp up from rest.
-//  - Lane: if the obstacle and its neighbour on the pass side are spaced >= 2 * H
-//    apart, aim at their midpoint and hold that lane while both are ahead,
+//  - Lane: if the obstacle and its neighbour on the pass side are spaced >= 2 * H apart
+//    (and sit across the goal direction: lateral separation >= LANE_ACROSS * 2 * H, so bodies
+//    stacked along the path form no lane),
+//    aim at their midpoint and hold that lane while both are ahead,
 //    except a blocker and his block target (they close by design), which are
 //    re-judged by the opening test every tick.
 //  - Goal fields: accel, pace, ignore, squeeze, and forward (boolean, opt-in):
@@ -31,6 +33,9 @@ export const RELEASE_MARGIN = 0.3;
 export const STUCK_TIME = 0.3;
 export const STUCK_PROGRESS = 0.25;
 export const MAX_FLIPS = 1;
+// A new lane needs an opening across the goal direction: the lateral (relative to the goal line)
+// separation of the two bodies must be at least LANE_ACROSS * 2 * H, so two bodies stacked along the path form none (tunable).
+export const LANE_ACROSS = 0.3;
 // Fraction of the body diameter two bodies may overlap while squeezing past
 // each other. Stands in for a player turning his shoulders.
 export const SQUEEZE = 0.25;
@@ -167,7 +172,10 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
         const qlat = ux * (q.y - p.y) - uy * (q.x - p.x);
         if (s.side * (qlat - hit.lat) <= 0) continue;
         const sp = Math.hypot(q.x - hit.o.x, q.y - hit.o.y);
-        if (sp < 2 * R && sp < nd) { n = q; nd = sp; }
+        if (sp >= 2 * R || sp >= nd) continue;
+        // The opening must lie across his goal direction, not along it.
+        if (Math.abs(qlat - hit.lat) < LANE_ACROSS * 2 * H) continue;
+        n = q; nd = sp;
       }
       if (n && nd >= 2 * H) {
         s.lane = [hit.o.id, n.id];
