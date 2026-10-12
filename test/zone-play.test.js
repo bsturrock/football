@@ -393,8 +393,28 @@ test('F-19 #4: an unengaged LB in read or a class state is never deeper than his
   }
 });
 
-// F-19 #5, restated: the LB's states run read, at most one class state (fit, scrape, split; drop or man on a pass read), pursue; the fit goal lies in his gap span.
-test('F-19 #5: LB states run read, one class state, pursue; the fit goal lies in his gap span', () => {
+// F-58 #5 (takeOn between the class state and pursue): m is the LB's states between read and pursue.
+// m may be empty; m[0] is a class state (fit, scrape, split), or drop or man alone (no takeOn on a pass read).
+// A takeOn comes right after a class state; the state after a takeOn is the return state: fit when the class state
+// before it was fit or split, scrape when it was scrape.
+const takeOnSequenceOk = (m) => {
+  if (m.length === 0) return true;
+  if (!CLASS.includes(m[0])) return ['drop', 'man'].includes(m[0]) && m.length === 1;
+  for (let i = 1; i < m.length; i++) {
+    if (m[i] === 'takeOn') {
+      if (!CLASS.includes(m[i - 1])) return false;
+    } else if (m[i - 1] === 'takeOn') {
+      const before = m[i - 2];
+      if (m[i] !== (before === 'scrape' ? 'scrape' : 'fit')) return false;
+    } else {
+      return false;
+    }
+  }
+  return true;
+};
+
+// F-19 #5, restated for F-58 #5 (takeOn between the class state and pursue): the LB's states run read, one class state (with takeOn returns), pursue; the fit goal lies in his gap span.
+test('F-19 #5: LB states run read, one class state (with takeOn returns), pursue; the fit goal lies in his gap span', () => {
   for (const { name, opts } of lbCases()) {
     // tackles off: this test watches AI behavior past the point a tackle would end the play.
     const play = createPlay(25, 'insideZone', { ...opts, tackles: false });
@@ -419,7 +439,7 @@ test('F-19 #5: LB states run read, one class state, pursue; the fit goal lies in
     for (const [id, q] of Object.entries(seq)) {
       assert.equal(q[0], 'read', `${name} ${id}`);
       assert.equal(q[q.length - 1], 'pursue', `${name} ${id} ${q}`);
-      assert.ok(q.length === 2 || (q.length === 3 && [...CLASS, 'drop', 'man'].includes(q[1])), `${name} ${id} ${q}`);
+      assert.ok(takeOnSequenceOk(q.slice(1, -1)), `${name} ${id} ${q}`);
     }
     assert.ok(play.run.carried, `${name} handoff`);
   }
