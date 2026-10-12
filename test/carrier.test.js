@@ -5,7 +5,7 @@ import {
   LANES, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, LOCK_DEPTH, GOAL_LINE_Y,
   GAP_DEPTH, LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
   PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, BEND_MAX,
-  AVOID_SIGHT_MIN, AVOID_SIGHT_MAX, AVOID_FAN, AVOID_CONTACT, AVOID_CLOSE, AVOID_SIDELINE, AVOID_HOLD, AVOID_SWITCH, AVOID_AIM_DIST, visionOf,
+  AVOID_SIGHT_MIN, AVOID_SIGHT_MAX, AVOID_FAN, NEAR_FIELD, AVOID_FAN_NEAR, AVOID_CONTACT, AVOID_CLOSE, AVOID_SIDELINE, AVOID_HOLD, AVOID_SWITCH, AVOID_AIM_DIST, visionOf,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS, engagedOn } from '../src/dots/blocking.js';
 import { hardCore, PACES } from '../src/dots/steering.js';
@@ -965,4 +965,78 @@ test('F-48 #12 (b): a held cut is not changed or restarted while a man is inside
     assert.ok(run.aim.y > rb.y);
     assert.ok(Math.abs(bearing(line, run.aim) - line.th) < 1e-6 || Math.abs(run.aim.x - (line.x + (run.aim.y - line.y) * Math.tan(line.th))) < 1e-6);
   }
+});
+
+test('F-57 #7: near the line he stays within AVOID_FAN_NEAR', () => {
+  let farWide = 0;
+  for (const sgn of [1, -1]) {
+    for (const depth of [0.5, NEAR_FIELD + 0.5]) {
+      const { pl, run, rb, ds } = past(1);
+      rb.y = LOS + depth;
+      place(ds[0], rb.x + sgn * 0.4, rb.y + 3);
+      const at = { x: rb.x, y: rb.y };
+      go(pl, run);
+      const ang = Math.abs(bearing(at, run.aim));
+      if (depth < NEAR_FIELD) assert.ok(ang <= AVOID_FAN_NEAR + 1e-9, `near heading ${ang}`);
+      else {
+        assert.ok(ang <= AVOID_FAN + 1e-9, `far heading ${ang}`);
+        if (ang > AVOID_FAN_NEAR + 1e-6) farWide++;
+      }
+    }
+  }
+  console.log('F-57 #7 far cases wider than near fan: ' + farWide);
+});
+
+test('F-57 #7: play level near-line heading', () => {
+  const DT = 1 / 60;
+  let total = 0;
+  for (const front of Object.keys(FRONTS)) {
+    for (const personnel of ['noTe', 'te']) {
+      for (const dir of ['left', 'right']) {
+        const tag = `front ${front}, personnel ${personnel}, ${dir}`;
+        const play = createPlay(25, 'insideZone', { front, personnel });
+        play.setPlayside(dir);
+        play.snap();
+        const run = play.run;
+        const rb = play.player(run.carrier);
+        let checked = 0;
+        for (let i = 0; i < 300 && !play.result; i++) {
+          const at = { x: rb.x, y: rb.y };
+          play.step(DT);
+          if (!run.pastLos || at.y - LOS >= NEAR_FIELD || run.aim.y <= at.y) continue;
+          assert.ok(Math.abs(bearing(at, run.aim)) <= AVOID_FAN_NEAR + 1e-9, `${tag}: tick ${i} heading ${bearing(at, run.aim)}`);
+          checked++;
+        }
+        total += checked;
+      }
+    }
+  }
+});
+
+test('F-57 #8: trace names the call', () => {
+  const play = createPlay(25, 'insideZone', { front: 'base', trace: true });
+  play.snap();
+  let after = -1;
+  for (let i = 0; i < 600 && !play.result; i++) {
+    play.step(1 / 60);
+    if (play.run.locked && after < 0) after = 0;
+    else if (after >= 0 && ++after >= 10) break;
+  }
+  assert.ok(play.run.locked);
+  const entries = play.traceOf(play.run.carrier);
+  let pre = 0, post = 0;
+  for (const e of entries) {
+    const d = e.decision;
+    if (d.kind !== 'carry') continue;
+    if (!d.locked) {
+      assert.equal(e.reason, 'pressing');
+      assert.equal(d.call, null);
+      pre++;
+    } else {
+      assert.equal(d.call, play.run.call);
+      assert.ok(e.reason.startsWith(play.run.call + ': '), e.reason);
+      post++;
+    }
+  }
+  assert.ok(pre > 0 && post > 0);
 });

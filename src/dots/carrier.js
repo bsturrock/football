@@ -52,6 +52,8 @@ export const FLOW_HORIZON = 0.6; // s: longest look-ahead when projecting a seco
 export const AVOID_SIGHT_MIN = 3; // yd: sight range at vision 0
 export const AVOID_SIGHT_MAX = 9; // yd: sight range at vision 1
 export const AVOID_FAN = Math.PI / 3; // rad: widest heading off vertical, so he never runs backward or flat
+export const NEAR_FIELD = 4; // yd past the los where the narrower fan applies
+export const AVOID_FAN_NEAR = Math.PI / 9; // rad: widest heading off vertical within NEAR_FIELD of the los (one cut, then vertical)
 export const AVOID_STEP = Math.PI / 36; // rad: candidate heading spacing (5 deg)
 export const AVOID_CONTACT = 2 * BODY_RADIUS + 0.3; // yd: distance at which a defender has him
 export const AVOID_SIDELINE = 1; // yd: the ray stops this far inside the sideline
@@ -360,7 +362,8 @@ function cutLine(x, y, th) {
 }
 
 // The committed aim past the los: vertical when nobody is seen, else the best held heading away from free defenders.
-function openFieldAim(players, run, rb, dt) {
+function openFieldAim(players, run, rb, dt, los) {
+  const fan = rb.y - los < NEAR_FIELD ? AVOID_FAN_NEAR : AVOID_FAN;
   const vertical = { x: run.x + run.cut, y: GOAL_LINE_Y };
   const sight = AVOID_SIGHT_MIN + visionOf(rb) * (AVOID_SIGHT_MAX - AVOID_SIGHT_MIN);
   const threats = players.filter(
@@ -376,6 +379,12 @@ function openFieldAim(players, run, rb, dt) {
   // Inside arm's reach he cannot cut cleanly: no new heading, keep the current aim (held cut line, else vertical).
   const heldAim = () => {
     if (run.avoid === null || run.avoid === 0 || !run.avoidLine) return vertical;
+    const far = run.avoidLine.far;
+    // Pushed off the line he cut, the fixed far point can sit wider than the fan allows from where he now stands:
+    // move the landmark (kept, so it stays fixed again) to the fan edge at the same depth.
+    if (Math.abs(Math.atan2(far.x - rb.x, far.y - rb.y)) <= fan + 1e-9) return far;
+    const edge = Math.sign(far.x - rb.x) * fan;
+    run.avoidLine.far = { x: rb.x + (far.y - rb.y) * Math.tan(edge), y: far.y };
     return run.avoidLine.far;
   };
   if (threats.some((d) => Math.hypot(d.x - rb.x, d.y - rb.y) < AVOID_CLOSE)) return heldAim();
@@ -387,7 +396,7 @@ function openFieldAim(players, run, rb, dt) {
   // Headings are stored as an offset from the no-threat heading thV (offset 0 is the vertical aim itself), so a heading
   // that ignores the threat is the exact vertical aim and a held heading does not drift as he moves.
   const thV = Math.atan2(vertical.x - rb.x, vertical.y - rb.y);
-  const absOf = (off) => clamp(thV + off, -AVOID_FAN, AVOID_FAN);
+  const absOf = (off) => clamp(thV + off, -fan, fan);
   const score = (off) => {
     const th = absOf(off);
     const S = safeRun(rb, th, threats, sight);
@@ -407,7 +416,7 @@ function openFieldAim(players, run, rb, dt) {
   let widest = null; // fallback when every heading is at one: the largest miss
   for (let k = -n; k <= n; k++) {
     const off = k * AVOID_STEP;
-    if (k !== 0 && Math.abs(thV + off) > AVOID_FAN) continue;
+    if (k !== 0 && Math.abs(thV + off) > fan + 1e-9) continue;
     const ax = rb.x + AVOID_AIM_DIST * Math.sin(absOf(off));
     if (Math.abs(ax) > HW - AVOID_SIDELINE && Math.abs(ax) > Math.abs(rb.x)) continue; // never aim toward the sideline
     const c = score(off);
@@ -520,7 +529,7 @@ export function stepCarrier(players, run, { los, ballHeld, holdId, cues }, dt) {
     }
     // Behind the line, run to the hole in his lane; turn vertical once at the line.
     // The turn is latched (pastLos): contact pushing him back behind the line must not flip the aim back.
-    run.aim = !run.pastLos ? { x: run.x + run.cut, y: los + GAP_DEPTH } : openFieldAim(players, run, rb, dt);
+    run.aim = !run.pastLos ? { x: run.x + run.cut, y: los + GAP_DEPTH } : openFieldAim(players, run, rb, dt, los);
     goal = { ...run.aim, key, pace: PHASE_PACE.commit, ignore: null, forward: true };
   }
   steerStep(rb, goal, players, rb.speed * dt, dt, BODY_RADIUS);

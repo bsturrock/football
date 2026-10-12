@@ -16,18 +16,18 @@ export function decisionOf(p, { defense = null, run = null } = {}) {
   const agent = defense?.agents?.[p.id];
   if (agent) return { kind: 'defend', behavior: agent.behavior, state: agent.state };
   if (run && run.carrier === p.id) {
-    return { kind: 'carry', lane: run.lane ? run.lane.side + ' ' + run.lane.name : null, locked: !!run.locked, carried: !!run.carried };
+    return { kind: 'carry', lane: run.lane ? run.lane.side + ' ' + run.lane.name : null, locked: !!run.locked, carried: !!run.carried, call: run.call ?? null };
   }
   return { kind: 'none' };
 }
 
-function reasonOf(decision, p, { t, defense, memory }) {
+function reasonOf(decision, p, { t, defense, memory, run }) {
   if (decision.kind === 'block') {
     if (memory.switched) return memory.switched;
     return 'rule: ' + (decision.tech ?? 'nearest');
   }
   if (decision.kind === 'defend') return 'trigger: ' + defense.agents[p.id].why;
-  if (decision.kind === 'carry') return decision.locked ? 'lane committed' : 'reading lanes';
+  if (decision.kind === 'carry') return decision.locked ? `${run.call}: ${run.why}` : 'pressing';
   return '';
 }
 
@@ -42,7 +42,7 @@ export function recordTick(trace, perception, players, { t, defense = null, run 
       }
       memory.target = decision.target;
     }
-    out[p.id] = { read: cuesFor(perception, p.id), decision, reason: reasonOf(decision, p, { t, defense, memory }) };
+    out[p.id] = { read: cuesFor(perception, p.id), decision, reason: reasonOf(decision, p, { t, defense, memory, run }) };
   }
   trace.ticks.push({ t, players: out });
   if (trace.ticks.length > TRACE_MAX_TICKS) trace.ticks.splice(0, trace.ticks.length - TRACE_MAX_TICKS);
