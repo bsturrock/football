@@ -300,3 +300,57 @@ test('F-55 #5 hinge: the cutoff row steps then hinges, wall spot playside of and
   const re = retargetFoot(startFoot('cutoff', 'backside', null, { x: 0, y: 0 }, spot), { x: 1, y: 1 }, spot);
   assert.equal(re.phase, 'hinge');
 });
+
+// ---- T-61: the aim never gives ground ----
+test('T-61 (a): a non-intercept aim behind the blocker is clamped to his depth', () => {
+  const blocker = { x: 0, y: 25 };
+  const spot = { x: -1, y: 24.4 };
+  const radius = 0.35;
+  for (const side of [-1, 1]) {
+    const foot = { tech: 'zone', shade: 'playside', watch: null, phase: 'aim', ox: 0, oy: 0, ride: 0, tx: 0, push: null };
+    const g = footGoal(foot, blocker, spot, side, radius).goal;
+    assert.equal(g.y, 25);
+    near(g.x, aimPoint(spot, 'zone', side, radius).x, 'x kept');
+  }
+});
+
+test('T-61 (b): a non-intercept aim ahead of the blocker is unchanged', () => {
+  const blocker = { x: 0, y: 25 };
+  const spot = { x: -1, y: 25.6 };
+  const radius = 0.35;
+  for (const side of [-1, 1]) {
+    const foot = { tech: 'zone', shade: 'playside', watch: null, phase: 'aim', ox: 0, oy: 0, ride: 0, tx: 0, push: null };
+    const g = footGoal(foot, blocker, spot, side, radius).goal;
+    nearPt(g, aimPoint(spot, 'zone', side, radius).x, aimPoint(spot, 'zone', side, radius).y);
+  }
+});
+
+test('T-61 (c): the hinge goal is not clamped, it keeps its HINGE_GIVE back-step behind the blocker', () => {
+  const blocker = { x: 0, y: 25 };
+  const spot = { x: -1, y: 24.4 };
+  const radius = 0.35;
+  for (const side of [-1, 1]) {
+    const foot = { tech: 'cutoff', shade: 'backside', watch: null, phase: 'hinge', ox: 0, oy: 0, ride: 0, tx: 0, push: null };
+    const g = footGoal(foot, blocker, spot, side, radius).goal;
+    const p = aimPoint(spot, 'cutoff', side, radius);
+    nearPt(g, p.x, p.y - HINGE_GIVE);
+    assert.ok(g.y < blocker.y, 'hinge spot stays behind the blocker');
+  }
+});
+
+test('T-61 (d): the climb intercept branch is not clamped, an intercept behind the blocker stands', () => {
+  // blocker (0, 25) speed 5; spot (3, 24); target runs toward the offense at 2 yd/s.
+  // |(3, -1 - 2t)| = 5t -> 21 t^2 - 4 t - 10 = 0; the positive root is t = (4 + sqrt(856)) / 42.
+  const blocker = { x: 0, y: 25, speed: 5 };
+  const spot = { x: 3, y: 24 };
+  const vel = { x: 0, y: -2 };
+  const radius = 0.35;
+  const t = (4 + Math.sqrt(16 + 4 * 21 * 10)) / (2 * 21);
+  const I = { x: spot.x, y: spot.y + vel.y * t };
+  assert.ok(Math.abs(Math.hypot(I.x - blocker.x, I.y - blocker.y) - 5 * t) < 1e-6, 'I solves the intercept');
+  assert.ok(I.y < blocker.y, 'the intercept lies behind the blocker');
+  const foot = { tech: 'climb', shade: 'playside', watch: null, phase: 'aim', ox: 0, oy: 0, ride: 0, tx: 0, push: null };
+  const g = footGoal(foot, blocker, spot, 1, radius, { target: { vel } }).goal;
+  nearPt(g, aimPoint(I, 'climb', 1, radius).x, aimPoint(I, 'climb', 1, radius).y);
+  assert.ok(g.y < blocker.y, 'climb aim is not lifted to the blocker depth');
+});

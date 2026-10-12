@@ -5,7 +5,7 @@ import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, stepDir, stepLenOf, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
-import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
+import { gapSpan, GOALS, FILL_DEPTH, READ_STEP_DOWN, keyRead } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { readFront, HEAD_UP, LINE_DEPTH } from '../src/dots/front.js';
@@ -300,7 +300,6 @@ test('F-17 #9: watch ids', () => {
   assert.equal(play.player('LG').block.foot.watch, 'WLB');
 });
 
-const ORDER = ['drop', 'flow', 'fill', 'pursue'];
 const lbs = (play) => play.players.filter((p) => p.role === 'LB');
 
 test('F-19 #6: defense is null until an insideZone snap; LBs and linemen have agents', () => {
@@ -362,89 +361,145 @@ test('F-33 #5: unblocked DL stay in their widened gap until pursue and keep off 
   assert.ok(cases > 0, 'no front/personnel leaves a DL unblocked');
 });
 
-test('F-19 #4: a dropping LB never moves toward the LOS, and stays upfield of the snap line until pursue', () => {
-  for (const k of Object.keys(FRONTS)) {
-    const play = createPlay(25, 'insideZone', { front: k });
+// F-58: every front and the formations '11' and '12', both directions.
+const lbCases = () => {
+  const out = [];
+  for (const playside of ['left', 'right']) {
+    for (const k of Object.keys(FRONTS)) out.push({ name: `${k} ${playside}`, opts: { front: k, playside } });
+    for (const formation of ['11', '12']) out.push({ name: `formation ${formation} ${playside}`, opts: { formation, playside } });
+  }
+  return out;
+};
+const zoneLbs = (play) => lbs(play).filter((lb) => play.defense.agents[lb.id].behavior === 'zone');
+const CLASS = ['fit', 'scrape', 'split'];
+
+// F-19 #4, restated for the LB read: an unengaged LB in read, fit, scrape or split is never deeper than his alignment y0
+// (the read step, the fit and the scrape never backpedal), and stays upfield of the line until pursue.
+test('F-19 #4: an unengaged LB in read or a class state is never deeper than his alignment, and stays off the line until pursue', () => {
+  for (const { name, opts } of lbCases()) {
+    const play = createPlay(25, 'insideZone', { ...opts, tackles: false });
     play.snap();
-    const prevY = {};
     for (let i = 0; i < 180; i++) {
       play.step(DT);
-      for (const lb of lbs(play)) {
+      for (const lb of zoneLbs(play)) {
         const e = play.defense.agents[lb.id];
-        if (e.state === 'drop' && play.blockersOf(lb.id).length === 0 && lb.id in prevY) {
-          assert.ok(lb.y >= prevY[lb.id] - 1e-9, `${k} ${lb.id} drop y ${lb.y} < ${prevY[lb.id]}`);
+        if (e.state === 'pursue') continue;
+        if (['read', ...CLASS].includes(e.state) && play.blockersOf(lb.id).length === 0) {
+          assert.ok(lb.y <= e.y0 + 0.1, `${name} ${lb.id} ${e.state} y ${lb.y} deeper than y0 ${e.y0} at ${i}`);
         }
-        prevY[lb.id] = e.state === 'drop' && play.blockersOf(lb.id).length === 0 ? lb.y : undefined;
-        if (prevY[lb.id] === undefined) delete prevY[lb.id];
-        if (e.state !== 'pursue') assert.ok(lb.y > 25, `${k} ${lb.id} y ${lb.y}`);
+        assert.ok(lb.y > 25, `${name} ${lb.id} y ${lb.y}`);
       }
     }
   }
 });
 
-test('F-19 #5: LB states run drop, flow, fill, pursue in order; fill goal lies in his lane', () => {
-  for (const k of Object.keys(FRONTS)) {
+// F-58 #5 (takeOn between the class state and pursue): m is the LB's states between read and pursue.
+// m may be empty; m[0] is a class state (fit, scrape, split), or drop or man alone (no takeOn on a pass read).
+// A takeOn comes right after a class state; the state after a takeOn is the return state: fit when the class state
+// before it was fit or split, scrape when it was scrape.
+const takeOnSequenceOk = (m) => {
+  if (m.length === 0) return true;
+  if (!CLASS.includes(m[0])) return ['drop', 'man'].includes(m[0]) && m.length === 1;
+  for (let i = 1; i < m.length; i++) {
+    if (m[i] === 'takeOn') {
+      if (!CLASS.includes(m[i - 1])) return false;
+    } else if (m[i - 1] === 'takeOn') {
+      const before = m[i - 2];
+      if (m[i] !== (before === 'scrape' ? 'scrape' : 'fit')) return false;
+    } else {
+      return false;
+    }
+  }
+  return true;
+};
+
+// F-19 #5, restated for F-58 #5 (takeOn between the class state and pursue): the LB's states run read, one class state (with takeOn returns), pursue; the fit goal lies in his gap span.
+test('F-19 #5: LB states run read, one class state (with takeOn returns), pursue; the fit goal lies in his gap span', () => {
+  for (const { name, opts } of lbCases()) {
     // tackles off: this test watches AI behavior past the point a tackle would end the play.
-    const play = createPlay(25, 'insideZone', { front: k, tackles: false });
+    const play = createPlay(25, 'insideZone', { ...opts, tackles: false });
     play.snap();
     // the edge LB (odd34) plays contain, with its own states (covered in defense.test.js)
-    const zoneLbs = lbs(play).filter((lb) => play.defense.agents[lb.id].behavior === 'zone');
-    const seq = Object.fromEntries(zoneLbs.map((lb) => [lb.id, []]));
+    const zl = zoneLbs(play);
+    const seq = Object.fromEntries(zl.map((lb) => [lb.id, []]));
     for (let i = 0; i < 180; i++) {
       play.step(DT);
-      for (const lb of zoneLbs) {
+      for (const lb of zl) {
         const e = play.defense.agents[lb.id];
         const q = seq[lb.id];
         if (q[q.length - 1] !== e.state) q.push(e.state);
-        if (e.state === 'fill') {
-          const g = GOALS.fill(lb, e, { players: play.players, defense: play.defense, los: 25, run: play.run, ballPos: play.ballPosition() });
+        if (e.state === 'fit') {
+          const g = GOALS.fitGap(lb, e, { players: play.players, defense: play.defense, los: 25, cues: (id) => play.cuesOf(id), run: play.run, ballPos: play.ballPosition() });
           const span = gapSpan(play.players, play.defense, e.fit);
           assert.ok(g.x >= span.lo + BODY_RADIUS - 1e-9 && g.x <= span.hi - BODY_RADIUS + 1e-9
-            || Math.abs(g.x - (span.lo + span.hi) / 2) < 1e-9, `${k} ${lb.id} fill x`);
+            || Math.abs(g.x - (span.lo + span.hi) / 2) < 1e-9, `${name} ${lb.id} fit x`);
         }
       }
     }
     for (const [id, q] of Object.entries(seq)) {
-      assert.equal(q[0], 'drop', `${k} ${id}`);
-      assert.equal(q[q.length - 1], 'pursue', `${k} ${id} ${q}`);
-      const idx = q.map((s) => ORDER.indexOf(s));
-      for (let i = 1; i < idx.length; i++) assert.ok(idx[i] > idx[i - 1], `${k} ${id} ${q}`);
+      assert.equal(q[0], 'read', `${name} ${id}`);
+      assert.equal(q[q.length - 1], 'pursue', `${name} ${id} ${q}`);
+      assert.ok(takeOnSequenceOk(q.slice(1, -1)), `${name} ${id} ${q}`);
     }
-    assert.ok(play.run.carried, `${k} handoff`);
+    assert.ok(play.run.carried, `${name} handoff`);
   }
 });
 
-test('F-34 #4: every front, each LB commits to his own lane: committed x differ by 2 body radii', () => {
-  for (const k of Object.keys(FRONTS)) {
-    const play = createPlay(25, 'insideZone', { front: k });
-    play.snap();
-    const ids = lbs(play).map((lb) => lb.id);
-    for (let i = 0; i < 120 && play.ball.phase !== 'dead' && !ids.every((id) => play.defense.committed[id]); i++) play.step(DT);
-    for (const id of ids) assert.ok(play.defense.committed[id], `${k} ${id} committed`);
-    for (let a = 0; a < ids.length; a++) {
-      for (let b = a + 1; b < ids.length; b++) {
-        const dx = Math.abs(play.defense.committed[ids[a]].x - play.defense.committed[ids[b]].x);
-        assert.ok(dx >= 2 * BODY_RADIUS - 1e-9, `${k} ${ids[a]}/${ids[b]} lanes ${dx}`);
-      }
-    }
-  }
-});
-
-test('F-34 #5: every front, an unengaged LB in drop, flow or fill stays out of the line', () => {
-  for (const k of Object.keys(FRONTS)) {
-    const play = createPlay(25, 'insideZone', { front: k, tackles: false });
+// F-34 #4, restated: each LB fits his own gap: two LBs in fit never share a gap.
+test('F-34 #4: two LBs in fit never share a gap', () => {
+  for (const { name, opts } of lbCases()) {
+    const play = createPlay(25, 'insideZone', { ...opts, tackles: false });
     play.snap();
     for (let i = 0; i < 180; i++) {
       play.step(DT);
-      for (const lb of lbs(play)) {
+      const gaps = zoneLbs(play).filter((lb) => play.defense.agents[lb.id].state === 'fit').map((lb) => { const f = play.defense.agents[lb.id].fit; return `${f.side} ${f.name}`; });
+      assert.equal(new Set(gaps).size, gaps.length, `${name} ${gaps} at ${i}`);
+    }
+  }
+});
+
+// F-34 #5, restated: an unengaged LB in read or a class state stays out of the line.
+test('F-34 #5: every front, an unengaged LB in read or a class state stays out of the line', () => {
+  for (const { name, opts } of lbCases()) {
+    const play = createPlay(25, 'insideZone', { ...opts, tackles: false });
+    play.snap();
+    for (let i = 0; i < 180; i++) {
+      play.step(DT);
+      for (const lb of zoneLbs(play)) {
         const e = play.defense.agents[lb.id];
-        if (!['drop', 'flow', 'fill'].includes(e.state) || play.blockersOf(lb.id).length > 0) continue;
+        if (!['read', ...CLASS].includes(e.state) || play.blockersOf(lb.id).length > 0) continue;
         // A stand-up edge LB can line up shallower than the bound (odd34 PO at 1 yd): he must not go shallower than he started.
-        const bound = Math.min(FILL_DEPTH - BODY_RADIUS, e.y0 - 25 - 0.05);
-        assert.ok(lb.y - 25 >= bound, `${k} ${lb.id} ${e.state} depth ${lb.y - 25} at ${i}`);
+        const bound = Math.min(FILL_DEPTH - BODY_RADIUS, e.y0 - 25 - READ_STEP_DOWN - 0.05); // the read step is a quarter yard uphill
+        assert.ok(lb.y - 25 >= bound, `${name} ${lb.id} ${e.state} depth ${lb.y - 25} at ${i}`);
       }
     }
   }
+});
+
+// F-58 #3: a scraping LB stays over the top: along his flow he is never more than a body ahead of the ball.
+// Inside zone gives no fast flow or pulling guard, so the scrape state is forced at tick 15 (before any LB pursues);
+// the bound is judged once he has arrived at his scrape spot (within a body of the goal), while he stays unengaged in scrape.
+test('F-58 #3: a scraping LB stays over the top', () => {
+  let checked = 0;
+  for (const { name, opts } of lbCases()) {
+    const play = createPlay(25, 'insideZone', { ...opts, tackles: false });
+    play.snap();
+    for (let i = 0; i < 180; i++) {
+      if (i === 15) for (const lb of zoneLbs(play)) if (play.defense.agents[lb.id].state === 'read') play.defense.agents[lb.id].state = 'scrape';
+      play.step(DT);
+      for (const lb of zoneLbs(play)) {
+        const e = play.defense.agents[lb.id];
+        if (e.state !== 'scrape' || play.blockersOf(lb.id).length > 0) continue;
+        const c = play.cuesOf(lb.id);
+        const s = keyRead(e.assign?.key, c) === 'pull' ? Math.sign(c.key.dir) : Math.sign(c.flow.dir);
+        const g = GOALS.scrapeGoal(lb, e, { players: play.players, defense: play.defense, los: 25, cues: (id) => play.cuesOf(id), run: play.run, ballPos: play.ballPosition() });
+        if (!s || Math.hypot(lb.x - g.x, lb.y - g.y) > BODY_RADIUS) continue;
+        checked++;
+        assert.ok(s * (lb.x - c.ball.x) <= BODY_RADIUS + 1e-9, `${name} ${lb.id} x ${lb.x} ball ${c.ball.x} s ${s} at ${i}`);
+      }
+    }
+  }
+  assert.ok(checked > 0, 'no LB scraped');
 });
 
 test('F-19 #8: the climber comes off when the watched LB has committed', () => {

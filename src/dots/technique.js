@@ -128,10 +128,18 @@ export const PHASES = Object.freeze({
       return false;
     },
   }),
+  // Aim: the contact spot shifted aim radii playside. The aim never sits behind the blocker's own depth
+  // (T-61: he does not give ground to close on his man). A non-intercept aim below the blocker's y is
+  // clamped to his y, so a blocker re-closing on a man who shed him (or picking up a slanter behind the
+  // line) pursues at his own depth. The intercept branch (climb row) is not clamped.
   aim: Object.freeze({
     goal(foot, spot, side, radius, env) {
       const row = TECHNIQUES[foot.tech];
-      if (!row.intercept) return aimPoint(spot, foot.tech, side, radius);
+      if (!row.intercept) {
+        const a = aimPoint(spot, foot.tech, side, radius);
+        const blocker = env?.blocker;
+        return blocker && a.y < blocker.y ? { x: a.x, y: blocker.y } : a;
+      }
       const blocker = env?.blocker;
       const target = env?.target;
       const v = target ? (target.selfVel ?? target.vel) : null;

@@ -6,7 +6,10 @@
 // is Math.atan2(B.x - A.x, B.y - A.y). Field: x lateral, y = yard line, offense attacks +y.
 import { engagedOn } from './blocking.js';
 
-export const FACE_RATE = 8; // rad/s max turn
+// rad/s max turn. The defender must re-face a split double team within one tick:
+// FACE_RATE * FIXED_DT >= split jump - FACE_TOL. A combo partner leaving moves the
+// mean-facing goal by up to ~0.52 rad in one tick, so the rate covers it with margin.
+export const FACE_RATE = 14;
 export const FACE_MIN_SPEED = 0.5; // yd/s; slower than this is not "travel"
 export const FACE_SETTLE = 0.4; // s a block must be held before facing is bounded (test bound)
 export const FACE_TOL = 0.35; // rad (test bound)

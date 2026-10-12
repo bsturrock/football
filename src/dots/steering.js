@@ -16,14 +16,28 @@
 //    the goal direction for STUCK_TIME seconds, judged as the lesser of the last
 //    step's advance and half the last two steps' advance: drop any lane (and set
 //    laneOff, which bars lanes until release A), flip once (up to MAX_FLIPS),
-//    then hold and lean on collision.
+//    then hold and lean on collision. Going round the body in his way is progress
+//    too (T-59): while his own displacement relative to the body he detoured round
+//    last (same lesser-of-one-and-two-steps rule) reaches STUCK_PROGRESS of maxStep,
+//    he is not stuck, so a goal swinging behind that body (an LB coming downhill)
+//    does not flip him back out the way he came; a body sliding along with him still
+//    leaves him stuck. A planted-cut mover (goal.accel) keeps the goal-line rule alone.
 //  - Accel: see ACCEL_TAU below; players with a numeric p.v ramp up from rest.
 //  - Lane: if the obstacle and its neighbour on the pass side are spaced >= 2 * H apart
 //    (and sit across the goal direction: lateral separation >= LANE_ACROSS * 2 * H, so bodies
 //    stacked along the path form no lane),
 //    aim at their midpoint and hold that lane while both are ahead,
 //    except a blocker and his block target (they close by design), which are
-//    re-judged by the opening test every tick.
+//    re-judged by the opening test every tick. Lane exit (T-59): when the lane drops
+//    (a body no longer ahead: he is level with the gap and his goal swung toward one
+//    side), the held side was judged against the lane's first body; if, held against
+//    the body now in his way, its detour points back against the goal (round the far
+//    side of a body he is level with), he flips it (counted, up to MAX_FLIPS) and goes
+//    on through the gap. A forward goal keeps its side (its backward part is dropped anyway).
+//    A planted-cut mover (goal.accel) keeps his side too, as he keeps the goal-line stuck rule:
+//    his turn is bounded by his own accel cap and the contact rules (inelastic, no rebound), and
+//    measured on the T-56 build an exit flip on a pursuing LB changed the bodies a free DL met
+//    and pushed that DL's contact rebound over its bound.
 //  - Goal fields: accel, pace, ignore, squeeze, and forward (boolean, opt-in):
 //    the plain-hit detour never points against the goal; its backward part is
 //    dropped, leaving a sideways slide (side, flips and release rules unchanged).
@@ -75,7 +89,13 @@ export const CUT_ACCEL = 20;
 // around a touching body switches on and off as that body's lateral offset crosses the corridor edge
 // (|lat| < 2 * radius), and each switch swings the step from straight ahead to the tangent past it.
 // The limit spreads that swing over a few ticks. A step with no body in play is the caller's own
-// choice and is untouched (a goal.accel cap, or none).
+// choice and is untouched (a goal.accel cap, or none), with one carry (T-59): when bodies steered (or
+// this limit shaped) his last step and his measured velocity (p.selfVel ?? p.vel) is that step (within
+// MAX_AVOID_DV), the limit also holds on this step, whatever his speed and whether or not a body is still
+// in play, and it survives a key change. Measured on main: the limit braked a climber to under 1 yd/s,
+// then the low-speed exemption let the next steered step snap 3 yd/s; and a release (the lane and side
+// drop) swung a mover 4 yd/s in one tick. The carry runs until he steps freely at his own choice again;
+// a mover at rest, without a measured velocity, or moved by others between calls starts freely as before.
 export const MAX_AVOID_DV = 1.0;
 
 export function steerStep(p, goal, players, maxStep, dt, radius) {
@@ -92,6 +112,8 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     const top = (typeof p.speed === 'number' ? p.speed : maxStep / dt) * pace.frac;
     maxStep = Math.min(maxStep, top * dt);
   }
+  // The MAX_AVOID_DV carry belongs to his motion, not to the goal: it survives a key change (release B).
+  const carried = p.steer && p.steer.steered ? { x: p.steer.vx, y: p.steer.vy } : null;
   if (p.steer && p.steer.key !== goal.key) p.steer = null;
 
   const gx = goal.x - p.x, gy = goal.y - p.y;
@@ -150,7 +172,24 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
     const a = byId(p.steer.lane[0]), b = byId(p.steer.lane[1]);
     const blockPair = a && b && (a.block?.target === b.id || b.block?.target === a.id);
     if (a && b && !blockPair && ahead(a) && ahead(b)) { laneMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; laneBodies = [a, b]; }
-    else p.steer.lane = null;
+    else {
+      p.steer.lane = null;
+      // Lane exit: the pass side was judged against the lane's first body. If, held against the body now
+      // in his way, its detour would point back against his goal (round the far side of a body he is
+      // level with, out through the gap he came in by), he flips it (counted, up to MAX_FLIPS): the other
+      // tangent always points forward. A forward goal already drops that backward part, so it keeps its side;
+      // a planted-cut mover (goal.accel) keeps his side as well (his cap and the contact rules shape his turn).
+      const h2 = firstObstacle(2 * radius);
+      const s = p.steer;
+      if (accel === null && !goal.forward && h2 && s.side !== 0 && s.flips < MAX_FLIPS) {
+        const rx = h2.o.x - p.x, ry = h2.o.y - p.y, d = Math.hypot(rx, ry);
+        const a = (d > R ? Math.asin(R / d) : Math.PI / 2) * s.side;
+        if (((rx * Math.cos(a) - ry * Math.sin(a)) * ux + (rx * Math.sin(a) + ry * Math.cos(a)) * uy) / d < 0) {
+          s.side = -s.side; s.flips++; s.stuck = 0;
+          hit = h2;
+        }
+      }
+    }
   }
 
   let dx = ux, dy = uy;
@@ -293,26 +332,49 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       plant = v0.x * ux + v0.y * uy < 0;
     }
   }
-  if (accel === null && dt > 0 && (laneMid || threading || hit || (p.steer && p.steer.side !== 0) || mv.x !== dx * Math.min(maxStep, D) || mv.y !== dy * Math.min(maxStep, D))) {
-    const v0 = p.selfVel ?? p.vel ?? { x: 0, y: 0 };
+  const steered = laneMid || threading || hit || (p.steer && p.steer.side !== 0) || mv.x !== dx * Math.min(maxStep, D) || mv.y !== dy * Math.min(maxStep, D);
+  // Carry: bodies steered (or the cap shaped) his last step and his measured velocity is that step.
+  const vm = p.selfVel ?? p.vel;
+  const wasSteered = !!carried && vm != null && Math.hypot(vm.x - carried.x, vm.y - carried.y) <= MAX_AVOID_DV;
+  let capped = false;
+  if (accel === null && dt > 0 && (steered || wasSteered)) {
+    const v0 = vm ?? { x: 0, y: 0 };
     const ex = mv.x / dt - v0.x, ey = mv.y / dt - v0.y, el = Math.hypot(ex, ey);
-    // a mover without momentum to keep (at rest, or no measured velocity) starts freely
-    if (el > MAX_AVOID_DV && Math.hypot(v0.x, v0.y) > MAX_AVOID_DV) {
+    // a mover without momentum to keep (at rest, or no measured velocity) starts freely, unless the carry holds
+    if (el > MAX_AVOID_DV && (wasSteered || Math.hypot(v0.x, v0.y) > MAX_AVOID_DV)) {
       let cx = (v0.x + ex * MAX_AVOID_DV / el) * dt, cy = (v0.y + ey * MAX_AVOID_DV / el) * dt;
       const cl = Math.hypot(cx, cy);
       if (cl > maxStep) { cx *= maxStep / cl; cy *= maxStep / cl; }
       mv = clampStep(cx, cy);
+      capped = true;
     }
   }
   p.x += mv.x;
   p.y += mv.y;
 
+  // keep the carry across a release that dropped p.steer (key change): a bare record, no pass side
+  if (!p.steer && accel === null && (steered || capped) && (p.selfVel != null || p.vel != null)) {
+    p.steer = { key: goal.key, side: 0, stuck: 0, flips: 0, lane: null };
+  }
   const s = p.steer;
   if (s && s.side !== 0) {
     let prog = s.lx === undefined ? Infinity : (sx - s.lx) * ux + (sy - s.ly) * uy;
     // Also judge the net advance over two steps, so a forward step that
     // separation undoes the next step (a 2-cycle) still counts as stuck.
     if (s.lx2 !== undefined) prog = Math.min(prog, ((sx - s.lx2) * ux + (sy - s.ly2) * uy) / 2);
+    // Going round the body in his way is progress too: he is not stuck while he moves relative to it
+    // (a body that moves with him, mirroring his slide, still leaves him stuck). A planted-cut mover
+    // (goal.accel: free defenders) keeps the goal-line judgement alone.
+    const ho = s.hid != null && s.lx !== undefined ? byId(s.hid) : null;
+    if (ho && accel === null) {
+      let rel = Math.hypot(sx - s.lx - (ho.x - s.hx), sy - s.ly - (ho.y - s.hy));
+      if (s.lx2 !== undefined) {
+        // two steps net (a 2-cycle between two bodies is no progress round either)
+        const bx = s.hid2 === s.hid ? ho.x - s.hx2 : 0, by = s.hid2 === s.hid ? ho.y - s.hy2 : 0;
+        rel = Math.min(rel, Math.hypot(sx - s.lx2 - bx, sy - s.ly2 - by) / 2);
+      }
+      prog = Math.max(prog, rel);
+    }
     // A planted cut (goal.accel, last step still carrying speed away from the goal) is neither
     // stuck nor free: the turn is not read as a stall, so it does not flip his side.
     if (s.plant) { /* planting: hold */ } else if (prog < STUCK_PROGRESS * fullStep) s.stuck += dt; else s.stuck = 0;
@@ -324,6 +386,10 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
   }
   if (p.steer) {
     p.steer.lx2 = p.steer.lx; p.steer.ly2 = p.steer.ly; p.steer.lx = sx; p.steer.ly = sy;
+    p.steer.hid2 = p.steer.hid; p.steer.hx2 = p.steer.hx; p.steer.hy2 = p.steer.hy;
+    if (hit) { p.steer.hid = hit.o.id; p.steer.hx = hit.o.x; p.steer.hy = hit.o.y; } else p.steer.hid = null;
     if (plant) p.steer.plant = true; else delete p.steer.plant;
+    if (dt > 0 && (steered || capped)) { p.steer.steered = true; p.steer.vx = mv.x / dt; p.steer.vy = mv.y / dt; }
+    else { delete p.steer.steered; delete p.steer.vx; delete p.steer.vy; }
   }
 }
