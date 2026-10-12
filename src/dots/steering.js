@@ -41,7 +41,6 @@
 //  - Goal fields: accel, pace, ignore, and forward (boolean, opt-in):
 //    the plain-hit detour never points against the goal; its backward part is
 //    dropped, leaving a sideways slide (side, flips and release rules unchanged).
-//    ceiling (number, opt-in): the step never ends at a y greater than it (see the step's end).
 //    p.avoid === false (test switch, F-63): no detours, lanes or flips; contact still resolved.
 export const AVOID_CLEARANCE = 0.3;
 export const LOOKAHEAD = 4.0;
@@ -385,16 +384,6 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
       }
       capped = true;
     }
-  }
-  // Ceiling (goal.ceiling, opt-in): the step never ends upfield (greater y) of it, whatever lane, detour or carry
-  // chose it. The climb row sets it at his linebacker's projected depth (F-57 #11b): a climber already upfield of
-  // it gives ground (up to a full step); the step's lateral part is kept, and the pair is scaled to maxStep, so he
-  // keeps closing across on his man instead of only backpedalling. Contact clamps apply to the result.
-  if (typeof goal.ceiling === 'number' && p.y + mv.y > goal.ceiling) {
-    const my = Math.max(goal.ceiling - p.y, -maxStep);
-    const ml = Math.hypot(mv.x, my);
-    const k = ml > maxStep ? maxStep / ml : 1;
-    mv = clampStep(mv.x * k, my * k);
   }
   p.x += mv.x;
   p.y += mv.y;
