@@ -558,6 +558,8 @@ const judgeClimb = (t, probe, front, c, strict = false) => {
   let climb = null; // the LB on the climb tick, and where he was then
   let engaged = null;
   let end = null;
+  const near = { [c.owner]: 0, [c.partner]: 0 }; // ticks in contact range
+  const back = { [c.owner]: 0, [c.partner]: 0 }; // of those, ticks behind the LB
   for (let i = 1; i <= n && !engaged; i++) {
     probe.step(DT);
     if (!climb) {
@@ -568,6 +570,12 @@ const judgeClimb = (t, probe, front, c, strict = false) => {
     }
     const lb = probe.player(climb.live);
     end = lb;
+    for (const id of [c.owner, c.partner]) {
+      const m = probe.player(id);
+      if (Math.hypot(lb.x - m.x, lb.y - m.y) > CONTACT_DIST + ENGAGE_TOL) continue;
+      near[id]++;
+      if (Number.isFinite(lb.facing) && (m.x - lb.x) * Math.sin(lb.facing) + (m.y - lb.y) * Math.cos(lb.facing) < 0) back[id]++;
+    }
     const hit = [c.owner, c.partner].some((id) => {
       const b = probe.player(id).block;
       return b && b.target === climb.live && b.engaged;
@@ -590,6 +598,9 @@ const judgeClimb = (t, probe, front, c, strict = false) => {
   if (strict) assert.ok(!unmet, `${travel}: no engage, and the LB got past the line unmet`);
   const why = unmet ? 'no engage, and the LB got past the line unmet' : lateral > downhill ? 'missed, LB flowed laterally' : 'unmet, LB still above the line at the window end';
   t.diagnostic(`${tag}${travel}: ${why}`);
+  for (const id of [c.owner, c.partner]) {
+    if (near[id] > 0 && back[id] === near[id]) t.diagnostic(`${tag}${who}: ${id} behind the LB: no block in the back`);
+  }
 };
 
 // lbAvoid false (F-63): every LB's body avoidance is switched off (p.avoid = false), so the climber must meet him. Set

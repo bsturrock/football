@@ -713,6 +713,26 @@ test('canEngage', () => {
   assert.equal(canEngage(O('c', 0, 11.1, { block: blk('t') }), T, { x: 0, y: 10 - CONTACT_DIST }), null);
 });
 
+test('canEngage: no block in the back, only in front or to the side of the defender', () => {
+  const far = { x: 5, y: 5 };
+  const at = (x, y, o = {}) => O('c', x, y, { facing: 0, block: blk('t'), ...o });
+  const T = D('t', 0, 10, { facing: Math.PI }); // faces the offense (-y)
+  assert.equal(canEngage(at(0, 10 - CONTACT_DIST), T, far), 'contact'); // in front
+  assert.equal(canEngage(at(CONTACT_DIST, 10, { facing: -Math.PI / 2 }), T, far), 'contact'); // beside: dot 0
+  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI }), T, far), null); // behind, in contact range
+  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI }), T, { x: 0, y: 10 + CONTACT_DIST * 0.9 }), null);
+  // turning the defender flips which side is behind
+  const T2 = D('t', 0, 10, { facing: 0 });
+  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI }), T2, far), 'contact');
+  assert.equal(canEngage(at(0, 10 - CONTACT_DIST), T2, far), null);
+  // re-engage after a shed: cool 0 and shedFree 0
+  const free = D('t', 0, 10, { facing: Math.PI, shedFree: 0 });
+  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI, block: blk('t', { cool: 0 }) }), free, far), null);
+  assert.equal(canEngage(at(0, 10 - CONTACT_DIST, { block: blk('t', { cool: 0 }) }), free, far), 'contact');
+  // no facing: today's results
+  assert.equal(canEngage(at(0, 10 + CONTACT_DIST * 0.9, { facing: Math.PI }), D('t', 0, 10), far), 'contact');
+});
+
 test('canEngage: ball past the target and shed-free targets refuse engage', () => {
   const b = O('b', 0, 10 - CONTACT_DIST, { block: blk('t') });
   const spot = { x: 0, y: 10 - CONTACT_DIST + 0.1 };

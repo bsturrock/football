@@ -493,6 +493,10 @@ export function canEngage(b, T, spot, ballPos) {
   if ((b.block.cool ?? 0) > 0) return null;
   if (ballPos && ballPast(T, ballPos)) return null;
   if ((T.shedFree ?? 0) > 0) return null;
+  // "Blocks in the back are penalties so you have to be in front or to the side only": refuse a
+  // blocker behind the defender's facing (f = facingDir, sin/cos). Exactly 90 degrees off is the side.
+  // No finite facing: not restricted. Gates new engages only; never releases a block.
+  if (Number.isFinite(T.facing) && (b.x - T.x) * Math.sin(T.facing) + (b.y - T.y) * Math.cos(T.facing) < 0) return null;
   // Engage only well inside canRelease's 'lost' range, or the block would drop on the next tick.
   const near = Math.hypot(T.x - b.x, T.y - b.y) <= CONTACT_DIST + ENGAGE_NEAR;
   if (near && Math.hypot(spot.x - b.x, spot.y - b.y) <= ENGAGE_TOL) return 'spot';
