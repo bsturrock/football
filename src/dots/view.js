@@ -95,12 +95,16 @@ export function seedLabel(seed) {
 }
 
 // Short on-field label for a defender's live pass-rush move ('' = none, or the move is at rest).
+// A defender who just shed his blocker by leverage (shedFree counting down, shedHow 'leverage')
+// reads 'shed'; a move-won shed (shedHow 'swim' / 'power') keeps the move text.
 export function moveLabel(p) {
   const m = p?.move;
-  if (!m) return '';
-  if (m.phase === 'try') return m.kind;
-  if (m.phase === 'won') return `${m.kind} won`;
-  if (m.phase === 'lost') return `${m.kind} lost`;
+  if (m) {
+    if (m.phase === 'try') return m.kind;
+    if (m.phase === 'won') return `${m.kind} won`;
+    if (m.phase === 'lost') return `${m.kind} lost`;
+  }
+  if ((p?.shedFree ?? 0) > 0 && p.shedHow === 'leverage') return 'shed';
   return '';
 }
 

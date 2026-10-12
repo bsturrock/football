@@ -130,6 +130,16 @@ test('T-84: moveLabel is empty without a move or at rest, and names each phase',
   assert.equal(moveLabel({ id: 'DL1', move: { kind: 'power', phase: 'lost' } }), 'power lost');
 });
 
+test('T-101: moveLabel shows shed for a leverage shed still counting down', () => {
+  assert.equal(moveLabel({ id: 'DL1', shedFree: 0.3, shedHow: 'leverage' }), 'shed');
+  assert.equal(moveLabel({ id: 'DL1', shedFree: 0, shedHow: 'leverage' }), '');
+  assert.equal(moveLabel({ id: 'DL1', shedHow: 'leverage' }), '');
+  assert.equal(moveLabel({ id: 'DL1', shedFree: 0.3, shedHow: 'swim' }), '');
+  assert.equal(moveLabel({ id: 'DL1', shedFree: 0.3, shedHow: 'swim', move: { kind: 'swim', phase: 'won' } }), 'swim won');
+  assert.equal(moveLabel({ id: 'DL1', shedFree: 0.3, shedHow: 'leverage', move: { kind: 'power', phase: 'try' } }), 'power');
+  assert.equal(moveLabel({ id: 'DL1', shedFree: 0.3, shedHow: 'leverage', move: { kind: 'swim', phase: 'rest' } }), 'shed');
+});
+
 test('F-14 #9: formatYards keeps two decimals, drops trailing zeros', () => {
   assert.equal(formatYards(0.35), '0.35');
   assert.equal(formatYards(0.7), '0.7');
