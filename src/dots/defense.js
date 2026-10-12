@@ -1,9 +1,14 @@
 // Defender decisions as data: a behaviour is a small state machine whose states
 // name a GOAL (where to run) and whose exits name TRIGGERS (when to change state).
 // Pure: reads players, never moves them; blocking.js steers toward the goals.
+// A one-gap defensive lineman reads his blocker through env.cues (see BEHAVIORS.attack and DL_RESPONSES).
 // The backside edge keeps contain: he reads run, squeezes to a point outside the backside end
 // lineman, and pursues only when the ball gets outside him, crosses the los, or the RB commits away.
 // A blitz or drop is a new GOALS entry plus a state row; linebackers do not blitz today.
+// A one-gap DL gets off into his blocker's gap-side shoulder (not the gap centre), then reads the hat
+// through the DL_RESPONSES table (base: hold, reach: outside arm free, double: anchor, down: close,
+// pass: rush; nothing felt: squeeze). A two-gap DL plays his blocker head-up (control) until the ball
+// commits, then takes the ball's side (twoGapFit). Cues come from env.cues (perceive.js).
 import { BODY_RADIUS } from './blocking.js';
 import { GAP_NAMES, HEAD_UP, liveGaps } from './front.js';
 import { DL_ROLES, LB_ROLES } from './roster.js';
@@ -15,6 +20,10 @@ export const ZONE_DEPTH = 10; // yd past the los: the zone drop landmark depth (
 export const DROP_SPEED = 0.6; // fraction of speed while dropping, a backpedal (tunable)
 export const FILL_DEPTH = 3.5; // yd past the los where he fills: football depth (3-5 yd), not body geometry (tunable)
 export const PENETRATE_DEPTH = 4 * BODY_RADIUS; // yd behind the los the DL aims for
+export const GETOFF_DEPTH = 1.0; // yd past the los toward the offense: the get-off aim (tunable)
+export const GETOFF_TIME = 0.3; // s: the get-off lasts this long before a DL with nothing felt squeezes (tunable)
+export const ARM_FREE = 2 * BODY_RADIUS; // yd: the reach/two-gap fit sets his outside arm this far off the blocker's x
+export const RUSH_DEPTH = 5; // yd toward the offense: a pass-set rush aims this deep (tunable)
 export const PURSUE_REACH = 8 * BODY_RADIUS; // yd: a DL this close to the carried ball pursues
 
 export const CONTAIN_DEPTH = 1.0; // yd behind the los: the backside edge's contain depth, about the tackle's heel line (tunable)
@@ -79,6 +88,22 @@ function containX(e, env) {
   return endX - env.defense.side * CONTAIN_WIDTH;
 }
 
+// The offensive blocker a DL plays (stored on the agent at the first cue), as a live player; null without one.
+const blockerOf = (e, env) => (e.blocker != null ? env.players.find((p) => p.id === e.blocker) ?? null : null);
+
+// Which side of his blocker the DL's gap is: -1 | 0 | 1.
+function gapSide(d, e, env, b) {
+  const span = e.fit ? gapSpan(env.players, env.defense, e.fit) : null;
+  if (span) return Math.sign((span.lo + span.hi) / 2 - b.x);
+  return Math.sign(e.x0 - b.x);
+}
+
+// A goal built from the blocker, or today's gapFit goal when he has none.
+const viaBlocker = (make) => (d, e, env) => {
+  const b = blockerOf(e, env);
+  return b ? make(d, e, env, b) : GOALS.gapFit(d, e, env);
+};
+
 export const KEYS = Object.freeze({
   olMove: (env) => env.defense.lineIds.some(({ id }) => {
     const p = env.players.find((q) => q.id === id);
@@ -116,6 +141,29 @@ export const GOALS = Object.freeze({
     return { x: laneX(env, e.fit) ?? e.x0, y: env.los - PENETRATE_DEPTH };
   },
   hold: (d, e) => ({ x: e.x0, y: e.y0 }),
+  // DL read goals. The gap-side shoulder of his blocker, never the gap centre.
+  getoff: viaBlocker((d, e, env, b) => ({ x: b.x + gapSide(d, e, env, b) * BODY_RADIUS, y: env.los - GETOFF_DEPTH })),
+  holdGap: viaBlocker((d, e, env, b) => ({ x: b.x + gapSide(d, e, env, b) * BODY_RADIUS, y: env.los - PENETRATE_DEPTH })),
+  outsideArm: viaBlocker((d, e, env, b) => ({ x: b.x + env.defense.side * ARM_FREE, y: env.los - PENETRATE_DEPTH })),
+  anchor: viaBlocker((d, e, env) => ({ x: d.x, y: env.los - PENETRATE_DEPTH })),
+  close: (d, e, env) => {
+    const span = e.fit ? gapSpan(env.players, env.defense, e.fit) : null;
+    if (!span) return GOALS.gapFit(d, e, env);
+    const inner = Math.abs(span.lo - env.defense.centerX) <= Math.abs(span.hi - env.defense.centerX) ? 'lo' : 'hi';
+    const x = inner === 'lo' ? span.lo + BODY_RADIUS : span.hi - BODY_RADIUS;
+    return { x, y: e.assign?.fit === 'spill' ? env.los - PENETRATE_DEPTH : env.los };
+  },
+  rush: (d, e, env) => {
+    const span = e.fit ? gapSpan(env.players, env.defense, e.fit) : null;
+    return { x: span ? (span.lo + span.hi) / 2 : e.x0, y: env.los - RUSH_DEPTH };
+  },
+  squeeze: (d, e, env) => GOALS.gapFit(d, e, env),
+  control: viaBlocker((d, e, env, b) => ({ x: b.x, y: env.los - PENETRATE_DEPTH })),
+  twoGapFit: viaBlocker((d, e, env, b) => {
+    const bx = env.cues?.(d.id)?.ball?.x;
+    const s = bx == null ? 0 : Math.sign(bx - b.x);
+    return { x: b.x + (s || gapSide(d, e, env, b)) * ARM_FREE, y: env.los };
+  }),
   contain: (d, e, env) => ({ x: containX(e, env), y: env.los - CONTAIN_DEPTH }),
   pursue: (d, e, env) => intercept(d, env.ballPos, env.defense.ballV, d.speed),
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
@@ -134,12 +182,31 @@ export const TRIGGERS = Object.freeze({
   committedAway: (d, e, env) => !!env.run?.locked && env.run.x != null && env.defense.side * (env.run.x - env.defense.centerX) > 0,
   // A scripted defender's time has come (the script row's `at`, default 0).
   scriptAt: (d, e, env) => env.defense.t >= (e.at ?? 0) - 1e-9,
+  // What the DL feels from his blocker(s) (perceive.js `felt`); the exit row's `is` names the value.
+  felt: (d, e, env, x) => env.cues?.(d.id)?.felt === x.is,
+  // The get-off is over: it has run its time and he feels nothing (or sees nothing).
+  getoffDone: (d, e, env) => {
+    const f = env.cues?.(d.id)?.felt;
+    return e.st >= GETOFF_TIME - 1e-9 && (f == null || f === 'none');
+  },
+  // The ball commits (the carrier is past the line or moving downfield).
+  ballCommitted: (d, e, env) => env.cues?.(d.id)?.ball?.committed === true,
   atFill: (d, e, env) => {
     const g = GOALS.fill(d, e, env);
     return Math.hypot(d.x - g.x, d.y - g.y) <= BODY_RADIUS;
   },
 });
 
+// What a DL does for each thing he feels: a response state per felt value. Read-the-hat is this data.
+export const DL_RESPONSES = Object.freeze({ base: 'hold', reach: 'outsideArm', double: 'anchor', down: 'close', pass: 'rush' });
+export const FELT_VALUES = Object.freeze(['double', 'reach', 'base', 'pass', 'down', 'none']);
+
+const PURSUE_EXITS = Object.freeze([{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }]);
+// The felt exits generated from DL_RESPONSES, skipping the state he is already in.
+const feltExits = (self) => Object.entries(DL_RESPONSES).filter(([, to]) => to !== self).map(([is, to]) => ({ when: 'felt', is, to }));
+
+// Behaviours: start state, read keys, and per state a goal, a speed and ordered exits.
+// The DL read ('attack') and the two-gap behaviour follow the spec "Defensive Linemen": get off, read the hat.
 export const BEHAVIORS = Object.freeze({
   pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'pursue', speed: 1, exits: [] } } },
   // Scripted and DB behaviours: known-in-advance actions for tests, and simple bodies for the DBs.
@@ -186,12 +253,28 @@ export const BEHAVIORS = Object.freeze({
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
+  // The DL read: get off into the blocker's gap-side shoulder, then read the hat (DL_RESPONSES).
   attack: {
-    start: 'attack',
-    keys: ['olMove', 'mesh'],
+    start: 'getoff',
+    keys: [],
     states: {
-      attack: { goal: 'penetrate', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }, { when: 'recognized', to: 'fit' }] },
-      fit: { goal: 'gapFit', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
+      getoff: { goal: 'getoff', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('getoff'), { when: 'getoffDone', to: 'squeeze' }] },
+      hold: { goal: 'holdGap', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('hold'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      outsideArm: { goal: 'outsideArm', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('outsideArm'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      anchor: { goal: 'anchor', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('anchor'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      close: { goal: 'close', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('close'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      rush: { goal: 'rush', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('rush'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      squeeze: { goal: 'squeeze', speed: 1, exits: [...PURSUE_EXITS, ...feltExits('squeeze')] },
+      pursue: { goal: 'pursue', speed: 1, exits: [] },
+    },
+  },
+  // Two-gap: play the blocker head-up until the ball commits, then take the ball's side.
+  twoGap: {
+    start: 'control',
+    keys: [],
+    states: {
+      control: { goal: 'control', speed: 1, exits: [...PURSUE_EXITS, { when: 'ballCommitted', to: 'twoGapFit' }] },
+      twoGapFit: { goal: 'twoGapFit', speed: 1, exits: [...PURSUE_EXITS] },
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
@@ -374,6 +457,7 @@ export function validateBehavior(name, behaviors = BEHAVIORS) {
     if (!Object.hasOwn(GOALS, row.goal)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown goal "${row.goal}"`);
     for (const ex of row.exits) {
       if (!Object.hasOwn(TRIGGERS, ex.when)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown trigger "${ex.when}"`);
+      if (ex.when === 'felt' && !FELT_VALUES.includes(ex.is)) throw new Error(`defense: behavior "${name}" state "${sn}" bad felt "${ex.is}"`);
       if (!Object.hasOwn(b.states, ex.to)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown exit target "${ex.to}"`);
     }
   }
@@ -451,7 +535,7 @@ export function startDefense(players, front, { los, call = 'base', carrierId, sc
     if (assign?.type === 'zone' && assign.depth === undefined) assign = { ...assign, depth: ZONE_DEPTH };
     // A call's blitz or slant flag picks the behaviour after the script row and def.behavior.
     const flag = assign?.blitz === true ? 'blitz' : assign?.slant ? 'slant' : null;
-    const name = srow ? srow.behavior : (d.def?.behavior ?? flag ?? (assign ? ASSIGNMENTS[assign.type].behavior : null) ?? ROLE_BEHAVIORS[d.role] ?? null);
+    const name = srow ? srow.behavior : (d.def?.behavior ?? flag ?? (assign ? (assign.type === 'attack' && assign.technique === 'twoGap' ? 'twoGap' : ASSIGNMENTS[assign.type].behavior) : null) ?? ROLE_BEHAVIORS[d.role] ?? null);
     if (!name) continue;
     if (!checked.has(name)) { validateBehavior(name); checked.add(name); }
     const agent = {
@@ -511,7 +595,9 @@ export function stepDefense(players, defense, { run, ballPos, cues }, dt) {
     const behavior = BEHAVIORS[e.behavior];
     const env = { players, defense, run, ballPos, los: defense.los, behavior, cues: cueOf };
     e.st += dt;
-    const hit = behavior.states[e.state].exits.find((x) => TRIGGERS[x.when](d, e, env));
+    const tech = cueOf(id)?.tech;
+    if (e.blocker == null && tech?.blocker != null) e.blocker = tech.blocker;
+    const hit = behavior.states[e.state].exits.find((x) => x.to !== e.state && TRIGGERS[x.when](d, e, env, x));
     if (hit) { e.state = hit.to; e.st = 0; e.why = hit.when; }
     const row = behavior.states[e.state];
     const g = GOALS[row.goal](d, e, env);

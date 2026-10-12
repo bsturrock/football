@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
   LB_READ_TIME, KEY_MOVE, FLOW_MAX, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, intercept, CONTAIN_DEPTH, CONTAIN_WIDTH, CONTAIN_SPEED,
-  MAN_ROLES, PERSONNEL_CALLS, callFor, shiftGap,
+  MAN_ROLES, PERSONNEL_CALLS, callFor, shiftGap, DL_RESPONSES, GETOFF_TIME, GETOFF_DEPTH, ARM_FREE, RUSH_DEPTH,
 } from '../src/dots/defense.js';
 import { createPlay } from '../src/dots/play.js';
 import { readFront } from '../src/dots/front.js';
 import { numberPlay } from '../src/dots/numbering.js';
 import { buildLineup } from '../src/dots/roster.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
+import { LEVER_COS } from '../src/dots/react.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
 import { frontPlayers, FRONT_NAMES, frontNumbers } from './fixtures/fronts.js';
 import { BASE_LB_IDS } from './fixtures/base-front.js';
@@ -25,7 +26,13 @@ const setup = (opts = {}) => {
   const run = { carrier: 'RB', aim: { x: -2, y: LOS }, carried: false, locked: false };
   return { players, front, defense, run, ball: { x: 0, y: LOS - 3 } };
 };
-const step = (s, dt = 0.05) => stepDefense(s.players, s.defense, { run: s.run, ballPos: s.ball }, dt);
+const step = (s, dt = 0.05) => stepDefense(s.players, s.defense, { run: s.run, ballPos: s.ball, cues: s.cues }, dt);
+// Stub cues: every defender is lined on his nearest offensive lineman, feels `felt`, sees the ball at ball.
+const nearestOL = (s, id) => s.players.filter((p) => p.team === 'offense' && p.role === 'OL').sort((a, b) => Math.abs(a.x - by(s.players, id).x) - Math.abs(b.x - by(s.players, id).x))[0];
+const stubCues = (s, felt, ball = { x: 0, y: LOS, committed: false }) => {
+  s.cues = (id) => (s.defense.agents[id] ? { felt, tech: { blocker: nearestOL(s, id).id, label: '3', shade: 'head' }, ball } : null);
+  return s;
+};
 
 test('F-33/F-34: base call gives every DL an attack agent, LBs a zone agent in drop', () => {
   for (const name of FRONT_NAMES) {
@@ -287,8 +294,8 @@ test('F-33: def.assign overrides the row; explicit gap moves the penetrate goal'
   assert.deepEqual(d.agents.LDE.fit, gap);
   const span = gapSpan(s.players, d, gap);
   const out = stepDefense(s.players, d, { run: s.run, ballPos: s.ball }, 0.01);
-  near(out.LDE.x, (span.lo + span.hi) / 2);
-  near(out.LDE.y, LOS - PENETRATE_DEPTH);
+  assert.ok(out.LDE.x >= span.lo && out.LDE.x <= span.hi, 'the goal lies in the explicit gap');
+  near(GOALS.penetrate(by(s.players, 'LDE'), d.agents.LDE, { players: s.players, defense: d, run: s.run, ballPos: s.ball, los: LOS }).x, (span.lo + span.hi) / 2);
   by(s.players, 'LDT').def = { assign: { type: 'zone' } };
   const d2 = startDefense(s.players, s.front, { los: LOS, carrierId: 'RB' });
   assert.equal(d2.agents.LDT.behavior, 'zone');
@@ -350,9 +357,15 @@ test('F-33: ballClose and attack exits', () => {
   const t = setup();
   by(t.players, 'LG').x += KEY_MOVE;
   step(t, 0.01);
-  assert.equal(t.defense.agents.LDT.state, 'attack');
-  step(t, 1);
-  assert.equal(t.defense.agents.LDT.state, 'fit');
+  assert.equal(t.defense.agents.LDT.state, 'getoff');
+  stubCues(t, 'base');
+  step(t, 0.01);
+  assert.equal(t.defense.agents.LDT.state, 'hold'); // getoff -> response on felt
+  const t2 = stubCues(setup(), 'none');
+  step(t2, 0.01);
+  assert.equal(t2.defense.agents.LDT.state, 'getoff'); // nothing felt: not before GETOFF_TIME
+  step(t2, GETOFF_TIME);
+  assert.equal(t2.defense.agents.LDT.state, 'squeeze');
   // pursue beats fit
   const u = setup();
   by(u.players, 'LG').x += KEY_MOVE;
@@ -368,7 +381,7 @@ test('F-33: ballClose and attack exits', () => {
   assert.equal(v.defense.agents.LDT.state, 'pursue');
 });
 
-test('F-33 #4/#8: a shed blocker sends his DL to pursue from attack or fit', () => {
+test('F-33 #4/#8: a shed blocker sends his DL to pursue from getoff or a response state', () => {
   const dlOf = (s) => Object.keys(s.defense.agents).find((id) => s.defense.agents[id].behavior === 'attack');
   const shed = (s, id, released = 'shed') => {
     by(s.players, 'LG').block = { target: id, engaged: false, released, seq: null, angle: 'straight' };
@@ -394,7 +407,7 @@ test('F-33 #4/#8: a shed blocker sends his DL to pursue from attack or fit', () 
 
   const f = setup();
   const fId = dlOf(f);
-  f.defense.agents[fId].state = 'fit';
+  f.defense.agents[fId].state = 'hold';
   shed(f, fId);
   step(f);
   assert.equal(f.defense.agents[fId].state, 'pursue');
@@ -716,4 +729,144 @@ test('T-48 #7: stepDefense runs with and without cues; every CALLS key snaps and
     for (let i = 0; i < 120; i++) p.step(1 / 60);
     assert.equal(p.defense.call, call);
   }
+});
+
+// F-56: the DL read as data.
+const goalOf = (s, id, name, extra = {}) => GOALS[name](by(s.players, id), s.defense.agents[id], { players: s.players, defense: s.defense, run: s.run, ballPos: s.ball, los: LOS, cues: s.cues, ...extra });
+
+test('F-56: each felt value moves a DL in getoff to its DL_RESPONSES state', () => {
+  assert.ok(Object.isFrozen(DL_RESPONSES));
+  for (const [felt, to] of Object.entries(DL_RESPONSES)) {
+    const s = stubCues(setup(), felt);
+    step(s, 0.01);
+    assert.equal(s.defense.agents.LDT.state, to, felt);
+    assert.equal(s.defense.agents.LDT.why, 'felt');
+  }
+});
+
+test('F-56 #5: getoff aims at the gap-side shoulder of his blocker, not the gap centre', () => {
+  const s = stubCues(setup(), 'none');
+  step(s, 0.01);
+  const e = s.defense.agents.LDT;
+  const b = nearestOL(s, 'LDT');
+  assert.equal(e.blocker, b.id);
+  const span = gapSpan(s.players, s.defense, e.fit);
+  const gs = Math.sign((span.lo + span.hi) / 2 - b.x);
+  assert.notEqual(gs, 0);
+  const g = goalOf(s, 'LDT', 'getoff');
+  near(g.x, b.x + gs * BODY_RADIUS);
+  near(g.y, LOS - GETOFF_DEPTH);
+  assert.ok(Math.abs(g.x - (span.lo + span.hi) / 2) > 1e-6);
+  // hold keeps the shoulder and goes through the blocker
+  const h = goalOf(s, 'LDT', 'holdGap');
+  near(h.x, g.x);
+  near(h.y, LOS - PENETRATE_DEPTH);
+  // without a blocker: today's gapFit
+  const n = setup();
+  const gn = goalOf(n, 'LDT', 'getoff');
+  near(gn.x, goalOf(n, 'LDT', 'gapFit').x);
+});
+
+test('F-56 #6: outsideArm stays playside of the blocker, anchor goes straight, close stays in his span', () => {
+  const s = stubCues(setup(), 'none');
+  step(s, 0.01);
+  const b = nearestOL(s, 'LDT');
+  const d = by(s.players, 'LDT');
+  const oa = goalOf(s, 'LDT', 'outsideArm');
+  near(oa.x, b.x + s.defense.side * ARM_FREE);
+  near(oa.y, LOS - PENETRATE_DEPTH);
+  const an = goalOf(s, 'LDT', 'anchor');
+  near(an.x, d.x);
+  near(an.y, LOS - PENETRATE_DEPTH);
+  const span = gapSpan(s.players, s.defense, s.defense.agents.LDT.fit);
+  for (const fit of ['spill', 'box']) {
+    s.defense.agents.LDT.assign = { ...s.defense.agents.LDT.assign, fit };
+    const c = goalOf(s, 'LDT', 'close');
+    assert.ok(c.x >= span.lo && c.x <= span.hi, `close inside his span (${fit})`);
+    const inner = Math.abs(span.lo - s.defense.centerX) <= Math.abs(span.hi - s.defense.centerX) ? span.lo + BODY_RADIUS : span.hi - BODY_RADIUS;
+    near(c.x, inner);
+    near(c.y, fit === 'spill' ? LOS - PENETRATE_DEPTH : LOS);
+  }
+  const r = goalOf(s, 'LDT', 'rush');
+  near(r.x, (span.lo + span.hi) / 2);
+  near(r.y, LOS - RUSH_DEPTH);
+});
+
+test('F-56 #7: hold, outsideArm and anchor keep him on his blocker (no early lever)', () => {
+  for (const goal of ['holdGap', 'outsideArm', 'anchor']) {
+    for (const id of ['LDT', 'RDT']) {
+      const s = stubCues(setup(), 'none');
+      step(s, 0.01);
+      const d = by(s.players, id);
+      const b = nearestOL(s, id);
+      const g0 = goalOf(s, id, goal);
+      const gx = g0.x - d.x;
+      const gy = g0.y - d.y;
+      const gl = Math.hypot(gx, gy);
+      const ux = b.x - d.x;
+      const uy = b.y - d.y;
+      const ul = Math.hypot(ux, uy);
+      assert.ok((gx * ux + gy * uy) / (gl * ul) > LEVER_COS, `${goal} ${id}`);
+    }
+  }
+});
+
+test('F-56: nothing felt after GETOFF_TIME squeezes; response states squeeze on none', () => {
+  const s = stubCues(setup(), 'none');
+  step(s, GETOFF_TIME / 2);
+  assert.equal(s.defense.agents.LDT.state, 'getoff');
+  step(s, GETOFF_TIME);
+  assert.equal(s.defense.agents.LDT.state, 'squeeze');
+  for (const state of Object.values(DL_RESPONSES)) {
+    const t = stubCues(setup(), 'none');
+    step(t, 0.01);
+    t.defense.agents.LDT.state = state;
+    step(t, 0.01);
+    assert.equal(t.defense.agents.LDT.state, 'squeeze', state);
+  }
+  // squeeze takes the felt exits; an exit to the current state is skipped (no st reset)
+  const u = stubCues(setup(), 'base');
+  step(u, 0.01);
+  const st = u.defense.agents.LDT.st;
+  step(u, 0.01);
+  assert.equal(u.defense.agents.LDT.state, 'hold');
+  assert.ok(u.defense.agents.LDT.st > st);
+  u.cues = stubCues(setup(), 'double').cues;
+  u.defense.agents.LDT.state = 'squeeze';
+  step(u, 0.01);
+  assert.equal(u.defense.agents.LDT.state, 'anchor');
+  // pursue exits come first
+  const v = stubCues(setup(), 'double');
+  by(v.players, 'LG').block = { target: 'LDT', engaged: false, released: 'shed', seq: null, angle: 'straight' };
+  step(v, 0.01);
+  assert.equal(v.defense.agents.LDT.state, 'pursue');
+});
+
+test('F-56 #8: a two-gap DL controls his blocker head-up, then takes the ball side on commit', () => {
+  const s = setup({ call: 'twoGap' });
+  assert.equal(s.defense.agents.LDT.behavior, 'twoGap');
+  assert.equal(s.defense.agents.LDT.assign.type, 'attack');
+  assert.equal(s.defense.agents.LDT.state, 'control');
+  stubCues(s, 'base');
+  step(s, 0.01);
+  const b = nearestOL(s, 'LDT');
+  assert.equal(s.defense.agents.LDT.state, 'control');
+  const c = goalOf(s, 'LDT', 'control');
+  near(c.x, b.x);
+  near(c.y, LOS - PENETRATE_DEPTH);
+  for (const side of [-1, 1]) {
+    const t = setup({ call: 'twoGap' });
+    stubCues(t, 'base', { x: nearestOL(t, 'LDT').x + side * 3, y: LOS, committed: true });
+    step(t, 0.01);
+    assert.equal(t.defense.agents.LDT.state, 'twoGapFit');
+    const f = goalOf(t, 'LDT', 'twoGapFit');
+    near(f.x, nearestOL(t, 'LDT').x + side * ARM_FREE);
+    near(f.y, LOS);
+  }
+});
+
+test('F-56: validateBehavior rejects a felt exit with an unknown value', () => {
+  const bad = { x: { start: 'a', keys: [], states: { a: { goal: 'hold', speed: 1, exits: [{ when: 'felt', is: 'sideways', to: 'a' }] } } } };
+  assert.throws(() => validateBehavior('x', bad), /sideways/);
+  assert.doesNotThrow(() => validateBehavior('twoGap'));
 });
