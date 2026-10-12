@@ -1,5 +1,5 @@
 // Inside zone: a rule table run by the assignment engine, plus the runtime switch rule.
-import { readFront, HEAD_UP, LINE_DEPTH } from './front.js';
+import { readFront, LINE_DEPTH } from './front.js';
 import { runScheme, CLIMB_REACH } from './assign.js';
 import { LB_ROLES } from './roster.js';
 
@@ -118,11 +118,10 @@ export function zoneSwitch(players, ballPos, ctx) {
     if (!declaredBy(w)) w = [plan, ...free].find((d) => d && !claimed.has(d.id) && declaredBy(d)) ?? w;
     if (!w) continue;
     claimed.add(w.id);
-    // The climber is re-judged every tick from where the linebacker fits; nothing is locked.
+    // The climber is re-judged every tick from where the linebacker is; nothing is locked.
     const go = () => {
       if (!dl || dl.react?.state === 'winning') return;
-      const fitX = ctx.defGoals?.[w.id]?.x ?? w.x;
-      const taker = pickClimber(o, p, dl, fitX, ctx.side);
+      const taker = pickClimber(o, p, w);
       const stayer = taker === o ? p : o;
       if (!on(stayer)) return;
       const dO = Math.hypot(w.x - o.x, w.y - o.y);
@@ -236,14 +235,7 @@ export function trackPickup(players, ballPos, ctx, out, claimed = claimedSet(pla
   return out;
 }
 
-// Who climbs: the blocker on the side of the DL where the linebacker fits comes off, the other overtakes.
-export function pickClimber(o, p, dl, fitX, side) {
-  const near = () => (Math.abs(p.x - fitX) < Math.abs(o.x - fitX) - 1e-9 ? p : o);
-  if (!dl || (side !== 1 && side !== -1)) return near();
-  const s = side * (fitX - dl.x);
-  const playsideP = side * p.x > side * o.x ? p : o;
-  const backsideP = playsideP === p ? o : p;
-  if (s > HEAD_UP) return playsideP;
-  if (s < -HEAD_UP) return backsideP;
-  return near();
+// Who climbs: the member laterally nearer the linebacker, judged from where he is, comes off; tie to the owner.
+export function pickClimber(o, p, lb) {
+  return Math.abs(p.x - lb.x) < Math.abs(o.x - lb.x) - 1e-9 ? p : o;
 }
