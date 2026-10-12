@@ -1,5 +1,5 @@
 // Blocking technique table, footwork phase machine and drive/ride push math.
-// Pure: no imports, no mutation of arguments.
+// Pure: imports only the pure geometry helpers, no mutation of arguments.
 //
 // Push (footPush): drive = vertical, double or wall. On a blindside hit the base
 // bends from the drive toward the contact line (BLIND_START..BLIND_FULL degrees). The
@@ -32,6 +32,8 @@
 //
 // Extending: add reach/down/kick/pull as new rows; a new drive mode is a new branch
 // in driveDir; a new phase is a PHASES entry plus its name in a row's phases.
+
+import { leadPoint } from './geometry.js';
 
 export const FIRST_STEP_LEN = 0.5; // yards, length of the first step (tunable)
 export const RIDE_MIN = 0.3; // yd/s, target lateral speed needed to set ride side (tunable)
@@ -144,9 +146,9 @@ export const PHASES = Object.freeze({
       const v = target ? (target.selfVel ?? target.vel) : null;
       let aim;
       if (blocker && v && Math.hypot(v.x, v.y) > 1e-6) {
-        const t = interceptTime(spot, v, blocker, Math.max(blocker.speed ?? 1, INTERCEPT_MIN_SPEED));
+        const lead = leadPoint(blocker, Math.max(blocker.speed ?? 1, INTERCEPT_MIN_SPEED), spot, v);
         // No meeting point: aim at the spot itself, no playside shift (climb-spec: contact at an achievable angle).
-        aim = t == null ? { x: spot.x, y: spot.y } : aimPoint({ x: spot.x + v.x * t, y: spot.y + v.y * t }, foot.tech, side, radius);
+        aim = !lead.met ? { x: spot.x, y: spot.y } : aimPoint({ x: lead.x, y: lead.y }, foot.tech, side, radius);
       } else {
         aim = aimPoint(spot, foot.tech, side, radius);
       }
@@ -161,21 +163,6 @@ export const PHASES = Object.freeze({
     },
   }),
 });
-
-// Smallest t > 0 with |spot + v t - blocker| = s t, or null when there is none.
-function interceptTime(spot, v, blocker, s) {
-  const dx = spot.x - blocker.x;
-  const dy = spot.y - blocker.y;
-  const a = v.x * v.x + v.y * v.y - s * s;
-  const b = 2 * (dx * v.x + dy * v.y);
-  const c = dx * dx + dy * dy;
-  if (Math.abs(a) < 1e-12) return b < 0 ? -c / b : null;
-  const disc = b * b - 4 * a * c;
-  if (disc < 0) return null;
-  const q = Math.sqrt(disc);
-  const roots = [(-b - q) / (2 * a), (-b + q) / (2 * a)].filter((r) => r > 1e-9).sort((p, r) => p - r);
-  return roots.length ? roots[0] : null;
-}
 
 // Drive direction for a push mode: 'double' is straight upfield (F-55 #4, vertical double-team drive), 'wall'
 // leans toward the backside by WALL_LEAN. Other modes: straight upfield.

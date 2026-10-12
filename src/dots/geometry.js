@@ -11,3 +11,41 @@ export const RELEASE_PAST = 4 * BODY_RADIUS;
 export function ballPast(T, ballPos) {
   return ballPos.y >= T.y + RELEASE_PAST;
 }
+
+// The single place any module asks "where will he be" (project) or "where can I meet him" (leadPoint).
+// Where `spot` ends up after t seconds at velocity `vel` (a missing vel is standing still).
+export function project(spot, vel, t) {
+  const vx = vel?.x ?? 0;
+  const vy = vel?.y ?? 0;
+  return { x: spot.x + vx * t, y: spot.y + vy * t };
+}
+
+// The single place any module asks "where will he be" / "where can I meet him".
+// Earliest point a mover at `from` with `speed` can meet a target seen `age` seconds ago at `spot` moving at `vel`.
+// Returns { x, y, t, met }: t is the time to the point (capped at maxLead); met is false when he cannot be caught
+// (then the point is where he is at maxLead when finite, else where he is now).
+export function leadPoint(from, speed, spot, vel, { age = 0, maxLead = Infinity } = {}) {
+  const s0 = project(spot, vel, age);
+  const vx = vel?.x ?? 0;
+  const vy = vel?.y ?? 0;
+  const rx = s0.x - from.x;
+  const ry = s0.y - from.y;
+  const a = vx * vx + vy * vy - speed * speed;
+  const b = 2 * (rx * vx + ry * vy);
+  const c = rx * rx + ry * ry;
+  let root = null;
+  if (Math.abs(a) < 1e-12) {
+    if (b === 0) root = c === 0 ? 0 : null;
+    else if (-c / b >= 0) root = -c / b;
+  } else {
+    const disc = b * b - 4 * a * c;
+    if (disc >= 0) {
+      const q = Math.sqrt(disc);
+      const hit = [(-b - q) / (2 * a), (-b + q) / (2 * a)].filter((r) => r >= 0).sort((p, r) => p - r);
+      if (hit.length) root = hit[0];
+    }
+  }
+  const met = root !== null;
+  const t = met ? Math.min(root, maxLead) : Number.isFinite(maxLead) ? maxLead : 0;
+  return { ...project(s0, vel, t), t, met };
+}
