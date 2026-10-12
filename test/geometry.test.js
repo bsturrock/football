@@ -57,7 +57,7 @@ test('leadPoint age: seen 0.2 s ago equals seen now at the advanced spot', () =>
 
 test('leadPoint linear case |v| = speed', () => {
   const from = { x: 0, y: 0 };
-  const r = leadPoint(from, 3, { x: 0, y: 4 }, { x: -3, y: 0 });
+  const r = leadPoint(from, 3, { x: 4, y: 3 }, { x: -3, y: 0 });
   assert.equal(r.met, true);
   near(Math.hypot(r.x - from.x, r.y - from.y), 3 * r.t);
   const away = leadPoint(from, 3, { x: 0, y: 4 }, { x: 0, y: 3 });
