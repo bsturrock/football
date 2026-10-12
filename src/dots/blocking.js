@@ -3,11 +3,10 @@ import { HW } from '../util.js';
 import { steerStep, hardCore, CUT_ACCEL } from './steering.js';
 import { stepReact } from './react.js';
 import { startFoot, retargetFoot, footGoal, footPush, RIDE_MIN } from './technique.js';
+import { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
+export { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
 
 export const BLOCKER_ROLES = ['OL', 'TE'];
-// 0.56 yd = 20 in wide, the top of the 16-20 in shoulder range; area about 2.2 sq ft, between
-// the 1.5 sq ft crush minimum and the 2.5-3 sq ft comfortable footprint.
-export const BODY_RADIUS = 0.28;
 const H = hardCore(BODY_RADIUS); // hard contact distance; the soft zone is [H, 2 * BODY_RADIUS)
 // Fraction of soft-zone penetration relaxed per second of sim time.
 export const SOFT_RATE = 8;
@@ -27,8 +26,6 @@ const ENGAGE_NEAR = 0.75 * ENGAGE_TOL;
 export const ENGAGE_SLACK = BODY_RADIUS / 10;
 // Tunable: seconds the target must be 'winning' before the block is shed.
 export const SHED_TIME = 0.3;
-// Tunable: yards the ball must be upfield of the target for the blocker to let go.
-export const RELEASE_PAST = 4 * BODY_RADIUS;
 // Tunable: seconds after a shed or lost block before the blocker may engage again.
 export const REENGAGE_DELAY = 0.5;
 
@@ -397,9 +394,6 @@ export function doubleTeamPeel(players, ballPos) { // eslint-disable-line no-unu
   }
   return out;
 }
-
-// The ball is well upfield of the target: the blocker may let go of him, and may not re-engage him.
-const ballPast = (T, ballPos) => ballPos.y >= T.y + RELEASE_PAST;
 
 // Single release predicate for an engaged block. First match wins: 'shed' (the target has won
 // for SHED_TIME, only when fight is true), 'past' (the ball is well upfield of the target), 'lost'

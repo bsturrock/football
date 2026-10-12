@@ -7,6 +7,7 @@ import {
   SHED_TIME, REENGAGE_DELAY, RELEASE_PAST, blockPush, BLOCK_ANGLES, blockForce, CONTACT_TURN,
   contactImpulse, carryVelocity, massOf, CONTACT_GRIP, IMPACT_TIME, ENGAGE_TAU, FOLLOW_TAU, dampedFollow,
 } from '../src/dots/blocking.js';
+import { ballPast, RELEASE_PAST as GEO_RELEASE_PAST, BODY_RADIUS as GEO_BODY_RADIUS } from '../src/dots/geometry.js';
 import { hardCore, CUT_ACCEL } from '../src/dots/steering.js';
 import { startFoot, RIDE_MIN } from '../src/dots/technique.js';
 import { startReact, WIN_SPEED } from '../src/dots/react.js';
@@ -17,6 +18,13 @@ const O = (id, x, y, o = {}) => ({ id, team: 'offense', role: 'OL', x, y, speed:
 const D = (id, x, y, o = {}) => ({ id, team: 'defense', role: 'DT', x, y, speed: 6.5, strength: 0.6, block: null, ...o });
 const blk = (target, o = {}) => ({ target, angle: 'straight', engaged: false, seq: null, ...o });
 const mk = (angle) => ({ id: 'b', block: { target: 'd', angle, engaged: true, seq: 1 }, strength: 1 });
+
+test('geometry: ballPast', () => {
+  const T = { x: 0, y: 20 };
+  assert.equal(ballPast(T, { x: 0, y: T.y + GEO_RELEASE_PAST }), true);
+  assert.equal(ballPast(T, { x: 0, y: T.y + GEO_RELEASE_PAST - 0.01 }), false);
+  assert.equal(BODY_RADIUS, GEO_BODY_RADIUS);
+});
 
 test('resolveBlock exact values', () => {
   const def = { x: 0, y: 10, strength: 0.6 };
