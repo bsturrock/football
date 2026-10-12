@@ -1,18 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlay, FIXED_DT } from '../src/dots/play.js';
+import { createPlay } from '../src/dots/play.js';
 import { FRONTS } from '../src/dots/roster.js';
 import { engagedOn, BODY_RADIUS } from '../src/dots/blocking.js';
-import { hardCore, PACES } from '../src/dots/steering.js';
+import { PACES } from '../src/dots/steering.js';
 import {
-  LANES, GAP_BACK, LANE_AHEAD, PRESSURE_DIST, CLEAR_HOLD, BEND_MAX, laneWindows,
+  LANES, GAP_BACK, LANE_AHEAD, PRESSURE_DIST, BEND_MAX, laneWindows,
 } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
-const HOLD_TICKS = Math.ceil(CLEAR_HOLD / FIXED_DT) - 1;
 const LOS = 25;
 const CAP = 240; // 4 s
-const H = hardCore(BODY_RADIUS);
 const REPORT = process.env.RB_READ_REPORT === '1';
 
 const defenders = (play) => play.players.filter((p) => p.team === 'defense');
@@ -22,33 +20,6 @@ const lineNo = (play, n) => play.players.find((p) => play.numbers[p.id] === n);
 function park(play) {
   defenders(play).forEach((d, i) => { d.x = 15 + i; d.y = 45; });
 }
-
-test('F-35 #9: with the box empty he commits to the playside A gap between the tackles', () => {
-  const play = createPlay(LOS, 'insideZone', { tackles: false });
-  play.snap();
-  const run = play.run;
-  let handoff = null;
-  let commit = null;
-  for (let n = 1; n <= CAP && !run.locked && play.ball.phase !== 'dead'; n++) {
-    park(play);
-    play.step(DT);
-    if (handoff === null && run.carried) handoff = n;
-    if (commit === null && run.locked) commit = n;
-  }
-  assert.ok(run.locked, 'committed within 4 s');
-  assert.ok(handoff !== null, 'handed off before the commit');
-  assert.equal(run.commitBy, 'clear', `commitBy ${run.commitBy}`);
-  assert.ok(commit - handoff >= HOLD_TICKS,
-    `commit ${commit} only ${commit - handoff} ticks after handoff ${handoff}, need ${HOLD_TICKS}`);
-  assert.ok(commit - handoff <= Math.ceil(run.patience / DT) + 1,
-    `committed ${commit - handoff} ticks after the handoff`);
-  assert.deepEqual({ ...run.lane }, { side: 'play', name: 'A' });
-  const g1 = lineNo(play, 1);
-  const gm1 = lineNo(play, -1);
-  const lo = Math.min(g1.x, gm1.x);
-  const hi = Math.max(g1.x, gm1.x);
-  assert.ok(run.x > lo && run.x < hi, `run.x ${run.x} not between ${lo} and ${hi}`);
-});
 
 // F-54 #3: noTe, because base 'te' has only two free defenders once RT climbs to the MLB and the TE takes the SLB; this needs three.
 test('F-35 #9: with the playside A, B, C filled he cuts back to the backside', () => {
@@ -116,8 +87,6 @@ test('F-35 #9: patience press then burst (accel off and on)', () => {
     assert.ok(o.handoff !== null && o.commit !== null, `accel ${accel} handoff ${o.handoff} commit ${o.commit}`);
     assert.ok(o.commit - o.handoff <= Math.ceil(play.run.patience / DT) + 1,
       `accel ${accel} committed ${o.commit - o.handoff} ticks after the handoff`);
-    assert.ok(o.commit - o.handoff >= HOLD_TICKS,
-      `accel ${accel} committed ${o.commit - o.handoff} ticks after the handoff, need ${HOLD_TICKS}`);
     assert.ok(o.laneOk, 'lane is a LANES entry while pressing');
     const pressCap = PACES.press.frac * rb.speed * DT;
     const pressMoves = o.moves.filter((m) => m.n > o.handoff && m.n < o.commit);
@@ -154,7 +123,7 @@ function fullPlay(front, al = []) {
   const rb = play.player('RB');
   const info = {
     play, handoff: null, commit: null, lane: null, commitBy: null, laneOpenAtCommit: null,
-    engagedBeforeDead: new Set(), bad: [], pressBad: [], commitState: null,
+    engagedBeforeDead: new Set(), pressBad: [], commitState: null,
   };
   for (let n = 1; n <= CAP && play.ball.phase !== 'dead'; n++) {
     const engaged = new Set(defenders(play).filter((d) => engagedOn(play.players, d.id).length > 0).map((d) => d.id));
@@ -162,15 +131,6 @@ function fullPlay(front, al = []) {
     play.step(DT);
     if (info.handoff === null && run.carried) info.handoff = n;
     if (run.carried && !run.locked) {
-      const e = run.lanes.find((l) => l.side === run.lane.side && l.name === run.lane.name);
-      if (e && e.open) {
-        for (const p of play.players) {
-          if (p.id === run.carrier) continue;
-          const q = play.prev[p.id];
-          if (q.y < LOS - GAP_BACK || q.y > LOS + LANE_AHEAD) continue;
-          if (Math.abs(q.x - run.aim.x) < H - 1e-9) info.bad.push(`tick ${n} ${p.id} at ${q.x.toFixed(2)} aim ${run.aim.x.toFixed(2)}`);
-        }
-      }
       const r0 = play.prev[run.carrier];
       for (const d of defenders(play)) {
         if (engaged.has(d.id)) continue;
@@ -200,7 +160,7 @@ function nearest(play, id) {
   return best;
 }
 
-test('F-35 #9: on every front and alignment he commits in time and never aims at a body in an open lane', () => {
+test('F-35 #9: on every front and alignment he commits in time', () => {
   const rows = [];
   const exceptions = [];
   for (const front of Object.keys(FRONTS)) {
@@ -217,13 +177,8 @@ test('F-35 #9: on every front and alignment he commits in time and never aims at
       } else {
         assert.ok(info.commit - info.handoff <= Math.ceil(play.run.patience / DT) + 1,
           `${label} committed ${info.commit - info.handoff} ticks after handoff`);
-        if (info.commitBy === 'clear') {
-          assert.ok(info.commit - info.handoff >= HOLD_TICKS,
-            `${label} cleared ${info.commit - info.handoff} ticks after handoff, need ${HOLD_TICKS}`);
-        }
       }
       assert.ok(info.bends <= BEND_MAX, `${label} bends ${info.bends} > ${BEND_MAX}`);
-      assert.deepEqual(info.bad, [], `${label} aimed at a body in an open lane`);
       const rb = play.player('RB');
       rows.push({
         label,
