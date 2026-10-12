@@ -503,7 +503,7 @@ test('F-58 #3: a scraping LB stays over the top', () => {
 });
 
 test('F-19 #8: the climber comes off when the watched LB has committed', () => {
-  // F-47: the climber is picked by pickClimber (the blocker on the side of the LB's fit), judged on the switch tick.
+  // F-47: the climber is picked by pickClimber (the member laterally nearer the LB, from where he is: F-59), judged on the switch tick.
   let checked = 0;
   for (const k of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front: k });
@@ -515,8 +515,7 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
       const byId = (id) => players.find((q) => q.id === id);
       seen = out.map((e) => {
         const c = ctx.combos.find((m) => (m.owner === e.blocker || m.partner === e.blocker) && unswitched(players, m));
-        const fit = ctx.defGoals?.[e.target]?.x ?? byId(e.target).x;
-        const want = pickClimber(byId(c.owner), byId(c.partner), byId(c.target), fit, ctx.side);
+        const want = pickClimber(byId(c.owner), byId(c.partner), byId(e.target));
         return { blocker: e.blocker, want: want.id };
       });
       return out;
@@ -901,8 +900,7 @@ test('R-64: every front, the climber on the switch tick is the blocker on the si
       seen = out.map((e) => {
         const c = ctx.combos.find((k) => (k.owner === e.blocker || k.partner === e.blocker) && unswitched(players, k));
         const byId = (id) => players.find((q) => q.id === id);
-        const fit = ctx.defGoals?.[e.target]?.x ?? byId(e.target).x;
-        const want = pickClimber(byId(c.owner), byId(c.partner), byId(c.target), fit, ctx.side);
+        const want = pickClimber(byId(c.owner), byId(c.partner), byId(e.target));
         return { front, blocker: e.blocker, want: want.id };
       });
       return out;
@@ -1094,13 +1092,12 @@ const declaredRun = (front, personnel, playside, script) => {
       if (!e || !unswitched(pl, c)) continue;
       const lb = byId(e.target), dl = byId(c.target), o = byId(c.owner), pt = byId(c.partner);
       const cues = Object.fromEntries([c.owner, c.partner].map((id) => [id, ctx.cues(id)]));
-      const fit = ctx.defGoals?.[lb.id]?.x ?? lb.x;
       events.push({
         c, e,
         forced: Math.min(...[o, pt].map((m) => Math.hypot(lb.x - m.x, lb.y - m.y))) <= SWITCH_DIST + 1e-9,
         declared: declaredIn(cues, [c.owner, c.partner], lb.id),
         ride: dl.y >= ctx.los + RIDE_DEPTH - 1e-9,
-        want: pickClimber(o, pt, dl, fit, ctx.side).id,
+        want: pickClimber(o, pt, lb).id,
       });
     }
     return out;
@@ -1435,4 +1432,33 @@ test('F-55 #6d: a climber\'s path does not wobble', (t) => {
   assert.ok(spans > 0);
   t.diagnostic(`wobble (report-only): ${spans} spans, ${bad.length} with more than 1 x-reversal, worst ${maxFlips} reversals`);
   for (const line of bad) t.diagnostic(`wobble (report-only): ${line}`);
+});
+
+test('F-59 #3: walkedUp te run right, C comes off the nose double to the Mike (nearer member climbs)', () => {
+  const play = createPlay(25, 'insideZone', { front: 'walkedUp', personnel: 'te', playside: 'right', accel: true, tackles: false });
+  const orig = play.retargetRule;
+  const rel = [];
+  let combo = null;
+  play.retargetRule = (pl, b, ctx) => {
+    const out = orig(pl, b, ctx);
+    const byId = (id) => pl.find((q) => q.id === id);
+    for (const c of ctx.combos) {
+      const mem = [c.owner, c.partner];
+      if (!(mem.includes('C') && mem.includes('RG') && byId(c.target)?.id === 'BT')) continue;
+      combo = c;
+      const e = out.find((o) => mem.includes(o.blocker));
+      if (!e || !unswitched(pl, c)) continue;
+      const mike = byId(e.target);
+      rel.push({ e, mikeId: mike.id, dC: Math.abs(byId('C').x - mike.x), dRG: Math.abs(byId('RG').x - mike.x) });
+    }
+    return out;
+  };
+  assert.ok(play.snap());
+  for (let i = 0; i < Math.round(2.5 / DT) && play.ball.phase !== 'dead'; i++) play.step(DT);
+  assert.ok(combo, 'a C/RG combo on BT exists');
+  assert.ok(rel.length > 0, 'a release happened');
+  const r = rel[0];
+  assert.equal(r.e.target, 'MIK');
+  assert.equal(r.e.blocker, 'C');
+  assert.ok(r.dC < r.dRG, `C ${r.dC} nearer than RG ${r.dRG}`);
 });

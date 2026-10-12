@@ -297,14 +297,14 @@ const seesBy = (member, state, inTrack = true, id = 'MLB') => (s) => {
 const ctxNoFn = (ctx) => { const { cues, ...rest } = ctx; return structuredClone(rest); };
 test('F-19 #8 (restated F-55 #1): declared (filling in track), MLB out of range, fit past pair picks LG', () =>
   assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: -1.5 } }; }), [{ blocker: 'LG', target: 'MLB' }]));
-test('F-19 #8 (restated F-55 #1): the declaration only triggers; the fit (defGoals) picks the climber', () =>
-  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8 (restated F-55 #1, F-59): the declaration only triggers; the LB position picks the climber, not the goal', () =>
+  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'LG', target: 'MLB' }]));
 test('F-19 #8 (restated F-55 #1): declaration with no goal falls back to the watch position', () =>
   assert.deepEqual(at(0.4, 29.5, sees('filling')), [{ blocker: 'C', target: 'MLB' }]));
-test('F-19 #8 (restated F-55 #1): fit lateral tie goes to owner', () =>
-  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: -1.1 } }; }), [{ blocker: 'C', target: 'MLB' }]));
-test('F-19 #8 (restated F-55 #1): a declaration beats range', () =>
-  assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8 (restated F-55 #1, F-59): lateral tie of the LB position goes to owner', () =>
+  assert.deepEqual(at(-1.1, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: -2 } }; }), [{ blocker: 'C', target: 'MLB' }]));
+test('F-19 #8 (restated F-55 #1, F-59): a declaration beats range', () =>
+  assert.deepEqual(at(0.4, 29.5, (s) => { sees('filling')(s); s.ctx.defGoals = { MLB: { x: -2 } }; }), [{ blocker: 'C', target: 'MLB' }]));
 test('F-19 #8 (restated F-55 #1): a declaration for another id does not trigger the watched LB', () =>
   assert.deepEqual(at(-1.6, 29.5, (s) => { sees('filling', true, 'WLB')(s); place(s, [['WLB', 40, 40]]); }), []));
 test('F-19 #8 (restated F-55): no ctx.cues (or null) -> nobody declared, range rule only', () => {
@@ -355,45 +355,36 @@ test('F-55 #8: a climber lets an LB leaving the play go for the most dangerous u
   }
 });
 
-const dl = (x) => ({ id: 'D', x });
 const blkAt = (x) => ({ id: 'B' + x, x });
-test('pickClimber: playside fit sends the playside blocker', () => {
+const lbAt = (x) => ({ id: 'L', x });
+test('pickClimber: the member laterally nearer the linebacker climbs, either side', () => {
   const [a, b] = [blkAt(-1), blkAt(1)];
-  assert.equal(pickClimber(a, b, dl(0), 0.5, 1), b);
-  assert.equal(pickClimber(a, b, dl(0), -0.5, -1), a);
+  assert.equal(pickClimber(a, b, lbAt(0.5)), b);
+  assert.equal(pickClimber(a, b, lbAt(-0.5)), a);
+  assert.equal(pickClimber(b, a, lbAt(0.5)), b);
+  assert.equal(pickClimber(b, a, lbAt(-0.5)), a);
 });
-test('pickClimber: backside fit sends the backside blocker', () => {
+test('pickClimber: exact tie goes to the owner whichever argument order', () => {
   const [a, b] = [blkAt(-1), blkAt(1)];
-  assert.equal(pickClimber(b, a, dl(0), -0.5, 1), a);
-  assert.equal(pickClimber(b, a, dl(0), 0.5, -1), b);
+  assert.equal(pickClimber(a, b, lbAt(0)), a);
+  assert.equal(pickClimber(b, a, lbAt(0)), b);
 });
-test('pickClimber: dead band goes to the nearer blocker, tie to the owner', () => {
-  const [a, b] = [blkAt(-1), blkAt(1)];
-  assert.equal(pickClimber(a, b, dl(0), 0.1, 1), b);
-  assert.equal(pickClimber(a, b, dl(0), -0.1, 1), a);
-  assert.equal(pickClimber(a, b, dl(0), 0, 1), a);
-  assert.equal(pickClimber(b, a, dl(0), 0, 1), b);
+test('pickClimber: defGoals beats the watch position in zoneSwitch (restated F-59)', () => {
+  // the LB's live position names the climber; a goal far on the other side changes nothing
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: 2 } }; }), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: -3 } }; }), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(-0.2, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: -2 } }; }), [{ blocker: 'C', target: 'MLB' }]);
 });
-test('pickClimber: bad side or missing DL falls back to nearest', () => {
-  const [a, b] = [blkAt(-1), blkAt(1)];
-  assert.equal(pickClimber(a, b, dl(0), 0.8, 0), b);
-  assert.equal(pickClimber(a, b, null, 0.8, 1), b);
-});
-test('pickClimber: defGoals beats the watch position in zoneSwitch', () => {
-  assert.deepEqual(at(-1.3, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: 0.2 } }; }), [{ blocker: 'C', target: 'MLB' }]);
-  assert.deepEqual(at(0, 25.0, (s) => { s.ctx.defGoals = { MLB: { x: -2 } }; }), [{ blocker: 'LG', target: 'MLB' }]);
-});
-test('zoneSwitch: playside sign picks by the DL, not the nearer blocker', () => {
-  // RDT sits at its lineup x; fit far playside (side +1) sends the more playside blocker even if the other is nearer
-  const s = sw();
-  Object.assign(s.g('RDT'), { x: -1.0 });
-  Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
-  s.ctx.side = 1;
-  s.ctx.defGoals = { MLB: { x: -0.2 } };
-  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'C', target: 'MLB' }]);
-  s.ctx.side = -1;
-  s.ctx.defGoals = { MLB: { x: -1.8 } };
-  assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'LG', target: 'MLB' }]);
+test('zoneSwitch: playside sign picks by the DL, not the nearer blocker (restated F-59)', () => {
+  // the nearer member to the LB climbs whatever side or DL position; moving the DL past the LB changes nothing
+  for (const side of [1, -1]) for (const dx of [-1.0, 1.0, -3, 3]) {
+    const s = sw();
+    Object.assign(s.g('RDT'), { x: dx });
+    Object.assign(s.g('MLB'), { x: -1.3, y: 25.0 });
+    s.ctx.side = side;
+    s.ctx.defGoals = { MLB: { x: 0.9 } };
+    assert.deepEqual(zoneSwitch(s.players, null, s.ctx), [{ blocker: 'LG', target: 'MLB' }], `side ${side} dl ${dx}`);
+  }
 });
 
 // Restated by T-9 (F-3 #1, round 3), again by F-55 #1/#2: the climber comes off only when the watched LB declares (cues), judged from the members' perception, never from LB velocity or defense internals. HELD was COMBO_HOLD.
@@ -449,11 +440,11 @@ test('F-3 #1 (viii) (restated F-55 #1): a filling LB outside both tracks is not 
   assert.deepEqual(at(...out, (s) => { sees('crossing', false)(s); joint(HELD)(s); }), [{ blocker: 'LG', target: 'MLB' }]);
 });
 // F-55 #1/#2 new rule tests
-test('F-55 #2: a sitting LB never releases at any hold until the DL reaches los + RIDE_DEPTH, then the man on the LB side comes off', () => {
+test('F-55 #2 (restated F-59): a sitting LB never releases at any hold until the DL reaches los + RIDE_DEPTH, then the man on the LB side comes off', () => {
   for (const [fx, who] of [[-1.5, 'LG'], [0.4, 'C']]) {
     for (const h of [0.3, 1, 3]) {
-      assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(h)(s); s.ctx.los = 20; s.g('RDT').y = 20 + RIDE_DEPTH - 0.1; s.ctx.defGoals = { MLB: { x: fx } }; }), [], `held ${h} before ride depth`);
-      assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(h)(s); s.ctx.los = 20; s.g('RDT').y = 20 + RIDE_DEPTH; s.ctx.defGoals = { MLB: { x: fx } }; }), [{ blocker: who, target: 'MLB' }], `held ${h} at ride depth, fit ${fx}`);
+      assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(h)(s); s.ctx.los = 20; s.g('RDT').y = 20 + RIDE_DEPTH - 0.1; s.g('MLB').x = fx; }), [], `held ${h} before ride depth`);
+      assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(h)(s); s.ctx.los = 20; s.g('RDT').y = 20 + RIDE_DEPTH; s.g('MLB').x = fx; }), [{ blocker: who, target: 'MLB' }], `held ${h} at ride depth, fit ${fx}`);
     }
   }
 });
@@ -461,14 +452,14 @@ test('F-55 #2: ride depth needs both members on the DL, and no ctx.los means no 
   assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(1)(s); s.ctx.los = 20; s.g('RDT').y = 26; s.g('LG').block.engaged = false; }), []);
   assert.deepEqual(at(...far, (s) => { sees('sitting')(s); joint(1)(s); s.g('RDT').y = 26; }), []);
 });
-test('F-55 #1: filling in the owner track releases the owner when the LB fits on his side, the partner when on the other side', () => {
+test('F-55 #1 (restated F-59): filling in the owner track releases the owner when the LB fits on his side, the partner when on the other side', () => {
   // C is the owner (x 0), LG the partner (x -2.2); the DL sits at its lineup x between them; side +1 puts playside at +x
-  const run = (fx, track) => at(-1.6, 29.5, (s) => { sees('filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; s.ctx.defGoals = { MLB: { x: fx } }; joint(HELD)(s); if (track) track(s); });
+  const run = (fx, track) => at(fx, 29.5, (s) => { sees('filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; joint(HELD)(s); if (track) track(s); });
   assert.deepEqual(run(0.4), [{ blocker: 'C', target: 'MLB' }]);
   assert.deepEqual(run(-2.6), [{ blocker: 'LG', target: 'MLB' }]);
   // only the owner sees the fill in his track
-  assert.deepEqual(at(...far, (s) => { seesBy('C', 'filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; s.ctx.defGoals = { MLB: { x: 0.4 } }; }), [{ blocker: 'C', target: 'MLB' }]);
-  assert.deepEqual(at(...far, (s) => { seesBy('LG', 'filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; s.ctx.defGoals = { MLB: { x: -2.6 } }; }), [{ blocker: 'LG', target: 'MLB' }]);
+  assert.deepEqual(at(...far, (s) => { seesBy('C', 'filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; s.g('MLB').x = 0.4; }), [{ blocker: 'C', target: 'MLB' }]);
+  assert.deepEqual(at(...far, (s) => { seesBy('LG', 'filling')(s); s.ctx.side = 1; s.g('RDT').x = -1.1; s.g('MLB').x = -2.6; }), [{ blocker: 'LG', target: 'MLB' }]);
 });
 test('F-55 #1: crossing releases, with or without being in the track', () => {
   assert.deepEqual(at(...far, (s) => { sees('crossing', false)(s); }), [{ blocker: 'LG', target: 'MLB' }]);
