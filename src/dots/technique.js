@@ -23,7 +23,8 @@
 //            where the blocker would meet him (near number on the run's side), aims at the spot with no
 //            shift when no meeting point exists, and keeps the aim within CLIMB_LANE_REACH of the ball
 //   seal     optional; true on the climb row: once engaged on the target's flow side the blocker holds his seal (footPush
-//            never leans the push past the contact line's side while the target travels toward him)
+//            never leans the push past the seal side while the target travels toward him; the seal side is latched with
+//            the seal, so a target sliding to head-up in front of him does not release the clamp)
 //   next     technique entered after coming off onto a new target
 //   phases   pre-contact phases, in order ('step', 'aim', or 'hinge' for the cutoff wall spot)
 //   retarget phase entered after coming off onto a new target
@@ -324,9 +325,17 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
   // his trail side while the target still moves. He squares up (no lateral push) instead of riding into the target.
   // Sealed is latched (foot.sealed) from the tick the target's lateral travel is toward the blocker's side, until that
   // travel really reverses, so the clamp does not flicker as the target slows under RIDE_MIN (wobble, #11).
+  // The seal side (sealSide, the sign of the contact line's x when the seal was judged) is latched with the seal, so the
+  // clamp does not release when the target slides to head-up (|contact.x| under SEAL_MIN) while the seal holds (F-57 #11a).
   let sealed = foot.sealed === true;
-  if (TECHNIQUES[foot.tech]?.seal === true && contact != null && Math.abs(contact.x) >= SEAL_MIN && Math.abs(v.x) >= RIDE_MIN) sealed = v.x * contact.x < 0;
-  if (sealed && TECHNIQUES[foot.tech]?.seal === true && contact != null && Math.abs(contact.x) >= SEAL_MIN && desired.x * contact.x < 0) {
+  let sealSide = foot.sealSide ?? 0;
+  if (TECHNIQUES[foot.tech]?.seal === true && contact != null && Math.abs(contact.x) >= SEAL_MIN && Math.abs(v.x) >= RIDE_MIN) {
+    sealed = v.x * contact.x < 0;
+    sealSide = sealed ? Math.sign(contact.x) : 0;
+  } else if (sealed && foot.sealSide == null && contact != null && Math.abs(contact.x) >= SEAL_MIN) {
+    sealSide = Math.sign(contact.x);
+  }
+  if (sealed && TECHNIQUES[foot.tech]?.seal === true && sealSide !== 0 && desired.x * sealSide < 0) {
     desired = { x: 0, y: Math.sign(desired.y || base.y || 1) };
   }
 
@@ -335,5 +344,5 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
   const fl = Math.hypot(from.x, from.y);
   const start = fl > 0 ? { x: from.x / fl, y: from.y / fl } : drive;
   const push = rotateToward(start, desired, dt > 0 ? PUSH_TURN * dt : 0);
-  return { ride, push, sealed };
+  return { ride, push, sealed, sealSide };
 }
