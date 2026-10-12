@@ -1410,8 +1410,11 @@ test('F-55 #6d: a climber never climbs past his linebacker\'s level', (t) => {
   assert.ok(n > 0);
 });
 
+// Report-only by the human's rule "Judge both by eye" (F-57 item 11b, T-68): the climber's side-to-side wobble is
+// judged by watching the play, not by this count.
 test('F-55 #6d: a climber\'s path does not wobble', (t) => {
   let spans = 0;
+  let maxFlips = 0;
   const bad = [];
   for (const [front, personnel, playside] of climbCases()) {
     for (const sp of climbSpans(front, personnel, playside)) {
@@ -1424,10 +1427,12 @@ test('F-55 #6d: a climber\'s path does not wobble', (t) => {
         sign = s;
       }
       spans++;
+      maxFlips = Math.max(maxFlips, flips);
       t.diagnostic(`${front} ${personnel} ${playside} ${sp.climber}: ${sp.ticks.length} ticks, ${flips} x-reversals`);
       if (flips > 1) bad.push(`${front} ${personnel} ${playside} ${sp.climber}: vel.x reversed ${flips} times`);
     }
   }
   assert.ok(spans > 0);
-  assert.equal(bad.length, 0, bad.join('\n'));
+  t.diagnostic(`wobble (report-only): ${spans} spans, ${bad.length} with more than 1 x-reversal, worst ${maxFlips} reversals`);
+  for (const line of bad) t.diagnostic(`wobble (report-only): ${line}`);
 });

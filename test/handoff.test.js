@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
-import { LANES, MESH_AHEAD, HANDOFF_DIST, CUT_ALLOW, BEND_MAX, CLOSE_HOLD } from '../src/dots/carrier.js';
+import { MESH_AHEAD, HANDOFF_DIST, CUT_ALLOW, BEND_MAX } from '../src/dots/carrier.js';
 
 const DT = 1 / 60;
 const near = (a, b, m = '') => assert.ok(Math.abs(a - b) < 1e-9, `${m} ${a} !~ ${b}`);
@@ -63,26 +63,9 @@ test('F-13 #5: lane read invariants hold across alignments', () => {
     let lockedLane = null;
     let lockedX = null;
     let bends = 0;
-    let prevAim = null;
-    let closedTicks = 0;
     for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
       play.step(DT);
       const label = JSON.stringify(al.length) + ' step ' + i;
-      if (run.carried && !run.locked) {
-        assert.ok(LANES.some((l) => l.side === run.lane.side && l.name === run.lane.name), label);
-        const l = run.lanes.find((e) => e.side === run.lane.side && e.name === run.lane.name);
-        assert.ok(l, label);
-        if (l.open) { near(run.aim.x, l.x, label); closedTicks = 0; }
-        else {
-          closedTicks++;
-          // a closed lane is only held (aim unchanged) for under CLOSE_HOLD; otherwise the pick sets the aim to its x
-          if (Math.abs(run.aim.x - l.x) >= 1e-9) {
-            assert.ok(prevAim && Math.abs(run.aim.x - prevAim.x) < 1e-9, label + ' held aim');
-            assert.ok(closedTicks < CLOSE_HOLD / DT, label + ' held too long');
-          }
-        }
-        prevAim = { ...run.aim };
-      }
       if (run.locked) {
         if (lockedLane === null) { lockedLane = { ...run.lane }; lockedX = run.x; bends = run.bends; }
         if (run.bends > bends) {
@@ -124,7 +107,8 @@ test('F-35: insideZone RB presses then commits within the patience window', () =
   assert.ok(commit - handoff <= Math.ceil(play.run.patience / DT) + 1,
     `committed ${((commit - handoff) * DT).toFixed(3)} s after the handoff (window ${play.run.patience} s)`);
   near(play.run.patience, 0.5, 'patience');
-  assert.ok(['window', 'clear', 'line', 'pressure'].includes(play.run.commitBy), `commitBy ${play.run.commitBy}`);
+  // 'read' is the RB read engine's commit (F-57, T-53); 'clear' retires with it
+  assert.ok(['window', 'read', 'clear', 'line', 'pressure'].includes(play.run.commitBy), `commitBy ${play.run.commitBy}`);
 });
 
 test('F-35 determinism: two fresh plays give identical RB positions every tick', () => {

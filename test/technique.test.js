@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   TECHNIQUES, PHASES, stepDir, stepLenOf, techniqueLabel, HINGE_GIVE, WALL_LEAN, aimPoint, driveDir, leanDir, rotate, signedAngle, rotateToward, nextTech,
-  RIDE_MAX, RIDE_FULL, RIDE_MIN, PUSH_TURN,
+  RIDE_MAX, RIDE_FULL, RIDE_MIN, PUSH_TURN, SEAL_MIN,
   startFoot, retargetFoot, footGoal, footPush, COMBO_LEAN,
 } from '../src/dots/technique.js';
 
@@ -235,6 +235,50 @@ test('footPush (h) no wobble', () => {
     prev = a;
   }
   assert.ok(Math.abs(prev - fin) < rad(1));
+});
+
+// F-57 #11a: the seal side is latched with the seal. The target stays on the blocker's flow side (travelling toward
+// him) while the contact line's lateral share shrinks under SEAL_MIN (head-up); the push must not lean toward his travel.
+const unitAt = (s) => ({ x: s, y: Math.sqrt(1 - s * s) });
+const SEAL_STEPS = (v, s, n) => Array.from({ length: n }, () => ({ v, s }));
+function runSeal(f0, steps) {
+  let f = f0;
+  const out = [];
+  for (const { v, s } of steps) {
+    const r = footPush(f, { x: 0, y: 5 }, null, { x: v, y: 0 }, unitAt(s), DT);
+    out.push({ s, r });
+    f = { ...f, ride: r.ride, push: r.push, sealed: r.sealed, sealSide: r.sealSide };
+  }
+  return { out, f };
+}
+
+test('F-57 #11a: a sealed blocker stays square through head-up', () => {
+  const steps = [0.2, 0.15, 0.1, 0.07, 0.04, 0.02, 0.01, 0.03].map((s) => ({ v: -1, s }));
+  const { out } = runSeal(mkFoot({ tech: 'climb', shade: 'playside', push: V }), steps);
+  assert.ok(out.some(({ s }) => Math.abs(s) < SEAL_MIN), 'the run reaches head-up');
+  for (const { s, r } of out) {
+    assert.equal(r.sealed, true, `sealed at ${s}`);
+    assert.equal(r.sealSide, 1, `seal side at ${s}`);
+    near(r.push.x, 0, `square at ${s}`);
+  }
+});
+
+test('F-57 #11a: the seal releases only when the target travel really reverses', () => {
+  const steps = [
+    ...SEAL_STEPS(-1, 0.2, 3),
+    ...SEAL_STEPS(-1, 0.02, 10), // head-up, seal holds
+    ...SEAL_STEPS(1, 0.1, 30), // travel away from his side, re-judged with |x| >= SEAL_MIN
+  ];
+  const { out } = runSeal(mkFoot({ tech: 'climb', shade: 'playside', push: V }), steps);
+  const headUp = out.slice(3, 13);
+  for (const { r } of headUp) {
+    assert.equal(r.sealed, true);
+    near(r.push.x, 0, 'square through head-up');
+  }
+  const last = out[out.length - 1].r;
+  assert.equal(last.sealed, false);
+  assert.equal(last.sealSide, 0);
+  assert.ok(last.push.x > 0.05, `rides toward the travel ${last.push.x}`);
 });
 
 test('frozen and consistent', () => {

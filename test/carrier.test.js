@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  laneWindows, freeLane, scoreLanes, chooseLane, startRun, stepCarrier,
+  laneWindows, freeLane, scoreLanes, chooseLane, pickCrease, startRun, stepCarrier,
   LANES, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, LOCK_DEPTH, GOAL_LINE_Y,
   GAP_DEPTH, LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
-  PHASE_PACE, CLOSE_HOLD, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, CLEAR_ROOM, CLEAR_HOLD, BEND_MAX,
-  AVOID_SIGHT_MIN, AVOID_SIGHT_MAX, AVOID_FAN, AVOID_CONTACT, AVOID_CLOSE, AVOID_SIDELINE, AVOID_HOLD, AVOID_SWITCH, AVOID_AIM_DIST, visionOf,
+  PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, BEND_MAX,
+  AVOID_SIGHT_MIN, AVOID_SIGHT_MAX, AVOID_FAN, NEAR_FIELD, AVOID_FAN_NEAR, AVOID_CONTACT, AVOID_CLOSE, AVOID_SIDELINE, AVOID_HOLD, AVOID_SWITCH, AVOID_AIM_DIST, visionOf,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS, engagedOn } from '../src/dots/blocking.js';
 import { hardCore, PACES } from '../src/dots/steering.js';
@@ -150,6 +150,19 @@ test('freeLane: an offensive player inside an open window pushes x clear of him 
   }
   const f = freeLane([...pl, { id: 'O', team: 'offense', x: -3, y: LOS + BODY_RADIUS }], { lo: -3.6, hi: -2.4 }, 'RB', LOS);
   assert.equal(f.open, false);
+});
+
+test('F-57 #5: freeLane seg of a closed window is not its middle when a body sits on the middle', () => {
+  const pl = parked(mk());
+  const win = { lo: -1.2, hi: 0 };
+  const f = freeLane([...pl, defAt('Z', -0.6, LOS + BODY_RADIUS)], win, 'RB', LOS);
+  assert.equal(f.open, false);
+  near(f.x, -0.6);
+  assert.ok(Math.abs(f.seg - -0.6) > 0.1, `seg ${f.seg}`);
+  assert.ok(f.seg >= win.lo && f.seg <= win.hi);
+  // a wider window with a body off the middle: seg is the widest segment's middle, open or not
+  const g = freeLane([...pl, defAt('Z', -1.9, LOS + 0.3)], { lo: -4, hi: 0 }, 'RB', LOS);
+  near(g.seg, g.x);
 });
 
 test('freeLane: x is the middle of the widest remaining segment', () => {
@@ -421,96 +434,6 @@ test('patience 0 commits on the handoff call', () => {
   assert.equal(run.commitBy, 'window');
 });
 
-test('press: no commit before the window, re-reads lanes, commits at the window, paces', () => {
-  const { pl, run, rb } = atMesh(0.5);
-  const ds = pinAll(pl, run);
-  const dt = 1 / 60;
-  delete rb.v;
-  let moved = false;
-  let guard = 0;
-  while (run.pressTime + dt < 0.5 - 1e-9 && guard++ < 1000) {
-    const x0 = rb.x; const y0 = rb.y;
-    go(pl, run, dt);
-    assert.equal(run.locked, false, 'pressTime ' + run.pressTime);
-    assert.ok(Math.hypot(rb.x - x0, rb.y - y0) <= PACES.press.frac * rb.speed * dt + 1e-9);
-    assert.ok(rb.y < LOS - LOCK_DEPTH, 'press never reaches the line lock');
-    assert.equal(run.press.y, LOS - PRESS_DEPTH);
-    if (run.pressTime > 0.2 && !moved) {
-      moved = true;
-      const before = { ...run.lane };
-      const w = get(laneWindows(pl, run.line, run.side), 'back', 'B');
-      assert.deepEqual(before, { side: 'play', name: 'A' });
-      ds.forEach((d, i) => { if (i === 4) { d.x = 15; d.y = 45; } });
-      assert.ok(w);
-      go(pl, run, dt);
-      assert.equal(run.locked, false);
-      assert.deepEqual(run.lane, { side: 'back', name: 'B' });
-    }
-  }
-  assert.ok(moved);
-  go(pl, run, dt);
-  assert.equal(run.pressTime >= 0.5 - 1e-9, true);
-  assert.equal(run.locked, true);
-  assert.equal(run.commitBy, 'window');
-  const lane = { ...run.lane };
-  const x = run.x;
-  const y0 = rb.y;
-  rb.x = x; rb.y = LOS - 3; // unobstructed: pinned bodies sit at lane middles; clear space behind the line
-  ds.forEach((d) => { d.x = 15; d.y = 45; });
-  const p0 = { x: rb.x, y: rb.y };
-  go(pl, run, dt);
-  assert.ok(Math.abs(Math.hypot(rb.x - p0.x, rb.y - p0.y) - rb.speed * dt) < 1e-6, 'committed step at full speed');
-  assert.deepEqual(run.lane, lane);
-  assert.ok(y0 < LOS);
-});
-
-test('clear hold: a lane with room Infinity commits clear on the tick clearTime reaches CLEAR_HOLD, not before', () => {
-  const { pl, run } = atMesh(PATIENCE_MAX);
-  const n = Math.ceil(CLEAR_HOLD * 60 - 1e-9);
-  assert.ok(CLEAR_HOLD < 0.5 && n > 1);
-  for (let i = 1; i < n; i++) {
-    go(pl, run);
-    assert.equal(run.locked, false, 'tick ' + i);
-    near(run.clearTime, i / 60);
-  }
-  go(pl, run);
-  assert.equal(run.locked, true);
-  assert.equal(run.commitBy, 'clear');
-  assert.ok(run.clearTime >= CLEAR_HOLD - 1e-9);
-  assert.ok(run.pressTime < run.patience);
-});
-
-test('clear hold: a lane clear for less than CLEAR_HOLD then given a free defender within CLEAR_ROOM restarts its hold', () => {
-  const { pl, run } = atMesh(PATIENCE_MAX);
-  for (let i = 0; i < 8; i++) go(pl, run);
-  assert.equal(run.locked, false);
-  assert.ok(run.clearTime > 0 && run.clearTime < CLEAR_HOLD);
-  const lane0 = { ...run.clearLane };
-  const d = pl.find((p) => p.team === 'defense');
-  d.x = run.aim.x + 1.0; d.y = LOS + LANE_AHEAD - 0.1;
-  go(pl, run);
-  assert.equal(run.locked, false);
-  // the hold restarted: at most one tick, and on another lane if it is clear at all
-  assert.ok(run.clearTime <= 1 / 60 + 1e-9, 'clearTime ' + run.clearTime);
-  if (run.clearLane) assert.notDeepEqual(run.clearLane, lane0);
-  d.x = 15; d.y = 45;
-  go(pl, run);
-  assert.equal(run.locked, false);
-});
-
-test('clear room: a picked open lane needs CLEAR_ROOM to every free defender to count as clear', () => {
-  const { pl, run } = atMesh(PATIENCE_MAX);
-  go(pl, run);
-  const x = run.aim.x;
-  const d = pl.find((p) => p.team === 'defense');
-  d.x = x + H + CLEAR_ROOM + 0.05; d.y = LOS + LANE_AHEAD - 0.1;
-  go(pl, run);
-  assert.ok(run.clearTime > 0);
-  d.x = x + H + CLEAR_ROOM - 0.05;
-  go(pl, run);
-  assert.equal(run.clearTime, 0);
-});
-
 test('pressure: unblocked defender within PRESSURE_DIST ends the patience', () => {
   const place = (dist, block) => {
     const e = atMesh(PATIENCE_MAX);
@@ -620,7 +543,8 @@ test('bend: committed lane closed behind the los with another lane open -> moves
   plugCommitted(e);
   assert.ok(e.rb.y < LOS);
   go(pl, run);
-  const pick = chooseLane(run.lanes, null);
+  const pick = pickCrease(run.lanes, run.call); // F-57: the crease is picked among the call's lanes
+  assert.equal(run.call, 'bang');
   assert.ok(pick.open);
   assert.notDeepEqual({ side: pick.side, name: pick.name }, before);
   assert.deepEqual(run.lane, { side: pick.side, name: pick.name });
@@ -929,7 +853,6 @@ function judgeAim(checkReversal) {
             const sg = Math.sign(dx);
             if (lastSign && sg !== lastSign) {
               revs++;
-              // R-10 (R-16) / F-55 #4: the reversal check is a todo until the RB read engine (R-10) lands; remove with the todo.
               if (checkReversal) assert.ok((i - lastRev) * DT >= 0.5 - 1e-9, `${tag}: tick ${i} aim x reversed twice within 0.5 s`);
               lastRev = i;
             }
@@ -955,8 +878,7 @@ test('F-48 #11c: past the los a heading is held', () => {
   judgeAim(false);
 });
 
-// R-10 (R-16) / F-55 #4: the reversal check is a todo until the RB read engine (R-10) lands; remove the todo then.
-test('F-48 #11c reversal: past the los the aim x reverses at most once in 0.5 s', { todo: 'R-10: RB aim wobble between avoid heading and lane pull; exposed by the vertical double, F-55 #4' }, () => {
+test('F-48 #11c reversal: past the los the aim x reverses at most once in 0.5 s', () => {
   judgeAim(true);
 });
 
@@ -1045,58 +967,76 @@ test('F-48 #12 (b): a held cut is not changed or restarted while a man is inside
   }
 });
 
-// CLOSE_HOLD: a carried, unlocked RB keeps his lane through a closure shorter than CLOSE_HOLD.
-const holdRig = () => {
-  const { pl, run, rb } = pinned([]);
-  run.patience = 10;
-  const ws = laneWindows(pl, run.line, run.side);
-  const w = get(ws, 'play', 'A');
-  const d = pl.find((p) => p.team === 'defense');
-  const close = (on) => { d.x = on ? (w.lo + w.hi) / 2 : 15; d.y = on ? LOS + BODY_RADIUS : 45; };
-  const tick = () => { go(pl, run); rb.x = run.mesh.x; rb.y = run.mesh.y; return run.lanes.find((l) => l.side === 'play' && l.name === 'A'); };
-  return { run, close, tick };
-};
-const HOLD_TICKS = Math.ceil(CLOSE_HOLD * 60 - 1e-9);
-
-test('CLOSE_HOLD (a): a closure shorter than CLOSE_HOLD keeps the lane and the last aim', () => {
-  const { run, close, tick } = holdRig();
-  assert.equal(tick().open, true);
-  assert.equal(run.closedFor, 0);
-  assert.deepEqual(run.lane, { side: 'play', name: 'A' });
-  const aim = { ...run.aim };
-  close(true);
-  for (let i = 0; i < HOLD_TICKS - 1; i++) {
-    assert.equal(tick().open, false);
-    assert.deepEqual(run.lane, { side: 'play', name: 'A' }, 'tick ' + i);
-    assert.deepEqual(run.aim, aim, 'tick ' + i);
+test('F-57 #7: near the line he stays within AVOID_FAN_NEAR', () => {
+  let farWide = 0;
+  for (const sgn of [1, -1]) {
+    for (const depth of [0.5, NEAR_FIELD + 0.5]) {
+      const { pl, run, rb, ds } = past(1);
+      rb.y = LOS + depth;
+      place(ds[0], rb.x + sgn * 0.4, rb.y + 3);
+      const at = { x: rb.x, y: rb.y };
+      go(pl, run);
+      const ang = Math.abs(bearing(at, run.aim));
+      if (depth < NEAR_FIELD) assert.ok(ang <= AVOID_FAN_NEAR + 1e-9, `near heading ${ang}`);
+      else {
+        assert.ok(ang <= AVOID_FAN + 1e-9, `far heading ${ang}`);
+        if (ang > AVOID_FAN_NEAR + 1e-6) farWide++;
+      }
+    }
   }
-  close(false);
-  assert.equal(tick().open, true);
-  assert.deepEqual(run.lane, { side: 'play', name: 'A' });
-  assert.equal(run.closedFor, 0);
+  console.log('F-57 #7 far cases wider than near fan: ' + farWide);
 });
 
-test('CLOSE_HOLD (b): a lane closed for CLOSE_HOLD switches to the chooseLane pick on the first tick the hold runs out', () => {
-  const { run, close, tick } = holdRig();
-  tick();
-  close(true);
-  for (let i = 0; i < HOLD_TICKS - 1; i++) { tick(); assert.equal(run.lane.name, 'A'); }
-  tick();
-  const expect = chooseLane(run.lanes, { side: 'play', name: 'A' });
-  assert.equal(expect.name, 'B');
-  assert.deepEqual(run.lane, { side: expect.side, name: expect.name });
+test('F-57 #7: play level near-line heading', () => {
+  const DT = 1 / 60;
+  let total = 0;
+  for (const front of Object.keys(FRONTS)) {
+    for (const personnel of ['noTe', 'te']) {
+      for (const dir of ['left', 'right']) {
+        const tag = `front ${front}, personnel ${personnel}, ${dir}`;
+        const play = createPlay(25, 'insideZone', { front, personnel });
+        play.setPlayside(dir);
+        play.snap();
+        const run = play.run;
+        const rb = play.player(run.carrier);
+        let checked = 0;
+        for (let i = 0; i < 300 && !play.result; i++) {
+          const at = { x: rb.x, y: rb.y };
+          play.step(DT);
+          if (!run.pastLos || at.y - LOS >= NEAR_FIELD || run.aim.y <= at.y) continue;
+          assert.ok(Math.abs(bearing(at, run.aim)) <= AVOID_FAN_NEAR + 1e-9, `${tag}: tick ${i} heading ${bearing(at, run.aim)}`);
+          checked++;
+        }
+        total += checked;
+      }
+    }
+  }
 });
 
-test('CLOSE_HOLD (c): a lane that has not read open since it was picked is not held', () => {
-  const { run, close, tick } = holdRig();
-  close(true);
-  run.closedFor = null;
-  tick();
-  assert.equal(run.lane.name, 'B');
-  assert.equal(run.closedFor, 0);
-  const r2 = holdRig();
-  r2.close(true);
-  r2.run.closedFor = null;
-  r2.tick();
-  assert.deepEqual(r2.run.lane, { side: 'play', name: 'B' });
+test('F-57 #8: trace names the call', () => {
+  const play = createPlay(25, 'insideZone', { front: 'base', trace: true });
+  play.snap();
+  let after = -1;
+  for (let i = 0; i < 600 && !play.result; i++) {
+    play.step(1 / 60);
+    if (play.run.locked && after < 0) after = 0;
+    else if (after >= 0 && ++after >= 10) break;
+  }
+  assert.ok(play.run.locked);
+  const entries = play.traceOf(play.run.carrier);
+  let pre = 0, post = 0;
+  for (const e of entries) {
+    const d = e.decision;
+    if (d.kind !== 'carry') continue;
+    if (!d.locked) {
+      assert.equal(e.reason, 'pressing');
+      assert.equal(d.call, null);
+      pre++;
+    } else {
+      assert.equal(d.call, play.run.call);
+      assert.ok(e.reason.startsWith(play.run.call + ': '), e.reason);
+      post++;
+    }
+  }
+  assert.ok(pre > 0 && post > 0);
 });

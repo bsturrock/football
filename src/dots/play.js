@@ -305,7 +305,12 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
       const handed = stepCarrier(
         play.players,
         play.run,
-        { los, ballHeld: ball.phase === 'held', holdId: PLAYS[playKey].ball.snapTo },
+        {
+          los,
+          ballHeld: ball.phase === 'held',
+          holdId: PLAYS[playKey].ball.snapTo,
+          cues: play.perception ? cuesFor(play.perception, play.run.carrier) : null,
+        },
         sdt,
       );
       if (handed) {

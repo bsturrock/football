@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   REACTION_DELAY, HISTORY_S, TRACK_HALF, worldSnapshot, createPerception, observe, seenAt, velocityOf,
-  techniqueOf, boxCount, cuesFor, perceiveAll,
+  techniqueOf, boxCount, cuesFor, perceiveAll, moveOf,
 } from '../src/dots/perceive.js';
+import { HEAD_UP, LINE_DEPTH } from '../src/dots/front.js';
 import { buildLineup, FRONTS, FORMATIONS } from '../src/dots/roster.js';
 import { createPlay, FIXED_DT } from '../src/dots/play.js';
 
@@ -321,4 +322,72 @@ test('perceiveAll survives a whole run on every front and formation', () => {
   };
   for (const front of Object.keys(FRONTS)) runAll(createPlay(25, 'insideZone', { front }));
   for (const formation of Object.keys(FORMATIONS)) runAll(createPlay(25, 'insideZone', { formation }));
+});
+
+// Run cue: the carrier is RB; SIDE -1 means playside is -x. Playside line defenders by snap x.
+const runSnap = (front) => createPerception(snap(0, lineup({ front }), [], 'RB'), CENTER);
+const playsideDl = (st) => st.dlIds
+  .map((id) => ({ id, u: SIDE * (st.snap[id].x - st.snap.C.x) }))
+  .filter((d) => d.u > HEAD_UP)
+  .sort((a, b) => a.u - b.u || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+test('run cue: key is the first DL playside of the center', () => {
+  for (const front of ['base', 'over43']) {
+    const st = runSnap(front);
+    const ps = playsideDl(st);
+    const r = cuesFor(st, 'RB').run;
+    assert.equal(r.key, ps[0].id, `${front} key`);
+    assert.equal(r.end, ps.at(-1).id, `${front} end`);
+    assert.equal(cuesFor(st, 'QB').run, null);
+  }
+  const base = runSnap('base');
+  assert.equal(cuesFor(base, 'RB').run.key, 'RDT');
+  assert.equal(cuesFor(base, 'RB').run.end, 'RDE');
+  const over = runSnap('over43');
+  assert.equal(cuesFor(over, 'RB').run.key, 'PT');
+  assert.equal(cuesFor(over, 'RB').run.end, 'PE');
+});
+
+test('run cue: move classes', () => {
+  const w = lineup({ front: 'base' });
+  const mv = (dx, dy) => cuesFor(run(w, 30, () => moved(w, 'RDT', dx, dy), [], 'RB'), 'RB').run.dl.RDT.move;
+  assert.equal(mv(0, -0.6), 'upfield');
+  assert.equal(mv(0, 0.6), 'driven');
+  assert.equal(mv(SIDE * 0.5, 0), 'widen');
+  assert.equal(mv(-SIDE * 0.5, 0), 'squeeze');
+  assert.equal(mv(0.1, 0.1), 'held');
+  assert.equal(moveOf(createPerception(snap(0, w), CENTER), 'RDT', { x: w.find((p) => p.id === 'RDT').x, y: 24 }), 'upfield');
+});
+
+test('run cue: felt is carried and dl/lbs sides', () => {
+  const w = lineup({ front: 'base' });
+  const contacts = [{ blocker: 'RG', defender: 'RDT' }, { blocker: 'C', defender: 'RDT' }];
+  const st = run(w, 30, () => w, contacts, 'RB');
+  const r = cuesFor(st, 'RB').run;
+  assert.equal(r.dl.RDT.felt, 'double');
+  assert.equal(r.dl.RDT.side, 'play');
+  assert.equal(r.dl.LDE.side, 'back');
+  assert.equal(r.dl.RDT.move, 'held');
+  const flowing = run(w, 30, (k, t) => moved(w, 'MLB', SIDE * 2 * t, 0), [], 'RB');
+  const lb = cuesFor(flowing, 'RB').run.lbs.MLB;
+  assert.equal(lb.dir, 1);
+  assert.equal(lb.state, 'flowing');
+  const filling = run(w, 30, (k, t) => moved(w, 'MLB', 0, -2 * t), [], 'RB');
+  const fl = cuesFor(filling, 'RB').run.lbs.MLB;
+  assert.equal(fl.state, 'filling');
+  assert.equal(fl.dir, 0);
+});
+
+test('run cue: play passes the carrier cues', () => {
+  const play = createPlay(25, 'insideZone', { front: 'base' });
+  play.snap();
+  const dlWant = play.players
+    .filter((p) => p.team === 'defense' && p.y - 25 > 0 && p.y - 25 <= LINE_DEPTH)
+    .map((p) => p.id);
+  assert.ok(dlWant.length >= 4);
+  for (let k = 0; k < 40; k++) play.step(FIXED_DT);
+  const c = play.cuesOf(play.run.carrier).run;
+  assert.equal(typeof c, 'object');
+  assert.ok(c !== null);
+  for (const id of dlWant) assert.ok(id in c.dl, `dl entry for ${id}`);
 });

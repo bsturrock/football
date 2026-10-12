@@ -35,6 +35,13 @@
 //   ball   defender: { x, y, vx, vy, carried, past, committed } of the ball spot: the seen holder when in
 //          view, else the center (velocity 0). carried = holder is the carrier; past = carried and y > los;
 //          committed = carried and (past or moving downfield at >= COMMIT_V and >= |vx|). Offense: null.
+//   run    carrier only (null for everyone else). key: first line-level defender playside of the center
+//          by snap spot (id or null); end: playside end man, largest distance from center (id or null).
+//          dl: { [id]: { side, move, felt } } per line-level defender in view. side 'play' | 'head' | 'back'
+//          of his snap spot vs. the center; move 'upfield' | 'driven' | 'widen' | 'squeeze' | 'held' from
+//          his snap spot to his seen spot; felt as above.
+//          lbs: { [id]: { side, state, dir } } per second-level box defender in view. side from his seen x;
+//          state as in lbs; dir +1 flowing playside, -1 flowing backside, 0 otherwise.
 import { LINE_ROLES } from './numbering.js';
 import { HEAD_UP, LINE_DEPTH, shade } from './front.js';
 import { TRACK_HALF } from './zone.js';
@@ -60,6 +67,9 @@ export const PULL_V = 2.0;
 export const CLIMB_SEE = 4.0;
 export const CLOSE_V = 1.5;
 export const COMMIT_V = 2.0;
+export const UPFIELD_MOVE = 0.5; // yd a line defender must get downfield (into the backfield) to read 'upfield'
+export const DRIVEN_MOVE = 0.5; // yd a line defender must be pushed back off the ball to read 'driven'
+export const WIDEN_MOVE = 0.4; // yd a line defender must move laterally to read 'widen' or 'squeeze'
 
 const EPS = 1e-9;
 const LABELS = [['0', '1', '1'], ['2', '2i', '3'], ['4', '4i', '5'], ['6', '7', '9']];
@@ -86,7 +96,8 @@ export function createPerception(snapshot, { centerId }) {
   const snap = {};
   for (const p of snapshot.players) snap[p.id] = { x: p.x, y: p.y };
   const lbIds = boxCount(snapshot).ids.filter((id) => byId(snapshot, id).y - snapshot.los > LINE_DEPTH);
-  return { los: snapshot.los, side: snapshot.side, carrierId: snapshot.carrierId, centerId, snap, history: [snapshot], lbIds };
+  const dlIds = boxCount(snapshot).ids.filter((id) => byId(snapshot, id).y - snapshot.los <= LINE_DEPTH);
+  return { los: snapshot.los, side: snapshot.side, carrierId: snapshot.carrierId, centerId, snap, history: [snapshot], lbIds, dlIds };
 }
 
 export function observe(state, snapshot) {
@@ -325,6 +336,57 @@ function techCue(view, me, centerId) {
   return best ? { id: best.id, label: best.label, shade: best.shade } : null;
 }
 
+// ---- run cue (carrier) ----
+
+// Side of a snap x against the center: 'play' (playside of him), 'back' (backside), else 'head'.
+function sideOf(state, x) {
+  const cx = state.snap[state.centerId]?.x ?? 0;
+  const u = state.side * (x - cx);
+  return u > HEAD_UP ? 'play' : u < -HEAD_UP ? 'back' : 'head';
+}
+
+// How a line-level defender moved: seen spot `at` against his snap spot.
+export function moveOf(state, id, at) {
+  const s = state.snap[id];
+  const dx = state.side * (at.x - s.x);
+  const dy = at.y - s.y;
+  if (dy <= -UPFIELD_MOVE) return 'upfield';
+  if (dy >= DRIVEN_MOVE) return 'driven';
+  if (dx >= WIDEN_MOVE) return 'widen';
+  if (dx <= -WIDEN_MOVE) return 'squeeze';
+  return 'held';
+}
+
+function runCue(state, view, vOf) {
+  const cx = state.snap[state.centerId]?.x ?? 0;
+  const u = (id) => state.side * (state.snap[id].x - cx);
+  let key = null;
+  let end = null;
+  for (const id of state.dlIds) {
+    if (u(id) <= HEAD_UP) continue;
+    if (!key || u(id) < u(key) - EPS || (Math.abs(u(id) - u(key)) <= EPS && cmpId(id, key) < 0)) key = id;
+    if (!end || u(id) > u(end) + EPS || (Math.abs(u(id) - u(end)) <= EPS && cmpId(id, end) < 0)) end = id;
+  }
+  const dl = {};
+  for (const id of state.dlIds) {
+    const d = byId(view, id);
+    if (!d) continue;
+    dl[id] = { side: sideOf(state, state.snap[id].x), move: moveOf(state, id, d), felt: feltCue(view, id, state, vOf) };
+  }
+  const lbs = {};
+  for (const id of state.lbIds) {
+    const d = byId(view, id);
+    if (!d) continue;
+    const v = vOf(id);
+    lbs[id] = {
+      side: sideOf(state, d.x),
+      state: lbState(v, false, mirrorsBack(view, d, vOf, v)),
+      dir: Math.abs(v.x) >= FLOW_V ? Math.sign(state.side * v.x) : 0,
+    };
+  }
+  return { key, end, dl, lbs };
+}
+
 export function cuesFor(state, id) {
   const latest = state.history[state.history.length - 1];
   const mine = byId(latest, id);
@@ -334,7 +396,7 @@ export function cuesFor(state, id) {
   const me = byId(view, id);
   const vOf = (pid) => velocityOf(state, pid, seen.t);
   const lineV = view.players.filter(isLine).map((p) => vOf(p.id));
-  const cues = { seen: seen.t, delay, tech: null, track: null, lbs: null, felt: null, hat: null, flow: null, key: null, climber: null, ball: null };
+  const cues = { seen: seen.t, delay, tech: null, track: null, lbs: null, felt: null, hat: null, flow: null, key: null, climber: null, ball: null, run: null };
   if (!me) return cues;
   const centerId = state.centerId;
   cues.tech = techCue(view, me, centerId);
@@ -351,6 +413,7 @@ export function cuesFor(state, id) {
     if (state.lbIds.includes(id)) cues.key = keyCue(state, view, id, vOf);
     cues.climber = climberCue(view, me, vOf);
   }
+  if (state.carrierId != null && id === state.carrierId) cues.run = runCue(state, view, vOf);
   return cues;
 }
 

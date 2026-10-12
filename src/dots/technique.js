@@ -23,7 +23,11 @@
 //            where the blocker would meet him (near number on the run's side), aims at the spot with no
 //            shift when no meeting point exists, and keeps the aim within CLIMB_LANE_REACH of the ball
 //   seal     optional; true on the climb row: once engaged on the target's flow side the blocker holds his seal (footPush
-//            never leans the push past the contact line's side while the target travels toward him)
+//            never leans the push past the seal side while the target travels toward him; the seal side is latched with
+//            the seal, so a target sliding to head-up in front of him does not release the clamp)
+//   level    optional; true on the climb row: in the 'aim' phase footGoal sets goal.ceiling (levelCeiling: the target's
+//            depth projected LEVEL_LEAD s along his downhill velocity), and steerStep never ends the step upfield of it,
+//            so the climber never climbs past his linebacker's level (F-57 #11b)
 //   next     technique entered after coming off onto a new target
 //   phases   pre-contact phases, in order ('step', 'aim', or 'hinge' for the cutoff wall spot)
 //   retarget phase entered after coming off onto a new target
@@ -48,6 +52,7 @@ export const COMBO_LEAN = 40; // degrees from vertical toward the play, lean of 
 export const HINGE_GIVE = 0.05; // yd, how far back toward the offense the hinge wall spot sits (tunable)
 export const INTERCEPT_MIN_SPEED = 1; // yd/s, floor on the blocker speed used to solve the climb intercept (tunable)
 export const CLIMB_LANE_REACH = 5; // yd, generous bound on how far from the ball a climb aim may sit ("within reason": stops only wild intercepts, not a leash) (tunable)
+export const LEVEL_LEAD = 0.15; // s, how far ahead a climber projects a downhill linebacker's depth for his level ceiling; 0.15 so he starts giving ground before a 5 yd/s blitzer is level with him (0.1 still let one in by a few hundredths) without making climbers on a sitting or scraping LB any slower (tunable)
 export const WALL_LEAN = 30; // degrees from straight upfield toward the backside, lean of a 'wall' drive (tunable)
 
 const freezeRow = (r) => Object.freeze({
@@ -64,7 +69,7 @@ export const TECHNIQUES = Object.freeze({
   zone: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 55 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
   // Same as zone for the covered member; none = the uncovered helper's short step playside, shoulders square.
   combo: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 45 }, aim: 0.5, drive: 'double', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
-  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, seal: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, seal: true, level: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   // F-55 #5. Step inside and flat to protect the inside gap, then hinge out to wall the end man off.
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'wall', next: 'cutoff', phases: ['step', 'hinge'], retarget: 'hinge' }),
 });
@@ -266,6 +271,15 @@ export function retargetFoot(foot, blocker, target) {
   };
 }
 
+// Level ceiling of a 'level' row (F-57 #11b): the deepest y the climber's step may end at, the linebacker's depth
+// projected LEVEL_LEAD seconds along his downhill velocity (no projection while he holds or drops). A climber meets
+// his man at or below the man's level, between him and the backfield; when the man comes downhill fast under or
+// beside him he gives ground with him instead of climbing past him (climb-spec case 3: square up, do not run past).
+export function levelCeiling(target) {
+  const vy = (target.selfVel ?? target.vel)?.y ?? 0;
+  return target.y + Math.min(0, vy) * LEVEL_LEAD;
+}
+
 export function footGoal(foot, blocker, spot, side, radius, env) {
   const row = TECHNIQUES[foot.tech];
   const names = row.phases;
@@ -283,6 +297,7 @@ export function footGoal(foot, blocker, spot, side, radius, env) {
   }
   const goal = def.goal(foot, spot, side, radius, { blocker, ...env });
   if (row.squeeze != null) goal.squeeze = row.squeeze;
+  if (row.level === true && phase === 'aim' && env?.target) goal.ceiling = levelCeiling(env.target);
   return { phase, goal };
 }
 
@@ -324,9 +339,17 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
   // his trail side while the target still moves. He squares up (no lateral push) instead of riding into the target.
   // Sealed is latched (foot.sealed) from the tick the target's lateral travel is toward the blocker's side, until that
   // travel really reverses, so the clamp does not flicker as the target slows under RIDE_MIN (wobble, #11).
+  // The seal side (sealSide, the sign of the contact line's x when the seal was judged) is latched with the seal, so the
+  // clamp does not release when the target slides to head-up (|contact.x| under SEAL_MIN) while the seal holds (F-57 #11a).
   let sealed = foot.sealed === true;
-  if (TECHNIQUES[foot.tech]?.seal === true && contact != null && Math.abs(contact.x) >= SEAL_MIN && Math.abs(v.x) >= RIDE_MIN) sealed = v.x * contact.x < 0;
-  if (sealed && TECHNIQUES[foot.tech]?.seal === true && contact != null && Math.abs(contact.x) >= SEAL_MIN && desired.x * contact.x < 0) {
+  let sealSide = foot.sealSide ?? 0;
+  if (TECHNIQUES[foot.tech]?.seal === true && contact != null && Math.abs(contact.x) >= SEAL_MIN && Math.abs(v.x) >= RIDE_MIN) {
+    sealed = v.x * contact.x < 0;
+    sealSide = sealed ? Math.sign(contact.x) : 0;
+  } else if (sealed && foot.sealSide == null && contact != null && Math.abs(contact.x) >= SEAL_MIN) {
+    sealSide = Math.sign(contact.x);
+  }
+  if (sealed && TECHNIQUES[foot.tech]?.seal === true && sealSide !== 0 && desired.x * sealSide < 0) {
     desired = { x: 0, y: Math.sign(desired.y || base.y || 1) };
   }
 
@@ -335,5 +358,5 @@ export function footPush(foot, target, watch, vel, contact, dt, side) {
   const fl = Math.hypot(from.x, from.y);
   const start = fl > 0 ? { x: from.x / fl, y: from.y / fl } : drive;
   const push = rotateToward(start, desired, dt > 0 ? PUSH_TURN * dt : 0);
-  return { ride, push, sealed };
+  return { ride, push, sealed, sealSide };
 }

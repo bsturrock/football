@@ -478,7 +478,6 @@ function judgeSlip(t, opts, { noTe, lane = true }) {
   if (cross) {
     t.diagnostic(`rule c locked ${cross.locked}, slip ${cross.slip}`);
     assert.ok(cross.locked, `RB crossed unlocked (gap ${cross.gap})`);
-    // R-10 (R-16) / F-55 #4: lane:false skips the slip check until the RB read engine (R-10) lands; remove with the todo.
     if (lane) assert.ok(cross.slip <= A_GAP_HALF + BODY_RADIUS, `RB crossed ${cross.slip} yd off his lane (max ${A_GAP_HALF + BODY_RADIUS})`);
   }
 }
@@ -487,8 +486,7 @@ test('F-15 #8: no-TE look: DTs do not beat the OL, the back does not stall, a fr
   judgeSlip(t, { personnel: 'noTe' }, { noTe: true, lane: false });
 });
 
-// R-10 (R-16) / F-55 #4: the lane check is a todo while the RB read engine (R-10) is pending; remove the todo when it lands.
-test('F-15 #8c: no-TE look: a committed crossing is in his lane', { todo: 'R-10 (R-16): RB enters a hole then backs out; exposed by the vertical double, F-55 #4' }, (t) => {
+test('F-15 #8c: no-TE look: a committed crossing is in his lane', (t) => {
   judgeSlip(t, { personnel: 'noTe' }, { noTe: true });
 });
 
