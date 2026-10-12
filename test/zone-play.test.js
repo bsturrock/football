@@ -4,7 +4,7 @@ import { createPlay } from '../src/dots/play.js';
 import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
-import { RIDE_MIN, TECHNIQUES, stepDir, stepLenOf, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
+import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, stepDir, stepLenOf, driveDir, rotate, PUSH_TURN, BLIND_START, COMBO_LEAN } from '../src/dots/technique.js';
 import { gapSpan, GOALS, FILL_DEPTH } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
@@ -1258,5 +1258,121 @@ test('F-55 #4: first steps by role and shade', () => {
     }
   }
   assert.ok(checked > 0);
+  assert.equal(bad.length, 0, bad.join('\n'));
+});
+
+// F-55 #6 (.work/maps/climb-spec.md): the climb aims at the point where he would meet his linebacker.
+const meetFoot = (tech) => ({ tech, shade: 'none', watch: null, phase: 'aim', ox: 0, oy: 0, ride: 0, push: null });
+const nearPt = (a, b, msg) => assert.ok(Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9, `${msg}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
+
+test('F-55 #6a: the climb aim leads to the intercept point on the near number', () => {
+  const spot = { x: 3, y: 4 };
+  const blocker = { x: 0, y: 0, speed: 5 };
+  const vel = { x: -2, y: 0 };
+  const goal = (tech, target, env = {}) => footGoal(meetFoot(tech), blocker, spot, 1, BODY_RADIUS, { target, ...env }).goal;
+  // |spot + v t - blocker| = 5 t -> 21 t^2 + 12 t - 25 = 0 (a = 4 - 25, b = 2 * 3 * -2); the smaller positive root
+  const t = (-12 + Math.sqrt(144 + 4 * 21 * 25)) / (2 * 21);
+  const I = { x: spot.x + vel.x * t, y: spot.y };
+  assert.ok(Math.abs(Math.hypot(I.x, I.y) - 5 * t) < 1e-6, 'I solves the intercept');
+  const g = goal('climb', { vel });
+  nearPt(g, aimPoint(I, 'climb', 1, BODY_RADIUS), 'intercept');
+  nearPt(goal('climb', { vel: { x: 9, y: 9 }, selfVel: vel }), aimPoint(I, 'climb', 1, BODY_RADIUS), 'selfVel preferred');
+  nearPt(goal('climb', { vel: { x: 0, y: 0 } }), aimPoint(spot, 'climb', 1, BODY_RADIUS), 'zero velocity');
+  nearPt(goal('climb', undefined), aimPoint(spot, 'climb', 1, BODY_RADIUS), 'no target');
+  for (const tech of ['zone', 'combo', 'cutoff']) {
+    nearPt(goal(tech, { vel }), goal(tech, undefined), tech + ' ignores a moving target');
+  }
+});
+
+test('F-55 #6b: no meeting point -> aim at the spot with no playside shift', () => {
+  const spot = { x: 3, y: 4 };
+  const blocker = { x: 0, y: 0, speed: 5 };
+  const g = footGoal(meetFoot('climb'), blocker, spot, 1, BODY_RADIUS, { target: { vel: { x: 0, y: 8 } } }).goal;
+  nearPt(g, spot, 'faster target running away');
+  const gl = footGoal(meetFoot('climb'), blocker, { x: -3, y: 4 }, -1, BODY_RADIUS, { target: { vel: { x: 0, y: 8 } } }).goal;
+  nearPt(gl, { x: -3, y: 4 }, 'left side too');
+});
+
+test('F-55 #6c: an intercept far from the ball is pulled back to CLIMB_LANE_REACH', () => {
+  const blocker = { x: 0, y: 0, speed: 5 };
+  const env = { target: { vel: { x: 0, y: 0 } }, ballPos: { x: 0, y: 20 } };
+  const far = footGoal(meetFoot('climb'), blocker, { x: 9 - 0.5 * BODY_RADIUS, y: 4 }, 1, BODY_RADIUS, env).goal;
+  assert.ok(Math.abs(far.x - CLIMB_LANE_REACH) < 1e-9 && far.y === 4, JSON.stringify(far));
+  const farL = footGoal(meetFoot('climb'), blocker, { x: -9 + 0.5 * BODY_RADIUS, y: 4 }, -1, BODY_RADIUS, env).goal;
+  assert.ok(Math.abs(farL.x + CLIMB_LANE_REACH) < 1e-9, JSON.stringify(farL));
+  const near = footGoal(meetFoot('climb'), blocker, { x: 4 - 0.5 * BODY_RADIUS, y: 4 }, 1, BODY_RADIUS, env).goal;
+  assert.ok(Math.abs(near.x - 4) < 1e-9, JSON.stringify(near));
+});
+
+// Climb spans for F-55 #6d: per combo member that retargets off the combo's DL, from the climb tick until he engages, his target changes or the window ends.
+function climbSpans(front, personnel, playside) {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front, personnel, playside });
+  play.snap();
+  const combos = play.combos.map((c) => ({ ...c }));
+  const spans = [];
+  const open = new Map();
+  for (let i = 0; i * DT < 2.0 && play.ball.phase !== 'dead'; i++) {
+    play.step(DT);
+    for (const c of combos) {
+      for (const id of [c.owner, c.partner]) {
+        const m = play.player(id);
+        const key = c.owner + '/' + id;
+        const sp0 = open.get(key);
+        if (!sp0 && !spans.some((s) => s.key === key) && m.block && !m.block.engaged && m.block.target != null && m.block.target !== c.target) {
+          const sp = { key, climber: id, front, personnel, playside, lbId: m.block.target, ticks: [] };
+          open.set(key, sp);
+          spans.push(sp);
+        }
+        const sp = open.get(key);
+        if (!sp) continue;
+        if (m.block?.engaged || m.block?.target == null || m.block.target !== sp.lbId) { open.delete(key); continue; }
+        const lb = play.player(sp.lbId);
+        sp.ticks.push({ i, y: m.y, vx: m.vel.x, lb: lb.id, lby: lb.y });
+      }
+    }
+  }
+  return spans;
+}
+const climbCases = () => {
+  const out = [];
+  for (const front of Object.keys(FRONTS)) for (const personnel of ['noTe', 'te']) for (const playside of ['left', 'right']) out.push([front, personnel, playside]);
+  return out;
+};
+
+test('F-55 #6d: a climber never climbs past his linebacker\'s level', (t) => {
+  let n = 0;
+  let worst = -Infinity;
+  for (const [front, personnel, playside] of climbCases()) {
+    for (const sp of climbSpans(front, personnel, playside)) {
+      for (const k of sp.ticks) {
+        n++;
+        worst = Math.max(worst, k.y - (k.lby + BODY_RADIUS));
+        assert.ok(k.y <= k.lby + BODY_RADIUS + 1e-9, `${front} ${personnel} ${playside} ${sp.climber} past ${k.lb} at tick ${k.i}: y ${k.y.toFixed(3)} > ${k.lby.toFixed(3)} + ${BODY_RADIUS}`);
+      }
+    }
+  }
+  t.diagnostic(`${n} climb ticks, worst margin ${worst.toFixed(3)} yd`);
+  assert.ok(n > 0);
+});
+
+test('F-55 #6d: a climber\'s path does not wobble', (t) => {
+  let spans = 0;
+  const bad = [];
+  for (const [front, personnel, playside] of climbCases()) {
+    for (const sp of climbSpans(front, personnel, playside)) {
+      let sign = 0;
+      let flips = 0;
+      for (const k of sp.ticks) {
+        if (Math.abs(k.vx) <= 0.3) continue;
+        const s = Math.sign(k.vx);
+        if (sign !== 0 && s !== sign) flips++;
+        sign = s;
+      }
+      spans++;
+      t.diagnostic(`${front} ${personnel} ${playside} ${sp.climber}: ${sp.ticks.length} ticks, ${flips} x-reversals`);
+      if (flips > 1) bad.push(`${front} ${personnel} ${playside} ${sp.climber}: vel.x reversed ${flips} times`);
+    }
+  }
+  assert.ok(spans > 0);
   assert.equal(bad.length, 0, bad.join('\n'));
 });
