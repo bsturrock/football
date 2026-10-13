@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  stepBlocking, contactSpot, REENGAGE_DELAY, OPEN_SHRUG, OPEN_BOUNCE, BOUNCE_COOL, blockLevel, contestOdds,
+  stepBlocking, contactSpot, REENGAGE_DELAY, OPEN_SHRUG, OPEN_BOUNCE, BOUNCE_COOL, blockLevel, contestOdds, OPEN_SHED_TIME, SHED_TIME, shedTimeOf, canRelease,
 } from '../src/dots/blocking.js';
 import { LINE_DEPTH } from '../src/dots/front.js';
 import { createPlay } from '../src/dots/play.js';
@@ -102,4 +102,23 @@ test('report: insideZone outcomes with contest on', (t) => {
     t.diagnostic(`seed ${seed}: ${JSON.stringify(counts)}`);
     assert.ok(play.players.length > 0);
   }
+});
+
+test('shedTimeOf: open blocks use OPEN_SHED_TIME', () => {
+  assert.equal(shedTimeOf({ block: { open: true } }), OPEN_SHED_TIME);
+  assert.equal(shedTimeOf({ block: {} }), SHED_TIME);
+});
+
+test('canRelease sheds an open block at OPEN_SHED_TIME, not a line block', () => {
+  const T = { x: 0, y: 40 };
+  const ball = { x: 0, y: 0 };
+  const mk = (open) => ({ id: 'a', x: 0, y: 40 - 1.5 * 0 - 0.1, block: { target: 'd', open, winT: OPEN_SHED_TIME } });
+  assert.equal(canRelease(mk(true), T, ball, true), 'shed');
+  assert.equal(canRelease(mk(false), T, ball, true), null);
+});
+
+test('engage sets block.open only for a contest-on open-field lock', () => {
+  assert.equal(setup(OPEN, { shrug: 0 }, { bounce: 0 }).b.block.open, true);
+  assert.equal(setup(LINE_DEPTH - 0.5).b.block.open, false);
+  assert.equal(setup(OPEN, {}, {}, { contest: false }).b.block.open, false);
 });

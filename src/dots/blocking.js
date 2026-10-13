@@ -492,13 +492,17 @@ export function doubleTeamPeel(players, ballPos) { // eslint-disable-line no-unu
   return out;
 }
 
+// Open-field locks (contest on) shed faster than line blocks.
+export const OPEN_SHED_TIME = 0.15; // tunable (s)
+export const shedTimeOf = (b) => (b.block.open ? OPEN_SHED_TIME : SHED_TIME);
+
 // Single release predicate for an engaged block. First match wins: 'shed' (the target has won
 // for SHED_TIME, only when fight is true), 'past' (the ball is well upfield of the target), 'lost'
 // (contact broken), or null. fight = false (play option fightBlocks off) means no shed.
 // Later shed decisions (R-42 DL AI) go here.
 export function canRelease(b, T, ballPos, fight = true) {
   if (fight && T.move?.phase === 'won' && T.move.by === b.id) return 'shed';
-  if (fight && (b.block.winT ?? 0) >= SHED_TIME) return 'shed';
+  if (fight && (b.block.winT ?? 0) >= shedTimeOf(b)) return 'shed';
   if (ballPast(T, ballPos)) return 'past';
   if (Math.hypot(T.x - b.x, T.y - b.y) > CONTACT_DIST + ENGAGE_TOL) return 'lost';
   return null;
@@ -806,6 +810,7 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
     } else if (hit) {
       if (outcome) b.block.contest = 'lock';
       b.block.engaged = true;
+      b.block.open = ctx?.contest === true && blockLevel(T, ctx.los) === 'open';
       b.block.held = 0;
       b.block.winT = 0;
       if ('released' in b.block) b.block.released = null;
