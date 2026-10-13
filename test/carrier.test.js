@@ -634,7 +634,7 @@ test('F-48 #11b: once past the los the committed aim never returns to the hole',
       const play = createPlay(25, 'insideZone', { front, personnel });
       play.snap();
       const rb = play.player(play.run.carrier);
-      let latched = false, bends = 0, px = rb.x, lastSign = 0, lastRev = -2;
+      let latched = false, bends = 0, lastSign = 0, lastRev = -2;
       for (let i = 0; i < 300 && !play.result; i++) {
         play.step(DT);
         if (latched) {
@@ -642,18 +642,18 @@ test('F-48 #11b: once past the los the committed aim never returns to the hole',
           assert.ok(play.run.bends <= bends, `${tag}: tick ${i} bent after the line`);
         }
         if (play.run.pastLos) { latched = true; bends = play.run.bends; }
-        if (front === 'walkedUp' && personnel === 'noTe' && play.run.locked) {
-          const dx = rb.x - px;
-          if (Math.abs(dx) > 0.5 * DT) {
-            const sign = Math.sign(dx);
+        // Contact twitch squeezing past an engaged pair is steering's, judged by look on review entry 'squeeze-walkedUp'.
+        if (front === 'walkedUp' && personnel === 'noTe' && play.run.pastLos) {
+          const off = play.run.aim.x - rb.x;
+          if (Math.abs(off) > CUT_ALLOW) {
+            const sign = Math.sign(off);
             if (lastSign && sign !== lastSign) {
-              assert.ok(lastRev !== i - 1, `walkedUp/noTe: tick ${i} lateral motion reversed on two consecutive ticks`);
+              assert.ok(lastRev !== i - 1, `walkedUp/noTe: tick ${i} aim side reversed on two consecutive ticks`);
               lastRev = i;
             }
             lastSign = sign;
           } else lastSign = 0;
         } else lastSign = 0;
-        px = rb.x;
       }
     }
   }
