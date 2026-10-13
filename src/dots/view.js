@@ -340,6 +340,15 @@ export const REVIEW_PLAYS = Object.freeze([
   reviewPlay('squeeze-walkedUp', 'Test: RB squeeze past MIK (walkedUp, no TE)',
     'carrier F-48 #11b: RB sideways twitch squeezing past C/MIK near ticks 99 and 108 (contact, aim steady)',
     { front: 'walkedUp', personnel: 'noTe', playside: 'left', dlShift: 0, tackles: true }),
+  reviewPlay('cutoff-safety', 'Test: safety cut-off (11 vs nickel, left)',
+    'pursuit F-69 #1: FS and SS square up to the RB and shuffle across his path about 2.2-3.0 s, facing him, not turning to run after him',
+    { front: 'base', personnel: 'te', formation: '11', defPersonnel: 'nickel', playside: 'left', dlShift: 0, tackles: true }),
+  reviewPlay('chase-backside', 'Test: backside chase (11 vs nickel, left, no tackles)',
+    'pursuit F-69 #2: CBZ (backside corner) runs to where the RB is going from about 1.5 s, not at his back',
+    { front: 'base', personnel: 'te', formation: '11', defPersonnel: 'nickel', playside: 'left', dlShift: 0, tackles: false }),
+  reviewPlay('pedal-lb-db', 'Test: LB and DB pedal (11 vs nickel, right, no tackles)',
+    'strafe F-69 #10: at the snap FS, SS, CBX, CBZ and NB pedal straight back about 1.5 yd still facing the backfield; MIK and WIL slide sideways on the read step still facing the line; the backside end shuffles on his contain squeeze facing the ball',
+    { front: 'base', personnel: 'te', formation: '11', defPersonnel: 'nickel', playside: 'right', dlShift: 0, tackles: false }),
 ]);
 
 // Review select options: the page matchup first (key ''), then one per review play.
