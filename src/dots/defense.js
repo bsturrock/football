@@ -368,6 +368,15 @@ const feltExits = (self) => Object.entries(DL_RESPONSES).filter(([, to]) => to !
 // The DL read ('attack') and the two-gap behaviour follow the spec "Defensive Linemen": get off, read the hat.
 export const FACE_TARGETS = Object.freeze(['ball']);
 // A state's optional `pace` is passed on as goal.pace; 'burst' is a fast ramp to top speed (steering.js PACES).
+export const DL_WIDEN_MAX = BODY_RADIUS; // yd: farthest a one-gap DL's goal may sit outside his snap x before the ball commits (tunable)
+
+// The noWiden clamp: x limited to DL_WIDEN_MAX outside the DL's snap x, on his own side of center.
+export function widenClamp(e, defense, x) {
+  const o = Math.sign(e.x0 - defense.centerX);
+  if (o !== 0 && o * (x - e.x0) > DL_WIDEN_MAX) return e.x0 + o * DL_WIDEN_MAX;
+  return x;
+}
+
 export const PACE_NAMES = Object.freeze(['burst']);
 export const BEHAVIORS = Object.freeze({
   pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] } } },
@@ -431,13 +440,13 @@ export const BEHAVIORS = Object.freeze({
     start: 'getoff',
     keys: [],
     states: {
-      getoff: { goal: 'getoff', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('getoff'), { when: 'getoffDone', to: 'squeeze' }] },
-      hold: { goal: 'holdGap', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('hold'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      outsideArm: { goal: 'outsideArm', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('outsideArm'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      anchor: { goal: 'anchor', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('anchor'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      close: { goal: 'close', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('close'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      rush: { goal: 'rush', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('rush'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      squeeze: { goal: 'squeeze', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('squeeze')] },
+      getoff: { goal: 'getoff', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('getoff'), { when: 'getoffDone', to: 'squeeze' }] },
+      hold: { goal: 'holdGap', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('hold'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      outsideArm: { goal: 'outsideArm', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('outsideArm'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      anchor: { goal: 'anchor', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('anchor'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      close: { goal: 'close', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('close'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      rush: { goal: 'rush', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('rush'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      squeeze: { goal: 'squeeze', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('squeeze')] },
       pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
@@ -655,6 +664,7 @@ export function validateBehavior(name, behaviors = BEHAVIORS) {
     if (!Object.hasOwn(GOALS, row.goal)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown goal "${row.goal}"`);
     if (row.face !== undefined && !FACE_TARGETS.includes(row.face)) throw new Error(`defense: behavior "${name}" state "${sn}" bad face "${row.face}"`);
     if (row.pace !== undefined && !PACE_NAMES.includes(row.pace)) throw new Error(`defense: behavior "${name}" state "${sn}" bad pace "${row.pace}"`);
+    if (row.noWiden !== undefined && typeof row.noWiden !== 'boolean') throw new Error(`defense: behavior "${name}" state "${sn}" bad noWiden "${row.noWiden}"`);
     for (const ex of row.exits) {
       if (!Object.hasOwn(TRIGGERS, ex.when)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown trigger "${ex.when}"`);
       if (ex.when === 'read') {
@@ -805,7 +815,11 @@ export function stepDefense(players, defense, { run, ballPos, cues }, dt) {
     const hit = behavior.states[e.state].exits.find((x) => x.to !== e.state && TRIGGERS[x.when](d, e, env, x));
     if (hit) { e.from = e.state; e.state = hit.to; e.st = 0; e.why = hit.when; }
     const row = behavior.states[e.state];
-    const g = GOALS[row.goal](d, e, env);
+    let g = GOALS[row.goal](d, e, env);
+    if (g && row.noWiden) {
+      const x = widenClamp(e, defense, g.x);
+      if (x !== g.x) g = { ...g, x };
+    }
     if (e.state !== behavior.start && !defense.committed[id]) {
       defense.committed[id] = { x: g ? g.x : ballPos.x, t: defense.t };
     }
