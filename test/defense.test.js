@@ -1446,7 +1446,7 @@ test('F-69 #6 (c): a DB (cover) at the snap pedals to his alignment plus PEDAL_D
   const db = play.players.find((p) => p.team === 'defense' && p.role === 'S');
   assert.ok(db, 'a safety in the 11 lineup');
   const e = play.defense.agents[db.id];
-  assert.equal(e.behavior, 'cover');
+  assert.equal(e.behavior, 'support');
   const out = stepDefense(play.players, play.defense, { run: play.run, ballPos: play.ballPosition(), cues: (id) => play.cuesOf(id) }, 0.01);
   near(out[db.id].x, e.x0);
   near(out[db.id].y, e.y0 + PEDAL_DEPTH);

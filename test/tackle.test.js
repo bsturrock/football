@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { createPlay } from '../src/dots/play.js';
 import { BODY_RADIUS, CONTACT_DIST, engagedOn } from '../src/dots/blocking.js';
 import { GOAL_LINE_Y } from '../src/dots/carrier.js';
-import { TACKLE_DIST, canTackle, findTackler, playEnd } from '../src/dots/tackle.js';
+import {
+  ENGAGED_TACKLE_DIST,
+  TACKLE_DIST,
+  canTackle,
+  findTackler,
+  playEnd,
+} from '../src/dots/tackle.js';
 import { HW } from '../src/util.js';
 
 const DT = 1 / 60;
@@ -21,14 +27,44 @@ test('tackle: just beyond TACKLE_DIST does not', () => {
   assert.equal(playEnd(players, 'C'), null);
 });
 
-test('tackle: defender with an engaged blocker on him does not', () => {
+const engagedBlocker = (target) => ({
+  id: 'B',
+  team: 'offense',
+  x: 3 * BODY_RADIUS,
+  y: 0,
+  block: { engaged: true, target },
+});
+
+test('tackle: engaged defender at ENGAGED_TACKLE_DIST tackles', () => {
+  const players = [car(), def('D', ENGAGED_TACKLE_DIST, 0), engagedBlocker('D')];
+  assert.deepEqual(playEnd(players, 'C'), { reason: 'tackle', by: 'D' });
+});
+
+test('tackle: engaged defender just beyond ENGAGED_TACKLE_DIST does not', () => {
   const players = [
     car(),
-    def('D', BODY_RADIUS, 0),
-    { id: 'B', team: 'offense', x: 3 * BODY_RADIUS, y: 0, block: { engaged: true, target: 'D' } },
+    def('D', ENGAGED_TACKLE_DIST + BODY_RADIUS / 100, 0),
+    engagedBlocker('D'),
   ];
-  assert.equal(findTackler(players, players[0]), null);
+  assert.ok(ENGAGED_TACKLE_DIST + BODY_RADIUS / 100 < TACKLE_DIST);
   assert.equal(playEnd(players, 'C'), null);
+});
+
+test('tackle: nearer engaged defender beats a free one at full reach', () => {
+  const players = [
+    car(),
+    def('free', TACKLE_DIST, 0),
+    def('engaged', ENGAGED_TACKLE_DIST - 0.01, 0),
+    engagedBlocker('engaged'),
+  ];
+  assert.equal(findTackler(players, players[0]), 'engaged');
+});
+
+test('tackle: free defender reach comes from tackleReach', () => {
+  const players = [car(), { ...def('D', TACKLE_DIST, 0), tackleReach: 0 }];
+  assert.equal(canTackle(players[1], players[0], players), false);
+  const inside = [car(), { ...def('D', 2 * BODY_RADIUS, 0), tackleReach: 0 }];
+  assert.equal(canTackle(inside[1], inside[0], inside), true);
 });
 
 test('tackle: nearest of two wins', () => {

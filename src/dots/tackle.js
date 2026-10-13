@@ -6,15 +6,23 @@ import { HW } from '../util.js';
 
 export const TACKLE_REACH = BODY_RADIUS / 2; // yd of arm reach beyond body contact; tunable
 export const TACKLE_DIST = 2 * BODY_RADIUS + TACKLE_REACH; // center-to-center
+// A defender with a blocker on him reaches only body contact, no arm reach; tunable.
+export const ENGAGED_TACKLE_DIST = 2 * BODY_RADIUS; // center-to-center
+
+// Free arm reach. A per-player tackle rating plugs in here (d.tackleReach);
+// no roster row sets it yet, so every free defender gets TACKLE_REACH.
+function tackleReach(d) {
+  return Number.isFinite(d.tackleReach) ? d.tackleReach : TACKLE_REACH;
+}
 
 // The single tackle predicate: later tackle ratings, tackle odds and seeded
 // randomness go here, never in play.js.
 export function canTackle(defender, carrier, players) {
-  return (
-    defender.team === 'defense' &&
-    engagedOn(players, defender.id).length === 0 &&
-    Math.hypot(defender.x - carrier.x, defender.y - carrier.y) <= TACKLE_DIST
-  );
+  if (defender.team !== 'defense') return false;
+  const dist = Math.hypot(defender.x - carrier.x, defender.y - carrier.y);
+  const engaged = engagedOn(players, defender.id).length > 0;
+  const reach = engaged ? ENGAGED_TACKLE_DIST : 2 * BODY_RADIUS + tackleReach(defender);
+  return dist <= reach;
 }
 
 // Nearest defender who can tackle; ties keep players order.

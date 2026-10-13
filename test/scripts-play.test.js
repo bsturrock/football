@@ -4,7 +4,7 @@ import { createPlay, FIXED_DT } from '../src/dots/play.js';
 import { DB_ROLES, FRONTS } from '../src/dots/roster.js';
 import { readFront } from '../src/dots/front.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
-import { LATE_FILL_AT, PEDAL_DEPTH, PURSUE_REACH, SCRIPTS, WHO, shiftGap, validateScript } from '../src/dots/defense.js';
+import { BEHAVIORS, LATE_FILL_AT, PEDAL_DEPTH, PURSUE_REACH, SCRIPTS, WHO, shiftGap, validateScript } from '../src/dots/defense.js';
 
 const LOS = 25;
 const FRONT_KEYS = Object.keys(FRONTS);
@@ -221,33 +221,49 @@ test('no script is identical to the option omitted; setScript after the snap is 
   assert.equal(p.setScript(null), null);
 });
 
-test('DBs pedal and wait; WRs and the FB are not moved', () => {
+test('corners pedal and wait; safeties pedal until the commit; WRs and the FB are not moved', () => {
   for (const formation of ['11', '21']) {
     const play = createPlay(LOS, 'insideZone', { formation });
     assert.ok(play.snap());
     const dbs = play.players.filter((p) => p.team === 'defense' && DB_ROLES.includes(p.role));
     assert.ok(dbs.length > 0);
     const spot = Object.fromEntries(play.players.map((p) => [p.id, { x: p.x, y: p.y }]));
-    for (const d of dbs) assert.equal(play.defense.agents[d.id]?.behavior, 'cover', `${formation} ${d.id}`);
+    for (const d of dbs) assert.equal(play.defense.agents[d.id]?.behavior, d.role === 'S' ? 'support' : 'cover', `${formation} ${d.id}`);
     const still = play.players.filter((p) => p.role === 'WR' || p.role === 'FB');
     let crossedAt = null;
     const free = new Set(dbs.map((d) => d.id));
+    const committedLast = new Map();
     run(play, 2, (pl, t) => {
       const ball = pl.ballPosition();
       const past = !!pl.run.carried && ball.y > LOS;
       if (past && crossedAt == null) crossedAt = t;
       for (const d of dbs) {
         const close = !!pl.run.carried && dist(ball, pl.player(d.id)) <= PURSUE_REACH;
+        const state = pl.defense.agents[d.id].state;
         if (engaged(pl, d.id)) free.delete(d.id);
-        if (!past && !close && free.has(d.id)) {
+        // A safety on support holds his pedal spot only while he is still in cover.
+        const holding = d.role !== 'S' || state === 'cover';
+        if (!past && !close && free.has(d.id) && holding) {
           const p = pl.player(d.id);
           const s = spot[d.id];
           assert.ok(Math.abs(p.x - s.x) <= BODY_RADIUS + 1e-9, `${formation} ${d.id} moved`);
           assert.ok(p.y >= s.y - BODY_RADIUS - 1e-9 && p.y <= s.y + PEDAL_DEPTH + BODY_RADIUS + 1e-9, `${formation} ${d.id} moved`);
         }
-        if (crossedAt != null && t >= crossedAt + 1) assert.equal(pl.defense.agents[d.id].state, 'pursue');
+        if (d.role === 'S' && committedLast.get(d.id)) assert.equal(state, 'pursue', `${formation} ${d.id} did not come down on the commit`);
+        committedLast.set(d.id, d.role === 'S' && pl.cuesOf(d.id)?.ball?.committed === true);
+        if (crossedAt != null && t >= crossedAt + 1) assert.equal(state, 'pursue');
       }
       for (const w of still) assert.ok(dist(pl.player(w.id), spot[w.id]) <= BODY_RADIUS + 1e-9, `${formation} ${w.id} moved`);
     });
   }
+});
+
+test('11 personnel: FS and SS support the run, CBX, CBZ and NB cover', () => {
+  assert.equal(BEHAVIORS.support.start, 'cover');
+  const play = createPlay(LOS, 'insideZone', { formation: '11', tackles: false });
+  assert.ok(play.snap());
+  const behaviour = (id) => play.defense.agents[id]?.behavior;
+  assert.equal(behaviour('FS'), 'support');
+  assert.equal(behaviour('SS'), 'support');
+  for (const id of ['CBX', 'CBZ', 'NB']) assert.equal(behaviour(id), 'cover', id);
 });

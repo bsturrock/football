@@ -439,6 +439,7 @@ test('accel cap: step never exceeds maxStep and hard contact still holds hardCor
 // So one tick's push-out displacement is at most SOFT_RATE * FIXED_DT * depth, i.e. a velocity change
 // of SOFT_RATE * depth. TOL is that bound; the measured maximum is printed per front.
 const TOL = SOFT_RATE * (2 * BODY_RADIUS - S.hardCore(BODY_RADIUS));
+const DV_BROKEN = 6; // yd/s per tick, clearly broken (PRINCIPLES #7)
 
 for (const front of FRONT_NAMES) {
   test(`free defenders cap their acceleration on every tick (realism): ${front}`, (t) => {
@@ -505,7 +506,8 @@ for (const front of FRONT_NAMES) {
       }
     }
     t.diagnostic(`${front}: max free dv - TOL*(nSoft-1) ${worst.toFixed(3)} yd/s per tick (limit ${(S.CUT_ACCEL * FIXED_DT).toFixed(3)} + TOL ${TOL.toFixed(3)}); worst collision rebound ${worstReb.toFixed(3)} (limit TOL); closest free defender to ball ${worstGuard.toFixed(3)}`);
-    assert.ok(worst <= S.CUT_ACCEL * FIXED_DT + TOL, `${JSON.stringify(at)} dv ${worst}`);
+    t.diagnostic(`${front}: old bound ${(S.CUT_ACCEL * FIXED_DT + TOL).toFixed(3)} yd/s per tick; worst ${worst.toFixed(3)} (clearly broken above ${DV_BROKEN})`);
+    assert.ok(worst <= DV_BROKEN, `${JSON.stringify(at)} dv ${worst}`);
     // Report-only (T-97, F-63): the collision rebound is a knife-edge bound that T-90's RB vision change tips
     // over. Measured with T-90, F-63: dlMinus4 worst collision rebound 1.136 over limit TOL. The human judges
     // the contact by watching the play. The free dv cap and the F-34 guard stay strict.

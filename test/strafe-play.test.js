@@ -19,16 +19,19 @@ test('F-69 #6 (a): FS and SS pedal deeper than their alignment, facing the ball 
   const play = createPlay(LOS, 'insideZone', OPTS);
   assert.ok(play.snap());
   const start = Object.fromEntries(['FS', 'SS'].map((id) => [id, { y: play.player(id).y }]));
+  // The deepest y each safety reaches while pedalling in cover (he comes downhill after the commit).
+  const deepest = Object.fromEntries(['FS', 'SS'].map((id) => [id, -Infinity]));
   for (let t = 0; t < TICKS && play.ball.phase !== 'dead'; t++) {
     play.step(FIXED_DT);
     for (const id of ['FS', 'SS']) {
       const p = play.player(id);
       if (play.defense.agents[id].state !== 'cover') continue;
       assert.ok(onBall(play, p), `${id} tick ${t}: facing ${p.facing} vs ball bearing ${bearing(p, seenBall(play, id))}`);
+      deepest[id] = Math.max(deepest[id], p.y);
     }
   }
   for (const id of ['FS', 'SS']) {
-    assert.ok(play.player(id).y > start[id].y, `${id} moved deeper than his alignment`);
+    assert.ok(deepest[id] > start[id].y, `${id} moved deeper than his alignment`);
   }
 });
 
