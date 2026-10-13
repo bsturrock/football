@@ -337,6 +337,9 @@ export const REVIEW_PLAYS = Object.freeze([
   reviewPlay('shed-backedOff', 'Test: shed DL closing (backedOff)',
     'zone F-33 #8: PE after his shed near 1.78 s (tick 107)',
     { front: 'backedOff', personnel: 'te', playside: 'left', dlShift: 0, tackles: false }),
+  reviewPlay('squeeze-walkedUp', 'Test: RB squeeze past MIK (walkedUp, no TE)',
+    'carrier F-48 #11b: RB sideways twitch squeezing past C/MIK near ticks 99 and 108 (contact, aim steady)',
+    { front: 'walkedUp', personnel: 'noTe', playside: 'left', dlShift: 0, tackles: true }),
 ]);
 
 // Review select options: the page matchup first (key ''), then one per review play.
