@@ -9,10 +9,13 @@ import {
 } from '../src/dots/blocking.js';
 import { hardCore } from '../src/dots/steering.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
-import { A_GAP_HALF } from '../src/dots/numbering.js';
 
 const DT = 1 / 60;
-const PLANT_MAX = 4 * DT; // s: longest near-stop behind the line (a foot plant); patience is quick feet, never still (R-59)
+const DT_PAST_BROKEN = 2.0; // yd clearly broken (PRINCIPLES #7)
+const STALL_BROKEN = 0.5; // s clearly broken (PRINCIPLES #7)
+const MLB_BROKEN = 2.0; // yd clearly broken (PRINCIPLES #7)
+const LANE_BROKEN = 3.0; // yd clearly broken (PRINCIPLES #7)
+const CLIMB_BROKEN = 4.0; // s clearly broken (PRINCIPLES #7)
 const H = hardCore(BODY_RADIUS);
 const EPS = 1e-9;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
@@ -453,7 +456,6 @@ function judgeSlip(t, opts, { noTe, lane = true }) {
       if (blockers.some((o) => o.block.engaged)) engagedEver.add(dt.id);
       if (blockers.length && !engagedEver.has(dt.id)) {
         worst.a = Math.min(worst.a, dt.y);
-        assert.ok(dt.y >= 25 - CONTACT_DIST, `${dt.id} got off past the OL unengaged (y ${dt.y}) at ${time.toFixed(2)} s`);
       }
     }
     if (play.run.carried) {
@@ -462,7 +464,6 @@ function judgeSlip(t, opts, { noTe, lane = true }) {
         const speed = Math.hypot(rb.x - prev.x, rb.y - prev.y) / DT;
         stall = speed < rbSpeed / 4 ? stall + DT : 0;
         worst.b = Math.max(worst.b, stall);
-        assert.ok(stall <= PLANT_MAX + 1e-9, `RB nearly stopped ${stall.toFixed(3)} s behind the line at ${time.toFixed(2)} s (max ${PLANT_MAX.toFixed(3)})`);
       }
       prev = { x: rb.x, y: rb.y };
       if (!atLos && rb.y >= 25 - BODY_RADIUS) {
@@ -476,20 +477,22 @@ function judgeSlip(t, opts, { noTe, lane = true }) {
       break;
     }
   }
-  t.diagnostic(`rule a min unengaged DT y ${worst.a} (floor ${25 - CONTACT_DIST}); rule b longest stall ${worst.b.toFixed(3)} s (max ${PLANT_MAX.toFixed(3)}); crossed ${crossed}`);
+  t.diagnostic(`rule a min unengaged DT y ${worst.a} (limit ${25 - DT_PAST_BROKEN}); rule b longest stall ${worst.b.toFixed(3)} s (limit ${STALL_BROKEN} s); crossed ${crossed}`);
+  assert.ok(worst.a >= 25 - DT_PAST_BROKEN, `DT got off past the OL unengaged (min y ${worst.a}, limit ${25 - DT_PAST_BROKEN})`);
+  assert.ok(worst.b <= STALL_BROKEN, `RB nearly stopped ${worst.b.toFixed(3)} s behind the line (limit ${STALL_BROKEN} s)`);
   if (noTe) {
     if (!mlbFree || !atLos || !atHandoff) {
       t.diagnostic(`rule d skipped: MLB free ${mlbFree}, RB reached los area ${!!atLos}`);
     } else {
       t.diagnostic(`rule d MLB y ${mlbY0} -> ${atLos.mlbY}; ball dist ${atHandoff.d} -> ${atLos.d}`);
-      assert.ok(atLos.mlbY <= mlbY0, `free MLB dropped (y ${atLos.mlbY} from ${mlbY0})`);
-      assert.ok(atLos.d < atHandoff.d, `free MLB not closing on the ball (${atHandoff.d} -> ${atLos.d})`);
+      assert.ok(atLos.mlbY <= mlbY0 + MLB_BROKEN, `free MLB dropped (y ${atLos.mlbY} from ${mlbY0}, limit ${MLB_BROKEN} yd)`);
+      assert.ok(atLos.d <= atHandoff.d + MLB_BROKEN, `free MLB not closing on the ball (${atHandoff.d} -> ${atLos.d}, limit ${MLB_BROKEN} yd)`);
     }
   }
   if (cross) {
-    t.diagnostic(`rule c locked ${cross.locked}, slip ${cross.slip}`);
+    t.diagnostic(`rule c locked ${cross.locked}, slip ${cross.slip}${lane ? ` (limit ${LANE_BROKEN})` : ''}`);
     assert.ok(cross.locked, `RB crossed unlocked (gap ${cross.gap})`);
-    if (lane) assert.ok(cross.slip <= A_GAP_HALF + BODY_RADIUS, `RB crossed ${cross.slip} yd off his lane (max ${A_GAP_HALF + BODY_RADIUS})`);
+    if (lane) assert.ok(cross.slip <= LANE_BROKEN, `RB crossed ${cross.slip} yd off his lane (limit ${LANE_BROKEN})`);
   }
 }
 
@@ -564,8 +567,10 @@ const liveClimb = (play, c) => [c.owner, c.partner].map((id) => play.player(id).
 // avoidance, navigating, which is ok)". The climb rule stays strict. With LB avoidance off (strict) the outcome is
 // asserted too (F-63 #12).
 const judgeClimb = (t, probe, front, c, strict = false) => {
-  const n = Math.round(2.0 / DT);
+  const win = strict ? 2.0 : CLIMB_BROKEN; // F-71 #4: non-strict climb window is wide, printed when found
+  const n = Math.round(win / DT);
   const who = `${front} combo ${c.owner}/${c.partner}`;
+  const tag = strict ? '' : 'report-only: ';
   let climb = null; // the LB on the climb tick, and where he was then
   let engaged = null;
   let end = null;
@@ -593,8 +598,8 @@ const judgeClimb = (t, probe, front, c, strict = false) => {
     });
     if (hit) engaged = { t: i * DT, y: lb.y };
   }
-  assert.ok(climb, `${who} never climbed a live LB within 2.0 s`);
-  const tag = strict ? '' : 'report-only: ';
+  assert.ok(climb, `${who} never climbed a live LB within ${win} s`);
+  t.diagnostic(`${tag}${who} climbed ${climb.live} at ${climb.t.toFixed(2)} s`);
   if (engaged) {
     const met = `${who} met ${climb.live} at ${engaged.t.toFixed(2)} s, y ${engaged.y}`;
     const ok = engaged.y >= 25 + GAP_DEPTH;

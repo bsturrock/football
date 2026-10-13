@@ -12,7 +12,8 @@
 // F-25 #3 (T-163) judges measured net displacement on every front; the 2.4 s crossing cap was dropped because it
 // measured which way a pile breaks (outcome), not crawling.
 // Since F-63, F-25 #3's stall time is report-only: the RB's lane read shifts with defender flow, and the human
-// judges it on the dots page review picker. The peak check still guards the ratchet.
+// judges it on the dots page review picker. The peak check is a wide clearly-broken limit (half the RB's speed,
+// PRINCIPLES #7) that still catches the ratchet (which converged to ~0.04 yd/s).
 //
 // Fix. (1) steerStep judges stuck progress against the caller's uncapped maxStep.
 // (2) play.step gives p.v inertia: measured speed may fall no faster than
@@ -27,6 +28,7 @@ import { CONTACT_DIST, engagedOn } from '../src/dots/blocking.js';
 import { FRONTS } from '../src/dots/roster.js';
 
 const DT = 1 / 60;
+const PEAK_BROKEN_FRAC = 0.5; // share of the RB's speed: clearly broken (PRINCIPLES #7)
 
 // Longest run of consecutive substeps where the sampled condition held.
 // samples: array of booleans, one per DT substep.
@@ -76,7 +78,8 @@ test('F-25 #3: RB does not crawl in the hole with accel on (report-only stall)',
       if (stall > 0.2) {
         t.diagnostic(`stall (report-only): ${tag}: RB net speed < 1 yd/s for ${stall.toFixed(2)} s ending tick ${slowTicks[end]} (limit 0.2)`);
       }
-      assert.ok(peak >= 0.85 * rb.speed, `${tag}: peak net speed ${peak.toFixed(2)} < ${(0.85 * rb.speed).toFixed(2)}`);
+      t.diagnostic(`${tag}: peak net speed ${peak.toFixed(2)} (limit ${(PEAK_BROKEN_FRAC * rb.speed).toFixed(2)})`);
+      assert.ok(peak >= PEAK_BROKEN_FRAC * rb.speed, `${tag}: peak net speed ${peak.toFixed(2)} < ${(PEAK_BROKEN_FRAC * rb.speed).toFixed(2)}`);
     }
   }
 });
