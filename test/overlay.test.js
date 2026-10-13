@@ -5,6 +5,7 @@ import { createPlay, FIXED_DT } from '../src/dots/play.js';
 import { FORMATIONS, DEF_PERSONNEL } from '../src/dots/roster.js';
 import { SCRIPTS } from '../src/dots/defense.js';
 import { TRACK_HALF } from '../src/dots/perceive.js';
+import { engagedOn } from '../src/dots/blocking.js';
 import {
   overlayShapes, decisionLabel, readLines, overlayLabel,
   formationOptions, defPersonnelOptions, scriptOptions, playsideOptions,
@@ -20,7 +21,25 @@ function run(opts, secs = 1) {
 test('before the snap overlayShapes is empty', () => {
   const play = createPlay(25, 'insideZone', { trace: true });
   const s = overlayShapes(play);
-  assert.deepEqual(s, { tracks: [], keys: [], labels: [], marks: [], pairs: [] });
+  assert.deepEqual(s, { tracks: [], keys: [], labels: [], marks: [], pairs: [], fights: [] });
+});
+
+test('F-74 #9: fights before the snap are empty', () => {
+  assert.deepEqual(overlayShapes(createPlay(25, 'insideZone', { trace: true })).fights, []);
+});
+
+test('F-74 #9: fights after 1 s carry push, drive, net and state for each engaged defender', () => {
+  const play = run({}, 1);
+  const s = overlayShapes(play);
+  const engagedDefs = play.players.filter((d) => d.team === 'defense' && engagedOn(play.players, d.id).length > 0);
+  assert.ok(engagedDefs.length > 0, 'at least one defender is engaged after 1 s');
+  assert.deepEqual(s.fights.map((f) => f.id), engagedDefs.map((d) => d.id));
+  const states = new Set(['neutral', 'driven', 'anchored', 'winning']);
+  for (const f of s.fights) {
+    assert.equal(f.n, engagedOn(play.players, f.id).length);
+    if (f.push !== null) assert.ok(Math.abs(Math.hypot(f.push.x, f.push.y) - 1) < 1e-9);
+    assert.ok(states.has(f.state), f.state);
+  }
 });
 
 test('F-54 #7: playside picker options', () => {

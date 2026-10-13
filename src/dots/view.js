@@ -5,7 +5,7 @@ import { createPlay, FIXED_DT, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT
 import { FRONTS, PERSONNEL, FORMATIONS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH } from './roster.js';
 import { SCRIPTS, CALLS, recogTime } from './defense.js';
 import { TRACK_HALF, TRACK_DEPTH } from './perceive.js';
-import { BODY_RADIUS } from './blocking.js';
+import { BODY_RADIUS, blockPush, engagedOn } from './blocking.js';
 import { wrapAngle, angleDiff, facingDir } from './facing.js';
 import { HW } from '../util.js';
 
@@ -22,6 +22,10 @@ export const BORDER_W = 2; // 6 ft white border
 export const UPRIGHTS_W = 18.5 / 3; // goal posts 18 ft 6 in apart
 export const RING_INNER = 2.1 * BODY_RADIUS;
 export const RING_OUTER = 2.7 * BODY_RADIUS;
+export const OFFENSE_COLOR = 0x2f6bff, DEFENSE_COLOR = 0xe23b3b;
+// Fight lines: push and drive arrows are FIGHT_ARROW yards long; net motion is NET_SCALE s of carry (yd/s).
+export const FIGHT_ARROW = 1.0;
+export const NET_SCALE = 0.5;
 
 const SHIFT_STEP = Object.freeze({ DL: DL_SHIFT_STEP, LB: LB_SHIFT_STEP });
 
@@ -203,8 +207,9 @@ export function readLines(entry) {
 
 // Overlay geometry: marks and pairs from play.plan; tracks, keys and labels from the latest
 // trace tick. All empty before the snap; tracks, keys and labels also empty without a trace.
+// fights: one per defender with an engaged blocker (push, drive, net motion); no trace needed.
 export function overlayShapes(play) {
-  const out = { tracks: [], keys: [], labels: [], marks: [], pairs: [] };
+  const out = { tracks: [], keys: [], labels: [], marks: [], pairs: [], fights: [] };
   const plan = play.plan;
   if (plan) {
     if (plan.mike) out.marks.push({ id: plan.mike, text: 'MIKE' });
@@ -212,6 +217,21 @@ export function overlayShapes(play) {
       if (a.how === 'free' || a.how === 'read') out.marks.push({ id, text: a.how });
     }
     for (const pr of plan.pairs ?? []) out.pairs.push({ a: pr.owner, b: pr.partner, text: pr.name });
+  }
+  for (const d of play.players) {
+    if (d.team !== 'defense') continue;
+    const engaged = engagedOn(play.players, d.id);
+    if (engaged.length === 0) continue;
+    const push = blockPush(engaged);
+    const len = Math.hypot(push.x, push.y);
+    out.fights.push({
+      id: d.id, x: d.x, y: d.y,
+      push: len < 1e-9 ? null : { x: push.x / len, y: push.y / len },
+      drive: d.react?.dir ?? null,
+      net: d.carry ?? null,
+      state: d.react?.state ?? 'neutral',
+      n: engaged.length,
+    });
   }
   const ticks = play.trace?.ticks;
   const tick = ticks && ticks[ticks.length - 1];
@@ -507,7 +527,7 @@ export function initDotsView(container) {
     let m = dotMeshes.get(p.id);
     if (!m) {
       m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        color: p.team === 'offense' ? 0x2f6bff : 0xe23b3b }));
+        color: p.team === 'offense' ? OFFENSE_COLOR : DEFENSE_COLOR }));
       m.rotation.x = -Math.PI / 2;
       scene.add(m);
       dotMeshes.set(p.id, m);
@@ -670,6 +690,20 @@ export function initDotsView(container) {
     }
     return line;
   }
+  // Fight lines: one pool per name ('<id>|push' | '<id>|drive' | '<id>|net'), hidden when unused.
+  const fightLines = new Map();
+  function fightLineFor(name, color) {
+    let line = fightLines.get(name);
+    if (!line) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+      line = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
+      line.visible = false;
+      scene.add(line);
+      fightLines.set(name, line);
+    }
+    return line;
+  }
   // One text sprite per key in its own map (decision labels, marks and pair labels never share one).
   function spriteFor(map, key) {
     let m = map.get(key);
@@ -707,9 +741,26 @@ export function initDotsView(container) {
   }
   function syncOverlay() {
     const shapes = overlayOn ? overlayShapes(play)
-      : { tracks: [], keys: [], labels: [], marks: [], pairs: [] };
+      : { tracks: [], keys: [], labels: [], marks: [], pairs: [], fights: [] };
     const usedTracks = new Set(), usedKeys = new Set(), usedLabels = new Set();
-    const usedMarks = new Set(), usedPairs = new Set();
+    const usedMarks = new Set(), usedPairs = new Set(), usedFights = new Set();
+    for (const f of shapes.fights) {
+      const from = fieldToWorld(f.x, f.y);
+      const arrows = [['push', f.push, OFFENSE_COLOR, FIGHT_ARROW], ['drive', f.drive, DEFENSE_COLOR, FIGHT_ARROW],
+        ['net', f.net, 0xffffff, NET_SCALE]];
+      for (const [kind, v, color, scale] of arrows) {
+        if (!v) continue;
+        const name = `${f.id}|${kind}`;
+        const line = fightLineFor(name, color);
+        const to = fieldToWorld(f.x + v.x * scale, f.y + v.y * scale);
+        const pos = line.geometry.attributes.position;
+        pos.setXYZ(0, from.x, 0.15, from.z);
+        pos.setXYZ(1, to.x, 0.15, to.z);
+        pos.needsUpdate = true;
+        line.visible = true;
+        usedFights.add(name);
+      }
+    }
     for (const t of shapes.tracks) {
       const p = play.player(t.id);
       if (!p) continue;
@@ -777,6 +828,7 @@ export function initDotsView(container) {
     for (const [id, m] of decLabels) if (!usedLabels.has(id)) m.visible = false;
     for (const [key, m] of markLabels) if (!usedMarks.has(key)) m.visible = false;
     for (const [key, m] of pairLabels) if (!usedPairs.has(key)) m.visible = false;
+    for (const [name, line] of fightLines) if (!usedFights.has(name)) line.visible = false;
   }
 
   // ---- DL move labels (shown whether the overlay is on or off) ----
