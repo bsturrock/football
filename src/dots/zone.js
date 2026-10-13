@@ -45,15 +45,28 @@ export const ZONE_READ = Object.freeze({
 // - watch: nobody blocks him and a combo's watch is he (by = the combo's owner and partner);
 // - read: under a scheme with the spare row, the end lineman left the edge man to the quarterback (he is front.edge and free; by = []);
 // - free: none of these, including box defenders runScheme did not number (by = []).
-export function zonePlan(players, numbers, los, { scheme = INSIDE_ZONE, box = null } = {}) {
-  const front = readFront(players, numbers, los);
+export function zonePlan(players, numbers, los, { scheme = INSIDE_ZONE, box = null, pull = null } = {}) {
+  const full = readFront(players, numbers, los);
+  let front = full;
+  // F-76: a pulling TE kicks out the pull-side end man; the line is planned as if that man were not there.
+  let man = null;
+  if (pull) {
+    const pool = full.defenders.filter((d) => (box ? box.includes(d.id) : true) && Math.sign(d.x - full.centerX) === pull.side);
+    const far = (a, b) => Math.abs(b.x - full.centerX) - Math.abs(a.x - full.centerX);
+    man = ([...pool].filter((d) => d.level === 'line').sort(far)[0] ?? [...pool].sort(far)[0])?.id ?? null;
+    if (man != null) front = readFront(players, { ...numbers, [man]: null }, los);
+  }
   const plan = runScheme(front, scheme);
+  if (man != null) {
+    plan.blocks[pull.id] = man;
+    plan.techs[pull.id] = { tech: 'pull', shade: 'none', pull: pull.side };
+  }
   const { blocks, combos, free, techs } = plan;
   const end = front.line[front.line.length - 1];
   const spared = scheme.rules.some((r) => r.when === 'spare') && front.edge != null && end != null
     && techs[end.id]?.tech === 'climb' && blocks[end.id] !== front.edge && free.includes(front.edge);
   const accounted = {};
-  for (const id of box ?? front.defenders.map((d) => d.id)) {
+  for (const id of box ?? full.defenders.map((d) => d.id)) {
     const by = Object.keys(blocks).filter((k) => blocks[k] === id);
     const watcher = combos.find((c) => c.watch === id);
     if (by.length) accounted[id] = { how: 'block', by };
@@ -111,6 +124,9 @@ function watchFor(plan, free, claimed, ballPos, ctx, declaredBy) {
   return w;
 }
 
+// The puller keeps his man: runtime retargeting never moves him.
+const isPuller = (p, ctx) => p.block?.foot?.tech === 'pull' || (ctx?.pull != null && p.id === ctx.pull.id);
+
 export function zoneSwitch(players, ballPos, ctx) {
   const byId = new Map(players.map((p) => [p.id, p]));
   const side = ctx?.side === -1 ? -1 : 1;
@@ -128,6 +144,7 @@ export function zoneSwitch(players, ballPos, ctx) {
     const o = byId.get(c.owner);
     const p = byId.get(c.partner);
     if (!o || !p) continue;
+    if (isPuller(o, ctx) || isPuller(p, ctx)) continue;
     if (o.block?.target !== c.target || p.block?.target !== c.target) continue; // already switched
     const dl = byId.get(c.target);
     const on = (x) => x.block?.target === c.target && x.block.engaged;
@@ -195,7 +212,7 @@ export function zoneSwitch(players, ballPos, ctx) {
   const gone = new Set(out.map((e) => e.blocker));
   for (const m of players) {
     const t = m.block?.target;
-    if (t == null || m.block.engaged || gone.has(m.id)) continue;
+    if (t == null || m.block.engaged || gone.has(m.id) || isPuller(m, ctx)) continue;
     const lb = byId.get(t);
     if (!lb || !LB_ROLES.includes(lb.role) || !lbGone(lb, m)) continue;
     const next = unclaimedInReach(players, ballPos, ctx, claimed, m.x).find((d) => d.id !== lb.id && !lbGone(d, m));
@@ -229,7 +246,7 @@ export function trackPickup(players, ballPos, ctx, out, claimed = claimedSet(pla
   const side = ctx.side === -1 ? -1 : 1;
   const done = new Set(out.map((e) => e.blocker)); // retargeted this tick
   const tracks = new Map(); // blocker id -> track ids
-  const blockers = players.filter((p) => p.block && p.block.target != null && !p.block.released).filter((p) => {
+  const blockers = players.filter((p) => p.block && p.block.target != null && !p.block.released && !isPuller(p, ctx)).filter((p) => {
     const t = ctx.cues(p.id)?.track;
     if (t) tracks.set(p.id, t.ids);
     return !!t;

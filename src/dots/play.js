@@ -2,7 +2,7 @@
 // Ball phases: presnap -> snapping -> held -> carried -> dead (carried and dead only on plays with a run).
 // Time advances only through step(dt); there are no timers or clocks here.
 
-import { DEF_PERSONNEL, FORMATIONS, FRONTS, PERSONNEL, PLAYS, buildLineup } from './roster.js';
+import { DEF_PERSONNEL, FORMATIONS, FRONTS, POSITIONS, PERSONNEL, PLAYS, TE_LOOKS, buildLineup } from './roster.js';
 import { PLAYSIDE_SIGN, numberPlay } from './numbering.js';
 import { boxCount, createPerception, cuesFor, observe, worldSnapshot } from './perceive.js';
 import { createTrace, entriesOf, recordTick } from './trace.js';
@@ -42,9 +42,13 @@ const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zone
 // formation: a FORMATIONS key (full-11 offense), or null. defPersonnel: a DEF_PERSONNEL key, or null
 // for the FRONTS defense. Left undefined, it takes the formation's default defense, unless the caller passed front.
 // call: a CALLS key, or null for the default call by defensive personnel (callFor).
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, seed = 1, moves = false, contest = false, formation = null, defPersonnel = undefined, script = null, call = null, trace = false, playside = undefined, recog = null } = {}) {
+// Roster RB dx (1.6), mirrored by rbAway.
+const RB_DX = Math.abs(POSITIONS.find((p) => p.id === 'RB').dx);
+
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, seed = 1, moves = false, contest = false, formation = null, defPersonnel = undefined, script = null, call = null, trace = false, playside = undefined, recog = null, teLook = null, rbAway = false } = {}) {
   const sideKey = playside === undefined ? PLAYS[playKey].playside ?? null : playside;
   if (sideKey !== null && !Object.hasOwn(PLAYSIDE_SIGN, sideKey)) throw new Error(`createPlay: bad playside ${playside}`);
+  if (teLook !== null && !Object.hasOwn(TE_LOOKS, teLook)) throw new Error(`createPlay: bad teLook ${teLook}`);
   if (call !== null && !Object.hasOwn(CALLS, call)) throw new Error(`createPlay: unknown call "${call}"`);
   if (recog !== null && !(Number.isInteger(recog) && recog >= 1 && recog <= 99)) throw new Error(`createPlay: bad recog ${recog}`);
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
@@ -76,6 +80,9 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     plan: null,
     playside: sideKey,
     recog,
+    teLook,
+    rbAway,
+    pull: null,
     run: null,
     defense: null,
     ticks: 0,
@@ -129,6 +136,15 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     if (play.ball.phase !== 'presnap') return false;
     if (typeof key !== 'string' || !Object.hasOwn(PLAYSIDE_SIGN, key)) return false;
     play.playside = key;
+    play.reset();
+    return key;
+  };
+
+  // Pre-snap TE look, a TE_LOOKS key or null. Only changes while the ball is presnap.
+  play.setTeLook = (key) => {
+    if (play.ball.phase !== 'presnap') return false;
+    if (key !== null && !Object.hasOwn(TE_LOOKS, key)) return false;
+    play.teLook = key;
     play.reset();
     return key;
   };
@@ -202,6 +218,12 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
 
   // Rebuilds the pre-snap state in place. Initial state is this same routine.
   play.reset = () => {
+    // Null playside reads as left (-1).
+    const s = PLAYSIDE_SIGN[play.playside] ?? -1;
+    const look = play.teLook ? TE_LOOKS[play.teLook] : null;
+    // t = the side the TE lines up on (+1 right, -1 left).
+    const t = look ? (look.align === 'play' ? s : -s) : null;
+    play.pull = look?.pull ? { id: 'TE', side: -t } : null;
     play.players = buildLineup(los, playKey, {
       front: play.front,
       dlShift: play.dlShift * DL_SHIFT_STEP,
@@ -209,12 +231,16 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
       personnel: play.personnel,
       formation: play.formation,
       defPersonnel: play.defPersonnel,
+      mirror: t === -1,
+      rbX: play.rbAway ? -s * RB_DX : null,
     });
     initFacing(play.players);
     // Pre-snap read: computed only here, so shifts keep it in sync with the lineup.
+    // A pulling TE is not in the numbering (he leaves the line at the snap).
     const def = PLAYS[playKey];
+    const numbered = play.pull ? play.players.filter((p) => p.id !== play.pull.id) : play.players;
     play.numbers = play.playside
-      ? numberPlay(play.players, { los, centerId: def.ball.start, playside: play.playside })
+      ? numberPlay(numbered, { los, centerId: def.ball.start, playside: play.playside })
       : {};
     for (const p of play.players) p.block = null;
     ctx = { seq: 0 };
@@ -254,10 +280,11 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     snapshotPrev();
     let plan = null;
     if (scheme) {
-      plan = scheme.plan(play.players, play.numbers, los, { box: play.box?.ids ?? null });
+      plan = scheme.plan(play.players, play.numbers, los, { box: play.box?.ids ?? null, pull: play.pull });
       play.plan = plan;
       play.combos = plan.combos;
       ctx.combos = plan.combos;
+      ctx.pull = play.pull;
       ctx.side = plan.side;
       assignBlocks(play.players, plan.blocks, plan.techs);
     } else {

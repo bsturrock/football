@@ -2,7 +2,7 @@
 // Pure helpers are exported for tests; THREE/DOM are only touched in initDotsView.
 
 import { createPlay, FIXED_DT, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
-import { FRONTS, PERSONNEL, FORMATIONS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH } from './roster.js';
+import { FRONTS, PERSONNEL, FORMATIONS, DEF_PERSONNEL, TE_LOOKS, BALL_LENGTH, BALL_WIDTH } from './roster.js';
 import { SCRIPTS, CALLS, recogTime } from './defense.js';
 import { TRACK_HALF, TRACK_DEPTH } from './perceive.js';
 import { BODY_RADIUS, blockPush, engagedOn } from './blocking.js';
@@ -30,7 +30,7 @@ export const NET_SCALE = 0.5;
 const SHIFT_STEP = Object.freeze({ DL: DL_SHIFT_STEP, LB: LB_SHIFT_STEP });
 
 // The one matchup dots.html shows (R-26).
-export const PAGE_MATCHUP = Object.freeze({ formation: '11', playside: 'left', script: null, call: null });
+export const PAGE_MATCHUP = Object.freeze({ formation: '11', playside: 'left', script: null, call: null, teLook: 'backside', rbAway: true });
 // true hides the matchup pickers and DL/LB shift controls; false brings them back.
 export const MATCHUP_LOCKED = true;
 
@@ -168,6 +168,27 @@ export function callOptions() {
 // Picker options for the pre-snap run direction.
 export function playsideOptions() {
   return [{ key: 'left', name: 'Run left' }, { key: 'right', name: 'Run right' }];
+}
+
+// Picker options for the TE look: one per TE_LOOKS entry, in TE_LOOKS order.
+export function teLookOptions() {
+  return Object.entries(TE_LOOKS).map(([key, l]) => ({ key, name: l.name }));
+}
+
+// One plain sentence saying what the TE look does, naming the sides for this run direction.
+// The TE lines up on the play side ('play') or the other side ('back'); a pull goes to the other side
+// from where he lines up; the RB is on the other side from the play; the ball goes to the play side.
+export function teLookText(key, playside) {
+  const look = key ? TE_LOOKS[key] : null;
+  if (!look) return 'No TE look: TE and RB stay in the base spots.';
+  const other = (side) => (side === 'left' ? 'right' : 'left');
+  const teSide = look.align === 'play' ? playside : other(playside);
+  const rbSide = other(playside);
+  const rb = `RB on the ${rbSide}, ball goes ${playside}.`;
+  if (look.pull) {
+    return `${look.name}: lines up on the ${teSide}, pulls ${other(teSide)} at the snap to kick out the end man. ${rb}`;
+  }
+  return `${look.name}: lines up on the ${teSide} and blocks the man over him. ${rb}`;
 }
 
 // Label for the read-trace overlay toggle (O key or button).
@@ -1116,9 +1137,16 @@ export function initDotsView(container) {
   const scriptSelect = document.getElementById('script-select');
   const callSelect = document.getElementById('call-select');
   const playsideSelect = document.getElementById('playside-select');
+  const teSelect = document.getElementById('te-select');
+  const lookText = document.getElementById('look-text');
+  // The plain-language line for the current TE look and run direction.
+  const showLook = () => {
+    if (lookText) lookText.textContent = teLookText(play.teLook, play.playside);
+  };
   const syncPickers = () => {
     if (frontSelect) frontSelect.value = play.front;
     if (playsideSelect) playsideSelect.value = play.playside ?? '';
+    if (teSelect) teSelect.value = play.teLook ?? '';
     if (personnelSelect) personnelSelect.value = play.personnel;
     if (formationSelect) formationSelect.value = play.formation ?? '';
     if (defenseSelect) defenseSelect.value = play.defPersonnel ?? '';
@@ -1145,17 +1173,21 @@ export function initDotsView(container) {
     });
   };
   wirePicker(playsideSelect, playsideOptions(), (k) => play.setPlayside(k));
+  wirePicker(teSelect, teLookOptions(), (k) => play.setTeLook(k));
+  playsideSelect?.addEventListener('change', showLook);
+  teSelect?.addEventListener('change', showLook);
   wirePicker(formationSelect, formationOptions(), (k) => play.setFormation(k));
   wirePicker(defenseSelect, defPersonnelOptions(), (k) => play.setDefPersonnel(k));
   wirePicker(scriptSelect, scriptOptions(), (k) => play.setScript(k));
   wirePicker(callSelect, callOptions(), (k) => play.setCall(k));
   frontSelect?.addEventListener('change', () => { if (defenseSelect) defenseSelect.value = play.defPersonnel ?? ''; });
   if (MATCHUP_LOCKED) {
-    // Wiring stays in place above; the locked page only hides the pickers.
-    for (const s of [frontSelect, playsideSelect, personnelSelect, formationSelect, defenseSelect, scriptSelect, callSelect]) {
+    // Wiring stays in place above; the locked page only hides the pickers it leaves out (playside and TE stay shown).
+    for (const s of [frontSelect, personnelSelect, formationSelect, defenseSelect, scriptSelect, callSelect]) {
       if (s) s.hidden = true;
     }
   }
+  showLook();
 
   // Review picker change: load the chosen test's setup, or the page matchup for ''. Tapping the field still snaps.
   reviewSelect?.addEventListener('change', () => {

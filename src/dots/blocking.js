@@ -2,7 +2,7 @@
 import { HW } from '../util.js';
 import { steerStep, hardCore, CUT_ACCEL, PACES } from './steering.js';
 import { stepReact } from './react.js';
-import { startFoot, retargetFoot, footGoal, footPush, leadSpot, RIDE_MIN } from './technique.js';
+import { TECHNIQUES, startFoot, retargetFoot, footGoal, footPush, leadSpot, RIDE_MIN } from './technique.js';
 import { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
 import { MOVE_COUNTER, moveOdds } from './roster.js';
 import { LINE_DEPTH } from './front.js';
@@ -98,7 +98,7 @@ export function assignBlocks(players, plan, techs) {
       b.block = { target: plan[b.id], angle: 'straight', engaged: false, seq: null };
       const t = techs?.[b.id];
       if (t) {
-        const foot = startFoot(t.tech, t.shade, t.watch, b);
+        const foot = startFoot(t.tech, t.shade, t.watch, b, t.pull);
         if (foot) b.block.foot = foot;
       }
       continue;
@@ -770,9 +770,11 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
     if (foot && (ctx?.side === 1 || ctx?.side === -1)) {
       const { phase, goal } = footGoal(foot, b, spot, ctx.side, BODY_RADIUS, { target: T, ballPos });
       foot.phase = phase;
+      const paceName = TECHNIQUES[foot.tech]?.pace;
+      const pace = typeof paceName === 'string' && Object.hasOwn(PACES, paceName) ? { pace: PACES[paceName] } : {};
       steerStep(
         b,
-        { ...goal, key: phase + ':' + b.block.target, ignore: b.block.target },
+        { ...goal, ...pace, key: phase + ':' + b.block.target, ignore: b.block.target },
         players,
         b.speed * dt,
         dt,
@@ -790,7 +792,7 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
       );
     }
     if (dt > 0) stepped.set(b.id, { x: (b.x - bx0) / dt, y: (b.y - by0) / dt });
-    const hit = canEngage(b, T, spot, ballPos);
+    const hit = foot?.phase === 'pull' ? null : canEngage(b, T, spot, ballPos); // a puller touches no one on the way across
     let outcome = null;
     if (hit && ctx?.contest === true && s.fight && blockLevel(T, ctx.los) === 'open') {
       const n = (b.block.contestN = (b.block.contestN ?? 0) + 1);

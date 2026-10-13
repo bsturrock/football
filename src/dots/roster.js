@@ -81,6 +81,15 @@ export const PERSONNEL = Object.freeze({
   }),
 });
 
+// TE looks for the 11 formation (play.teLook). align = the side of the play the TE lines up on
+// ('play' or 'back'); pull = at the snap he pulls to the other side.
+export const TE_LOOKS = Object.freeze({
+  playside: Object.freeze({ name: 'TE playside', align: 'play', pull: false }),
+  backside: Object.freeze({ name: 'TE backside', align: 'back', pull: false }),
+  backsidePull: Object.freeze({ name: 'TE backside pull', align: 'back', pull: true }),
+  playsidePull: Object.freeze({ name: 'TE playside pull', align: 'play', pull: true }),
+});
+
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
 // fronts are written for a playside-left play (the only play today).
 // Rating fields a row can carry beyond speed and strength: the RB's vision and the move ratings.
@@ -284,7 +293,9 @@ export function moveOdds(rating, counter) {
 // PERSONNEL (default: the play's personnel, else 'noTe').
 // formation picks a key of FORMATIONS (full-11 offense; personnel is then ignored).
 // defPersonnel picks a key of DEF_PERSONNEL (full-11 defense; front is then ignored).
-export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0, lbShift = 0, personnel, formation = null, defPersonnel = null } = {}) {
+// mirror: negate x of every non-OL row (the OL keep their spots), before the DL/LB shifts.
+// rbX: a number sets the RB row's x (after the mirror); null keeps the roster x.
+export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0, lbShift = 0, personnel, formation = null, defPersonnel = null, mirror = false, rbX = null } = {}) {
   const play = PLAYS[playKey];
   if (!play) throw new Error(`buildLineup: unknown play "${playKey}"`);
   if (!Object.hasOwn(FRONTS, front)) throw new Error(`buildLineup: unknown front "${front}"`);
@@ -305,12 +316,15 @@ export function buildLineup(los, playKey = 'base', { front = 'base', dlShift = 0
   const rows = [...offense, ...defense];
   return rows.map((p) => {
     const a = play.assignments[p.id];
+    // 0 - dx (not -dx) so a centre row mirrors to +0, not -0.
+    const baseX = mirror && p.role !== 'OL' ? 0 - p.dx : p.dx;
+    const x0 = rbX !== null && p.role === 'RB' ? rbX : baseX;
     return {
       id: p.id,
       name: p.name,
       team: p.team,
       role: p.role,
-      x: p.dx + (DL_ROLES.includes(p.role) ? dlShift : 0) + (LB_ROLES.includes(p.role) ? lbShift : 0),
+      x: x0 + (DL_ROLES.includes(p.role) ? dlShift : 0) + (LB_ROLES.includes(p.role) ? lbShift : 0),
       y: los + p.dy,
       speed: p.speed,
       strength: p.strength,
