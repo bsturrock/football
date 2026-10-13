@@ -444,7 +444,7 @@ test('F-34 #1: odd34 LB reads follow the nearest base LB (PO, PI, BI, BO)', () =
   const reads = Object.fromEntries(
     FRONTS.odd34.defenders.filter((d) => d.role === 'LB').map((d) => [d.id, d.def.read]),
   );
-  assert.deepEqual(reads, { PO: 0.5, PI: 0.5, BI: 0.35, BO: 0.5 });
+  assert.deepEqual(reads, { PO: 0.35, PI: 0.35, BI: 0.3, BO: 0.35 });
 });
 
 test('F-19 #2: every non-null def.read is in [0.3, 0.6]', () => {

@@ -22,7 +22,8 @@ export const LB_READ_TIME = 0.45; // s, fallback when a player has no def.read
 export const KEY_MOVE = BODY_RADIUS; // yd a line player must move to count as an OL-movement key
 export const READ_STEP = 0.5; // yd: the LB read step, sideways with flow (tunable)
 export const READ_STEP_DOWN = 0.25; // yd: the read step is a half step uphill, never back (tunable)
-export const READ_SPEED = 0.5; // fraction of speed during the read step (tunable)
+export const READ_SPEED = 0.75; // fraction of speed during the read step (tunable)
+export const FIT_LEAD = 0.4; // s: LBs aim where the seen ball will be this soon (tunable)
 export const OVER_TOP = 1.0; // yd: a scraping LB stays this far behind the ball's flow, over the top (tunable)
 export const ZONE_DEPTH = 10; // yd past the los: the zone drop landmark depth (tunable)
 export const DROP_SPEED = 0.6; // fraction of speed while dropping, a backpedal (tunable)
@@ -185,7 +186,8 @@ export const GOALS = Object.freeze({
     const span = e.fit ? gapSpan(env.players, env.defense, e.fit) : null;
     const y = env.los + FILL_DEPTH;
     if (!span) return { x: e.x0, y };
-    const bx = env.cues(d.id)?.ball?.x ?? e.x0;
+    const cb = env.cues(d.id)?.ball;
+    const bx = cb ? cb.x + (cb.vx ?? 0) * FIT_LEAD : e.x0;
     const lo = span.lo + BODY_RADIUS;
     const hi = span.hi - BODY_RADIUS;
     return { x: lo <= hi ? clamp(bx, lo, hi) : (span.lo + span.hi) / 2, y };
@@ -193,8 +195,8 @@ export const GOALS = Object.freeze({
   // Over the top: one step behind the ball's flow, no deeper than he stands.
   scrapeGoal: (d, e, env) => {
     const c = env.cues(d.id);
-    const bx = c?.ball?.x ?? e.x0;
-    let s = keyRead(e.assign?.key, c) === 'pull' ? (c.key.dir ?? 0) : (c?.flow?.dir ?? 0);
+    const bx = c?.ball ? c.ball.x + (c.ball.vx ?? 0) * FIT_LEAD : e.x0;
+    let s =keyRead(e.assign?.key, c) === 'pull' ? (c.key.dir ?? 0) : (c?.flow?.dir ?? 0);
     if (!s) s = Math.sign(bx - e.x0);
     return { x: bx - s * OVER_TOP, y: Math.max(env.los + FILL_DEPTH, Math.min(d.y, e.y0)) };
   },
@@ -339,7 +341,7 @@ export const FELT_VALUES = Object.freeze(['double', 'reach', 'base', 'pass', 'do
 
 const PURSUE_EXITS = Object.freeze([{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }]);
 // The LB pursue exits: a shed, the carrier past the line, or the ball committed (perceive.js ball.committed).
-export const LB_PURSUE_EXITS = Object.freeze([{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballCommitted', to: 'pursue' }]);
+export const LB_PURSUE_EXITS = Object.freeze([{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballCommitted', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }]);
 // The DL pursue exits: the shared ones, plus the ball committing (a two-gap DL leaves on it for twoGapFit instead).
 export const DL_PURSUE_EXITS = Object.freeze([...PURSUE_EXITS, { when: 'ballCommitted', to: 'pursue' }]);
 // The LB takeOn exits: where a taken-on climber sends him back to (fit or split; else scrape).
@@ -351,15 +353,17 @@ const feltExits = (self) => Object.entries(DL_RESPONSES).filter(([, to]) => to !
 // A state's optional `face` makes the player face that target while he moves (shuffle or backpedal); 'ball' is the ball spot he sees.
 // The DL read ('attack') and the two-gap behaviour follow the spec "Defensive Linemen": get off, read the hat.
 export const FACE_TARGETS = Object.freeze(['ball']);
+// A state's optional `pace` is passed on as goal.pace; 'burst' is a fast ramp to top speed (steering.js PACES).
+export const PACE_NAMES = Object.freeze(['burst']);
 export const BEHAVIORS = Object.freeze({
-  pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'pursue', speed: 1, exits: [] } } },
+  pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] } } },
   // Scripted and DB behaviours: known-in-advance actions for tests, and simple bodies for the DBs.
   sit: {
     start: 'sit',
     keys: [],
     states: {
       sit: { goal: 'hold', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
   fillNow: {
@@ -368,7 +372,7 @@ export const BEHAVIORS = Object.freeze({
     states: {
       wait: { goal: 'hold', speed: 1, exits: [{ when: 'scriptAt', to: 'fill' }] },
       fill: { goal: 'fill', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'atFill', to: 'pursue' }] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
   blitz: {
@@ -377,7 +381,7 @@ export const BEHAVIORS = Object.freeze({
     states: {
       wait: { goal: 'hold', speed: 1, exits: [{ when: 'scriptAt', to: 'blitz' }] },
       blitz: { goal: 'penetrate', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
   slant: {
@@ -386,7 +390,7 @@ export const BEHAVIORS = Object.freeze({
     states: {
       wait: { goal: 'hold', speed: 1, exits: [{ when: 'scriptAt', to: 'slant' }] },
       slant: { goal: 'penetrate', speed: 1, exits: [{ when: 'shed', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
   cover: {
@@ -394,7 +398,7 @@ export const BEHAVIORS = Object.freeze({
     keys: [],
     states: {
       cover: { goal: 'pedal', speed: 1, face: 'ball', exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
   // The DL read: get off into the blocker's gap-side shoulder, then read the hat (DL_RESPONSES).
@@ -409,7 +413,7 @@ export const BEHAVIORS = Object.freeze({
       close: { goal: 'close', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('close'), { when: 'felt', is: 'none', to: 'squeeze' }] },
       rush: { goal: 'rush', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('rush'), { when: 'felt', is: 'none', to: 'squeeze' }] },
       squeeze: { goal: 'squeeze', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('squeeze')] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
   // Two-gap: play the blocker head-up until the ball commits, then take the ball's side.
@@ -419,7 +423,7 @@ export const BEHAVIORS = Object.freeze({
     states: {
       control: { goal: 'control', speed: 1, exits: [...PURSUE_EXITS, { when: 'ballCommitted', to: 'twoGapFit' }] },
       twoGapFit: { goal: 'twoGapFit', speed: 1, exits: [...PURSUE_EXITS] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
   contain: {
@@ -428,7 +432,7 @@ export const BEHAVIORS = Object.freeze({
     states: {
       read: { goal: 'hold', speed: CONTAIN_SPEED, face: 'ball', exits: [{ when: 'ballOutside', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committedAway', to: 'pursue' }, { when: 'recognized', to: 'squeeze' }] },
       squeeze: { goal: 'contain', speed: CONTAIN_SPEED, face: 'ball', exits: [{ when: 'ballOutside', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committedAway', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
   // The LB read: read-step, read the key, then play the flow class (fit, scrape, split) or, on a pass read, drop or man.
@@ -450,17 +454,18 @@ export const BEHAVIORS = Object.freeze({
           { when: 'read', is: 'run', to: 'fit' },
         ],
       },
-      fit: { goal: 'fitGap', speed: 1, exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
-      scrape: { goal: 'scrapeGoal', speed: 1, exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
-      split: { goal: 'split', speed: 1, exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
+      fit: { goal: 'fitGap', speed: 1, pace: 'burst', exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
+      scrape: { goal: 'scrapeGoal', speed: 1, pace: 'burst', exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
+      split: { goal: 'split', speed: 1, pace: 'burst', exits: [...LB_PURSUE_EXITS, TAKE_ON_EXIT] },
       takeOn: {
         goal: 'takeOn',
         speed: 1,
+        pace: 'burst',
         exits: [...LB_PURSUE_EXITS, { when: 'climberGone', back: ['fit', 'split'], to: 'fit' }, { when: 'climberGone', to: 'scrape' }],
       },
       drop: { goal: 'drop', speed: DROP_SPEED, face: 'ball', exits: [...LB_PURSUE_EXITS] },
       man: { goal: 'man', speed: 1, exits: [...LB_PURSUE_EXITS] },
-      pursue: { goal: 'pursue', speed: 1, exits: [] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
 });
@@ -622,6 +627,7 @@ export function validateBehavior(name, behaviors = BEHAVIORS) {
   for (const [sn, row] of Object.entries(b.states)) {
     if (!Object.hasOwn(GOALS, row.goal)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown goal "${row.goal}"`);
     if (row.face !== undefined && !FACE_TARGETS.includes(row.face)) throw new Error(`defense: behavior "${name}" state "${sn}" bad face "${row.face}"`);
+    if (row.pace !== undefined && !PACE_NAMES.includes(row.pace)) throw new Error(`defense: behavior "${name}" state "${sn}" bad pace "${row.pace}"`);
     for (const ex of row.exits) {
       if (!Object.hasOwn(TRIGGERS, ex.when)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown trigger "${ex.when}"`);
       if (ex.when === 'read') {
@@ -778,6 +784,7 @@ export function stepDefense(players, defense, { run, ballPos, cues }, dt) {
     }
     if (g) {
       out[id] = { x: g.x, y: g.y, key: 'def:' + e.state, rate: row.speed * d.speed };
+      if (row.pace !== undefined) out[id].pace = row.pace;
       if (g.face) out[id].face = g.face;
       else if (row.face === 'ball') {
         const b = cueOf(id)?.ball;
