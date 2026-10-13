@@ -38,7 +38,21 @@ export const CONTAIN_DEPTH = 1.0; // yd behind the los: the backside edge's cont
 export const CONTAIN_WIDTH = 2 * BODY_RADIUS; // yd outside the backside end lineman: one contact distance (tunable)
 export const CONTAIN_SPEED = 0.5; // fraction of speed while reading and squeezing: a controlled squeeze (tunable)
 
-export const LEAD_MAX = 1.0; // s, the longest lead a pursuer takes (tunable)
+export const LEAD_MAX = 1.5; // s, the longest lead a pursuer takes: chasers lead further so they run to where the carrier is going (tunable)
+export const HEADON_COS_HI = Math.cos(Math.PI / 6); // cos of the angle (about 30 deg) at or inside which a pursuer is fully head-on: full cut-off (tunable)
+export const HEADON_COS_LO = 0.5; // cos of the angle (60 deg) at or outside which a pursuer is not head-on: pure chase (tunable)
+export const CLOSE_STEP = 1.5; // yd: the cut-off point sits up to this much closer to the carrier than the defender is along his path (tunable)
+export const CUTOFF_MIN_V = 1.0; // yd/s: below this carrier speed the path direction is straight downfield (tunable)
+
+// soft head-on weight: 0 at or below HEADON_COS_LO, 1 at or above HEADON_COS_HI, smooth between. S is the carrier's projected spot, V his velocity.
+export function headOnWeight(d, S, V) {
+  const rx = d.x - S.x, ry = d.y - S.y, dist = Math.hypot(rx, ry);
+  const sp = Math.hypot(V.x, V.y);
+  const ux = sp >= CUTOFF_MIN_V ? V.x / sp : 0, uy = sp >= CUTOFF_MIN_V ? V.y / sp : 1;
+  const cosA = dist > 0 ? (rx * ux + ry * uy) / dist : 1;
+  const t = Math.min(1, Math.max(0, (cosA - HEADON_COS_LO) / (HEADON_COS_HI - HEADON_COS_LO)));
+  return t * t * (3 - 2 * t);
+}
 export const REACH_LEAD = 2; // x his time to the ball's spot: the lead cap (tunable); it was effectively 1 (T-135), which made a close pursuer aim at the carrier's heels
 export const LEVER_V = 1.0; // yd/s: the ball must move sideways at least this fast before pursuers take the inside-out lever (tunable)
 export const PURSUE_LEVER = 0.5; // yd: an inside pursuer aims this far inside the intercept point (tunable)
@@ -260,7 +274,17 @@ export const GOALS = Object.freeze({
     const p = engaged ? intercept(d, B, V, d.speed, 0, 1) : intercept(d, B, V, d.speed, age);
     const ref = engaged ? B : project(B, V, age);
     const s = Math.abs(V.x) >= LEVER_V ? Math.sign(V.x) : 0;
-    return s !== 0 && s * (d.x - ref.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ref.x)), y: p.y } : p;
+    const chase = s !== 0 && s * (d.x - ref.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ref.x)), y: p.y } : p;
+    if (engaged) return chase;
+    // Free and roughly head-on: blend toward a cut-off point on the carrier's path, facing him.
+    const w = headOnWeight(d, ref, V);
+    if (w <= 0) return chase;
+    const sp = Math.hypot(V.x, V.y);
+    const ux = sp >= CUTOFF_MIN_V ? V.x / sp : 0, uy = sp >= CUTOFF_MIN_V ? V.y / sp : 1;
+    const along = (d.x - ref.x) * ux + (d.y - ref.y) * uy;
+    const k = Math.max(0, along - CLOSE_STEP);
+    const C = { x: ref.x + ux * k, y: ref.y + uy * k };
+    return { x: chase.x + w * (C.x - chase.x), y: chase.y + w * (C.y - chase.y), face: { x: ref.x, y: ref.y, w } };
   },
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
 });
@@ -746,6 +770,7 @@ export function stepDefense(players, defense, { run, ballPos, cues }, dt) {
     }
     if (g) {
       out[id] = { x: g.x, y: g.y, key: 'def:' + e.state, rate: row.speed * d.speed };
+      if (g.face) out[id].face = g.face;
       const move = moveFor(d, e, env);
       if (move) out[id].move = move;
     }
