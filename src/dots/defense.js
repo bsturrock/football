@@ -13,12 +13,24 @@
 // through the DL_RESPONSES table (base: hold, reach: outside arm free, double: anchor, down: close,
 // pass: rush; nothing felt: squeeze). A two-gap DL plays his blocker head-up (control) until the ball
 // commits, then takes the ball's side (twoGapFit). Cues come from env.cues (perceive.js).
+// A player's recog rating (1-99, p.recog) sets his read time (recogTime) in place of def.read; a rated safety gets a run read (runRead) on a low hat.
 import { BODY_RADIUS } from './blocking.js';
 import { leadPoint, project } from './geometry.js';
 import { GAP_NAMES, HEAD_UP, liveGaps } from './front.js';
 import { DL_ROLES, LB_DEPTH, LB_ROLES, MOVE_COUNTER, moveOdds } from './roster.js';
 
 export const LB_READ_TIME = 0.45; // s, fallback when a player has no def.read
+export const RECOG_FAST = 0.1; // s: read time at recognition 99 (tunable)
+export const RECOG_SLOW = 1.2; // s: read time at recognition 1 (tunable)
+// Read time for a recognition rating r (1-99, clamped): RECOG_SLOW at 1, RECOG_FAST at 99, linear between.
+export function recogTime(r) {
+  const c = Math.min(99, Math.max(1, r));
+  return RECOG_SLOW + ((c - 1) / 98) * (RECOG_FAST - RECOG_SLOW);
+}
+// A player's read time: his recognition rating if rated, else def.read, else the behaviour's read, else LB_READ_TIME.
+export function readTimeOf(d, behaviorName) {
+  return Number.isFinite(d.recog) ? recogTime(d.recog) : d.def?.read ?? BEHAVIORS[behaviorName].read ?? LB_READ_TIME;
+}
 export const KEY_MOVE = BODY_RADIUS; // yd a line player must move to count as an OL-movement key
 export const READ_STEP = 0.5; // yd: the LB read step, sideways with flow (tunable)
 export const READ_STEP_DOWN = 0.25; // yd: the read step is a half step uphill, never back (tunable)
@@ -299,6 +311,8 @@ export const TRIGGERS = Object.freeze({
   // A shed means he beat his man, so he plays the ball.
   shed: (d, e, env) => env.players.some((p) => p.block?.target === d.id && p.block.released === 'shed'),
   recognized: (d, e, env) => env.defense.t >= e.read - 1e-9 && env.behavior.keys.some((k) => KEYS[k](env)),
+  // His read time is in and he sees the line run-block (a low hat): he reads the run.
+  runRead: (d, e, env) => env.defense.t >= e.read - 1e-9 && env.cues?.(d.id)?.hat === 'low',
   carrierPast: (d, e, env) => !!env.run?.carried && env.ballPos.y > env.los,
   ballClose: (d, e, env) => !!env.run?.carried && Math.hypot(env.ballPos.x - d.x, env.ballPos.y - d.y) <= PURSUE_REACH,
   // The ball (carrier or QB) is outside his contain x.
@@ -402,11 +416,13 @@ export const BEHAVIORS = Object.freeze({
     },
   },
   // Safeties (role S) pedal like cover, then come downhill on the run: the ball commit, the carrier past the los, or the ball within PURSUE_REACH.
+  // read: Infinity, an unrated safety waits for the commit; a recognition rating gives him a run read (runRead).
   support: {
     start: 'cover',
     keys: [],
+    read: Infinity,
     states: {
-      cover: { goal: 'pedal', speed: 1, face: 'ball', exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }, { when: 'ballCommitted', to: 'pursue' }] },
+      cover: { goal: 'pedal', speed: 1, face: 'ball', exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }, { when: 'ballCommitted', to: 'pursue' }, { when: 'runRead', to: 'pursue' }] },
       pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
@@ -631,6 +647,7 @@ export function validateBehavior(name, behaviors = BEHAVIORS) {
   const b = Object.hasOwn(behaviors, name) ? behaviors[name] : null;
   if (!b) throw new Error(`defense: unknown behavior "${name}"`);
   if (!b.states[b.start]) throw new Error(`defense: behavior "${name}" start state "${b.start}" missing`);
+  if (b.read !== undefined && !(typeof b.read === 'number' && b.read >= 0)) throw new Error(`defense: behavior "${name}" bad read "${b.read}"`);
   for (const k of b.keys) {
     if (!Object.hasOwn(KEYS, k)) throw new Error(`defense: behavior "${name}" unknown key "${k}"`);
   }
@@ -730,7 +747,7 @@ export function startDefense(players, front, { los, call = 'base', carrierId, sc
       behavior: name,
       state: BEHAVIORS[name].start,
       st: 0,
-      read: d.def?.read ?? LB_READ_TIME,
+      read: readTimeOf(d, name),
       x0: d.x,
       y0: d.y,
       assign: assign ?? null,
@@ -758,7 +775,7 @@ export function startDefense(players, front, { los, call = 'base', carrierId, sc
       behavior: name,
       state: BEHAVIORS[name].start,
       st: 0,
-      read: d.def?.read ?? LB_READ_TIME,
+      read: readTimeOf(d, name),
       x0: d.x,
       y0: d.y,
       assign: null,

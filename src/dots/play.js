@@ -42,10 +42,11 @@ const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zone
 // formation: a FORMATIONS key (full-11 offense), or null. defPersonnel: a DEF_PERSONNEL key, or null
 // for the FRONTS defense. Left undefined, it takes the formation's default defense, unless the caller passed front.
 // call: a CALLS key, or null for the default call by defensive personnel (callFor).
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, seed = 1, moves = false, formation = null, defPersonnel = undefined, script = null, call = null, trace = false, playside = undefined } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, seed = 1, moves = false, formation = null, defPersonnel = undefined, script = null, call = null, trace = false, playside = undefined, recog = null } = {}) {
   const sideKey = playside === undefined ? PLAYS[playKey].playside ?? null : playside;
   if (sideKey !== null && !Object.hasOwn(PLAYSIDE_SIGN, sideKey)) throw new Error(`createPlay: bad playside ${playside}`);
   if (call !== null && !Object.hasOwn(CALLS, call)) throw new Error(`createPlay: unknown call "${call}"`);
+  if (recog !== null && !(Number.isInteger(recog) && recog >= 1 && recog <= 99)) throw new Error(`createPlay: bad recog ${recog}`);
   const scheme = SCHEMES[PLAYS[playKey].scheme] || null;
   const defP = defPersonnel !== undefined ? defPersonnel : (front === undefined ? FORMATIONS[formation]?.defense ?? null : null);
   const play = {
@@ -73,6 +74,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     combos: [],
     plan: null,
     playside: sideKey,
+    recog,
     run: null,
     defense: null,
     ticks: 0,
@@ -147,6 +149,13 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     play.call = key;
     play.reset();
     return key;
+  };
+
+  // Pre-snap play recognition rating for the defence, null or an integer 1-99. Takes effect at the next snap.
+  play.setRecog = (v) => {
+    if (v !== null && !(Number.isInteger(v) && v >= 1 && v <= 99)) return false;
+    play.recog = v;
+    return v;
   };
 
   // The call the defence plays: the explicit call, else the call for its personnel.
@@ -256,6 +265,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     const def = PLAYS[playKey];
     if (def.run) {
       play.run = startRun(play.players, def.run, { snapToId: def.ball.snapTo, playside: play.playside, numbers: play.numbers });
+      for (const p of play.players) if (p.team === 'defense') { if (play.recog == null) delete p.recog; else p.recog = play.recog; }
       play.defense = startDefense(play.players, plan?.front ?? readFront(play.players, play.numbers, los), {
         los,
         carrierId: play.run.carrier,
