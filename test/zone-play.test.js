@@ -14,6 +14,7 @@ import { numberPlay } from '../src/dots/numbering.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
 
 const DT = 1 / 60;
+const UNBLOCKED_BROKEN = 1.0; // s clearly broken (PRINCIPLES #7)
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
 // T-162: a combo's climber targets a live linebacker, not necessarily the plan watch: the combo has switched when a member targets anything but its DL.
 const climbTarget = (play, c) => [c.owner, c.partner].map((id) => play.player(id).block?.target).find((t) => t != null && t !== c.target) ?? null;
@@ -606,7 +607,7 @@ function releaseReasons(play, c, lb, pre, cuePre, held) {
 }
 const snapPos = (play) => new Map(play.players.map((p) => [p.id, { x: p.x, y: p.y }]));
 
-test('T-92 #5: every front, the double never leaves the DL unblocked; partner climbs after the hold', () => {
+test('T-92 #5: every front, the double never leaves the DL unblocked; partner climbs after the hold', (t) => {
   let switches = 0;
   for (const front of Object.keys(FRONTS)) {
     const play = createPlay(25, 'insideZone', { front });
@@ -614,6 +615,10 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
     const engagedOnce = new Set();
     const switched = new Set();
     const prevHeld = {};
+    const run = {};
+    let longest = 0;
+    let longestKey = '-';
+    let longestAt = 0;
     for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
       const pre = snapPos(play);
       const cuePre = cuesBefore(play);
@@ -624,8 +629,14 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
         // A 'past' or 'shed' release ends the check: once the carrier is RELEASE_PAST upfield, or the DL has
         // won leverage (F-33), the blocker lets him go by design. A 'lost' release still fails the check.
         const released = [c.owner, c.partner].some((id) => { const b = play.player(id).block; return b?.target === c.target && (b.released === 'past' || b.released === 'shed'); });
-        if (released) engagedOnce.delete(key);
-        else if (engagedOnce.has(key)) assert.ok(play.blockersOf(c.target).length > 0, `${front} ${c.target} unblocked at ${i}`);
+        if (released) {
+          engagedOnce.delete(key);
+          delete run[key];
+        } else if (engagedOnce.has(key)) {
+          // F-71 #1: the unblocked run is measured and printed, and only a very wide run fails (PRINCIPLES #7).
+          run[key] = play.blockersOf(c.target).length === 0 ? (run[key] ?? 0) + 1 : 0;
+          if (run[key] > longest) { longest = run[key]; longestKey = key; longestAt = i; }
+        }
         if (!switched.has(key)) {
           const live = climbTarget(play, c);
           const climber = live && [c.owner, c.partner].find((id) => play.player(id).block?.target === live);
@@ -642,6 +653,8 @@ test('T-92 #5: every front, the double never leaves the DL unblocked; partner cl
         }
       }
     }
+    t.diagnostic(`T-92 #5 ${front}: longest unblocked ${longestKey} ${longest} ticks (${(longest * DT).toFixed(2)} s, tick ${longestAt}, limit ${UNBLOCKED_BROKEN} s)`);
+    assert.ok(longest * DT <= UNBLOCKED_BROKEN, `${front} ${longestKey} unblocked ${longest} ticks (${(longest * DT).toFixed(2)} s) > ${UNBLOCKED_BROKEN} s`);
   }
   assert.ok(switches > 0);
 });
