@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { POSITIONS, PERSONNEL, PLAYS, FRONTS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH, MOVE_COUNTER, FORMATIONS, emptyAssignment, buildLineup, moveOdds } from '../src/dots/roster.js';
+import { POSITIONS, PERSONNEL, PLAYS, FRONTS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH, MOVE_COUNTER, FORMATIONS, emptyAssignment, buildLineup, moveOdds, DL_DEPTH, LB_DEPTH, SS_DEPTH, FS_DEPTH } from '../src/dots/roster.js';
 import { BODY_RADIUS, CONTACT_DIST, SPREAD } from '../src/dots/blocking.js';
 import { DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { POSITION_COUNT, DEFENSE_IDS, ROLES, BASE_LB_IDS, LB_READ } from './fixtures/base-front.js';
@@ -207,9 +207,9 @@ test('F-30 #3: OL splits', () => {
 
 test('F-30 #4: front and LBs', () => {
   for (const id of ['LDE', 'LDT', 'RDT', 'RDE']) assert.equal(byId(id).dy, 0.6, id);
-  assert.deepEqual([byId('MLB').dx, byId('MLB').dy], [1.28, 4.5]);
-  assert.deepEqual([byId('WLB').dx, byId('WLB').dy], [-1.28, 4.5]);
-  assert.deepEqual([byId('SLB').dx, byId('SLB').dy], [3.52, 4.5]);
+  assert.deepEqual([byId('MLB').dx, byId('MLB').dy], [1.28, 3.6]);
+  assert.deepEqual([byId('WLB').dx, byId('WLB').dy], [-1.28, 3.6]);
+  assert.deepEqual([byId('SLB').dx, byId('SLB').dy], [3.52, 3.6]);
   assert.deepEqual([byId('QB').dx, byId('QB').dy], [0, -5.3]);
   assert.deepEqual([byId('RB').dx, byId('RB').dy], [1.6, -5.3]);
 });
@@ -233,27 +233,27 @@ test('F-30 #4: FRONTS rows', () => {
     base: null,
     over43: {
       PE: [-2.65, 0.6], PT: [-1.45, 0.6], BT: [0.25, 0.6], BE: [2.65, 0.6],
-      SAM: [-2.4, 4.5], MIK: [-0.4, 4.5], WIL: [1.6, 4.5],
+      SAM: [-2.4, 3.6], MIK: [-0.4, 3.6], WIL: [1.6, 3.6],
     },
     under43: {
       PE: [-2.65, 0.6], PN: [-0.25, 0.6], BT: [1.45, 0.6], BE: [2.65, 0.6],
-      L1: [-1.92, 4.5], L2: [0.48, 4.5], L3: [2.4, 4.5],
+      L1: [-1.92, 3.6], L2: [0.48, 3.6], L3: [2.4, 3.6],
     },
     odd34: {
       PO: [-4.0, 1.0], PE: [-2.65, 0.6], N: [0, 0.6], BE: [2.65, 0.6],
-      BO: [4.0, 1.0], PI: [-1.12, 4.5], BI: [1.12, 4.5],
+      BO: [4.0, 1.0], PI: [-1.12, 3.6], BI: [1.12, 3.6],
     },
     bear: {
       PE: [-3.35, 0.6], P3: [-1.45, 0.6], N: [0, 0.6], B3: [1.45, 0.6],
-      BE: [3.35, 0.6], L1: [-1.12, 4.5], L2: [1.6, 4.5],
+      BE: [3.35, 0.6], L1: [-1.12, 3.6], L2: [1.6, 3.6],
     },
     walkedUp: {
       PE: [-2.65, 0.6], PT: [-1.45, 0.6], BT: [0.25, 0.6], BE: [2.65, 0.6],
-      SAM: [-3.68, 1.5], MIK: [-0.4, 4.5], WIL: [1.6, 4.5],
+      SAM: [-3.68, 1.5], MIK: [-0.4, 3.6], WIL: [1.6, 3.6],
     },
     backedOff: {
       PE: [-2.65, 0.6], PN: [-0.25, 0.6], BT: [1.45, 2.5], BE: [2.65, 0.6],
-      L1: [-1.92, 4.5], L2: [0.48, 4.5], L3: [2.4, 4.5],
+      L1: [-1.92, 3.6], L2: [0.48, 3.6], L3: [2.4, 3.6],
     },
   };
   for (const k of FRONT_KEYS) {
@@ -261,6 +261,39 @@ test('F-30 #4: FRONTS rows', () => {
     const got = Object.fromEntries(FRONTS[k].defenders.map((d) => [d.id, [d.dx, d.dy]]));
     assert.deepEqual(got, want[k], k);
   }
+});
+
+test('F-70 #1/#2: LBs 3 yd, SS 7 yd, FS 10 yd behind the D line', () => {
+  assert.equal(LB_DEPTH - DL_DEPTH, 3);
+  assert.equal(SS_DEPTH - DL_DEPTH, 7);
+  assert.equal(FS_DEPTH - DL_DEPTH, 10);
+  // Every D line row sits at DL_DEPTH, except the backed-off 3-tech (backedOff BT, dy 2.5, by design).
+  for (const k of FRONT_KEYS) {
+    for (const d of FRONTS[k].defenders) {
+      if (d.role === 'DE' || d.role === 'DT') {
+        if (k === 'backedOff' && d.id === 'BT') {
+          assert.equal(d.dy, 2.5, `${k} ${d.id}`);
+        } else {
+          assert.equal(d.dy, DL_DEPTH, `${k} ${d.id}`);
+        }
+      }
+      if (d.role === 'LB' && d.dy > 2) assert.equal(d.dy, LB_DEPTH, `${k} ${d.id}`);
+    }
+  }
+  for (const k of Object.keys(DEF_PERSONNEL)) {
+    for (const d of DEF_PERSONNEL[k].defenders) {
+      if (d.role === 'LB' && d.dy > 2) assert.equal(d.dy, LB_DEPTH, `${k} ${d.id}`);
+    }
+  }
+  for (const k of ['nickel', 'base11']) {
+    const row = (id) => DEF_PERSONNEL[k].defenders.find((d) => d.id === id);
+    assert.equal(row('FS').dy, FS_DEPTH, `${k} FS`);
+    assert.equal(row('SS').dy, SS_DEPTH, `${k} SS`);
+  }
+  const lineup = buildLineup(25, 'insideZone', { formation: '11', defPersonnel: 'nickel' });
+  const at = (id) => lineup.find((p) => p.id === id).y;
+  assert.ok(Math.abs(at('SS') - 32.6) < 1e-9, `SS y ${at('SS')}`);
+  assert.ok(Math.abs(at('FS') - 35.6) < 1e-9, `FS y ${at('FS')}`);
 });
 
 test('F-14 #4: no pre-snap overlap at any shift', () => {

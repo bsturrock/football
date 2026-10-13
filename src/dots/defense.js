@@ -16,7 +16,7 @@
 import { BODY_RADIUS } from './blocking.js';
 import { leadPoint, project } from './geometry.js';
 import { GAP_NAMES, HEAD_UP, liveGaps } from './front.js';
-import { DL_ROLES, LB_ROLES, MOVE_COUNTER, moveOdds } from './roster.js';
+import { DL_ROLES, LB_DEPTH, LB_ROLES, MOVE_COUNTER, moveOdds } from './roster.js';
 
 export const LB_READ_TIME = 0.45; // s, fallback when a player has no def.read
 export const KEY_MOVE = BODY_RADIUS; // yd a line player must move to count as an OL-movement key
@@ -27,7 +27,8 @@ export const OVER_TOP = 1.0; // yd: a scraping LB stays this far behind the ball
 export const ZONE_DEPTH = 10; // yd past the los: the zone drop landmark depth (tunable)
 export const DROP_SPEED = 0.6; // fraction of speed while dropping, a backpedal (tunable)
 export const PEDAL_DEPTH = 1.5; // yd: a DB's pedal at the snap, deeper than his alignment (tunable)
-export const FILL_DEPTH = 3.5; // yd past the los where he fills: football depth (3-5 yd), not body geometry (tunable)
+export const FILL_STEP = 1.0; // yd: the fill is one step downhill of the LB alignment (tunable)
+export const FILL_DEPTH = LB_DEPTH - FILL_STEP; // yd past the los where he fills (2.6)
 export const PENETRATE_DEPTH = 4 * BODY_RADIUS; // yd behind the los the DL aims for
 export const GETOFF_DEPTH = 1.0; // yd past the los toward the offense: the get-off aim (tunable)
 export const GETOFF_TIME = 0.3; // s: the get-off lasts this long before a DL with nothing felt squeezes (tunable)

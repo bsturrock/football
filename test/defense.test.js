@@ -8,9 +8,9 @@ import {
 } from '../src/dots/defense.js';
 import { leadPoint } from '../src/dots/geometry.js';
 import { createPlay } from '../src/dots/play.js';
-import { readFront } from '../src/dots/front.js';
+import { readFront, LINE_DEPTH } from '../src/dots/front.js';
 import { numberPlay } from '../src/dots/numbering.js';
-import { buildLineup } from '../src/dots/roster.js';
+import { buildLineup, LB_DEPTH } from '../src/dots/roster.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { LEVER_COS } from '../src/dots/react.js';
 import { TACKLE_DIST } from '../src/dots/tackle.js';
@@ -212,7 +212,7 @@ test('F-58 #4: the side rule: a play-side fit scrapes, a back-side fit fits his 
 });
 
 test('F-58 #1: fit goal is the ball cue x inside his gap span at FILL_DEPTH; he holds fit until the ball commits', () => {
-  assert.ok(FILL_DEPTH >= 3 && FILL_DEPTH <= 5);
+  assert.ok(FILL_DEPTH > LINE_DEPTH && FILL_DEPTH < LB_DEPTH);
   const s = setup();
   const sp = gapSpan(s.players, s.defense, s.defense.agents.MLB.fit);
   for (const bx of [sp.lo - 5, (sp.lo + sp.hi) / 2, sp.hi + 5]) {
