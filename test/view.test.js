@@ -324,6 +324,8 @@ test('F-75 #6: the page play starts with roster recognition', () => {
 // F-63 #14: the review picker's setups, the one-tick step and the tick label.
 // The page play is built exactly as initDotsView builds it.
 const pagePlay = () => createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true, ...PAGE_MATCHUP });
+// The review setups predate TE looks and SETUP_FIELDS does not carry them, so the replay starts from the plain default lineup.
+const reviewPagePlay = () => createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true, ...PAGE_MATCHUP, teLook: null, rbAway: false });
 const positions = (play) => play.players.map((p) => ({ id: p.id, x: p.x, y: p.y }));
 
 // Each review entry's own test, built from the literal options its test file uses.
@@ -366,7 +368,7 @@ test('F-63 #14: tickLabel shows the tick and its time in seconds', () => {
 
 for (const entry of REVIEW_PLAYS) {
   test(`F-63 #14: review ${entry.key} replays its test's exact positions, tick by tick`, () => {
-    const page = pagePlay();
+    const page = reviewPagePlay();
     applySetup(page, entry.setup);
     page.snap();
     const own = REVIEW_TESTS[entry.key]();

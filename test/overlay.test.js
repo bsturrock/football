@@ -139,7 +139,7 @@ test('option helpers', () => {
 test('dots.html has the new controls inside #hint', () => {
   const html = readFileSync(new URL('../dots.html', import.meta.url), 'utf8');
   const hint = html.slice(html.indexOf('<div id="hint"'), html.indexOf('</div>', html.indexOf('<div id="hint"')));
-  for (const id of ['overlay-btn', 'formation-select', 'defense-select', 'script-select']) {
+  for (const id of ['overlay-btn', 'playside-select', 'te-select']) {
     assert.ok(hint.includes(`id="${id}"`), id);
   }
 });
