@@ -4,7 +4,7 @@ import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
   LB_READ_TIME, KEY_MOVE, READ_STEP, READ_STEP_DOWN, READ_SPEED, OVER_TOP, keyRead, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, REACH_LEAD, intercept, CONTAIN_DEPTH, CONTAIN_WIDTH, CONTAIN_SPEED,
   MAN_ROLES, PERSONNEL_CALLS, moveFor, callFor, shiftGap, DL_RESPONSES, GETOFF_TIME, GETOFF_DEPTH, ARM_FREE, RUSH_DEPTH, LEVER_V, PURSUE_LEVER,
-  headOnWeight, HEADON_COS_HI, HEADON_COS_LO, CLOSE_STEP, CUTOFF_MIN_V,
+  headOnWeight, HEADON_COS_HI, HEADON_COS_LO, CLOSE_STEP, CUTOFF_MIN_V, PEDAL_DEPTH, FACE_TARGETS,
 } from '../src/dots/defense.js';
 import { leadPoint } from '../src/dots/geometry.js';
 import { createPlay } from '../src/dots/play.js';
@@ -1417,4 +1417,61 @@ test('F-69: stepDefense copies the goal face onto the out row, and only then', (
   assert.ok(head.face && head.face.w > 0);
   const away = mk({ x: 0, y: 50 }, { x: 0, y: 8 });
   assert.ok(!('face' in away));
+});
+
+test('F-69 #6: validateBehavior rejects a state face that is not a FACE_TARGETS value and accepts ball', () => {
+  assert.deepEqual(FACE_TARGETS, ['ball']);
+  const mk = (face) => ({ x: { start: 'a', keys: [], states: { a: { goal: 'hold', speed: 1, face, exits: [] } } } });
+  assert.throws(() => validateBehavior('x', mk('eyes')), /defense: behavior "x" state "a" bad face "eyes"/);
+  assert.doesNotThrow(() => validateBehavior('x', mk('ball')));
+  assert.equal(BEHAVIORS.zone.states.read.face, 'ball');
+  assert.equal(BEHAVIORS.cover.states.cover.goal, 'pedal');
+});
+
+test('F-69 #6 (b): an LB in read faces the ball spot he sees with w 1; with no ball cue he faces ballPos', () => {
+  const s = setup();
+  stubLB(s, { ball: { x: 3, y: 20, vx: 0, vy: 0, carried: false, past: false, committed: false } });
+  const out = step(s, 0.01);
+  assert.equal(s.defense.agents.MLB.state, 'read');
+  assert.deepEqual(out.MLB.face, { x: 3, y: 20, w: 1 });
+  const n = setup();
+  n.cues = (id) => (n.defense.agents[id] ? { ...lbCue(), ball: undefined } : null);
+  const o2 = step(n, 0.01);
+  assert.deepEqual(o2.MLB.face, { x: n.ball.x, y: n.ball.y, w: 1 });
+});
+
+test('F-69 #6 (c): a DB (cover) at the snap pedals to his alignment plus PEDAL_DEPTH, facing the ball', () => {
+  const play = createPlay(LOS, 'insideZone', { formation: '11', playside: 'left', tackles: false });
+  assert.ok(play.snap());
+  const db = play.players.find((p) => p.team === 'defense' && p.role === 'S');
+  assert.ok(db, 'a safety in the 11 lineup');
+  const e = play.defense.agents[db.id];
+  assert.equal(e.behavior, 'cover');
+  const out = stepDefense(play.players, play.defense, { run: play.run, ballPos: play.ballPosition(), cues: (id) => play.cuesOf(id) }, 0.01);
+  near(out[db.id].x, e.x0);
+  near(out[db.id].y, e.y0 + PEDAL_DEPTH);
+  const seen = play.cuesOf(db.id)?.ball ?? play.ballPosition();
+  assert.deepEqual(out[db.id].face, { x: seen.x, y: seen.y, w: 1 });
+  assert.deepEqual(GOALS.pedal(db, e, {}), { x: e.x0, y: e.y0 + PEDAL_DEPTH });
+});
+
+test('F-69 #6 (d): a pursue goal keeps its own face (not the ball spot), and a state without face has no face key', () => {
+  const s = setup();
+  const mlb = by(s.players, 'MLB');
+  const mk = (ball) => {
+    mlb.x = 0; mlb.y = 40;
+    s.ball = ball;
+    s.cues = (id) => (id === 'MLB' ? { ball: { ...ball, vx: 0, vy: 8, carried: true, past: false, committed: true }, delay: 0.2 } : null);
+    s.defense.agents.MLB.state = 'pursue';
+    return step(s, 0.01).MLB;
+  };
+  const pur = mk({ x: 0, y: 30 });
+  assert.ok(pur.face && pur.face.w > 0);
+  assert.ok(Math.abs(pur.face.y - 31.6) < 1e-6, `goal face at the projected spot, got ${pur.face.y}`);
+  const fit = setup();
+  stubLB(fit, {});
+  fit.defense.agents.MLB.state = 'fit';
+  const o = step(fit, 0.01);
+  assert.equal(fit.defense.agents.MLB.state, 'fit');
+  assert.ok(!('face' in o.MLB));
 });
