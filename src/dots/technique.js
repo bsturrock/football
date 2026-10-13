@@ -48,8 +48,8 @@ export const INTERCEPT_MIN_SPEED = 1; // yd/s, floor on the blocker speed used t
 export const CLIMB_LANE_REACH = 5; // yd, generous bound on how far from the ball a climb aim may sit ("within reason": stops only wild intercepts, not a leash) (tunable)
 export const WALL_LEAN = 30; // degrees from straight upfield toward the backside, lean of a 'wall' drive (tunable)
 export const PULL_DROP = 1.0; // yd, how far behind his start depth a puller crosses (behind the OL backs) (tunable)
-export const PULL_TOL = 1.0; // yd, how close to his man's x a puller must be to count as level with him (tunable)
-export const PULL_TURN = 2.0; // yd, how far short of his man's x a puller starts rising from the crossing depth toward the man's depth (tunable)
+export const PULL_TOL = 0.5; // yd, how close to his man's x a puller must be to count as level with him (tunable)
+export const PULL_TURN = 1.5; // yd, how far short of his man's x a puller starts rising from the crossing depth toward the man's depth (tunable)
 export const KICK_LEAN = 30; // degrees from straight upfield toward the pull side, lean of a 'kick' drive (tunable)
 
 const freezeRow = (r) => Object.freeze({
@@ -66,7 +66,7 @@ export const TECHNIQUES = Object.freeze({
   zone: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 55 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
   // Same as zone for the covered member; none = the uncovered helper's short step playside, shoulders square.
   combo: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 45 }, aim: 0.5, drive: 'double', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
-  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, seal: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, seal: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   // F-55 #5. Step inside and flat to protect the inside gap, then hinge out to wall the end man off.
   // F-76. Pull: cross behind the line to the man's inside, then kick him out away from the ball.
   pull: freezeRow({ step: { head: 0, playside: 0, backside: 0, none: 0 }, aim: 0.5, inside: true, drive: 'kick', next: 'zone', phases: ['pull', 'aim'], retarget: 'aim' }),
