@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay, FIXED_DT } from '../src/dots/play.js';
 import { FRONTS } from '../src/dots/roster.js';
-import { GOALS, gapSpan, intercept, LEVER_V, PURSUE_LEVER } from '../src/dots/defense.js';
+import { GOALS, gapSpan, intercept, headOnWeight, CLOSE_STEP, CUTOFF_MIN_V, LEVER_V, PURSUE_LEVER } from '../src/dots/defense.js';
 
 const LOS = 25;
 const TICKS = 240;
@@ -100,7 +100,10 @@ test('T-57 (d): a pursuer inside of a sideways-moving ball aims inside the ball\
       if (!(s * (d.x - c.x) < 0)) continue;
       const g = GOALS.pursue(d, e, envOf(play));
       const delay = play.cuesOf(id).delay ?? 0;
-      const p = engagers(play, id).length ? intercept(d, { x: c.x, y: c.y }, { x: c.vx, y: c.vy }, d.speed, 0, 1) : intercept(d, { x: c.x, y: c.y }, { x: c.vx, y: c.vy }, d.speed, delay);
+      const engaged = engagers(play, id).length > 0;
+      // a free pursuer in the head-on band blends toward the cut-off point; the lever rule is judged outside the band
+      if (!engaged && headOnWeight(d, { x: c.x + c.vx * delay, y: c.y + c.vy * delay }, { x: c.vx, y: c.vy }) > 0) continue;
+      const p = engaged ? intercept(d, { x: c.x, y: c.y }, { x: c.vx, y: c.vy }, d.speed, 0, 1) : intercept(d, { x: c.x, y: c.y }, { x: c.vx, y: c.vy }, d.speed, delay);
       assert.ok(s * (g.x - p.x) <= 1e-9, `${name} ${id} tick ${t}`);
       k++;
     }
@@ -126,7 +129,16 @@ test('T-87: a pursuer in state pursue aims at the lead point from the cue, proje
       const g = GOALS.pursue(d, e, envOf(play));
       const ref = free ? { x: B.x + V.x * (cues.delay ?? 0), y: B.y + V.y * (cues.delay ?? 0) } : B;
       const s = Math.abs(V.x) >= LEVER_V ? Math.sign(V.x) : 0;
-      const want = s !== 0 && s * (d.x - ref.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ref.x)), y: p.y } : p;
+      const chase = s !== 0 && s * (d.x - ref.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ref.x)), y: p.y } : p;
+      let want = chase;
+      const w = free ? headOnWeight(d, ref, V) : 0;
+      if (w > 0) {
+        const sp = Math.hypot(V.x, V.y);
+        const u = sp >= CUTOFF_MIN_V ? { x: V.x / sp, y: V.y / sp } : { x: 0, y: 1 };
+        const k = Math.max(0, (d.x - ref.x) * u.x + (d.y - ref.y) * u.y - CLOSE_STEP);
+        want = { x: chase.x + w * (ref.x + u.x * k - chase.x), y: chase.y + w * (ref.y + u.y * k - chase.y) };
+        assert.deepEqual(g.face, { x: ref.x, y: ref.y, w }, `${name} ${id} tick ${t}`);
+      } else assert.ok(!('face' in g), `${name} ${id} tick ${t}`);
       assert.ok(Math.abs(g.x - want.x) < 1e-9 && Math.abs(g.y - want.y) < 1e-9, `${name} ${id} tick ${t}`);
       if (free) {
         const carrier = play.ballPosition();

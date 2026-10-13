@@ -4,7 +4,9 @@ import {
   gapSpan, startDefense, stepDefense, validateBehavior, validateCall, validateRows, pickAssign, CALLS, WHO, ASSIGNMENTS, GOALS, TRIGGERS, BEHAVIORS,
   LB_READ_TIME, KEY_MOVE, READ_STEP, READ_STEP_DOWN, READ_SPEED, OVER_TOP, keyRead, FILL_DEPTH, ZONE_DEPTH, DROP_SPEED, PENETRATE_DEPTH, PURSUE_REACH, LEAD_MAX, REACH_LEAD, intercept, CONTAIN_DEPTH, CONTAIN_WIDTH, CONTAIN_SPEED,
   MAN_ROLES, PERSONNEL_CALLS, moveFor, callFor, shiftGap, DL_RESPONSES, GETOFF_TIME, GETOFF_DEPTH, ARM_FREE, RUSH_DEPTH, LEVER_V, PURSUE_LEVER,
+  headOnWeight, HEADON_COS_HI, HEADON_COS_LO, CLOSE_STEP, CUTOFF_MIN_V, PEDAL_DEPTH, FACE_TARGETS,
 } from '../src/dots/defense.js';
+import { leadPoint } from '../src/dots/geometry.js';
 import { createPlay } from '../src/dots/play.js';
 import { readFront } from '../src/dots/front.js';
 import { numberPlay } from '../src/dots/numbering.js';
@@ -18,6 +20,16 @@ import { BASE_LB_IDS } from './fixtures/base-front.js';
 const LOS = 25;
 const by = (pl, id) => pl.find((p) => p.id === id);
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} vs ${b}`);
+// The blended pursue goal restated: chase point moved toward the cut-off point on the carrier's path by the head-on weight.
+const blended = (d, chase, S, V) => {
+  const w = headOnWeight(d, S, V);
+  if (w <= 0) return { x: chase.x, y: chase.y };
+  const sp = Math.hypot(V.x, V.y);
+  const u = sp >= CUTOFF_MIN_V ? { x: V.x / sp, y: V.y / sp } : { x: 0, y: 1 };
+  const k = Math.max(0, (d.x - S.x) * u.x + (d.y - S.y) * u.y - CLOSE_STEP);
+  const C = { x: S.x + u.x * k, y: S.y + u.y * k };
+  return { x: chase.x + w * (C.x - chase.x), y: chase.y + w * (C.y - chase.y) };
+};
 const setup = (opts = {}) => {
   const players = buildLineup(LOS, 'insideZone').map((p) => ({ ...p }));
   const numbers = numberPlay(players, { los: LOS, centerId: 'C', playside: 'left' });
@@ -226,7 +238,7 @@ test('F-58 #1: fit goal is the ball cue x inside his gap span at FILL_DEPTH; he 
   assert.equal(t.defense.agents.MLB.why, 'ballCommitted');
   const pur = step(t, 0.01).MLB;
   // T-57 3a: pursue leads with the ball cue (spot and velocity of the holder), not the env ball spot.
-  assert.deepEqual({ x: pur.x, y: pur.y }, intercept(mlb, { x: 0, y: LOS }, { x: 0, y: 0 }, mlb.speed));
+  assert.deepEqual({ x: pur.x, y: pur.y }, blended(mlb, intercept(mlb, { x: 0, y: LOS }, { x: 0, y: 0 }, mlb.speed), { x: 0, y: LOS }, { x: 0, y: 0 }));
 });
 
 test('F-58 #3: scrape goal is one OVER_TOP behind the ball against flow, no deeper than y0, never shallower than fill depth', () => {
@@ -477,8 +489,9 @@ test('F-33 #4/#8: a shed blocker sends his DL to pursue from getoff or a respons
   assert.ok(pa);
   assert.equal(pa.key, 'def:pursue');
   const ea = intercept(by(a.players, aId), a.ball, a.defense.ballV, by(a.players, aId).speed);
-  near(pa.x, ea.x);
-  near(pa.y, ea.y);
+  const ba = blended(by(a.players, aId), ea, a.ball, a.defense.ballV);
+  near(pa.x, ba.x);
+  near(pa.y, ba.y);
 
   const f = setup();
   const fId = dlOf(f);
@@ -490,8 +503,9 @@ test('F-33 #4/#8: a shed blocker sends his DL to pursue from getoff or a respons
   assert.ok(pf);
   assert.equal(pf.key, 'def:pursue');
   const ef = intercept(by(f.players, fId), f.ball, f.defense.ballV, by(f.players, fId).speed);
-  near(pf.x, ef.x);
-  near(pf.y, ef.y);
+  const bf = blended(by(f.players, fId), ef, f.ball, f.defense.ballV);
+  near(pf.x, bf.x);
+  near(pf.y, bf.y);
 
   for (const released of ['lost', 'past']) {
     const u = setup();
@@ -603,7 +617,7 @@ test('F-34 #7: stepDefense records ballV from consecutive ball positions; LB pur
   const e = s.defense.agents.MLB;
   e.state = 'pursue';
   const out = step(s, 0.05);
-  const want = intercept(mlb, s.ball, s.defense.ballV, mlb.speed);
+  const want = blended(mlb, intercept(mlb, s.ball, s.defense.ballV, mlb.speed), s.ball, s.defense.ballV);
   assert.ok(out.MLB);
   near(out.MLB.x, want.x);
   near(out.MLB.y, want.y);
@@ -1137,11 +1151,11 @@ test('T-57 #3: an inside pursuer of a sideways ball aims min(PURSUE_LEVER, his x
     const gc = GOALS.pursue(d, e, mk(close, v));
     near(gc.x, pc.x - s * 0.2);
     near(gc.y, pc.y);
-    const out = { x: -5 * s, y: 25 }; // the pursuer is on the ball's outside
+    const out = { x: -5 * s, y: 20 }; // the pursuer is on the ball's outside, well off its path (not head-on)
     assert.deepEqual(GOALS.pursue(d, e, mk(out, v)), intercept(d, out, v, d.speed));
   }
   for (const v of [{ x: 0, y: 4 }, { x: LEVER_V * 0.9, y: 0 }, { x: 0, y: 0 }]) {
-    const ball = { x: 5, y: 25 };
+    const ball = { x: 5, y: 35 }; // the pursuer is behind the ball, not head-on
     assert.deepEqual(GOALS.pursue(d, e, mk(ball, v)), intercept(d, ball, v, d.speed));
   }
 });
@@ -1165,7 +1179,7 @@ test('T-87: a free pursuer solves from the cue spot projected by the cue delay; 
 });
 
 test('T-57 #3a: pursue uses the ball cue spot and velocity, not an exchange spike; no cue keeps the env ball', () => {
-  const d = { x: 0, y: 30, speed: 7 };
+  const d = { x: 0, y: 15, speed: 7 }; // behind the carrier: not head-on, so the plain chase
   const e = {};
   const cue = { x: 2, y: 22, vx: 1.5, vy: 3.8, carried: true, past: false, committed: true };
   const env = { ballPos: { x: 10, y: 50 }, defense: { ballV: { x: 10, y: 33 } }, cues: () => ({ ball: cue }) };
@@ -1314,4 +1328,150 @@ test('F-68 #3: the odds use the engaged blocker, not the cue-latched one', () =>
   const g = moveGoal(s);
   assert.equal(s.defense.agents.LDT.blocker, latched.id);
   assert.deepEqual(g.move, { kind: 'power', side: 0 });
+});
+
+// F-69: a free pursuer roughly head-on to the carrier cuts off his path and faces him; otherwise run and tackle.
+const headMk = (ball, v, extra = {}) => ({ ballPos: ball, defense: { ballV: v }, cues: () => ({ ball: { ...ball, vx: v.x, vy: v.y }, delay: 0 }), ...extra });
+const chaseOf = (d, ball, v) => {
+  const p = intercept(d, ball, v, d.speed);
+  const s = Math.abs(v.x) >= LEVER_V ? Math.sign(v.x) : 0;
+  return s !== 0 && s * (d.x - ball.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ball.x)), y: p.y } : p;
+};
+
+test('F-69 (a): a defender straight ahead of the carrier aims at the path point CLOSE_STEP closer and faces him', () => {
+  const ball = { x: 0, y: 30 }, v = { x: 0, y: 8 };
+  const d = { id: 'X', x: 0.5, y: 40, speed: 7 };
+  assert.equal(headOnWeight(d, ball, v), 1);
+  const g = GOALS.pursue(d, {}, headMk(ball, v));
+  const along = d.y - ball.y; // the carrier's path is straight up the field
+  near(g.x, 0);
+  near(g.y, 30 + along - CLOSE_STEP);
+  assert.deepEqual(g.face, { x: 0, y: 30, w: 1 });
+});
+
+test('F-69 (b): a defender level with or behind the carrier, 60 degrees or more off his path, gets the plain chase and no face', () => {
+  const ball = { x: 0, y: 30 }, v = { x: 0, y: 8 };
+  for (const [dx, dy] of [[8, 0], [8, -2], [0, -8], [-6, -3], [-8, 0]]) {
+    const d = { id: 'X', x: dx, y: 30 + dy, speed: 7 };
+    assert.equal(headOnWeight(d, ball, v), 0, `${dx},${dy}`);
+    const g = GOALS.pursue(d, {}, headMk(ball, v));
+    assert.deepEqual(g, chaseOf(d, ball, v));
+    assert.ok(!('face' in g));
+  }
+});
+
+test('F-69 (c): sweeping the defender around the carrier, the weight never rises and the goal moves smoothly', () => {
+  const ball = { x: 0, y: 30 }, v = { x: 0, y: 8 };
+  for (const sign of [-1, 1]) {
+    let prevW = 1, prev = null;
+    for (let deg = 0; deg <= 90; deg++) {
+      const a = (deg * Math.PI) / 180;
+      const d = { id: 'X', x: sign * 10 * Math.sin(a), y: 30 + 10 * Math.cos(a), speed: 8 };
+      const w = headOnWeight(d, ball, v);
+      assert.ok(w >= 0 && w <= 1 && w <= prevW + 1e-12, `${sign} ${deg}`);
+      prevW = w;
+      const g = GOALS.pursue(d, {}, headMk(ball, v));
+      if (prev) assert.ok(Math.hypot(g.x - prev.x, g.y - prev.y) < 0.5, `${sign} ${deg}`);
+      prev = g;
+    }
+  }
+  assert.ok(HEADON_COS_HI > HEADON_COS_LO);
+});
+
+test('F-69 (d): an engaged pursuer in the band keeps the engaged goal and gets no face', () => {
+  const ball = { x: 0, y: 30 }, v = { x: 0, y: 8 };
+  const d = { id: 'X', x: 0.5, y: 40, speed: 7 };
+  const env = headMk(ball, v, { players: [{ id: 'O', block: { target: 'X', engaged: true } }] });
+  const g = GOALS.pursue(d, {}, env);
+  assert.ok(headOnWeight(d, ball, v) > 0);
+  assert.ok(!('face' in g));
+  const want = intercept(d, ball, v, d.speed, 0, 1);
+  near(g.x, want.x);
+  near(g.y, want.y);
+});
+
+test('F-69 (e): a free chaser meeting the carrier in about 1.3 s aims at the solved meet point, not a capped lead', () => {
+  const d = { id: 'X', x: 0, y: 0, speed: 7 };
+  const ball = { x: 6.2, y: 0 }, v = { x: 0, y: 5 };
+  const lp = leadPoint(d, d.speed, ball, v, { maxLead: LEAD_MAX });
+  assert.ok(lp.met && Math.abs(lp.t - 1.3) < 0.1, `${lp.t}`);
+  assert.equal(headOnWeight(d, ball, v), 0);
+  const g = GOALS.pursue(d, {}, headMk(ball, v));
+  near(g.x, lp.x);
+  near(g.y, lp.y);
+});
+
+test('F-69: stepDefense copies the goal face onto the out row, and only then', () => {
+  const s = setup();
+  const mlb = by(s.players, 'MLB');
+  s.defense.agents.MLB.state = 'pursue';
+  step(s);
+  const mk = (ball, v) => {
+    mlb.x = 0; mlb.y = 40;
+    s.ball = ball;
+    s.cues = (id) => (id === 'MLB' ? { ball: { ...ball, vx: v.x, vy: v.y, carried: true, past: false, committed: true }, delay: 0 } : null);
+    s.defense.agents.MLB.state = 'pursue';
+    return step(s, 0.01).MLB;
+  };
+  const head = mk({ x: 0, y: 30 }, { x: 0, y: 8 });
+  assert.ok(head.face && head.face.w > 0);
+  const away = mk({ x: 0, y: 50 }, { x: 0, y: 8 });
+  assert.ok(!('face' in away));
+});
+
+test('F-69 #6: validateBehavior rejects a state face that is not a FACE_TARGETS value and accepts ball', () => {
+  assert.deepEqual(FACE_TARGETS, ['ball']);
+  const mk = (face) => ({ x: { start: 'a', keys: [], states: { a: { goal: 'hold', speed: 1, face, exits: [] } } } });
+  assert.throws(() => validateBehavior('x', mk('eyes')), /defense: behavior "x" state "a" bad face "eyes"/);
+  assert.doesNotThrow(() => validateBehavior('x', mk('ball')));
+  assert.equal(BEHAVIORS.zone.states.read.face, 'ball');
+  assert.equal(BEHAVIORS.cover.states.cover.goal, 'pedal');
+});
+
+test('F-69 #6 (b): an LB in read faces the ball spot he sees with w 1; with no ball cue he faces ballPos', () => {
+  const s = setup();
+  stubLB(s, { ball: { x: 3, y: 20, vx: 0, vy: 0, carried: false, past: false, committed: false } });
+  const out = step(s, 0.01);
+  assert.equal(s.defense.agents.MLB.state, 'read');
+  assert.deepEqual(out.MLB.face, { x: 3, y: 20, w: 1 });
+  const n = setup();
+  n.cues = (id) => (n.defense.agents[id] ? { ...lbCue(), ball: undefined } : null);
+  const o2 = step(n, 0.01);
+  assert.deepEqual(o2.MLB.face, { x: n.ball.x, y: n.ball.y, w: 1 });
+});
+
+test('F-69 #6 (c): a DB (cover) at the snap pedals to his alignment plus PEDAL_DEPTH, facing the ball', () => {
+  const play = createPlay(LOS, 'insideZone', { formation: '11', playside: 'left', tackles: false });
+  assert.ok(play.snap());
+  const db = play.players.find((p) => p.team === 'defense' && p.role === 'S');
+  assert.ok(db, 'a safety in the 11 lineup');
+  const e = play.defense.agents[db.id];
+  assert.equal(e.behavior, 'cover');
+  const out = stepDefense(play.players, play.defense, { run: play.run, ballPos: play.ballPosition(), cues: (id) => play.cuesOf(id) }, 0.01);
+  near(out[db.id].x, e.x0);
+  near(out[db.id].y, e.y0 + PEDAL_DEPTH);
+  const seen = play.cuesOf(db.id)?.ball ?? play.ballPosition();
+  assert.deepEqual(out[db.id].face, { x: seen.x, y: seen.y, w: 1 });
+  assert.deepEqual(GOALS.pedal(db, e, {}), { x: e.x0, y: e.y0 + PEDAL_DEPTH });
+});
+
+test('F-69 #6 (d): a pursue goal keeps its own face (not the ball spot), and a state without face has no face key', () => {
+  const s = setup();
+  const mlb = by(s.players, 'MLB');
+  const mk = (ball) => {
+    mlb.x = 0; mlb.y = 40;
+    s.ball = ball;
+    s.cues = (id) => (id === 'MLB' ? { ball: { ...ball, vx: 0, vy: 8, carried: true, past: false, committed: true }, delay: 0.2 } : null);
+    s.defense.agents.MLB.state = 'pursue';
+    return step(s, 0.01).MLB;
+  };
+  const pur = mk({ x: 0, y: 30 });
+  assert.ok(pur.face && pur.face.w > 0);
+  assert.ok(Math.abs(pur.face.y - 31.6) < 1e-6, `goal face at the projected spot, got ${pur.face.y}`);
+  const fit = setup();
+  stubLB(fit, {});
+  fit.defense.agents.MLB.state = 'fit';
+  const o = step(fit, 0.01);
+  assert.equal(fit.defense.agents.MLB.state, 'fit');
+  assert.ok(!('face' in o.MLB));
 });

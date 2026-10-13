@@ -25,8 +25,17 @@ const pos = (id, name, team, role, dx, dy, speed, strength, def, ratings) =>
 // Move ratings (0-1) are success rates against an average (0.5) blocker. DL, LB and DB carry
 // swim and power, the shed moves a blocked defender tries. OL and TE: hands counters swim and anchor counters power.
 // A missing move rating counts as 0 (never tried); a missing counter as 0.5.
+// Footwork ratings (DL, LB, DB; steering.js falls back to its own defaults when absent): shuffle
+// is the fraction of top speed when moving sideways, pedal the fraction when moving straight back,
+// both while facing a target. DBs strafe and backpedal better than LBs, and LBs better than linemen.
 const LB_SWIM = 0.2;
 const LB_POWER = 0.15;
+const DL_SHUFFLE = 0.6;
+const DL_PEDAL = 0.45;
+const LB_SHUFFLE = 0.75;
+const LB_PEDAL = 0.6;
+const DB_SHUFFLE = 0.85;
+const DB_PEDAL = 0.8;
 export const POSITIONS = Object.freeze([
   // OL: linemen 1.2 yd center to center (body-to-body split 0.64 yd, about 1.9 ft, inside
   // the standard 1-2 ft). C's front edge sits on the ball's rear tip (dy = -BODY_RADIUS);
@@ -43,15 +52,15 @@ export const POSITIONS = Object.freeze([
   // DL at dy 0.6: the body front sits just past the ball's front tip. Techniques use a
   // 0.25 yd (9 in) shade: 0 = 0, 1 = 0.25, 2i = 0.95, 3 = 1.45, 5 = 2.65, 7 = 3.35
   // (inside shoulder of a ghost TE at 3.6).
-  pos('LDE', 'Left Defensive End', 'defense', 'DE', 2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15 }),
-  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 0.95, 0.6, 6.5, 0.6, null, { swim: 0.15, power: 0.25 }),
-  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -0.95, 0.6, 6.5, 0.6, null, { swim: 0.15, power: 0.25 }),
-  pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15 }),
+  pos('LDE', 'Left Defensive End', 'defense', 'DE', 2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15, shuffle: DL_SHUFFLE, pedal: DL_PEDAL }),
+  pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 0.95, 0.6, 6.5, 0.6, null, { swim: 0.15, power: 0.25, shuffle: DL_SHUFFLE, pedal: DL_PEDAL }),
+  pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -0.95, 0.6, 6.5, 0.6, null, { swim: 0.15, power: 0.25, shuffle: DL_SHUFFLE, pedal: DL_PEDAL }),
+  pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15, shuffle: DL_SHUFFLE, pedal: DL_PEDAL }),
   // LBs at 4.5 yd, inside the 3-5 yd range. MLB (Mike) at center-right of the box, WLB (Will) at -x,
   // SLB (Sam) outside the Mike on the offense-right (+x) side. Fronts inherit ratings and def from the nearest base row of the same role (roleRating).
-  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, 4.5, 7.5, 0.5, { read: 0.35 }, { swim: LB_SWIM, power: LB_POWER }),
-  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, 4.5, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER }),
-  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, 4.5, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER }),
+  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, 4.5, 7.5, 0.5, { read: 0.35 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
+  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, 4.5, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
+  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, 4.5, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
 ]);
 
 // Offensive personnel = extra offense rows added to the POSITIONS offense. noTe is the no-TE look
@@ -71,8 +80,10 @@ export const PERSONNEL = Object.freeze({
 // Defensive fronts. Defender rows use the same dx/dy convention as POSITIONS; non-base
 // fronts are written for a playside-left play (the only play today).
 // Rating fields a row can carry beyond speed and strength: the RB's vision and the move ratings.
-const RATING_KEYS = Object.freeze(['vision', 'swim', 'power', 'hands', 'anchor']);
+const RATING_KEYS = Object.freeze(['vision', 'swim', 'power', 'hands', 'anchor', 'shuffle', 'pedal']);
 const MOVE_KEYS = Object.freeze(['swim', 'power', 'hands', 'anchor']);
+// Footwork ratings: copied by roleRating alongside MOVE_KEYS, but not move ratings.
+const FOOTWORK_KEYS = Object.freeze(['shuffle', 'pedal']);
 // Nearest base defense row of the same role to the alignment (dx, dy); ties go to the earlier row.
 // Also returns the row's move ratings (only those the row defines).
 const roleRating = (role, dx, dy) => {
@@ -83,7 +94,7 @@ const roleRating = (role, dx, dy) => {
     const d = Math.hypot(p.dx - dx, p.dy - dy);
     if (d < best) { best = d; row = p; }
   }
-  const moves = Object.fromEntries(MOVE_KEYS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]]));
+  const moves = Object.fromEntries([...MOVE_KEYS, ...FOOTWORK_KEYS].filter((k) => row[k] !== undefined).map((k) => [k, row[k]]));
   return { speed: row.speed, strength: row.strength, def: row.def, ...moves };
 };
 const NAMES = Object.freeze({
@@ -154,8 +165,8 @@ const DB_STRENGTH = 0.4;
 const DB_SWIM = 0.2;
 const DB_POWER = 0.05;
 const wr = (id, name, dx, dy) => pos(id, name, 'offense', 'WR', dx, dy, WR_SPEED, WR_STRENGTH);
-// DB rows: roleRating has no CB/S base row, so the speed, strength and move ratings are set here.
-const db = (id, role, dx, dy) => pos(id, NAMES[id], 'defense', role, dx, dy, DB_SPEED, DB_STRENGTH, null, { swim: DB_SWIM, power: DB_POWER });
+// DB rows: roleRating has no CB/S base row, so the speed, strength, move and footwork ratings are set here.
+const db = (id, role, dx, dy) => pos(id, NAMES[id], 'defense', role, dx, dy, DB_SPEED, DB_STRENGTH, null, { swim: DB_SWIM, power: DB_POWER, shuffle: DB_SHUFFLE, pedal: DB_PEDAL });
 
 // defense: the DEF_PERSONNEL key this formation is normally met with.
 export const FORMATIONS = Object.freeze({

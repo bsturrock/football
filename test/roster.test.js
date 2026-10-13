@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { POSITIONS, PERSONNEL, PLAYS, FRONTS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH, MOVE_COUNTER, emptyAssignment, buildLineup, moveOdds } from '../src/dots/roster.js';
+import { POSITIONS, PERSONNEL, PLAYS, FRONTS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH, MOVE_COUNTER, FORMATIONS, emptyAssignment, buildLineup, moveOdds } from '../src/dots/roster.js';
 import { BODY_RADIUS, CONTACT_DIST, SPREAD } from '../src/dots/blocking.js';
 import { DL_SHIFT_STEP, LB_SHIFT_STEP } from '../src/dots/play.js';
 import { POSITION_COUNT, DEFENSE_IDS, ROLES, BASE_LB_IDS, LB_READ } from './fixtures/base-front.js';
@@ -542,6 +542,61 @@ test('move ratings: buildLineup DL and OL players carry the fields', () => {
   assert.equal(te.anchor, 0.35);
   assert.equal(lineup.find((pl) => pl.id === 'MIK').swim, 0.2);
   assert.equal(lineup.find((pl) => pl.id === 'RB').vision, 0.8);
+});
+
+test('footwork ratings: every DL row has shuffle 0.6 and pedal 0.45', () => {
+  const rows = [
+    ...POSITIONS.filter((p) => ['DE', 'DT'].includes(p.role)),
+    ...Object.values(FRONTS).flatMap((f) => f.defenders.filter((d) => ['DE', 'DT'].includes(d.role))),
+    ...Object.values(DEF_PERSONNEL).flatMap((dp) => dp.defenders.filter((d) => ['DE', 'DT'].includes(d.role))),
+  ];
+  assert.ok(rows.length > 0);
+  for (const d of rows) {
+    assert.equal(d.shuffle, 0.6, `${d.id} shuffle`);
+    assert.equal(d.pedal, 0.45, `${d.id} pedal`);
+  }
+});
+
+test('footwork ratings: every LB row has shuffle 0.75 and pedal 0.6', () => {
+  const rows = [
+    ...POSITIONS.filter((p) => p.role === 'LB'),
+    ...Object.values(FRONTS).flatMap((f) => f.defenders.filter((d) => d.role === 'LB')),
+    ...Object.values(DEF_PERSONNEL).flatMap((dp) => dp.defenders.filter((d) => d.role === 'LB')),
+  ];
+  assert.ok(rows.length > 0);
+  for (const d of rows) {
+    assert.equal(d.shuffle, 0.75, `${d.id} shuffle`);
+    assert.equal(d.pedal, 0.6, `${d.id} pedal`);
+  }
+});
+
+test('footwork ratings: every CB and S row of DEF_PERSONNEL has shuffle 0.85 and pedal 0.8', () => {
+  const rows = Object.values(DEF_PERSONNEL).flatMap((dp) => dp.defenders.filter((d) => ['CB', 'S'].includes(d.role)));
+  assert.ok(rows.length > 0);
+  for (const d of rows) {
+    assert.equal(d.shuffle, 0.85, `${d.id} shuffle`);
+    assert.equal(d.pedal, 0.8, `${d.id} pedal`);
+  }
+});
+
+test('footwork ratings: buildLineup MIK and FS carry them; OL, QB, RB, TE and WR rows have none', () => {
+  const lineup = buildLineup(25, 'insideZone', { defPersonnel: 'nickel' });
+  const mik = lineup.find((pl) => pl.id === 'MIK');
+  assert.equal(mik.shuffle, 0.75);
+  assert.equal(mik.pedal, 0.6);
+  const fs = lineup.find((pl) => pl.id === 'FS');
+  assert.equal(fs.shuffle, 0.85);
+  assert.equal(fs.pedal, 0.8);
+  const off = [
+    ...POSITIONS.filter((p) => p.team === 'offense'),
+    ...PERSONNEL.te.rows,
+    ...Object.values(FORMATIONS).flatMap((f) => f.rows.filter((r) => r.team === 'offense')),
+  ];
+  assert.ok(off.length > 0);
+  for (const p of off) {
+    assert.ok(!('shuffle' in p), `${p.id} shuffle`);
+    assert.ok(!('pedal' in p), `${p.id} pedal`);
+  }
 });
 
 test('MOVE_COUNTER maps swim to hands and power to anchor, frozen', () => {

@@ -314,6 +314,9 @@ const REVIEW_TESTS = {
   'stall-over43': () => createPlay(25, 'insideZone', { accel: true, tackles: false, personnel: 'noTe', front: 'over43' }),
   'shed-backedOff': () => createPlay(25, 'insideZone', { front: 'backedOff', tackles: false }),
   'squeeze-walkedUp': () => createPlay(25, 'insideZone', { front: 'walkedUp', personnel: 'noTe' }),
+  'cutoff-safety': () => createPlay(25, 'insideZone', { formation: '11', playside: 'left' }),
+  'chase-backside': () => createPlay(25, 'insideZone', { formation: '11', playside: 'left', tackles: false }),
+  'pedal-lb-db': () => createPlay(25, 'insideZone', { formation: '11', playside: 'right', tackles: false }),
 };
 
 test('F-63 #14: every review entry has a literal test build, and its setup has exactly the setup fields', () => {
@@ -347,6 +350,8 @@ for (const entry of REVIEW_PLAYS) {
       own.step(FIXED_DT);
       assert.equal(page.ticks, own.ticks, `${entry.key} ticks at step ${i}`);
       assert.deepEqual(positions(page), positions(own), `${entry.key} positions at tick ${i}`);
+      assert.equal(page.ball.phase, own.ball.phase, `${entry.key} phase at tick ${i}`);
+      if (own.ball.phase === 'dead') break;
     }
   });
 }

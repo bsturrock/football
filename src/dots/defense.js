@@ -26,6 +26,7 @@ export const READ_SPEED = 0.5; // fraction of speed during the read step (tunabl
 export const OVER_TOP = 1.0; // yd: a scraping LB stays this far behind the ball's flow, over the top (tunable)
 export const ZONE_DEPTH = 10; // yd past the los: the zone drop landmark depth (tunable)
 export const DROP_SPEED = 0.6; // fraction of speed while dropping, a backpedal (tunable)
+export const PEDAL_DEPTH = 1.5; // yd: a DB's pedal at the snap, deeper than his alignment (tunable)
 export const FILL_DEPTH = 3.5; // yd past the los where he fills: football depth (3-5 yd), not body geometry (tunable)
 export const PENETRATE_DEPTH = 4 * BODY_RADIUS; // yd behind the los the DL aims for
 export const GETOFF_DEPTH = 1.0; // yd past the los toward the offense: the get-off aim (tunable)
@@ -38,7 +39,21 @@ export const CONTAIN_DEPTH = 1.0; // yd behind the los: the backside edge's cont
 export const CONTAIN_WIDTH = 2 * BODY_RADIUS; // yd outside the backside end lineman: one contact distance (tunable)
 export const CONTAIN_SPEED = 0.5; // fraction of speed while reading and squeezing: a controlled squeeze (tunable)
 
-export const LEAD_MAX = 1.0; // s, the longest lead a pursuer takes (tunable)
+export const LEAD_MAX = 1.5; // s, the longest lead a pursuer takes: chasers lead further so they run to where the carrier is going (tunable)
+export const HEADON_COS_HI = Math.cos(Math.PI / 6); // cos of the angle (about 30 deg) at or inside which a pursuer is fully head-on: full cut-off (tunable)
+export const HEADON_COS_LO = 0.5; // cos of the angle (60 deg) at or outside which a pursuer is not head-on: pure chase (tunable)
+export const CLOSE_STEP = 1.5; // yd: the cut-off point sits up to this much closer to the carrier than the defender is along his path (tunable)
+export const CUTOFF_MIN_V = 1.0; // yd/s: below this carrier speed the path direction is straight downfield (tunable)
+
+// soft head-on weight: 0 at or below HEADON_COS_LO, 1 at or above HEADON_COS_HI, smooth between. S is the carrier's projected spot, V his velocity.
+export function headOnWeight(d, S, V) {
+  const rx = d.x - S.x, ry = d.y - S.y, dist = Math.hypot(rx, ry);
+  const sp = Math.hypot(V.x, V.y);
+  const ux = sp >= CUTOFF_MIN_V ? V.x / sp : 0, uy = sp >= CUTOFF_MIN_V ? V.y / sp : 1;
+  const cosA = dist > 0 ? (rx * ux + ry * uy) / dist : 1;
+  const t = Math.min(1, Math.max(0, (cosA - HEADON_COS_LO) / (HEADON_COS_HI - HEADON_COS_LO)));
+  return t * t * (3 - 2 * t);
+}
 export const REACH_LEAD = 2; // x his time to the ball's spot: the lead cap (tunable); it was effectively 1 (T-135), which made a close pursuer aim at the carrier's heels
 export const LEVER_V = 1.0; // yd/s: the ball must move sideways at least this fast before pursuers take the inside-out lever (tunable)
 export const PURSUE_LEVER = 0.5; // yd: an inside pursuer aims this far inside the intercept point (tunable)
@@ -203,6 +218,8 @@ export const GOALS = Object.freeze({
     return { x: laneX(env, e.fit) ?? e.x0, y: env.los - PENETRATE_DEPTH };
   },
   hold: (d, e) => ({ x: e.x0, y: e.y0 }),
+  // A DB's pedal at the snap: straight back from his alignment.
+  pedal: (d, e) => ({ x: e.x0, y: e.y0 + PEDAL_DEPTH }),
   // DL read goals. The gap-side shoulder of his blocker, never the gap centre.
   getoff: viaBlocker((d, e, env, b) => ({ x: b.x + gapSide(d, e, env, b) * BODY_RADIUS, y: env.los - GETOFF_DEPTH })),
   holdGap: viaBlocker((d, e, env, b) => ({ x: b.x + gapSide(d, e, env, b) * BODY_RADIUS, y: env.los - PENETRATE_DEPTH })),
@@ -260,7 +277,17 @@ export const GOALS = Object.freeze({
     const p = engaged ? intercept(d, B, V, d.speed, 0, 1) : intercept(d, B, V, d.speed, age);
     const ref = engaged ? B : project(B, V, age);
     const s = Math.abs(V.x) >= LEVER_V ? Math.sign(V.x) : 0;
-    return s !== 0 && s * (d.x - ref.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ref.x)), y: p.y } : p;
+    const chase = s !== 0 && s * (d.x - ref.x) < 0 ? { x: p.x - s * Math.min(PURSUE_LEVER, Math.abs(d.x - ref.x)), y: p.y } : p;
+    if (engaged) return chase;
+    // Free and roughly head-on: blend toward a cut-off point on the carrier's path, facing him.
+    const w = headOnWeight(d, ref, V);
+    if (w <= 0) return chase;
+    const sp = Math.hypot(V.x, V.y);
+    const ux = sp >= CUTOFF_MIN_V ? V.x / sp : 0, uy = sp >= CUTOFF_MIN_V ? V.y / sp : 1;
+    const along = (d.x - ref.x) * ux + (d.y - ref.y) * uy;
+    const k = Math.max(0, along - CLOSE_STEP);
+    const C = { x: ref.x + ux * k, y: ref.y + uy * k };
+    return { x: chase.x + w * (C.x - chase.x), y: chase.y + w * (C.y - chase.y), face: { x: ref.x, y: ref.y, w } };
   },
   ball: () => null, // no goal: blocking.js keeps today's ball pursuit
 });
@@ -320,7 +347,9 @@ const TAKE_ON_EXIT = Object.freeze({ when: 'climberSeen', to: 'takeOn' });
 const feltExits = (self) => Object.entries(DL_RESPONSES).filter(([, to]) => to !== self).map(([is, to]) => ({ when: 'felt', is, to }));
 
 // Behaviours: start state, read keys, and per state a goal, a speed and ordered exits.
+// A state's optional `face` makes the player face that target while he moves (shuffle or backpedal); 'ball' is the ball spot he sees.
 // The DL read ('attack') and the two-gap behaviour follow the spec "Defensive Linemen": get off, read the hat.
+export const FACE_TARGETS = Object.freeze(['ball']);
 export const BEHAVIORS = Object.freeze({
   pursue: { start: 'pursue', keys: [], states: { pursue: { goal: 'pursue', speed: 1, exits: [] } } },
   // Scripted and DB behaviours: known-in-advance actions for tests, and simple bodies for the DBs.
@@ -363,7 +392,7 @@ export const BEHAVIORS = Object.freeze({
     start: 'cover',
     keys: [],
     states: {
-      cover: { goal: 'hold', speed: 1, exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
+      cover: { goal: 'pedal', speed: 1, face: 'ball', exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
@@ -396,8 +425,8 @@ export const BEHAVIORS = Object.freeze({
     start: 'read',
     keys: ['runBlock', 'mesh', 'backfield'],
     states: {
-      read: { goal: 'hold', speed: CONTAIN_SPEED, exits: [{ when: 'ballOutside', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committedAway', to: 'pursue' }, { when: 'recognized', to: 'squeeze' }] },
-      squeeze: { goal: 'contain', speed: CONTAIN_SPEED, exits: [{ when: 'ballOutside', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committedAway', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
+      read: { goal: 'hold', speed: CONTAIN_SPEED, face: 'ball', exits: [{ when: 'ballOutside', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committedAway', to: 'pursue' }, { when: 'recognized', to: 'squeeze' }] },
+      squeeze: { goal: 'contain', speed: CONTAIN_SPEED, face: 'ball', exits: [{ when: 'ballOutside', to: 'pursue' }, { when: 'carrierPast', to: 'pursue' }, { when: 'committedAway', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }] },
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
@@ -409,6 +438,7 @@ export const BEHAVIORS = Object.freeze({
       read: {
         goal: 'readStep',
         speed: READ_SPEED,
+        face: 'ball',
         exits: [
           ...LB_PURSUE_EXITS,
           { when: 'read', is: 'pass', cover: 'zone', to: 'drop' },
@@ -427,7 +457,7 @@ export const BEHAVIORS = Object.freeze({
         speed: 1,
         exits: [...LB_PURSUE_EXITS, { when: 'climberGone', back: ['fit', 'split'], to: 'fit' }, { when: 'climberGone', to: 'scrape' }],
       },
-      drop: { goal: 'drop', speed: DROP_SPEED, exits: [...LB_PURSUE_EXITS] },
+      drop: { goal: 'drop', speed: DROP_SPEED, face: 'ball', exits: [...LB_PURSUE_EXITS] },
       man: { goal: 'man', speed: 1, exits: [...LB_PURSUE_EXITS] },
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
@@ -590,6 +620,7 @@ export function validateBehavior(name, behaviors = BEHAVIORS) {
   }
   for (const [sn, row] of Object.entries(b.states)) {
     if (!Object.hasOwn(GOALS, row.goal)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown goal "${row.goal}"`);
+    if (row.face !== undefined && !FACE_TARGETS.includes(row.face)) throw new Error(`defense: behavior "${name}" state "${sn}" bad face "${row.face}"`);
     for (const ex of row.exits) {
       if (!Object.hasOwn(TRIGGERS, ex.when)) throw new Error(`defense: behavior "${name}" state "${sn}" unknown trigger "${ex.when}"`);
       if (ex.when === 'read') {
@@ -746,6 +777,11 @@ export function stepDefense(players, defense, { run, ballPos, cues }, dt) {
     }
     if (g) {
       out[id] = { x: g.x, y: g.y, key: 'def:' + e.state, rate: row.speed * d.speed };
+      if (g.face) out[id].face = g.face;
+      else if (row.face === 'ball') {
+        const b = cueOf(id)?.ball;
+        out[id].face = { x: b ? b.x : ballPos.x, y: b ? b.y : ballPos.y, w: 1 };
+      }
       const move = moveFor(d, e, env);
       if (move) out[id].move = move;
     }

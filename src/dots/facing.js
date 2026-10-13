@@ -1,5 +1,8 @@
 // Player facing: one pure per-tick pass that turns each player's `p.facing` at a bounded
-// rate toward his engaged man, else toward his travel direction.
+// rate toward his engaged man, else toward his travel direction. A player carrying a face
+// target (`p.faceAt = {x, y, w}`, written by steering) turns toward a w-weighted blend of his
+// travel bearing and the bearing to that spot, so a shuffle or backpedal can keep the spot in
+// front of him (w = 1 faces the spot; w = 0 is pure travel); standing still he turns to the spot.
 //
 // Angle convention: `p.facing` is radians in (-PI, PI]; the unit direction is
 // {x: Math.sin(a), y: Math.cos(a)}; 0 faces +y, PI faces -y; the bearing from point A to B
@@ -48,7 +51,17 @@ export function faceGoal(p, players, prev, dt) {
     return bearing(p, m);
   }
   const was = prev?.[p.id];
-  if (was && Math.hypot(p.x - was.x, p.y - was.y) / dt >= FACE_MIN_SPEED) return bearing(was, p);
+  const moving = was && Math.hypot(p.x - was.x, p.y - was.y) / dt >= FACE_MIN_SPEED;
+  const at = p.faceAt;
+  if (at) {
+    if (moving) {
+      const travel = bearing(was, p);
+      return wrapAngle(travel + at.w * angleDiff(travel, bearing(p, at)));
+    }
+    const cur = Number.isFinite(p.facing) ? p.facing : (p.team === 'offense' ? 0 : Math.PI);
+    return wrapAngle(cur + at.w * angleDiff(cur, bearing(p, at)));
+  }
+  if (moving) return bearing(was, p);
   return null;
 }
 

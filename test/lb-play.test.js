@@ -36,7 +36,17 @@ for (const front of Object.keys(FRONTS)) {
         const lb = play.player(id);
         const engaged = play.blockersOf(id).length > 0;
         const dist = Math.hypot(lb.x - carrier.x, lb.y - carrier.y);
-        const orbiting = play.defense.agents[id].state === 'pursue' && !engaged && dist > CONTACT_DIST && dist <= ORBIT_MAX;
+        // distance from player q to the segment lb -> carrier (projection clamped to [0, 1])
+        const segD = (q) => {
+          const dx = carrier.x - lb.x;
+          const dy = carrier.y - lb.y;
+          const len2 = dx * dx + dy * dy;
+          const u = len2 === 0 ? 0 : Math.min(1, Math.max(0, ((q.x - lb.x) * dx + (q.y - lb.y) * dy) / len2));
+          return Math.hypot(q.x - (lb.x + u * dx), q.y - (lb.y + u * dy));
+        };
+        // an LB whose line to the carrier is blocked by a body is in traffic, not orbiting
+        const walled = play.players.some((q) => q !== lb && q !== carrier && segD(q) < CONTACT_DIST);
+        const orbiting = play.defense.agents[id].state === 'pursue' && !engaged && !walled && dist > CONTACT_DIST && dist <= ORBIT_MAX;
         orbit[id] = orbiting ? orbit[id] + DT : 0;
         assert.ok(orbit[id] <= ORBIT_TIME + 1e-9, `${front} ${id} orbits the carrier at tick ${t}`);
         assert.ok(!(engaged && play.ballPosition().y >= lb.y + RELEASE_PAST), `${front} ${id} pinned past the ball at tick ${t}`);
