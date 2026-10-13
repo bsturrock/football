@@ -1,6 +1,6 @@
 // Pure blocking logic for the dots layer: no THREE, no DOM, no timers, no randomness.
 import { HW } from '../util.js';
-import { steerStep, hardCore, CUT_ACCEL } from './steering.js';
+import { steerStep, hardCore, CUT_ACCEL, PACES } from './steering.js';
 import { stepReact } from './react.js';
 import { startFoot, retargetFoot, footGoal, footPush, leadSpot, RIDE_MIN } from './technique.js';
 import { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
@@ -696,7 +696,16 @@ function freeStep(d, goal, ballPos, rate, players, dt, ballV) {
   if (nb < CONTACT_DIST && nb < bd) return;
   const ahead = { x: d.x + ux * (s + 1), y: d.y + uy * (s + 1), key: goal.key, ignore: goal.ignore, accel: CUT_ACCEL };
   if (goal.face) ahead.face = goal.face;
+  if (goal.pace) ahead.pace = goal.pace;
   steerStep(d, ahead, players, s, dt, BODY_RADIUS);
+}
+
+// The pace a defence goal asks for, as steering's { frac, tau }; null for no or unknown pace name.
+// A per-player rating plugs in here: a burst time constant from the player's own rating (d.burst, seconds).
+function paceOf(d, name) {
+  if (typeof name !== 'string' || !Object.hasOwn(PACES, name)) return null;
+  if (name === 'burst' && Number.isFinite(d.burst)) return { ...PACES.burst, tau: d.burst };
+  return PACES[name];
 }
 
 // Blockers who left an engaged block by retarget keep their anchor rank while they close on
@@ -839,8 +848,12 @@ function defenderPass(players, ballPos, dt, ctx, s) {
       const x0 = d.x;
       const y0 = d.y;
       // A free defender never steps inside contact of the ball; the tackle rule takes over at TACKLE_DIST.
-      if (g) freeStep(d, g.face ? { x: g.x, y: g.y, key: g.key, ignore: holderId, face: g.face } : { x: g.x, y: g.y, key: g.key, ignore: holderId }, ballPos, g.rate, players, dt, s.ballV);
-      else {
+      if (g) {
+        const goal = g.face ? { x: g.x, y: g.y, key: g.key, ignore: holderId, face: g.face } : { x: g.x, y: g.y, key: g.key, ignore: holderId };
+        const pace = paceOf(d, g.pace);
+        if (pace) goal.pace = pace;
+        freeStep(d, goal, ballPos, g.rate, players, dt, s.ballV);
+      } else {
         // Chasing the ball he runs to the guard point (CONTACT_DIST short of it on his line): a body
         // beyond the point he stops at is not in his way.
         const bd = Math.hypot(ballPos.x - d.x, ballPos.y - d.y);
