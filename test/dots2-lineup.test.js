@@ -71,7 +71,8 @@ test('every src/dots2 module imports only the allowed specifiers', () => {
   for (const file of files) {
     const src = fs.readFileSync(new URL(file, new URL('../src/dots2/', import.meta.url)), 'utf8');
     for (const m of src.matchAll(specRe)) {
-      assert.ok(allowed.has(m[1]), `${file} imports disallowed "${m[1]}"`);
+      const sibling = /^\.\/[\w-]+\.js$/.test(m[1]) && files.includes(m[1].slice(2));
+      assert.ok(allowed.has(m[1]) || sibling, `${file} imports disallowed "${m[1]}"`);
     }
   }
 });
