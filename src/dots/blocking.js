@@ -800,8 +800,7 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
       b.block.cool = REENGAGE_DELAY;
       b.block.contest = 'shrug';
     } else if (hit && outcome === 'bounce') {
-      applyImpulse(T, b);
-      s.bounced.add(b.id).add(T.id); // kept for this tick: the later clears for unengaged bodies skip them
+      applyImpulse(T, b, true);
       b.block.cool = BOUNCE_COOL;
       b.block.contest = 'bounce';
     } else if (hit) {
@@ -837,12 +836,29 @@ function footPass(players, dt, ctx) {
 }
 
 // The hit on engaging: both bodies get the contact impulse, delivered over IMPACT_TIME.
-function applyImpulse(d, b) {
+// free = a bounce: the impact is marked so unengaged bodies keep and play it out (freeImpact).
+function applyImpulse(d, b, free = false) {
   const imp = contactImpulse(d, b);
   for (const [p, dv] of [[d, imp.d], [b, imp.b]]) {
     const old = p.impact && p.impact.t > 0 ? p.impact : { ax: 0, ay: 0 };
-    p.impact = { ax: old.ax + dv.x / IMPACT_TIME, ay: old.ay + dv.y / IMPACT_TIME, t: IMPACT_TIME };
+    p.impact = { ax: old.ax + dv.x / IMPACT_TIME, ay: old.ay + dv.y / IMPACT_TIME, t: IMPACT_TIME, ...(free ? { free: true } : {}) };
   }
+}
+
+// An unengaged body plays out a bounce impact (displacement over this tick); any other impact is cleared.
+function freeImpact(p, dt) {
+  if (!p.impact) return;
+  if (!p.impact.free || p.impact.t <= 0) {
+    p.impact = null;
+    return;
+  }
+  // the hit's velocity change, tapering to zero over IMPACT_TIME
+  const v = { x: p.impact.ax * p.impact.t, y: p.impact.ay * p.impact.t };
+  p.impact.t -= dt;
+  if (p.impact.t <= 1e-9) p.impact.t = 0;
+  p.x = Math.min(HW, Math.max(-HW, p.x + v.x * dt));
+  p.y = Math.min(Y_MAX, Math.max(Y_MIN, p.y + v.y * dt));
+  if (p.impact.t <= 0) p.impact = null;
 }
 
 function engageImpulses(players, justEngaged) {
@@ -881,7 +897,6 @@ function defenderPass(players, ballPos, dt, ctx, s) {
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
     } else {
       d.react = null;
-      if (!s.bounced.has(d.id)) d.impact = null;
       d.carry = null;
       d.bump = null;
       const g = ctx?.defGoals?.[d.id];
@@ -902,6 +917,7 @@ function defenderPass(players, ballPos, dt, ctx, s) {
         freeStep(d, { ...at, key: 'ball', ignore: holderId }, ballPos, d.speed, players, dt, s.ballV);
       }
       if (dt > 0) stepped.set(d.id, { x: (d.x - x0) / dt, y: (d.y - y0) / dt });
+      freeImpact(d, dt);
     }
   }
 }
@@ -970,7 +986,7 @@ function ridePass(players, dt, s) {
   const { start, justEngaged } = s;
   for (const b of players) {
     if (!b.block || !b.block.engaged) {
-      if (isBlocker(b) && b.impact && !s.bounced.has(b.id)) b.impact = null;
+      if (isBlocker(b) && b.impact) freeImpact(b, dt);
       continue;
     }
     b.steer = null;
@@ -1140,7 +1156,6 @@ export function stepBlocking(players, ballPos, dt, ctx) {
     stepped: new Map(), // free mover id -> velocity of his own step this pass (before any push-out)
     holders: new Map(), // engaged defender id -> ids of the blockers engaged on him this pass
     justEngaged: new Set(),
-    bounced: new Set(), // ids of bodies given a bounce impulse this pass
     fight: false,
     holderId: null,
     ballV: { x: 0, y: 0 }, // the ball's velocity from blocking's own memory of its spot (ctx.ballPrev)

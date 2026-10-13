@@ -48,6 +48,26 @@ test('open field, bounce: no lock, impact on both', () => {
   assert.ok(b.impact && d.impact);
 });
 
+test('open field, bounce: the impulse moves both bodies over the next ticks', () => {
+  const run = (dOpts, bOpts) => {
+    const d = { id: 'd', team: 'defense', role: 'DT', x: 0, y: LOS + OPEN, speed: 0, strength: 0.6, block: null, ...dOpts };
+    const b = { id: 'a', team: 'offense', role: 'OL', x: 0, y: LOS, speed: 0, strength: 1, vel: { x: 0, y: 6 }, block: blk('d'), ...bOpts };
+    const ps = [b, d];
+    const s = contactSpot(ps, b);
+    b.x = s.x; b.y = s.y;
+    const ctx = { rule: null, seq: 0, contest: true, los: LOS, seed: 1, fightBlocks: true };
+    const start = { b: { x: b.x, y: b.y }, d: { x: d.x, y: d.y } };
+    for (let i = 0; i < 6; i++) stepBlocking(ps, { x: 0, y: -50 }, DT, ctx);
+    return { b, d, start };
+  };
+  const bounced = run({ shrug: 0 }, { bounce: 1 });
+  const ctl = run({ shrug: 1 }, {});
+  const moved = (r) => Math.hypot(r.b.x - r.start.b.x, r.b.y - r.start.b.y) + Math.hypot(r.d.x - r.start.d.x, r.d.y - r.start.d.y);
+  assert.ok(moved(bounced) > moved(ctl) + 1e-4, 'bounce displaces the bodies');
+  assert.ok(bounced.d.y > bounced.start.d.y, 'defender knocked downfield');
+  assert.ok(bounced.b.y < bounced.start.b.y, 'blocker knocked back');
+});
+
 test('open field, lock', () => {
   const { b } = setup(OPEN, { shrug: 0 }, { bounce: 0 });
   assert.equal(b.block.engaged, true);
