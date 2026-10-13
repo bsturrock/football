@@ -65,3 +65,4 @@
 - 2026-10-12 F-66 Climber drops an LB walled off by a second-level block (R-27) 8e70639
 - 2026-10-13 F-67 RB in a closing hole: bounce sideways or commit, no stall (R-30) a7ad9a6
 - 2026-10-13 F-68 Blocked defenders try shed moves in any phase (R-25) 48f907c
+- 2026-10-13 F-69 Defenders cut off head-on, chase from elsewhere (R-31) d911b04
