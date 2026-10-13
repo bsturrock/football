@@ -38,7 +38,7 @@
 //    his turn is bounded by his own accel cap and the contact rules (inelastic, no rebound), and
 //    measured on the T-56 build an exit flip on a pursuing LB changed the bodies a free DL met
 //    and pushed that DL's contact rebound over its bound.
-//  - Goal fields: accel, pace, ignore, and forward (boolean, opt-in):
+//  - Goal fields: accel, pace, ignore, face ({x, y, w}: spot to face; he strafes, see strafeFrac), and forward (boolean, opt-in):
 //    the plain-hit detour never points against the goal; its backward part is
 //    dropped, leaving a sideways slide (side, flips and release rules unchanged).
 //    p.avoid === false (test switch, F-63): no detours, lanes or flips; contact still resolved.
@@ -121,6 +121,18 @@ function flipSide(s) {
   return true;
 }
 
+export const SHUFFLE_FRAC = 0.7; // sideways speed, fraction of top speed, when the player has no shuffle rating
+export const BACKPEDAL_FRAC = 0.5; // straight-back speed, fraction of top speed, when the player has no pedal rating
+
+// Speed fraction for travel (dx, dy) while facing p.facing: 1 forward, shuffle sideways, pedal straight back.
+export function strafeFrac(p, dx, dy) {
+  const len = Math.hypot(dx, dy);
+  if (!Number.isFinite(p.facing) || !(len > 0)) return 1;
+  const sh = p.shuffle ?? SHUFFLE_FRAC, pe = p.pedal ?? BACKPEDAL_FRAC;
+  const c = (Math.sin(p.facing) * dx + Math.cos(p.facing) * dy) / len;
+  return c >= 0 ? sh + (1 - sh) * c : sh + (pe - sh) * -c;
+}
+
 export function steerStep(p, goal, players, maxStep, dt, radius) {
   const fullStep = maxStep;
   const pace = goal.pace || null;
@@ -141,6 +153,13 @@ export function steerStep(p, goal, players, maxStep, dt, radius) {
 
   const gx = goal.x - p.x, gy = goal.y - p.y;
   const D = Math.hypot(gx, gy);
+  if (goal.face) {
+    p.faceAt = { x: goal.face.x, y: goal.face.y, w: goal.face.w };
+    if (dt > 0) {
+      const top = typeof p.speed === 'number' ? p.speed : maxStep / dt;
+      maxStep = Math.min(maxStep, top * strafeFrac(p, gx, gy) * dt);
+    }
+  } else if (p.faceAt) delete p.faceAt;
   if (D < 1e-12 || maxStep < 1e-6) {
     if (p.steer) p.steer.stuck = 0;
     return;

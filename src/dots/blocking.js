@@ -695,6 +695,7 @@ function freeStep(d, goal, ballPos, rate, players, dt, ballV) {
   const nb = Math.hypot(ballPos.x - d.x - ux * s, ballPos.y - d.y - uy * s);
   if (nb < CONTACT_DIST && nb < bd) return;
   const ahead = { x: d.x + ux * (s + 1), y: d.y + uy * (s + 1), key: goal.key, ignore: goal.ignore, accel: CUT_ACCEL };
+  if (goal.face) ahead.face = goal.face;
   steerStep(d, ahead, players, s, dt, BODY_RADIUS);
 }
 
@@ -812,6 +813,7 @@ function defenderPass(players, ballPos, dt, ctx, s) {
     const eng = engagedOn(players, d.id);
     if (eng.length) {
       d.steer = null;
+      if (d.faceAt) delete d.faceAt;
       const mx = eng.reduce((s, p) => s + p.x, 0) / eng.length;
       const my = eng.reduce((s, p) => s + p.y, 0) / eng.length;
       const ld = Math.hypot(d.x - mx, d.y - my);
@@ -837,7 +839,7 @@ function defenderPass(players, ballPos, dt, ctx, s) {
       const x0 = d.x;
       const y0 = d.y;
       // A free defender never steps inside contact of the ball; the tackle rule takes over at TACKLE_DIST.
-      if (g) freeStep(d, { x: g.x, y: g.y, key: g.key, ignore: holderId }, ballPos, g.rate, players, dt, s.ballV);
+      if (g) freeStep(d, g.face ? { x: g.x, y: g.y, key: g.key, ignore: holderId, face: g.face } : { x: g.x, y: g.y, key: g.key, ignore: holderId }, ballPos, g.rate, players, dt, s.ballV);
       else {
         // Chasing the ball he runs to the guard point (CONTACT_DIST short of it on his line): a body
         // beyond the point he stops at is not in his way.
