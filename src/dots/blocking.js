@@ -5,6 +5,7 @@ import { stepReact } from './react.js';
 import { startFoot, retargetFoot, footGoal, footPush, leadSpot, RIDE_MIN } from './technique.js';
 import { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
 import { MOVE_COUNTER, moveOdds } from './roster.js';
+import { LINE_DEPTH } from './front.js';
 export { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
 
 export const BLOCKER_ROLES = ['OL', 'TE'];
@@ -43,6 +44,24 @@ export const MOVE_SETUP = 0.2;
 export const MOVE_REST = 0.6;
 // Tunable: seconds a won move stays on d.move for the view.
 export const MOVE_SHOW = 0.5;
+
+// Open-field contest (play option `contest`): odds a blocker meeting a defender past the line is shrugged / bounced.
+export const OPEN_SHRUG = 0.2; // tunable: defender throws the blocker off
+export const OPEN_BOUNCE = 0.2; // tunable: blocker bounces off without a lock
+export const BOUNCE_COOL = 0.3; // tunable: seconds before a bounced blocker may try again
+
+// 'open' when the defender is more than LINE_DEPTH past the los, else 'line'.
+export function blockLevel(T, los) {
+  return Number.isFinite(los) && T.y - los > LINE_DEPTH ? 'open' : 'line';
+}
+
+// Per-player ratings plug in here later (T.shrug, b.bounce); constants for now.
+export function contestOdds(b, T) {
+  return {
+    shrug: Number.isFinite(T.shrug) ? T.shrug : OPEN_SHRUG,
+    bounce: Number.isFinite(b.bounce) ? b.bounce : OPEN_BOUNCE,
+  };
+}
 
 // Pure seeded roll in [0, 1): FNV-1a over `${seed}|${id}|${n}`, then a murmur-style finalizer.
 export function moveRoll(seed, id, n) {
@@ -473,13 +492,17 @@ export function doubleTeamPeel(players, ballPos) { // eslint-disable-line no-unu
   return out;
 }
 
+// Open-field locks (contest on) shed faster than line blocks.
+export const OPEN_SHED_TIME = 0.15; // tunable (s)
+export const shedTimeOf = (b) => (b.block.open ? OPEN_SHED_TIME : SHED_TIME);
+
 // Single release predicate for an engaged block. First match wins: 'shed' (the target has won
 // for SHED_TIME, only when fight is true), 'past' (the ball is well upfield of the target), 'lost'
 // (contact broken), or null. fight = false (play option fightBlocks off) means no shed.
 // Later shed decisions (R-42 DL AI) go here.
 export function canRelease(b, T, ballPos, fight = true) {
   if (fight && T.move?.phase === 'won' && T.move.by === b.id) return 'shed';
-  if (fight && (b.block.winT ?? 0) >= SHED_TIME) return 'shed';
+  if (fight && (b.block.winT ?? 0) >= shedTimeOf(b)) return 'shed';
   if (ballPast(T, ballPos)) return 'past';
   if (Math.hypot(T.x - b.x, T.y - b.y) > CONTACT_DIST + ENGAGE_TOL) return 'lost';
   return null;
@@ -768,8 +791,26 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
     }
     if (dt > 0) stepped.set(b.id, { x: (b.x - bx0) / dt, y: (b.y - by0) / dt });
     const hit = canEngage(b, T, spot, ballPos);
-    if (hit) {
+    let outcome = null;
+    if (hit && ctx?.contest === true && s.fight && blockLevel(T, ctx.los) === 'open') {
+      const n = (b.block.contestN = (b.block.contestN ?? 0) + 1);
+      const r = moveRoll(ctx.seed ?? 1, b.id + '>' + T.id, n);
+      const o = contestOdds(b, T);
+      outcome = r < o.shrug ? 'shrug' : r < o.shrug + o.bounce ? 'bounce' : 'lock';
+    }
+    if (hit && outcome === 'shrug') {
+      T.shedFree = REENGAGE_DELAY;
+      T.shedHow = 'shrug';
+      b.block.cool = REENGAGE_DELAY;
+      b.block.contest = 'shrug';
+    } else if (hit && outcome === 'bounce') {
+      applyImpulse(T, b, true);
+      b.block.cool = BOUNCE_COOL;
+      b.block.contest = 'bounce';
+    } else if (hit) {
+      if (outcome) b.block.contest = 'lock';
       b.block.engaged = true;
+      b.block.open = ctx?.contest === true && blockLevel(T, ctx.los) === 'open';
       b.block.held = 0;
       b.block.winT = 0;
       if ('released' in b.block) b.block.released = null;
@@ -800,15 +841,35 @@ function footPass(players, dt, ctx) {
 }
 
 // The hit on engaging: both bodies get the contact impulse, delivered over IMPACT_TIME.
+// free = a bounce: the impact is marked so unengaged bodies keep and play it out (freeImpact).
+function applyImpulse(d, b, free = false) {
+  const imp = contactImpulse(d, b);
+  for (const [p, dv] of [[d, imp.d], [b, imp.b]]) {
+    const old = p.impact && p.impact.t > 0 ? p.impact : { ax: 0, ay: 0 };
+    p.impact = { ax: old.ax + dv.x / IMPACT_TIME, ay: old.ay + dv.y / IMPACT_TIME, t: IMPACT_TIME, ...(free ? { free: true } : {}) };
+  }
+}
+
+// An unengaged body plays out a bounce impact (displacement over this tick); any other impact is cleared.
+function freeImpact(p, dt) {
+  if (!p.impact) return;
+  if (!p.impact.free || p.impact.t <= 0) {
+    p.impact = null;
+    return;
+  }
+  // the hit's velocity change, tapering to zero over IMPACT_TIME
+  const v = { x: p.impact.ax * p.impact.t, y: p.impact.ay * p.impact.t };
+  p.impact.t -= dt;
+  if (p.impact.t <= 1e-9) p.impact.t = 0;
+  p.x = Math.min(HW, Math.max(-HW, p.x + v.x * dt));
+  p.y = Math.min(Y_MAX, Math.max(Y_MIN, p.y + v.y * dt));
+  if (p.impact.t <= 0) p.impact = null;
+}
+
 function engageImpulses(players, justEngaged) {
   for (const b of players) {
     if (!justEngaged.has(b.id)) continue;
-    const d = byId(players, b.block.target);
-    const imp = contactImpulse(d, b);
-    for (const [p, dv] of [[d, imp.d], [b, imp.b]]) {
-      const old = p.impact && p.impact.t > 0 ? p.impact : { ax: 0, ay: 0 };
-      p.impact = { ax: old.ax + dv.x / IMPACT_TIME, ay: old.ay + dv.y / IMPACT_TIME, t: IMPACT_TIME };
-    }
+    applyImpulse(byId(players, b.block.target), b);
   }
 }
 
@@ -841,7 +902,6 @@ function defenderPass(players, ballPos, dt, ctx, s) {
       d.y = Math.min(Y_MAX, Math.max(Y_MIN, d.y + v.vy * dt));
     } else {
       d.react = null;
-      d.impact = null;
       d.carry = null;
       d.bump = null;
       const g = ctx?.defGoals?.[d.id];
@@ -862,6 +922,7 @@ function defenderPass(players, ballPos, dt, ctx, s) {
         freeStep(d, { ...at, key: 'ball', ignore: holderId }, ballPos, d.speed, players, dt, s.ballV);
       }
       if (dt > 0) stepped.set(d.id, { x: (d.x - x0) / dt, y: (d.y - y0) / dt });
+      freeImpact(d, dt);
     }
   }
 }
@@ -930,7 +991,7 @@ function ridePass(players, dt, s) {
   const { start, justEngaged } = s;
   for (const b of players) {
     if (!b.block || !b.block.engaged) {
-      if (isBlocker(b) && b.impact) b.impact = null;
+      if (isBlocker(b) && b.impact) freeImpact(b, dt);
       continue;
     }
     b.steer = null;
