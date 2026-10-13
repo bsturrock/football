@@ -71,3 +71,4 @@
 - 2026-10-13 F-72 Run defenders start fast, fit, pursue and finish (R-34) 8a939aa
 - 2026-10-13 F-75 Play recognition rating (1-99) sets how fast defenders read run, tunable on the dots page (R-35) 4630051
 - 2026-10-13 F-73 DL first steps press their gap instead of drifting wide (R-34) 8c2adb6
+- 2026-10-13 F-74 Open-field blocks are a contest: climbers can be shrugged or bounce (R-34) 9dea743
