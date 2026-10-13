@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel, PAGE_MATCHUP, MATCHUP_LOCKED, SETUP_FIELDS, playSetup, applySetup, REVIEW_PLAYS, reviewOptions, stepOneTick, tickLabel, recogLabel } from '../src/dots/view.js';
+import { readFileSync } from 'node:fs';
+import { teLookOptions, teLookText, fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel, PAGE_MATCHUP, MATCHUP_LOCKED, SETUP_FIELDS, playSetup, applySetup, REVIEW_PLAYS, reviewOptions, stepOneTick, tickLabel, recogLabel } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, FIXED_DT } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { angleDiff } from '../src/dots/facing.js';
-import { FRONTS, PERSONNEL, BALL_LENGTH } from '../src/dots/roster.js';
+import { FRONTS, PERSONNEL, BALL_LENGTH, TE_LOOKS } from '../src/dots/roster.js';
 import { CALLS, recogTime } from '../src/dots/defense.js';
 
 test('frontOptions has one entry per FRONTS key, in order, with matching names', () => {
@@ -414,4 +415,45 @@ test('F-63 #14: a review setup then home restores the page matchup', () => {
     stepOneTick(fresh);
   }
   assert.deepEqual(positions(play), positions(fresh));
+});
+
+test('F-76 #8: teLookOptions has one entry per TE_LOOKS key, in order, with matching names', () => {
+  const opts = teLookOptions();
+  assert.deepEqual(opts.map((o) => o.key), Object.keys(TE_LOOKS));
+  assert.deepEqual(opts.map((o) => o.name), Object.values(TE_LOOKS).map((l) => l.name));
+});
+
+test('F-76 #9: teLookText names the TE side, pull side, RB side and ball for every look and direction', () => {
+  const cases = [
+    ['playside', 'left', 'TE playside: lines up on the left and blocks the man over him. RB on the right, ball goes left.'],
+    ['playside', 'right', 'TE playside: lines up on the right and blocks the man over him. RB on the left, ball goes right.'],
+    ['backside', 'left', 'TE backside: lines up on the right and blocks the man over him. RB on the right, ball goes left.'],
+    ['backside', 'right', 'TE backside: lines up on the left and blocks the man over him. RB on the left, ball goes right.'],
+    ['backsidePull', 'left', 'TE backside pull: lines up on the right, pulls left at the snap to kick out the end man. RB on the right, ball goes left.'],
+    ['backsidePull', 'right', 'TE backside pull: lines up on the left, pulls right at the snap to kick out the end man. RB on the left, ball goes right.'],
+    ['playsidePull', 'left', 'TE playside pull: lines up on the left, pulls right at the snap to kick out the end man. RB on the right, ball goes left.'],
+    ['playsidePull', 'right', 'TE playside pull: lines up on the right, pulls left at the snap to kick out the end man. RB on the left, ball goes right.'],
+  ];
+  for (const [key, side, want] of cases) assert.equal(teLookText(key, side), want, `${key} ${side}`);
+  assert.equal(teLookText(null, 'left'), 'No TE look: TE and RB stay in the base spots.');
+});
+
+test('F-76 #8: PAGE_MATCHUP is the backside TE look with the RB away from the play side', () => {
+  assert.equal(PAGE_MATCHUP.teLook, 'backside');
+  assert.equal(PAGE_MATCHUP.rbAway, true);
+  const play = createPlay(25, 'insideZone', { ...PAGE_MATCHUP });
+  const at = (id) => play.players.find((p) => p.id === id);
+  assert.equal(play.playside, 'left');
+  assert.ok(at('TE').x > 0, 'TE on +x');
+  assert.ok(at('RB').x > 0, 'RB on +x');
+});
+
+test('F-76 #5: dots.html keeps playside-select and te-select, drops the seven removed selects, keeps the page controls', () => {
+  const html = readFileSync(new URL('../dots.html', import.meta.url), 'utf8');
+  for (const id of ['playside-select', 'te-select', 'look-text', 'reset-btn', 'overlay-btn', 'fight-btn', 'moves-btn', 'recog-range']) {
+    assert.ok(html.includes(`id="${id}"`), id);
+  }
+  for (const id of ['review-select', 'front-select', 'personnel-select', 'formation-select', 'defense-select', 'script-select', 'call-select']) {
+    assert.ok(!html.includes(`id="${id}"`), id);
+  }
 });
