@@ -70,10 +70,11 @@ function walk(startSpecs) {
 }
 
 const dots = read('dots.html');
+const dots2 = read('dots2.html');
 const index = read('index.html');
 
 test('static hosting marker and entry pages exist at repo root', () => {
-  for (const rel of ['dots.html', 'index.html']) {
+  for (const rel of ['dots.html', 'dots2.html', 'index.html']) {
     assert.ok(existsSync(path.join(root, rel)), `${rel} missing`);
   }
   // Not checked via git ls-files: a freshly created marker may be unstaged.
@@ -85,6 +86,23 @@ test('dots.html script URLs are https or relative', () => {
   assert.ok(srcs.length > 0, 'expected at least one <script src> in dots.html');
   for (const spec of [...srcs, ...inlineSpecs]) {
     assert.ok(isPagesSafe(spec), `dots.html reference not https or relative: ${spec}`);
+  }
+});
+
+test('dots2.html script URLs are https or relative', () => {
+  const { srcs, inlineSpecs } = pageRefs(dots2);
+  assert.ok(srcs.length > 0, 'expected at least one <script src> in dots2.html');
+  for (const spec of [...srcs, ...inlineSpecs]) {
+    assert.ok(isPagesSafe(spec), `dots2.html reference not https or relative: ${spec}`);
+  }
+});
+
+test('dots2.html module graph resolves to tracked files with exact case', () => {
+  const { srcs, inlineSpecs } = pageRefs(dots2);
+  const starts = [...srcs, ...inlineSpecs].filter((s) => !s.startsWith('https://'));
+  const visited = walk(starts);
+  for (const must of ['src/dots2/view.js', 'src/dots2/lineup.js', 'src/dots/roster.js']) {
+    assert.ok(visited.has(must), `walk did not reach ${must}`);
   }
 });
 
