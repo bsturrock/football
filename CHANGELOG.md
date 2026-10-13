@@ -63,3 +63,4 @@
 - 2026-10-12 F-63 One anticipation system: every chaser aims where his target will be (R-23) d4b0625
 - 2026-10-12 F-65 Label normal leverage sheds on the field (R-24) 33541ea
 - 2026-10-12 F-66 Climber drops an LB walled off by a second-level block (R-27) 8e70639
+- 2026-10-13 F-67 RB in a closing hole: bounce sideways or commit, no stall (R-30) a7ad9a6
