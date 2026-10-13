@@ -1580,9 +1580,9 @@ test('T-76: a combo member leaving the DL goes to an LB upfield of the DL, or on
   t.diagnostic(`${checked} releases judged`);
 });
 
-// F-66 #4: C drops L2 for L1 only once another blocker's engaged block on a non-line defender walls L2 off.
-test('F-66 #4: under43 te right, C leaves a walled-off L2 for L1', () => {
-  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'under43', personnel: 'te', playside: 'right' });
+// F-66 #4: C drops MIK for SAM only once another blocker's engaged block on a non-line defender walls MIK off.
+test('F-66 #4: over43 te right, C leaves a walled-off MIK for SAM', () => {
+  const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'over43', personnel: 'te', playside: 'right' });
   play.snap();
   const orig = play.retargetRule;
   const seen = [];
@@ -1595,23 +1595,23 @@ test('F-66 #4: under43 te right, C leaves a walled-off L2 for L1', () => {
     const before = players.find((q) => q.id === 'C').block?.target;
     const out = orig(players, ballPos, ctx);
     const e = out.find((x) => x.blocker === 'C');
-    if (e && before === 'L2') {
+    if (e && before === 'MIK') {
       const g = (id) => players.find((q) => q.id === id);
-      const wall = players.filter((q) => q.id !== 'C' && q.block?.engaged && q.block.target !== 'L2' && ['L3'].includes(q.block.target));
+      const wall = players.filter((q) => q.id !== 'C' && q.block?.engaged && q.block.target !== 'MIK' && ['WIL'].includes(q.block.target));
       seen.push({
         e,
         rtTarget: g('RT').block.target, rtEngaged: g('RT').block.engaged,
-        gap: Math.min(segDist(g('L3'), g('C'), g('L2')), segDist(g('RT'), g('C'), g('L2'))),
+        gap: Math.min(segDist(g('WIL'), g('C'), g('MIK')), segDist(g('RT'), g('C'), g('MIK'))),
         wall: wall.length,
       });
     }
     return out;
   };
   for (let i = 0; i < 150 && play.ball.phase !== 'dead'; i++) play.step(FIXED_DT);
-  assert.ok(seen.length > 0, 'C retargets off L2');
+  assert.ok(seen.length > 0, 'C retargets off MIK');
   const r = seen[0];
-  assert.equal(r.rtTarget, 'L3');
+  assert.equal(r.rtTarget, 'WIL');
   assert.equal(r.rtEngaged, true);
-  assert.ok(r.gap <= WALL_GAP, `a wall lies on the C-L2 segment (${r.gap})`);
-  assert.equal(r.e.target, 'L1');
+  assert.ok(r.gap <= WALL_GAP, `a wall lies on the C-MIK segment (${r.gap})`);
+  assert.equal(r.e.target, 'SAM');
 });
