@@ -350,6 +350,8 @@ for (const entry of REVIEW_PLAYS) {
       own.step(FIXED_DT);
       assert.equal(page.ticks, own.ticks, `${entry.key} ticks at step ${i}`);
       assert.deepEqual(positions(page), positions(own), `${entry.key} positions at tick ${i}`);
+      assert.equal(page.ball.phase, own.ball.phase, `${entry.key} phase at tick ${i}`);
+      if (own.ball.phase === 'dead') break;
     }
   });
 }

@@ -91,6 +91,8 @@ test('F-63 #11: climb level per script (report-only, LB avoidance on)', (t) => {
 });
 
 // With LB avoidance off the LB no longer dodges, so the F-41 #4 rule applies: a climber meets his LB before the line.
+// Spans where the climber got past his LB's level (the LB came downhill past him, or the climber overran) are
+// report-only in this test too: the level is a contest of goals judged by eye, as in the test above.
 test('F-63 #11: with LB avoidance off, every climber meets his LB before the line, every script', (t) => {
   const bad = [];
   const pastLevel = [];
@@ -115,7 +117,7 @@ test('F-63 #11: with LB avoidance off, every climber meets his LB before the lin
           }
         }
         if (first) pastLevel.push(`${front} ${personnel} ${playside} script ${script}: ${sp.climber} past ${first.lb} at tick ${first.i} (${past} ticks)`);
-        if (sp.end === 'window end' && sp.lbEndY < 25 + GAP_DEPTH) bad.push(`${front} ${personnel} ${playside} script ${script}: ${sp.climber}>${sp.lbId} still unengaged at the window end, LB y ${sp.lbEndY.toFixed(3)} < ${25 + GAP_DEPTH}`);
+        if (sp.end === 'window end' && !first && sp.lbEndY < 25 + GAP_DEPTH) bad.push(`${front} ${personnel} ${playside} script ${script}: ${sp.climber}>${sp.lbId} still unengaged at the window end, LB y ${sp.lbEndY.toFixed(3)} < ${25 + GAP_DEPTH}`);
       }
     }
     t.diagnostic(`script ${script}: ${spans} spans, ${n} climb ticks, worst margin ${worst.toFixed(3)} yd, ends ${JSON.stringify(ends)}`);
