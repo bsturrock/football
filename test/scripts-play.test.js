@@ -4,7 +4,7 @@ import { createPlay, FIXED_DT } from '../src/dots/play.js';
 import { DB_ROLES, FRONTS } from '../src/dots/roster.js';
 import { readFront } from '../src/dots/front.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
-import { LATE_FILL_AT, PURSUE_REACH, SCRIPTS, WHO, shiftGap, validateScript } from '../src/dots/defense.js';
+import { LATE_FILL_AT, PEDAL_DEPTH, PURSUE_REACH, SCRIPTS, WHO, shiftGap, validateScript } from '../src/dots/defense.js';
 
 const LOS = 25;
 const FRONT_KEYS = Object.keys(FRONTS);
@@ -221,7 +221,7 @@ test('no script is identical to the option omitted; setScript after the snap is 
   assert.equal(p.setScript(null), null);
 });
 
-test('DBs cover and wait; WRs and the FB are not moved', () => {
+test('DBs pedal and wait; WRs and the FB are not moved', () => {
   for (const formation of ['11', '21']) {
     const play = createPlay(LOS, 'insideZone', { formation });
     assert.ok(play.snap());
@@ -240,7 +240,10 @@ test('DBs cover and wait; WRs and the FB are not moved', () => {
         const close = !!pl.run.carried && dist(ball, pl.player(d.id)) <= PURSUE_REACH;
         if (engaged(pl, d.id)) free.delete(d.id);
         if (!past && !close && free.has(d.id)) {
-          assert.ok(dist(pl.player(d.id), spot[d.id]) <= BODY_RADIUS + 1e-9, `${formation} ${d.id} moved`);
+          const p = pl.player(d.id);
+          const s = spot[d.id];
+          assert.ok(Math.abs(p.x - s.x) <= BODY_RADIUS + 1e-9, `${formation} ${d.id} moved`);
+          assert.ok(p.y >= s.y - BODY_RADIUS - 1e-9 && p.y <= s.y + PEDAL_DEPTH + BODY_RADIUS + 1e-9, `${formation} ${d.id} moved`);
         }
         if (crossedAt != null && t >= crossedAt + 1) assert.equal(pl.defense.agents[d.id].state, 'pursue');
       }
