@@ -6,7 +6,7 @@ import { FRONTS } from '../src/dots/roster.js';
 import { engagedOn } from '../src/dots/blocking.js';
 import {
   FACE_RATE, FACE_MIN_SPEED, FACE_SETTLE, FACE_TOL,
-  angleDiff, wrapAngle, facingDir, bearing, initFacing, stepFacing,
+  angleDiff, wrapAngle, facingDir, bearing, initFacing, stepFacing, faceGoal,
 } from '../src/dots/facing.js';
 
 const near = (a, b, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} !~ ${b}`);
@@ -98,6 +98,97 @@ test('travel below FACE_MIN_SPEED keeps facing exactly', () => {
   p.x = FACE_MIN_SPEED * 0.9 * dt;
   stepFacing([p], prev, dt);
   assert.equal(p.facing, 1.234);
+});
+
+// T-109: faceAt = {x, y, w} blends travel bearing with the bearing to a face spot.
+test('T-109 (a): w=1 sideways mover on the defense faces the spot, not his travel', () => {
+  const d = mk('d', 'defense', 0, 0, { facing: Math.PI });
+  d.faceAt = { x: 0, y: -50, w: 1 };
+  const dt = 1 / 60;
+  const v = { x: 3, y: 0 };
+  for (let i = 0; i < 60; i++) {
+    const prev = { [d.id]: { x: d.x, y: d.y } };
+    d.x += v.x * dt; d.y += v.y * dt;
+    stepFacing([d], prev, dt);
+  }
+  assert.ok(Math.abs(angleDiff(d.facing, bearing(d, d.faceAt))) <= FACE_TOL, `facing ${d.facing}`);
+  assert.ok(Math.abs(angleDiff(d.facing, bearing({ x: d.x - 1, y: d.y }, d))) > 1, 'not travel bearing');
+});
+
+test('T-109 (b): w=1 backpedal (moving +y) keeps facing the spot on the -y side', () => {
+  const p = mk('p', 'offense', 0, 0, { facing: 0 });
+  p.faceAt = { x: 0, y: -50, w: 1 };
+  const dt = 1 / 60;
+  for (let i = 0; i < 60; i++) {
+    const prev = { [p.id]: { x: p.x, y: p.y } };
+    p.y += 3 * dt;
+    stepFacing([p], prev, dt);
+  }
+  assert.ok(Math.abs(angleDiff(p.facing, bearing(p, p.faceAt))) <= FACE_TOL, `facing ${p.facing}`);
+  near(p.facing, Math.PI, FACE_TOL);
+});
+
+test('T-109 (c): w=0.5 settles halfway (angle) between travel and the spot bearing', () => {
+  const p = mk('p', 'offense', 0, 0, { facing: 0 });
+  p.faceAt = { x: 0, y: -1000, w: 0.5 };
+  const dt = 1 / 60;
+  for (let i = 0; i < 120; i++) {
+    const prev = { [p.id]: { x: p.x, y: p.y } };
+    p.x += 3 * dt;
+    stepFacing([p], prev, dt);
+  }
+  const travel = Math.PI / 2; // straight +x mover
+  const to = bearing(p, p.faceAt);
+  near(p.facing, wrapAngle(travel + 0.5 * angleDiff(travel, to)), 1e-2);
+});
+
+test('T-109 (d): an engaged player with faceAt still faces his engaged target', () => {
+  const b = mk('b', 'offense', 0, 0, { block: { engaged: true, target: 'd', held: 1 } });
+  const d = mk('d', 'defense', 1, 0);
+  b.faceAt = { x: 0, y: -50, w: 1 };
+  const dt = 1 / 60;
+  for (let i = 0; i < 60; i++) {
+    const prev = { [b.id]: { x: b.x, y: b.y }, [d.id]: { x: d.x, y: d.y } };
+    b.x += 3 * dt;
+    stepFacing([b, d], prev, dt);
+  }
+  near(b.facing, bearing(b, d));
+});
+
+test('T-109 (e): faceAt null leaves a travelling player on his travel bearing', () => {
+  const p = mk('p', 'offense', 0, 0, { facing: Math.PI });
+  p.faceAt = null;
+  const dt = 1 / 60;
+  const v = { x: 3, y: -2 };
+  for (let i = 0; i < 300; i++) {
+    const prev = { [p.id]: { x: p.x, y: p.y } };
+    p.x += v.x * dt; p.y += v.y * dt;
+    stepFacing([p], prev, dt);
+  }
+  near(p.facing, Math.atan2(v.x, v.y));
+  const prev = { [p.id]: { x: p.x - v.x * dt, y: p.y - v.y * dt } };
+  assert.equal(faceGoal(p, [p], prev, dt), bearing(prev[p.id], p));
+});
+
+test('T-109 (f): standing still with w=1 turns to the spot', () => {
+  const p = mk('p', 'offense', 0, 0, { facing: 0 });
+  p.faceAt = { x: 0, y: -50, w: 1 };
+  for (let i = 0; i < 100; i++) stepFacing([p], { [p.id]: { x: 0, y: 0 } }, 1 / 60);
+  near(p.facing, Math.PI, FACE_TOL);
+  assert.ok(Math.abs(angleDiff(p.facing, bearing(p, p.faceAt))) <= FACE_TOL);
+});
+
+test('T-109 (g): an offensive player with faceAt follows the same sideways rule', () => {
+  const o = mk('o', 'offense', 0, 0, { facing: 0 });
+  o.faceAt = { x: 0, y: -50, w: 1 };
+  const dt = 1 / 60;
+  for (let i = 0; i < 60; i++) {
+    const prev = { [o.id]: { x: o.x, y: o.y } };
+    o.x += 3 * dt;
+    stepFacing([o], prev, dt);
+  }
+  assert.ok(Math.abs(angleDiff(o.facing, bearing(o, o.faceAt))) <= FACE_TOL, `facing ${o.facing}`);
+  assert.ok(Math.abs(angleDiff(o.facing, Math.PI / 2)) > 1, 'not travel bearing');
 });
 
 test('stepFacing writes only facing', () => {
