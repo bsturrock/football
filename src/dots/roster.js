@@ -22,9 +22,11 @@ const pos = (id, name, team, role, dx, dy, speed, strength, def, ratings) =>
 // 40-yard-dash average); steering.js's ACCEL_TAU ramp models the start from rest.
 // strength is unitless force used by blocking: OL must stay above every defender's
 // strength / 0.7071 so the OL win at any block angle.
-// Move ratings (0-1) are success rates against an average (0.5) blocker. DL: swim and power
-// are the pass-rush moves. OL and TE: hands counters swim and anchor counters power.
+// Move ratings (0-1) are success rates against an average (0.5) blocker. DL, LB and DB carry
+// swim and power, the shed moves a blocked defender tries. OL and TE: hands counters swim and anchor counters power.
 // A missing move rating counts as 0 (never tried); a missing counter as 0.5.
+const LB_SWIM = 0.2;
+const LB_POWER = 0.15;
 export const POSITIONS = Object.freeze([
   // OL: linemen 1.2 yd center to center (body-to-body split 0.64 yd, about 1.9 ft, inside
   // the standard 1-2 ft). C's front edge sits on the ball's rear tip (dy = -BODY_RADIUS);
@@ -47,9 +49,9 @@ export const POSITIONS = Object.freeze([
   pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15 }),
   // LBs at 4.5 yd, inside the 3-5 yd range. MLB (Mike) at center-right of the box, WLB (Will) at -x,
   // SLB (Sam) outside the Mike on the offense-right (+x) side. Fronts inherit ratings and def from the nearest base row of the same role (roleRating).
-  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, 4.5, 7.5, 0.5, { read: 0.35 }),
-  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, 4.5, 7.5, 0.5, { read: 0.5 }),
-  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, 4.5, 7.5, 0.5, { read: 0.5 }),
+  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, 4.5, 7.5, 0.5, { read: 0.35 }, { swim: LB_SWIM, power: LB_POWER }),
+  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, 4.5, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER }),
+  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, 4.5, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER }),
 ]);
 
 // Offensive personnel = extra offense rows added to the POSITIONS offense. noTe is the no-TE look
@@ -149,9 +151,11 @@ const WR_SPEED = 8.5;
 const WR_STRENGTH = 0.4;
 const DB_SPEED = 8.0;
 const DB_STRENGTH = 0.4;
+const DB_SWIM = 0.2;
+const DB_POWER = 0.05;
 const wr = (id, name, dx, dy) => pos(id, name, 'offense', 'WR', dx, dy, WR_SPEED, WR_STRENGTH);
-// DB rows: roleRating has no CB/S base row, so the speed and strength are set here.
-const db = (id, role, dx, dy) => pos(id, NAMES[id], 'defense', role, dx, dy, DB_SPEED, DB_STRENGTH, null);
+// DB rows: roleRating has no CB/S base row, so the speed, strength and move ratings are set here.
+const db = (id, role, dx, dy) => pos(id, NAMES[id], 'defense', role, dx, dy, DB_SPEED, DB_STRENGTH, null, { swim: DB_SWIM, power: DB_POWER });
 
 // defense: the DEF_PERSONNEL key this formation is normally met with.
 export const FORMATIONS = Object.freeze({

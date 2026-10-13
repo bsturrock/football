@@ -492,15 +492,25 @@ test('move ratings: every DL row of POSITIONS, FRONTS and DEF_PERSONNEL has swim
   }
 });
 
-test('move ratings: non-DL defender rows carry no swim or power', () => {
+test('move ratings: every LB row of POSITIONS, FRONTS and DEF_PERSONNEL has swim 0.2 and power 0.15', () => {
   const rows = [
-    ...POSITIONS.filter((p) => p.team === 'defense' && !['DE', 'DT'].includes(p.role)),
-    ...Object.values(FRONTS).flatMap((f) => f.defenders.filter((d) => !['DE', 'DT'].includes(d.role))),
-    ...Object.values(DEF_PERSONNEL).flatMap((dp) => dp.defenders.filter((d) => !['DE', 'DT'].includes(d.role))),
+    ...POSITIONS.filter((p) => p.role === 'LB'),
+    ...Object.values(FRONTS).flatMap((f) => f.defenders.filter((d) => d.role === 'LB')),
+    ...Object.values(DEF_PERSONNEL).flatMap((dp) => dp.defenders.filter((d) => d.role === 'LB')),
   ];
+  assert.ok(rows.length > 0);
   for (const d of rows) {
-    assert.equal(d.swim, undefined, `${d.id} swim`);
-    assert.equal(d.power, undefined, `${d.id} power`);
+    assert.equal(d.swim, 0.2, `${d.id} swim`);
+    assert.equal(d.power, 0.15, `${d.id} power`);
+  }
+});
+
+test('move ratings: every CB and S row of DEF_PERSONNEL has swim 0.2 and power 0.05', () => {
+  const rows = Object.values(DEF_PERSONNEL).flatMap((dp) => dp.defenders.filter((d) => ['CB', 'S'].includes(d.role)));
+  assert.ok(rows.length > 0);
+  for (const d of rows) {
+    assert.equal(d.swim, 0.2, `${d.id} swim`);
+    assert.equal(d.power, 0.05, `${d.id} power`);
   }
 });
 
@@ -530,7 +540,7 @@ test('move ratings: buildLineup DL and OL players carry the fields', () => {
   const te = buildLineup(25, 'insideZone', { personnel: 'te' }).find((pl) => pl.id === 'TE');
   assert.equal(te.hands, 0.4);
   assert.equal(te.anchor, 0.35);
-  assert.equal(lineup.find((pl) => pl.id === 'MIK').swim, undefined);
+  assert.equal(lineup.find((pl) => pl.id === 'MIK').swim, 0.2);
   assert.equal(lineup.find((pl) => pl.id === 'RB').vision, 0.8);
 });
 
