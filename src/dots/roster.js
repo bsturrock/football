@@ -36,6 +36,10 @@ const LB_SHUFFLE = 0.75;
 const LB_PEDAL = 0.6;
 const DB_SHUFFLE = 0.85;
 const DB_PEDAL = 0.8;
+export const DL_DEPTH = 0.6; // dy of the D line rows
+export const LB_DEPTH = DL_DEPTH + 3; // off-ball LBs: 3 yd behind the D line (R-32)
+export const SS_DEPTH = DL_DEPTH + 7; // strong safety: 7 yd behind the D line (R-32)
+export const FS_DEPTH = DL_DEPTH + 10; // free safety: 10 yd behind the D line (R-32)
 export const POSITIONS = Object.freeze([
   // OL: linemen 1.2 yd center to center (body-to-body split 0.64 yd, about 1.9 ft, inside
   // the standard 1-2 ft). C's front edge sits on the ball's rear tip (dy = -BODY_RADIUS);
@@ -56,11 +60,11 @@ export const POSITIONS = Object.freeze([
   pos('LDT', 'Left Defensive Tackle', 'defense', 'DT', 0.95, 0.6, 6.5, 0.6, null, { swim: 0.15, power: 0.25, shuffle: DL_SHUFFLE, pedal: DL_PEDAL }),
   pos('RDT', 'Right Defensive Tackle', 'defense', 'DT', -0.95, 0.6, 6.5, 0.6, null, { swim: 0.15, power: 0.25, shuffle: DL_SHUFFLE, pedal: DL_PEDAL }),
   pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15, shuffle: DL_SHUFFLE, pedal: DL_PEDAL }),
-  // LBs at 4.5 yd, inside the 3-5 yd range. MLB (Mike) at center-right of the box, WLB (Will) at -x,
+  // LBs 3 yd behind the D line (LB_DEPTH). MLB (Mike) at center-right of the box, WLB (Will) at -x,
   // SLB (Sam) outside the Mike on the offense-right (+x) side. Fronts inherit ratings and def from the nearest base row of the same role (roleRating).
-  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, 4.5, 7.5, 0.5, { read: 0.35 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
-  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, 4.5, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
-  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, 4.5, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
+  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, LB_DEPTH, 7.5, 0.5, { read: 0.35 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
+  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, LB_DEPTH, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
+  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, LB_DEPTH, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
 ]);
 
 // Offensive personnel = extra offense rows added to the POSITIONS offense. noTe is the no-TE look
@@ -115,11 +119,11 @@ const swap = (rows, id, dx, dy) => rows.map((r) => (r[0] === id ? [r[0], r[1], d
 
 const OVER43 = [
   ['PE', 'DE', -2.65, 0.6], ['PT', 'DT', -1.45, 0.6], ['BT', 'DT', 0.25, 0.6], ['BE', 'DE', 2.65, 0.6],
-  ['SAM', 'LB', -2.4, 4.5], ['MIK', 'LB', -0.4, 4.5], ['WIL', 'LB', 1.6, 4.5],
+  ['SAM', 'LB', -2.4, LB_DEPTH], ['MIK', 'LB', -0.4, LB_DEPTH], ['WIL', 'LB', 1.6, LB_DEPTH],
 ];
 const UNDER43 = [
   ['PE', 'DE', -2.65, 0.6], ['PN', 'DT', -0.25, 0.6], ['BT', 'DT', 1.45, 0.6], ['BE', 'DE', 2.65, 0.6],
-  ['L1', 'LB', -1.92, 4.5], ['L2', 'LB', 0.48, 4.5], ['L3', 'LB', 2.4, 4.5],
+  ['L1', 'LB', -1.92, LB_DEPTH], ['L2', 'LB', 0.48, LB_DEPTH], ['L3', 'LB', 2.4, LB_DEPTH],
 ];
 
 export const FRONTS = Object.freeze({
@@ -133,14 +137,14 @@ export const FRONTS = Object.freeze({
     name: '3-4',
     defenders: defenders([
       ['PO', 'LB', -4.0, 1.0], ['PE', 'DE', -2.65, 0.6], ['N', 'DT', 0, 0.6], ['BE', 'DE', 2.65, 0.6],
-      ['BO', 'LB', 4.0, 1.0], ['PI', 'LB', -1.12, 4.5], ['BI', 'LB', 1.12, 4.5],
+      ['BO', 'LB', 4.0, 1.0], ['PI', 'LB', -1.12, LB_DEPTH], ['BI', 'LB', 1.12, LB_DEPTH],
     ]),
   }),
   bear: Object.freeze({
     name: 'Bear',
     defenders: defenders([
       ['PE', 'DE', -3.35, 0.6], ['P3', 'DT', -1.45, 0.6], ['N', 'DT', 0, 0.6], ['B3', 'DT', 1.45, 0.6],
-      ['BE', 'DE', 3.35, 0.6], ['L1', 'LB', -1.12, 4.5], ['L2', 'LB', 1.6, 4.5],
+      ['BE', 'DE', 3.35, 0.6], ['L1', 'LB', -1.12, LB_DEPTH], ['L2', 'LB', 1.6, LB_DEPTH],
     ]),
   }),
   walkedUp: Object.freeze({
@@ -209,10 +213,10 @@ export const DEF_PERSONNEL = Object.freeze({
     defenders: Object.freeze([
       ...defenders([
         ['PE', 'DE', -2.65, 0.6], ['PT', 'DT', -1.45, 0.6], ['BT', 'DT', 0.25, 0.6], ['BE', 'DE', 2.65, 0.6],
-        ['MIK', 'LB', -0.4, 4.5], ['WIL', 'LB', 1.6, 4.5],
+        ['MIK', 'LB', -0.4, LB_DEPTH], ['WIL', 'LB', 1.6, LB_DEPTH],
       ]),
       db('NB', 'CB', -6.2, 4.0), db('CBX', 'CB', -13.0, 6.0), db('CBZ', 'CB', 12.0, 6.0),
-      db('FS', 'S', -4.0, 12.0), db('SS', 'S', 4.0, 12.0),
+      db('FS', 'S', -4.0, FS_DEPTH), db('SS', 'S', 4.0, SS_DEPTH),
     ]),
   }),
   base11: Object.freeze({
@@ -220,7 +224,7 @@ export const DEF_PERSONNEL = Object.freeze({
     defenders: Object.freeze([
       ...FRONTS.base.defenders,
       db('CBX', 'CB', -13.0, 6.0), db('CBZ', 'CB', 12.0, 6.0),
-      db('FS', 'S', -4.0, 12.0), db('SS', 'S', 4.0, 12.0),
+      db('FS', 'S', -4.0, FS_DEPTH), db('SS', 'S', 4.0, SS_DEPTH),
     ]),
   }),
 });

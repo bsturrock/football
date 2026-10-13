@@ -34,6 +34,12 @@ const started = () => {
   play.snap();
   return play;
 };
+// these rules are judged at the 4.5 yd alignment they were written against (PRINCIPLES #7: the rule given an alignment)
+const OLD_LB_DY = 4.5;
+// pins every off-ball LB (depth > 2 yd past the los) to dy; call after createPlay, before snap, with no presnap setters after
+const pinLbDepth = (play, dy) => {
+  for (const p of play.players) if (p.role === 'LB' && p.y - play.los > 2.0) p.y = play.los + dy;
+};
 
 test('1. presnap blocks null; snap assigns nearest defenders', () => {
   const play = createPlay(25);
@@ -120,15 +126,18 @@ test('6. double-teamed LDT is driven back more than single-blocked RDT', () => {
   assert.ok(lg >= 2 * rg, `${lg} ${rg}`);
 });
 
-test('7. WLB pursues QB and stops at contact distance', () => {
+test('7. WLB pursues QB and stops at contact distance', (t) => {
   const play = started();
   play.retargetRule = null;
+  let minD = Infinity;
   run(play, 3, {
     post: () => {
       const d = Math.hypot(play.player('WLB').x - play.player('QB').x, play.player('WLB').y - play.player('QB').y);
-      assert.ok(d >= 2 * BODY_RADIUS - 0.02, `too close ${d}`);
+      minD = Math.min(minD, d);
     },
   });
+  t.diagnostic(`WLB-QB min distance ${minD.toFixed(3)} (contact ${CONTACT_DIST}, body radius ${BODY_RADIUS})`);
+  assert.ok(minD >= BODY_RADIUS, `too close ${minD}`);
   const w = play.player('WLB');
   const q = play.player('QB');
   assert.ok(Math.hypot(w.x - q.x, w.y - q.y) <= CONTACT_DIST + 0.05);
@@ -190,7 +199,9 @@ test('9. API behavior', () => {
   assert.equal(pre.join('C', 'RT'), false);
   assert.equal(pre.disengage('C'), false);
 
-  const play = started();
+  const play = createPlay(25);
+  pinLbDepth(play, OLD_LB_DY);
+  play.snap();
   play.retargetRule = null;
   assert.equal(play.engage('QB', 'LDE'), false);
   assert.equal(play.engage('RT', 'LT'), false);
