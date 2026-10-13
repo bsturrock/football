@@ -280,10 +280,11 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     snapshotPrev();
     let plan = null;
     if (scheme) {
-      plan = scheme.plan(play.players, play.numbers, los, { box: play.box?.ids ?? null });
+      plan = scheme.plan(play.players, play.numbers, los, { box: play.box?.ids ?? null, pull: play.pull });
       play.plan = plan;
       play.combos = plan.combos;
       ctx.combos = plan.combos;
+      ctx.pull = play.pull;
       ctx.side = plan.side;
       assignBlocks(play.players, plan.blocks, plan.techs);
     } else {
