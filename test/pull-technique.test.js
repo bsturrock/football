@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlay, FIXED_DT } from '../src/dots/play.js';
-import { PHASES, startFoot, driveDir, techniqueLabel, PULL_DROP, KICK_LEAN } from '../src/dots/technique.js';
+import { PHASES, TECHNIQUES, startFoot, driveDir, techniqueLabel, PULL_DROP, KICK_LEAN } from '../src/dots/technique.js';
 
 test('pull phase: goal behind the start depth, done once level with the man', () => {
   for (const pull of [-1, 1]) {
@@ -27,7 +27,13 @@ test('pull phase: goal behind the start depth, done once level with the man', ()
   assert.equal(techniqueLabel('zone', 'head'), 'zone step');
 });
 
-const engagements = [];
+test('pull is a committed burst; no other technique row has a pace', () => {
+  assert.equal(TECHNIQUES.pull.pace, 'burst');
+  for (const [name, row] of Object.entries(TECHNIQUES)) {
+    if (name !== 'pull') assert.equal(Object.hasOwn(row, 'pace'), false, `${name} has no pace`);
+  }
+});
+
 for (const teLook of ['backsidePull', 'playsidePull']) {
   for (const playside of ['left', 'right']) {
     test(`${teLook} / ${playside}: TE crosses behind the line, then kicks out`, () => {
@@ -39,6 +45,7 @@ for (const teLook of ['backsidePull', 'playsidePull']) {
       const man = () => play.players.find((p) => p.id === play.plan.blocks.TE);
       let maxY = -Infinity;
       let engagedAt = null;
+      let levelAt = null;
       let label02 = null;
       let labelEngaged = null;
       let deadAt = null;
@@ -50,24 +57,18 @@ for (const teLook of ['backsidePull', 'playsidePull']) {
         if (!b) break;
         if (deadAt === null && play.ball.phase === 'dead') deadAt = t;
         if (label02 === null && t >= 0.2 - 1e-9) label02 = label();
+        if (levelAt === null && b.foot.phase !== 'pull') levelAt = t;
         if (b.engaged) {
           if (engagedAt === null) { engagedAt = t; labelEngaged = label(); }
         } else if (b.foot.phase === 'pull' && (man().x - te().x) * pull > 0) maxY = Math.max(maxY, te().y);
       }
-      console.log(`${teLook}/${playside}: crossing max y ${(maxY - los).toFixed(2)} past LOS, engaged at ${engagedAt}, play dead at ${deadAt}`);
+      console.log(`${teLook}/${playside}: crossing max y ${(maxY - los).toFixed(2)} past LOS, level at ${levelAt}, engaged at ${engagedAt}, play dead at ${deadAt}`);
       assert.ok(maxY < los, 'never past the LOS while crossing');
       assert.equal(label02, 'pull');
-      engagements.push(engagedAt);
-      // A pull may arrive after the whistle or lose its man in the scrum (seed 1: judged on the page, PRINCIPLES 7).
-      if (engagedAt !== null) {
-        assert.ok(engagedAt <= 3, 'engages within 3 s');
-        assert.equal(labelEngaged, 'kick out');
-      }
+      assert.notEqual(engagedAt, null, 'engages his man within 3 s');
+      assert.ok(engagedAt <= 3, 'engages within 3 s');
+      assert.equal(labelEngaged, 'kick out');
     });
   }
 }
 
-test('at least one of the four pull plays engages his man within 3 s', () => {
-  assert.equal(engagements.length, 4);
-  assert.ok(engagements.some((e) => e !== null && e <= 3));
-});

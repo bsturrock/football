@@ -26,6 +26,8 @@
 //   next     technique entered after coming off onto a new target
 //   phases   pre-contact phases, in order ('step', 'aim', or 'hinge' for the cutoff wall spot)
 //   retarget phase entered after coming off onto a new target
+//   pace     optional pace name (a key of steering.js PACES) for the blocker's approach while he is
+//            not engaged (a committed sprint); rows without it keep the default cruise ramp
 //
 // Extending: add reach/down/kick/pull as new rows; a new drive mode is a new branch
 // in driveDir; a new phase is a PHASES entry plus its name in a row's phases.
@@ -69,7 +71,7 @@ export const TECHNIQUES = Object.freeze({
   climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, seal: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   // F-55 #5. Step inside and flat to protect the inside gap, then hinge out to wall the end man off.
   // F-76. Pull: cross behind the line to the man's inside, then kick him out away from the ball.
-  pull: freezeRow({ step: { head: 0, playside: 0, backside: 0, none: 0 }, aim: 0.5, inside: true, drive: 'kick', next: 'zone', phases: ['pull', 'aim'], retarget: 'aim' }),
+  pull: freezeRow({ step: { head: 0, playside: 0, backside: 0, none: 0 }, aim: 0.5, inside: true, drive: 'kick', pace: 'burst', next: 'zone', phases: ['pull', 'aim'], retarget: 'aim' }),
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'wall', next: 'cutoff', phases: ['step', 'hinge'], retarget: 'hinge' }),
 });
 

@@ -2,7 +2,7 @@
 import { HW } from '../util.js';
 import { steerStep, hardCore, CUT_ACCEL, PACES } from './steering.js';
 import { stepReact } from './react.js';
-import { startFoot, retargetFoot, footGoal, footPush, leadSpot, RIDE_MIN } from './technique.js';
+import { TECHNIQUES, startFoot, retargetFoot, footGoal, footPush, leadSpot, RIDE_MIN } from './technique.js';
 import { BODY_RADIUS, RELEASE_PAST, ballPast } from './geometry.js';
 import { MOVE_COUNTER, moveOdds } from './roster.js';
 import { LINE_DEPTH } from './front.js';
@@ -770,9 +770,11 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
     if (foot && (ctx?.side === 1 || ctx?.side === -1)) {
       const { phase, goal } = footGoal(foot, b, spot, ctx.side, BODY_RADIUS, { target: T, ballPos });
       foot.phase = phase;
+      const paceName = TECHNIQUES[foot.tech]?.pace;
+      const pace = typeof paceName === 'string' && Object.hasOwn(PACES, paceName) ? { pace: PACES[paceName] } : {};
       steerStep(
         b,
-        { ...goal, key: phase + ':' + b.block.target, ignore: b.block.target },
+        { ...goal, ...pace, key: phase + ':' + b.block.target, ignore: b.block.target },
         players,
         b.speed * dt,
         dt,
