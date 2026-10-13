@@ -42,7 +42,7 @@ const SCHEMES = Object.freeze({ zone: Object.freeze({ plan: zonePlan, rule: zone
 // formation: a FORMATIONS key (full-11 offense), or null. defPersonnel: a DEF_PERSONNEL key, or null
 // for the FRONTS defense. Left undefined, it takes the formation's default defense, unless the caller passed front.
 // call: a CALLS key, or null for the default call by defensive personnel (callFor).
-export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, seed = 1, moves = false, formation = null, defPersonnel = undefined, script = null, call = null, trace = false, playside = undefined, recog = null } = {}) {
+export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, personnel = undefined, accel = true, tackles = true, fightBlocks = true, seed = 1, moves = false, contest = false, formation = null, defPersonnel = undefined, script = null, call = null, trace = false, playside = undefined, recog = null } = {}) {
   const sideKey = playside === undefined ? PLAYS[playKey].playside ?? null : playside;
   if (sideKey !== null && !Object.hasOwn(PLAYSIDE_SIGN, sideKey)) throw new Error(`createPlay: bad playside ${playside}`);
   if (call !== null && !Object.hasOwn(CALLS, call)) throw new Error(`createPlay: unknown call "${call}"`);
@@ -68,6 +68,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     fightBlocks,
     seed,
     moves,
+    contest,
     dlShift: 0,
     lbShift: 0,
     numbers: {},
@@ -342,6 +343,7 @@ export function createPlay(los = 25, playKey = 'base', { timeScale = 1, front, p
     ctx.fightBlocks = play.fightBlocks;
     ctx.seed = play.seed;
     ctx.moves = play.moves;
+    ctx.contest = play.contest;
     ctx.los = los;
     ctx.cues = (id) => cuesFor(play.perception, id);
     play.separation += stepBlocking(play.players, play.ballPosition(), sdt, ctx);
