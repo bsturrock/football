@@ -17,7 +17,7 @@ test('F-73 (a): noWiden is validated and sits on the attack rows', () => {
   assert.throws(() => validateBehavior('attack', copy('yes')), /bad noWiden "yes"/);
   for (const n of NO_WIDEN_ROWS) assert.equal(BEHAVIORS.attack.states[n].noWiden, true, n);
   assert.equal(BEHAVIORS.attack.states.pursue.noWiden, undefined);
-  assert.equal(BEHAVIORS.attack.states.getoff.pace, 'burst');
+  assert.equal(BEHAVIORS.attack.states.getoff.pace, undefined);
   for (const [name, b] of Object.entries(BEHAVIORS)) {
     if (name === 'attack') continue;
     for (const row of Object.values(b.states)) assert.equal(row.noWiden, undefined, name);

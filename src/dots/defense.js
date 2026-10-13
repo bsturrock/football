@@ -440,7 +440,7 @@ export const BEHAVIORS = Object.freeze({
     start: 'getoff',
     keys: [],
     states: {
-      getoff: { goal: 'getoff', speed: 1, noWiden: true, pace: 'burst', exits: [...DL_PURSUE_EXITS, ...feltExits('getoff'), { when: 'getoffDone', to: 'squeeze' }] },
+      getoff: { goal: 'getoff', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('getoff'), { when: 'getoffDone', to: 'squeeze' }] },
       hold: { goal: 'holdGap', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('hold'), { when: 'felt', is: 'none', to: 'squeeze' }] },
       outsideArm: { goal: 'outsideArm', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('outsideArm'), { when: 'felt', is: 'none', to: 'squeeze' }] },
       anchor: { goal: 'anchor', speed: 1, noWiden: true, exits: [...DL_PURSUE_EXITS, ...feltExits('anchor'), { when: 'felt', is: 'none', to: 'squeeze' }] },
