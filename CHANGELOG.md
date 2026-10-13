@@ -68,3 +68,4 @@
 - 2026-10-13 F-69 Defenders cut off head-on, chase from elsewhere (R-31) d911b04
 - 2026-10-13 F-70 LBs 3 yd, SS 7 yd, FS 10 yd behind the D line (R-32) 8780877
 - 2026-10-13 F-71 Whole-play motion checks print numbers, fail only when clearly broken (R-33) 29c66a9
+- 2026-10-13 F-72 Run defenders start fast, fit, pursue and finish (R-34) 8a939aa
