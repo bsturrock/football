@@ -19,6 +19,12 @@ const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
 const climbTarget = (play, c) => [c.owner, c.partner].map((id) => play.player(id).block?.target).find((t) => t != null && t !== c.target) ?? null;
 const unswitched = (players, c) => [c.owner, c.partner].every((id) => players.find((q) => q.id === id)?.block?.target === c.target);
 const targets = (play) => Object.fromEntries(OL.map((id) => [id, play.player(id).block?.target]));
+// these rules are judged at the 4.5 yd alignment they were written against (PRINCIPLES #7: the rule given an alignment)
+const OLD_LB_DY = 4.5;
+// pins every off-ball LB (depth > 2 yd past the los) to dy; call after createPlay, before snap, with no presnap setters after
+const pinLbDepth = (play, dy) => {
+  for (const p of play.players) if (p.role === 'LB' && p.y - play.los > 2.0) p.y = play.los + dy;
+};
 
 test('F-12 #5: assignBlocks plan overrides one blocker, rest nearest; no plan unchanged', () => {
   const a = buildLineup(25, 'base');
@@ -545,6 +551,7 @@ test('F-19 #8: the climber comes off when the watched LB has committed', () => {
 test('T-94: under43 te left RG/RT double: the uncovered guard climbs to L3 and the tackle stays', () => {
   // the human: "Generally the player who is uncovered at play start will be the person taking the LB ... A tackle is almost never going to go to the second level"
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'under43', personnel: 'te', playside: 'left' });
+  pinLbDepth(play, OLD_LB_DY);
   play.snap();
   const orig = play.retargetRule;
   let first = null;
@@ -1583,6 +1590,7 @@ test('T-76: a combo member leaving the DL goes to an LB upfield of the DL, or on
 // F-66 #4: C drops MIK for SAM only once another blocker's engaged block on a non-line defender walls MIK off.
 test('F-66 #4: over43 te right, C leaves a walled-off MIK for SAM', () => {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'over43', personnel: 'te', playside: 'right' });
+  pinLbDepth(play, OLD_LB_DY);
   play.snap();
   const orig = play.retargetRule;
   const seen = [];
