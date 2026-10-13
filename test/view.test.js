@@ -140,6 +140,19 @@ test('T-101: moveLabel shows shed for a leverage shed still counting down', () =
   assert.equal(moveLabel({ id: 'DL1', shedFree: 0.3, shedHow: 'leverage', move: { kind: 'swim', phase: 'rest' } }), 'shed');
 });
 
+test('T-125: moveLabel shows shrug for an open-field shrug still counting down', () => {
+  assert.equal(moveLabel({ id: 'DL1', shedFree: 0.3, shedHow: 'shrug' }), 'shrug');
+  assert.equal(moveLabel({ id: 'DL1', shedFree: 0, shedHow: 'shrug' }), '');
+  assert.equal(moveLabel({ id: 'DL1', shedHow: 'shrug' }), '');
+});
+
+test('T-125: moveLabel shows bounce for a blocker cooling off after a bounce', () => {
+  assert.equal(moveLabel({ id: 'OL1', block: { contest: 'bounce', cool: 0.2, engaged: false } }), 'bounce');
+  assert.equal(moveLabel({ id: 'OL1', block: { contest: 'bounce', cool: 0, engaged: false } }), '');
+  assert.equal(moveLabel({ id: 'OL1', block: { contest: 'bounce', cool: 0.2, engaged: true } }), '');
+  assert.equal(moveLabel({ id: 'OL1', block: { contest: 'lock', cool: 0.2, engaged: false } }), '');
+});
+
 test('F-14 #9: formatYards keeps two decimals, drops trailing zeros', () => {
   assert.equal(formatYards(0.35), '0.35');
   assert.equal(formatYards(0.7), '0.7');

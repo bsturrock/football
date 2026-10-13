@@ -103,6 +103,8 @@ export function recogLabel(v) {
 // Short on-field label for a defender's live pass-rush move ('' = none, or the move is at rest).
 // A defender who just shed his blocker by leverage (shedFree counting down, shedHow 'leverage')
 // reads 'shed'; a move-won shed (shedHow 'swim' / 'power') keeps the move text.
+// A defender who just slipped a block in the open-field contest (shedHow 'shrug') reads 'shrug';
+// a blocker who just bounced off a defender (block.contest 'bounce', cooling) reads 'bounce'.
 export function moveLabel(p) {
   const m = p?.move;
   if (m) {
@@ -111,6 +113,8 @@ export function moveLabel(p) {
     if (m.phase === 'lost') return `${m.kind} lost`;
   }
   if ((p?.shedFree ?? 0) > 0 && p.shedHow === 'leverage') return 'shed';
+  if ((p?.shedFree ?? 0) > 0 && p.shedHow === 'shrug') return 'shrug';
+  if (p?.block?.contest === 'bounce' && (p.block.cool ?? 0) > 0 && !p.block.engaged) return 'bounce';
   return '';
 }
 
@@ -374,7 +378,7 @@ export function tickLabel(ticks) {
 }
 
 export function initDotsView(container) {
-  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true, ...PAGE_MATCHUP });
+  const play = createPlay(25, 'insideZone', { timeScale: SIM_SPEED, trace: true, moves: true, contest: true, ...PAGE_MATCHUP });
   const home = playSetup(play);
   const tooltip = document.getElementById('tooltip');
   const panel = document.getElementById('info-panel');
