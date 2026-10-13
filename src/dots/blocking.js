@@ -98,7 +98,7 @@ export function assignBlocks(players, plan, techs) {
       b.block = { target: plan[b.id], angle: 'straight', engaged: false, seq: null };
       const t = techs?.[b.id];
       if (t) {
-        const foot = startFoot(t.tech, t.shade, t.watch, b);
+        const foot = startFoot(t.tech, t.shade, t.watch, b, t.pull);
         if (foot) b.block.foot = foot;
       }
       continue;
@@ -790,7 +790,7 @@ function approachAndEngage(players, ballPos, dt, ctx, s) {
       );
     }
     if (dt > 0) stepped.set(b.id, { x: (b.x - bx0) / dt, y: (b.y - by0) / dt });
-    const hit = canEngage(b, T, spot, ballPos);
+    const hit = foot?.phase === 'pull' ? null : canEngage(b, T, spot, ballPos); // a puller touches no one on the way across
     let outcome = null;
     if (hit && ctx?.contest === true && s.fight && blockLevel(T, ctx.los) === 'open') {
       const n = (b.block.contestN = (b.block.contestN ?? 0) + 1);

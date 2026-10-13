@@ -47,6 +47,10 @@ export const BLOCK_LEAD_MAX = 0.3; // s, the longest a blocker leads his man's m
 export const INTERCEPT_MIN_SPEED = 1; // yd/s, floor on the blocker speed used to solve the climb intercept (tunable)
 export const CLIMB_LANE_REACH = 5; // yd, generous bound on how far from the ball a climb aim may sit ("within reason": stops only wild intercepts, not a leash) (tunable)
 export const WALL_LEAN = 30; // degrees from straight upfield toward the backside, lean of a 'wall' drive (tunable)
+export const PULL_DROP = 1.0; // yd, how far behind his start depth a puller crosses (behind the OL backs) (tunable)
+export const PULL_TOL = 1.0; // yd, how close to his man's x a puller must be to count as level with him (tunable)
+export const PULL_TURN = 2.0; // yd, how far short of his man's x a puller starts rising from the crossing depth toward the man's depth (tunable)
+export const KICK_LEAN = 30; // degrees from straight upfield toward the pull side, lean of a 'kick' drive (tunable)
 
 const freezeRow = (r) => Object.freeze({
   ...r,
@@ -62,8 +66,10 @@ export const TECHNIQUES = Object.freeze({
   zone: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 55 }, aim: 0.5, drive: 'vertical', next: 'zone', phases: ['step', 'aim'], retarget: 'aim' }),
   // Same as zone for the covered member; none = the uncovered helper's short step playside, shoulders square.
   combo: freezeRow({ stepLen: { head: 0.17, playside: 0.4, backside: 0.17, none: 0.17 }, step: { head: 55, playside: 25, backside: 80, none: 45 }, aim: 0.5, drive: 'double', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
-  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, intercept: true, seal: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
+  climb: freezeRow({ step: { head: 60, playside: 60, backside: 60, none: 60 }, aim: 0.5, seal: true, drive: 'vertical', next: 'climb', phases: ['step', 'aim'], retarget: 'aim' }),
   // F-55 #5. Step inside and flat to protect the inside gap, then hinge out to wall the end man off.
+  // F-76. Pull: cross behind the line to the man's inside, then kick him out away from the ball.
+  pull: freezeRow({ step: { head: 0, playside: 0, backside: 0, none: 0 }, aim: 0.5, inside: true, drive: 'kick', next: 'zone', phases: ['pull', 'aim'], retarget: 'aim' }),
   cutoff: freezeRow({ step: { head: 10, playside: 10, backside: 10, none: 10 }, aim: 1.0, drive: 'wall', next: 'cutoff', phases: ['step', 'hinge'], retarget: 'hinge' }),
 });
 
@@ -79,7 +85,8 @@ export function stepLenOf(tech, shade) {
 }
 
 // Name of the technique a blocker uses for a tech/shade pair, or null when unknown.
-export function techniqueLabel(tech, shade) {
+export function techniqueLabel(tech, shade, phase) {
+  if (tech === 'pull') return phase === 'pull' ? 'pull' : 'kick out';
   if (tech === 'zone' || tech === 'combo') {
     if (shade === 'playside') return 'reach';
     if (shade === 'head') return 'zone step';
@@ -113,6 +120,12 @@ export function leadSpot(blocker, spot, target) {
   return L.met ? { x: L.x, y: L.y } : { x: spot.x, y: spot.y };
 }
 
+function pullX(foot, spot, radius, env) {
+  const mx = env?.target?.x ?? spot?.x ?? foot.ox;
+  const inward = env?.ballPos && env.ballPos.x !== mx ? Math.sign(env.ballPos.x - mx) : -foot.pull;
+  return mx + inward * radius;
+}
+
 export const PHASES = Object.freeze({
   step: Object.freeze({
     goal(foot, spot, side, radius) {
@@ -123,6 +136,23 @@ export const PHASES = Object.freeze({
     done(foot, blocker) {
       const len = stepLenOf(foot.tech, foot.shade);
       return Math.hypot(blocker.x - foot.ox, blocker.y - foot.oy) >= len - 1e-9;
+    },
+  }),
+  // Pull: a point behind the line (PULL_DROP behind his start) level with his man's x, shifted a body radius toward
+  // the ball so he arrives on the man's inside. Done once level with that x or past it, toward the pull side.
+  pull: Object.freeze({
+    goal(foot, spot, side, radius, env) {
+      const x = pullX(foot, spot, radius, env);
+      const base = foot.oy - PULL_DROP;
+      const b = env?.blocker;
+      const m = env?.target ?? spot;
+      if (!b || !m) return { x, y: base };
+      // Last PULL_TURN yd of the crossing: the path rises toward the man's depth, so he turns upfield on an arc.
+      const t = Math.max(0, Math.min(1, 1 - ((x - b.x) * foot.pull) / PULL_TURN));
+      return { x, y: base + t * Math.max(0, m.y - base) };
+    },
+    done(foot, blocker, env) {
+      return (blocker.x - pullX(foot, env?.spot, env?.radius ?? 0, env)) * foot.pull >= -PULL_TOL;
     },
   }),
   // Wall spot: the contact spot shifted aim radii playside and HINGE_GIVE back toward the offense.
@@ -142,6 +172,7 @@ export const PHASES = Object.freeze({
   aim: Object.freeze({
     goal(foot, spot, side, radius, env) {
       const row = TECHNIQUES[foot.tech];
+      if (row.inside === true && foot.pull) side = -foot.pull; // inside half of the man: toward the ball
       if (!row.intercept) {
         const a = aimPoint(leadSpot(env?.blocker, spot, env?.target), foot.tech, side, radius);
         const blocker = env?.blocker;
@@ -174,7 +205,11 @@ export const PHASES = Object.freeze({
 // leans toward the backside by WALL_LEAN. Other modes: straight upfield.
 const SHARED_BASE = new Set(['double']); // a shared-base ('double') push: every blocker on the man pushes from the same base
 
-export function leanDir(mode, side) {
+export function leanDir(mode, side, pull) {
+  if (mode === 'kick') {
+    const lean = pull === 1 || pull === -1 ? pull * rad(KICK_LEAN) : 0;
+    return { x: Math.sin(lean), y: Math.cos(lean) };
+  }
   if (mode === 'double') return { x: 0, y: 1 };
   if (mode === 'wall') {
     const lean = (side === 1 || side === -1 ? -side * rad(WALL_LEAN) : 0);
@@ -183,8 +218,9 @@ export function leanDir(mode, side) {
   return { x: 0, y: 1 };
 }
 
-export function driveDir(tech, side) {
+export function driveDir(tech, side, pull) {
   const row = TECHNIQUES[tech];
+  if (row && row.drive === 'kick') return leanDir('kick', side, pull);
   if (row && (row.drive === 'double' || row.drive === 'wall')) return leanDir(row.drive, side);
   return { x: 0, y: 1 };
 }
@@ -214,7 +250,7 @@ export function nextTech(tech) {
   return (has(TECHNIQUES, tech) ? TECHNIQUES[tech].next : null) ?? null;
 }
 
-export function startFoot(tech, shade, watch, blocker) {
+export function startFoot(tech, shade, watch, blocker, pull) {
   if (!has(TECHNIQUES, tech)) return null;
   const row = TECHNIQUES[tech];
   return {
@@ -226,6 +262,7 @@ export function startFoot(tech, shade, watch, blocker) {
     oy: blocker.y,
     ride: 0,
     push: null,
+    ...(pull === 1 || pull === -1 ? { pull } : {}),
   };
 }
 
@@ -253,7 +290,7 @@ export function footGoal(foot, blocker, spot, side, radius, env) {
     return PHASES[p];
   };
   let def = get(phase);
-  while (def.done(foot, blocker)) {
+  while (def.done(foot, blocker, { spot, side, radius, ...env })) {
     const i = names.indexOf(phase);
     if (i < 0 || i >= names.length - 1) break;
     phase = names[i + 1];
@@ -264,7 +301,7 @@ export function footGoal(foot, blocker, spot, side, radius, env) {
 }
 
 export function footPush(foot, vel, contact, dt, side) {
-  const drive = driveDir(foot.tech, side);
+  const drive = driveDir(foot.tech, side, foot.pull);
   const c = contact ?? drive;
   let base;
   if (SHARED_BASE.has(TECHNIQUES[foot.tech]?.drive)) {
