@@ -11,7 +11,7 @@ test('F-73 (a): noWiden is validated and sits on the attack rows', () => {
   const copy = (v) => {
     const b = structuredClone(BEHAVIORS.attack);
     b.states.hold.noWiden = v;
-    return b;
+    return { attack: b };
   };
   validateBehavior('attack', copy(true));
   assert.throws(() => validateBehavior('attack', copy('yes')), /bad noWiden "yes"/);
