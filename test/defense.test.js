@@ -1178,95 +1178,140 @@ test('T-57 #3a: pursue uses the ball cue spot and velocity, not an exchange spik
   assert.deepEqual(GOALS.pursue(d, e, { ...none, defense: { ballV: { x: 0, y: 0 } } }), intercept(d, none.ballPos, { x: 0, y: 0 }, d.speed));
 });
 
-// F-61 #6: a one-gap DL puts the best-odds move against his blocker on his goal.
+// F-68: a blocked defender (engaged by exactly one blocker) tries the best-odds move on the man engaged on him, in any state.
 const rate = (s, id, r) => { Object.assign(by(s.players, id), r); };
 const rateAll = (s, r) => { for (const p of s.players) if (p.role === 'DT' || p.role === 'DE') Object.assign(p, r); };
 const moveGoal = (s, id = 'LDT') => step(s)[id];
-
-test('F-61 #6: a DL in hold with swim the best odds gets a swim move on his gap side', () => {
-  const s = stubCues(setup(), 'base');
-  rateAll(s, { swim: 1, power: 0 });
-  const g = moveGoal(s);
-  const e = s.defense.agents.LDT;
-  assert.equal(e.state, 'hold');
-  const b = by(s.players, e.blocker);
-  assert.deepEqual(g.move, { kind: 'swim', side: gapSideOf(s, e, b) });
-  assert.notEqual(g.move.side, 0);
-});
+const olsByDist = (s, id) => s.players.filter((p) => p.team === 'offense' && p.role === 'OL').sort((a, b) => Math.abs(a.x - by(s.players, id).x) - Math.abs(b.x - by(s.players, id).x));
+const engage = (s, defId, olId) => { by(s.players, olId).block = { target: defId, engaged: true, released: null, seq: null, angle: 'straight' }; return s; };
+const engageNearest = (s, id = 'LDT') => engage(s, id, nearestOL(s, id).id);
+const STATES = ['getoff', 'hold', 'outsideArm', 'anchor', 'close', 'rush', 'squeeze', 'pursue'];
 
 const gapSideOf = (s, e, b) => {
   const span = gapSpan(s.players, s.defense, e.fit);
   return Math.sign((span ? (span.lo + span.hi) / 2 : e.x0) - b.x);
 };
 
-test('F-61 #6: with power the higher odds he gets a power move with side 0', () => {
-  const s = stubCues(setup(), 'base');
+test('F-68 #1: a DL in hold with swim the best odds gets a swim move on his gap side', () => {
+  const s = engageNearest(stubCues(setup(), 'base'));
+  rateAll(s, { swim: 1, power: 0 });
+  const g = moveGoal(s);
+  const e = s.defense.agents.LDT;
+  assert.equal(e.state, 'hold');
+  const b = nearestOL(s, 'LDT');
+  assert.deepEqual(g.move, { kind: 'swim', side: gapSideOf(s, e, b) });
+  assert.notEqual(g.move.side, 0);
+});
+
+test('F-68 #1: with power the higher odds he gets a power move with side 0', () => {
+  const s = engageNearest(stubCues(setup(), 'base'));
   rateAll(s, { swim: 0.2, power: 1 });
   const g = moveGoal(s);
   assert.equal(s.defense.agents.LDT.state, 'hold');
   assert.deepEqual(g.move, { kind: 'power', side: 0 });
 });
 
-test('F-61 #6: a tie picks the first move in MOVE_COUNTER order', () => {
-  const s = stubCues(setup(), 'base');
+test('F-68 #1: a tie picks the first move in MOVE_COUNTER order', () => {
+  const s = engageNearest(stubCues(setup(), 'base'));
   rateAll(s, { swim: 0.5, power: 0.5 });
   assert.equal(moveGoal(s).move.kind, 'swim');
 });
 
-test('F-61 #6: outsideArm, squeeze and rush also carry a move', () => {
+test('F-68 #1: outsideArm, squeeze and rush also carry a move', () => {
   for (const felt of ['reach', 'pass']) {
-    const s = stubCues(setup(), felt);
+    const s = engageNearest(stubCues(setup(), felt));
     rateAll(s, { swim: 1, power: 0 });
     const g = moveGoal(s);
     assert.ok(['outsideArm', 'rush'].includes(s.defense.agents.LDT.state));
     assert.equal(g.move.kind, 'swim', felt);
   }
-  const s = stubCues(setup(), 'none');
+  const s = engageNearest(stubCues(setup(), 'none'));
   rateAll(s, { swim: 1, power: 0 });
   step(s, 0.01);
   s.defense.agents.LDT.state = 'squeeze';
   assert.equal(moveGoal(s).move.kind, 'swim');
 });
 
-test('F-61 #6: no move in getoff, anchor or close', () => {
-  const s = stubCues(setup(), 'none');
+test('F-68 #1: a move is on the goal in getoff, anchor and close', () => {
+  const g0 = engageNearest(stubCues(setup(), 'none'));
+  rateAll(g0, { swim: 1, power: 0 });
+  assert.equal(step(g0, 0.01).LDT.move.kind, 'swim');
+  assert.equal(g0.defense.agents.LDT.state, 'getoff');
+  const a = engageNearest(stubCues(setup(), 'down'));
+  rateAll(a, { swim: 1, power: 0 });
+  assert.equal(step(a, 0.01).LDT.move.kind, 'swim');
+  assert.ok(['anchor', 'close'].includes(a.defense.agents.LDT.state));
+});
+
+test('F-68 #1: a move is on the goal for a two-gap DL and for a zone LB in read', () => {
+  const t = engageNearest(stubCues(setup({ call: 'twoGap' }), 'base'));
+  rateAll(t, { swim: 1, power: 0 });
+  assert.equal(moveGoal(t).move.kind, 'swim');
+  assert.equal(t.defense.agents.LDT.state, 'control');
+  const z = setup();
+  rate(z, 'MLB', { swim: 1, power: 0 });
+  engage(z, 'MLB', olsByDist(z, 'MLB')[0].id);
+  const zo = step(z);
+  assert.equal(z.defense.agents.MLB.behavior, 'zone');
+  assert.equal(z.defense.agents.MLB.state, 'read');
+  assert.equal(zo.MLB.move.kind, 'swim');
+});
+
+test('F-68 #1: a DL forced into pursue still carries the move on his goal', () => {
+  const s = engageNearest(stubCues(setup(), 'none'));
+  rateAll(s, { swim: 1, power: 0 });
+  step(s, 0.01);
+  s.defense.agents.LDT.state = 'pursue';
+  assert.equal(moveGoal(s).move.kind, 'swim');
+  assert.equal(s.defense.agents.LDT.state, 'pursue');
+});
+
+test('F-68 #2: no move with nobody engaged on him, in any state', () => {
+  const s = stubCues(setup(), 'base');
   rateAll(s, { swim: 1, power: 1 });
-  assert.equal(step(s, 0.01).LDT.move, undefined);
-  assert.equal(s.defense.agents.LDT.state, 'getoff');
-  for (const felt of ['double', 'down']) {
-    const t = stubCues(setup(), felt);
-    rateAll(t, { swim: 1, power: 1 });
-    const g = step(t, 0.01).LDT;
-    assert.ok(['anchor', 'close'].includes(t.defense.agents.LDT.state));
-    assert.equal(Object.hasOwn(g, 'move'), false, felt);
+  for (const st of STATES) {
+    s.defense.agents.LDT.state = st;
+    assert.equal((step(s, 0.01).LDT ?? {}).move, undefined, st);
   }
 });
 
-test('F-61 #6: no move for a two-gap DL, a contain edge or an LB', () => {
-  const t = stubCues(setup({ call: 'twoGap' }), 'base');
-  rateAll(t, { swim: 1, power: 1 });
-  for (const g of Object.values(step(t))) assert.equal(Object.hasOwn(g, 'move'), false);
+test('F-68 #2: no move when two blockers are engaged on him', () => {
   const s = stubCues(setup(), 'base');
   rateAll(s, { swim: 1, power: 1 });
-  const out = step(s);
-  for (const [id, e] of Object.entries(s.defense.agents)) {
-    if (e.behavior !== 'attack') assert.equal(Object.hasOwn(out[id] ?? {}, 'move'), false, id);
+  const [a, b] = olsByDist(s, 'LDT');
+  engage(s, 'LDT', a.id);
+  engage(s, 'LDT', b.id);
+  for (const st of STATES) {
+    s.defense.agents.LDT.state = st;
+    assert.equal(Object.hasOwn(step(s, 0.01).LDT, 'move'), false, st);
   }
-  assert.ok(Object.values(s.defense.agents).some((e) => e.behavior === 'zone'));
 });
 
-test('F-61 #6: no move with zero ratings, no blocker or a double felt', () => {
-  const s = stubCues(setup(), 'base');
+test('F-68 #2: no move when the felt cue is double, in any state', () => {
+  const s = engageNearest(stubCues(setup(), 'double'));
+  rateAll(s, { swim: 1, power: 1 });
+  for (const st of STATES) {
+    s.defense.agents.LDT.state = st;
+    assert.equal((step(s, 0.01).LDT ?? {}).move, undefined, st);
+  }
+  const env = { players: s.players, defense: s.defense, cues: s.cues };
+  assert.equal(moveFor(by(s.players, 'LDT'), s.defense.agents.LDT, env), null);
+});
+
+test('F-68 #2: no move with zero ratings', () => {
+  const s = engageNearest(stubCues(setup(), 'base'));
   rateAll(s, { swim: 0, power: 0 });
   assert.equal(Object.hasOwn(moveGoal(s), 'move'), false);
-  const n = stubCues(setup(), 'base');
-  rateAll(n, { swim: 1, power: 1 });
-  n.cues = () => null;
-  assert.equal(Object.hasOwn(step(n).LDT, 'move'), false);
-  const d = stubCues(setup(), 'base');
-  rateAll(d, { swim: 1, power: 1 });
-  step(d, 0.01);
-  d.cues = (id) => (d.defense.agents[id] ? { felt: 'double', tech: { blocker: nearestOL(d, id).id }, ball: { x: 0, y: LOS } } : null);
-  const env = { players: d.players, defense: d.defense, cues: d.cues };
-  assert.equal(moveFor(by(d.players, 'LDT'), d.defense.agents.LDT, env), null);
+});
+
+test('F-68 #3: the odds use the engaged blocker, not the cue-latched one', () => {
+  const s = stubCues(setup(), 'base');
+  const [latched, engaged] = olsByDist(s, 'LDT');
+  Object.assign(latched, { hands: 0.1, anchor: 0.9 });
+  Object.assign(engaged, { hands: 0.9, anchor: 0.1 });
+  rateAll(s, { swim: 0.5, power: 0.9 });
+  engage(s, 'LDT', engaged.id);
+  const g = moveGoal(s);
+  assert.equal(s.defense.agents.LDT.blocker, latched.id);
+  assert.deepEqual(g.move, { kind: 'power', side: 0 });
 });

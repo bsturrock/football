@@ -112,11 +112,12 @@ function engagerOf(d, env, prefer) {
   return all.find((p) => p.id === prefer) ?? all[0] ?? null;
 }
 
-// The pass-rush move a DL tries on his blocker: the best-odds one, or null (no blocker, a double team, or no odds).
-// Reading the blocker's counter rating is scouting knowledge, not a movement read.
+// The move any blocked defender (engaged by exactly one blocker) tries on the man engaged on him: the best-odds one,
+// or null (not blocked, a double team, or no odds). Reading the blocker's counter rating is scouting knowledge, not a movement read.
 export function moveFor(d, e, env) {
-  const b = blockerOf(e, env);
-  if (!b || env.cues(d.id)?.felt === 'double') return null;
+  const engaged = env.players.filter((p) => p.block?.target === d.id && p.block.engaged);
+  if (engaged.length !== 1 || env.cues(d.id)?.felt === 'double') return null;
+  const b = engaged[0];
   let kind = null;
   let best = 0;
   for (const k of Object.keys(MOVE_COUNTER)) {
@@ -372,12 +373,12 @@ export const BEHAVIORS = Object.freeze({
     keys: [],
     states: {
       getoff: { goal: 'getoff', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('getoff'), { when: 'getoffDone', to: 'squeeze' }] },
-      hold: { goal: 'holdGap', speed: 1, move: true, exits: [...DL_PURSUE_EXITS, ...feltExits('hold'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      outsideArm: { goal: 'outsideArm', speed: 1, move: true, exits: [...DL_PURSUE_EXITS, ...feltExits('outsideArm'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      hold: { goal: 'holdGap', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('hold'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      outsideArm: { goal: 'outsideArm', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('outsideArm'), { when: 'felt', is: 'none', to: 'squeeze' }] },
       anchor: { goal: 'anchor', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('anchor'), { when: 'felt', is: 'none', to: 'squeeze' }] },
       close: { goal: 'close', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('close'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      rush: { goal: 'rush', speed: 1, move: true, exits: [...DL_PURSUE_EXITS, ...feltExits('rush'), { when: 'felt', is: 'none', to: 'squeeze' }] },
-      squeeze: { goal: 'squeeze', speed: 1, move: true, exits: [...DL_PURSUE_EXITS, ...feltExits('squeeze')] },
+      rush: { goal: 'rush', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('rush'), { when: 'felt', is: 'none', to: 'squeeze' }] },
+      squeeze: { goal: 'squeeze', speed: 1, exits: [...DL_PURSUE_EXITS, ...feltExits('squeeze')] },
       pursue: { goal: 'pursue', speed: 1, exits: [] },
     },
   },
@@ -745,7 +746,7 @@ export function stepDefense(players, defense, { run, ballPos, cues }, dt) {
     }
     if (g) {
       out[id] = { x: g.x, y: g.y, key: 'def:' + e.state, rate: row.speed * d.speed };
-      const move = row.move ? moveFor(d, e, env) : null;
+      const move = moveFor(d, e, env);
       if (move) out[id].move = move;
     }
   }
