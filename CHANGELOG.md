@@ -73,3 +73,4 @@
 - 2026-10-13 F-73 DL first steps press their gap instead of drifting wide (R-34) 8c2adb6
 - 2026-10-13 F-74 Open-field blocks are a contest: climbers can be shrugged or bounce (R-34) 9dea743
 - 2026-10-13 F-76 Inside zone TE looks: playside, backside, and the two TE pulls (R-36) 0a7b2aa
+- 2026-10-13 F-77 Dots v2 base: OL, 4 DL and 2 LB lined up on a new page (R-37) 5c5988f
