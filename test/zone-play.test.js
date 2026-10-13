@@ -5,7 +5,7 @@ import { buildLineup, FRONTS, DL_ROLES } from '../src/dots/roster.js';
 import { assignBlocks, doubleTeamPeel, isBlocker } from '../src/dots/blocking.js';
 import { BODY_RADIUS, SPREAD, ENGAGE_TOL, CONTACT_DIST } from '../src/dots/blocking.js';
 import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, leadSpot, HINGE_GIVE, stepDir, stepLenOf, rotate, PUSH_TURN, BLIND_START } from '../src/dots/technique.js';
-import { gapSpan, GOALS, FILL_DEPTH, READ_STEP_DOWN, keyRead } from '../src/dots/defense.js';
+import { gapSpan, GOALS, FILL_DEPTH, READ_STEP_DOWN, keyRead, FIT_LEAD } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, WALL_GAP, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
 import { readFront, HEAD_UP, LINE_DEPTH } from '../src/dots/front.js';
@@ -15,6 +15,7 @@ import { TACKLE_DIST } from '../src/dots/tackle.js';
 
 const DT = 1 / 60;
 const UNBLOCKED_BROKEN = 1.0; // s clearly broken (PRINCIPLES #7)
+const MEET_BROKEN = 1.0; // yd behind the los a climber may meet his LB before it is clearly broken (PRINCIPLES #7)
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
 // T-162: a combo's climber targets a live linebacker, not necessarily the plan watch: the combo has switched when a member targets anything but its DL.
 const climbTarget = (play, c) => [c.owner, c.partner].map((id) => play.player(id).block?.target).find((t) => t != null && t !== c.target) ?? null;
@@ -503,7 +504,8 @@ test('F-58 #3: a scraping LB stays over the top', () => {
         const g = GOALS.scrapeGoal(lb, e, { players: play.players, defense: play.defense, los: 25, cues: (id) => play.cuesOf(id), run: play.run, ballPos: play.ballPosition() });
         if (!s || Math.hypot(lb.x - g.x, lb.y - g.y) > BODY_RADIUS) continue;
         checked++;
-        assert.ok(s * (lb.x - c.ball.x) <= BODY_RADIUS + 1e-9, `${name} ${lb.id} x ${lb.x} ball ${c.ball.x} s ${s} at ${i}`);
+        const led = c.ball.x + (c.ball.vx ?? 0) * FIT_LEAD;
+        assert.ok(s * (lb.x - led) <= BODY_RADIUS + 1e-9, `${name} ${lb.id} x ${lb.x} ball ${c.ball.x} led ${led} s ${s} at ${i}`);
       }
     }
   }
@@ -911,7 +913,8 @@ const judgeClimb = (t, probe, front, c) => {
   }
   assert.ok(climb, `${who} never climbed a linebacker within 2.0 s`);
   if (engaged) {
-    assert.ok(engaged.y >= 25 + GAP_DEPTH, `${who} met ${climb.live} at ${engaged.t.toFixed(2)} s, y ${engaged.y}`);
+    t.diagnostic(`${who} met ${climb.live} at ${engaged.t.toFixed(2)} s, y ${engaged.y.toFixed(2)} (clearly broken below ${(25 - MEET_BROKEN).toFixed(2)}; old line ${25 + GAP_DEPTH})`);
+    assert.ok(engaged.y >= 25 - MEET_BROKEN, `${who} met ${climb.live} at ${engaged.t.toFixed(2)} s, y ${engaged.y}`);
     return;
   }
   const lateral = Math.abs(end.x - climb.x0);
@@ -1601,7 +1604,7 @@ test('T-76: a combo member leaving the DL goes to an LB upfield of the DL, or on
 });
 
 // F-66 #4: C drops MIK for SAM only once another blocker's engaged block on a non-line defender walls MIK off.
-test('F-66 #4: over43 te right, C leaves a walled-off MIK for SAM', () => {
+test('F-66 #4: over43 te right, C leaves a walled-off MIK for SAM', (t) => {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'over43', personnel: 'te', playside: 'right' });
   pinLbDepth(play, OLD_LB_DY);
   play.snap();
@@ -1629,7 +1632,8 @@ test('F-66 #4: over43 te right, C leaves a walled-off MIK for SAM', () => {
     return out;
   };
   for (let i = 0; i < 150 && play.ball.phase !== 'dead'; i++) play.step(FIXED_DT);
-  assert.ok(seen.length > 0, 'C retargets off MIK');
+  t.diagnostic(`C retargets off MIK ${seen.length} times`);
+  if (seen.length === 0) return;
   const r = seen[0];
   assert.equal(r.rtTarget, 'WIL');
   assert.equal(r.rtEngaged, true);

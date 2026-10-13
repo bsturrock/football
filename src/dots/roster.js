@@ -62,9 +62,9 @@ export const POSITIONS = Object.freeze([
   pos('RDE', 'Right Defensive End', 'defense', 'DE', -2.65, 0.6, 7.0, 0.5, null, { swim: 0.25, power: 0.15, shuffle: DL_SHUFFLE, pedal: DL_PEDAL }),
   // LBs 3 yd behind the D line (LB_DEPTH). MLB (Mike) at center-right of the box, WLB (Will) at -x,
   // SLB (Sam) outside the Mike on the offense-right (+x) side. Fronts inherit ratings and def from the nearest base row of the same role (roleRating).
-  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, LB_DEPTH, 7.5, 0.5, { read: 0.3 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
-  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, LB_DEPTH, 7.5, 0.5, { read: 0.35 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
-  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, LB_DEPTH, 7.5, 0.5, { read: 0.35 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
+  pos('MLB', 'Middle Linebacker', 'defense', 'LB', 1.28, LB_DEPTH, 7.5, 0.5, { read: 0.35 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
+  pos('WLB', 'Weakside Linebacker', 'defense', 'LB', -1.28, LB_DEPTH, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
+  pos('SLB', 'Strongside Linebacker', 'defense', 'LB', 3.52, LB_DEPTH, 7.5, 0.5, { read: 0.5 }, { swim: LB_SWIM, power: LB_POWER, shuffle: LB_SHUFFLE, pedal: LB_PEDAL }),
 ]);
 
 // Offensive personnel = extra offense rows added to the POSITIONS offense. noTe is the no-TE look

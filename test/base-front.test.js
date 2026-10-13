@@ -14,7 +14,7 @@ test('F-22 #1/#2: SLB row and base front', () => {
   assert.equal(slb.dy, mlb.dy);
   assert.equal(slb.speed, 7.5);
   assert.equal(slb.strength, 0.5);
-  assert.deepEqual(slb.def, { read: 0.35 });
+  assert.deepEqual(slb.def, { read: 0.5 });
 
   assert.deepEqual(
     FRONTS.base.defenders.map((d) => d.id),

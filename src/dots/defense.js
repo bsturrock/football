@@ -196,7 +196,7 @@ export const GOALS = Object.freeze({
   scrapeGoal: (d, e, env) => {
     const c = env.cues(d.id);
     const bx = c?.ball ? c.ball.x + (c.ball.vx ?? 0) * FIT_LEAD : e.x0;
-    let s =keyRead(e.assign?.key, c) === 'pull' ? (c.key.dir ?? 0) : (c?.flow?.dir ?? 0);
+    let s = keyRead(e.assign?.key, c) === 'pull' ? (c.key.dir ?? 0) : (c?.flow?.dir ?? 0);
     if (!s) s = Math.sign(bx - e.x0);
     return { x: bx - s * OVER_TOP, y: Math.max(env.los + FILL_DEPTH, Math.min(d.y, e.y0)) };
   },
