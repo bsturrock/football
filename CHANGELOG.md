@@ -74,3 +74,4 @@
 - 2026-10-13 F-74 Open-field blocks are a contest: climbers can be shrugged or bounce (R-34) 9dea743
 - 2026-10-13 F-76 Inside zone TE looks: playside, backside, and the two TE pulls (R-36) 0a7b2aa
 - 2026-10-13 F-77 Dots v2 base: OL, 4 DL and 2 LB lined up on a new page (R-37) 5c5988f
+- 2026-10-13 F-78 Dots v2: shotgun QB, RB and TE in the static lineup (R-38) 2ee84ad
