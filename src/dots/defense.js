@@ -401,6 +401,15 @@ export const BEHAVIORS = Object.freeze({
       pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
     },
   },
+  // Safeties (role S) pedal like cover, then come downhill on the run: the ball commit, the carrier past the los, or the ball within PURSUE_REACH.
+  support: {
+    start: 'cover',
+    keys: [],
+    states: {
+      cover: { goal: 'pedal', speed: 1, face: 'ball', exits: [{ when: 'carrierPast', to: 'pursue' }, { when: 'ballClose', to: 'pursue' }, { when: 'ballCommitted', to: 'pursue' }] },
+      pursue: { goal: 'pursue', speed: 1, pace: 'burst', exits: [] },
+    },
+  },
   // The DL read: get off into the blocker's gap-side shoulder, then read the hat (DL_RESPONSES).
   attack: {
     start: 'getoff',
@@ -586,8 +595,9 @@ export const SCRIPTS = Object.freeze({
   endCrash: Object.freeze({ name: 'Backside end crashes inside', rows: Object.freeze([row({ who: 'backEnd', behavior: 'slant', slant: 'play' })]) }),
 });
 
-// Role default for defenders no script, def or call row gives a behaviour.
-export const ROLE_BEHAVIORS = Object.freeze({ CB: 'cover', S: 'cover' });
+// Role default for defenders no script, def or call row gives a behaviour. Corners (and the nickel back, role CB) cover;
+// safeties (S) support the run: they pedal like cover, then come downhill on the ball commit (BEHAVIORS.support).
+export const ROLE_BEHAVIORS = Object.freeze({ CB: 'cover', S: 'support' });
 
 // Accepts a SCRIPTS key, an array of rows, or null; returns the rows (null for none).
 export function validateScript(script) {
