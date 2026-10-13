@@ -63,17 +63,27 @@ test('F-13 #5: lane read invariants hold across alignments', () => {
     let lockedLane = null;
     let lockedX = null;
     let bends = 0;
+    let bounces = 0;
     for (let i = 0; i < 240 && play.ball.phase !== 'dead'; i++) {
       play.step(DT);
       const label = JSON.stringify(al.length) + ' step ' + i;
       if (run.locked) {
-        if (lockedLane === null) { lockedLane = { ...run.lane }; lockedX = run.x; bends = run.bends; }
+        if (lockedLane === null) { lockedLane = { ...run.lane }; lockedX = run.x; bends = run.bends; bounces = run.bounces ?? 0; }
         if (run.bends > bends) {
           // a bend: only while the RB was behind the los at the start of the tick
           assert.ok(play.prev.RB.y < 25, label + ' bend at/past the los');
           lockedLane = { ...run.lane };
           lockedX = run.x;
           bends = run.bends;
+        }
+        if ((run.bounces ?? 0) > bounces) {
+          // F-67 hole bounce: one per tick, not a bend, never past the los
+          assert.equal(run.bounces ?? 0, bounces + 1, label + ' more than one bounce in a tick');
+          assert.equal(run.bends, bends, label + ' a bounce counted as a bend');
+          assert.ok(!run.pastLos, label + ' bounce past the los');
+          lockedLane = { ...run.lane };
+          lockedX = run.x;
+          bounces = run.bounces;
         }
         assert.ok(run.bends <= BEND_MAX, label);
         assert.deepEqual(run.lane, lockedLane, label);

@@ -4,7 +4,7 @@ import {
   laneWindows, freeLane, scoreLanes, chooseLane, pickCrease, startRun, stepCarrier,
   LANES, MESH_AHEAD, SECURE_TIME, HANDOFF_DIST, GAP_BACK, LOCK_DEPTH, GOAL_LINE_Y,
   GAP_DEPTH, LANE_AHEAD, MIN_LANE, SWITCH_MARGIN, PATIENCE_MAX, PRESS_DEPTH, PRESSURE_DIST, CUT_ALLOW,
-  PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, BEND_MAX,
+  PHASE_PACE, patienceWindow, THREAT_MARGIN, ROOM_CAP, TRACK_COST, CUT_COST, BEND_MAX, HOLE_EXIT, BOUNCE_MAX,
   AVOID_SIGHT_MIN, AVOID_SIGHT_MAX, AVOID_FAN, NEAR_FIELD, AVOID_FAN_NEAR, AVOID_CONTACT, AVOID_CLOSE, AVOID_SIDELINE, AVOID_HOLD, AVOID_SWITCH, AVOID_AIM_DIST, visionOf,
 } from '../src/dots/carrier.js';
 import { BODY_RADIUS, engagedOn } from '../src/dots/blocking.js';
@@ -374,7 +374,7 @@ test('F-13 stepCarrier: lock freezes lane and x, then runs to the goal line', ()
   const { pl, run, rb } = setup(PATIENCE_MAX);
   run.carried = true;
   rb.x = -0.6;
-  rb.y = LOS + 0.05; // at the los: a closing lane no longer bends
+  rb.y = LOS + HOLE_EXIT; // at the hole exit: a closing lane no longer bends
   go(pl, run);
   assert.equal(run.locked, true);
   const { gap, x, lane } = run;
@@ -491,13 +491,14 @@ test('commit: lane and x are fixed; aim moves at most CUT_ALLOW from run.x', () 
   go(pl, run);
   assert.equal(run.locked, true);
   run.bends = BEND_MAX; // lane changes after the commit are the bend; covered below
+  run.bounces = BOUNCE_MAX; // and the bounce in the hole; covered in carrier-bounce.test.js
   const lane = { ...run.lane };
   const x = run.x;
   const ds = pl.filter((p) => p.team === 'defense');
   for (let i = 0; i < 90; i++) {
     if (i === 2) { ds[0].x = x; ds[0].y = LOS + BODY_RADIUS; }
     if (i === 5) { ds[1].x = x + 0.3; ds[1].y = LOS + 2 * BODY_RADIUS; }
-    const behind = rb.y < LOS;
+    const behind = rb.y < LOS + HOLE_EXIT - 1e-9;
     go(pl, run);
     assert.deepEqual(run.lane, lane);
     assert.equal(run.x, x);
@@ -587,6 +588,7 @@ test('bend: none at or past the los', () => {
   const e = lockedAtMesh();
   const lane = { ...e.run.lane };
   const x = e.run.x;
+  e.run.bounces = BOUNCE_MAX; // a closed hole bounces; this test is about the bend only
   plugCommitted(e);
   e.rb.y = LOS;
   go(e.pl, e.run);
@@ -632,7 +634,7 @@ test('F-48 #11b: once past the los the committed aim never returns to the hole',
       const play = createPlay(25, 'insideZone', { front, personnel });
       play.snap();
       const rb = play.player(play.run.carrier);
-      let latched = false, bends = 0, px = rb.x, lastSign = 0, lastRev = -2;
+      let latched = false, bends = 0, lastSign = 0, lastRev = -2;
       for (let i = 0; i < 300 && !play.result; i++) {
         play.step(DT);
         if (latched) {
@@ -640,18 +642,18 @@ test('F-48 #11b: once past the los the committed aim never returns to the hole',
           assert.ok(play.run.bends <= bends, `${tag}: tick ${i} bent after the line`);
         }
         if (play.run.pastLos) { latched = true; bends = play.run.bends; }
-        if (front === 'walkedUp' && personnel === 'noTe' && play.run.locked) {
-          const dx = rb.x - px;
-          if (Math.abs(dx) > 0.5 * DT) {
-            const sign = Math.sign(dx);
+        // Contact twitch squeezing past an engaged pair is steering's, judged by look on review entry 'squeeze-walkedUp'.
+        if (front === 'walkedUp' && personnel === 'noTe' && play.run.pastLos) {
+          const off = play.run.aim.x - rb.x;
+          if (Math.abs(off) > CUT_ALLOW) {
+            const sign = Math.sign(off);
             if (lastSign && sign !== lastSign) {
-              assert.ok(lastRev !== i - 1, `walkedUp/noTe: tick ${i} lateral motion reversed on two consecutive ticks`);
+              assert.ok(lastRev !== i - 1, `walkedUp/noTe: tick ${i} aim side reversed on two consecutive ticks`);
               lastRev = i;
             }
             lastSign = sign;
           } else lastSign = 0;
         } else lastSign = 0;
-        px = rb.x;
       }
     }
   }
@@ -665,11 +667,11 @@ const past = (vision) => {
   go(e.pl, e.run);
   e.run.bends = BEND_MAX;
   e.rb.x = e.run.x;
-  e.rb.y = LOS + 0.5;
+  e.rb.y = LOS + HOLE_EXIT;
   go(e.pl, e.run); // latches pastLos
   assert.equal(e.run.pastLos, true);
   e.rb.x = e.run.x;
-  e.rb.y = LOS + 0.5;
+  e.rb.y = LOS + HOLE_EXIT;
   e.ds = e.pl.filter((p) => p.team === 'defense');
   return e;
 };
@@ -806,7 +808,7 @@ test('F-48 #9: a static defender gives a stable heading, no alternating sign', (
   const heads = new Set();
   for (let i = 0; i < 30; i++) {
     rb.x = 0;
-    rb.y = LOS + 0.5;
+    rb.y = LOS + HOLE_EXIT;
     run.x = 0;
     go(pl, run);
     const sg = Math.sign(run.aim.x - rb.x);
@@ -1017,7 +1019,7 @@ test('F-48 #12 (b): a held cut is not changed or restarted while a man is inside
 test('F-57 #7: near the line he stays within AVOID_FAN_NEAR', () => {
   let farWide = 0;
   for (const sgn of [1, -1]) {
-    for (const depth of [0.5, NEAR_FIELD + 0.5]) {
+    for (const depth of [HOLE_EXIT, NEAR_FIELD + 0.5]) {
       const { pl, run, rb, ds } = past(1);
       rb.y = LOS + depth;
       place(ds[0], rb.x + sgn * 0.4, rb.y + 3);

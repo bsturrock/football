@@ -495,7 +495,7 @@ test('F-57 #5 (R-15): the aim never sits on a DL at a decision', (t) => {
   t.diagnostic(`decisions with no free segment: ${noSeg}`);
 });
 
-test('F-57 #6 (R-16): one cut, no back-out', () => {
+test('F-57 #6 (R-16): one cut before los - GAP_BACK, then at most the hole bounce (F-67); no other lane change', () => {
   for (const front of FRONT_KEYS) for (const playside of SIDES) for (const personnel of PERSONNEL) {
     const tag = `${front} ${playside} ${personnel}`;
     const play = createPlay(LOS, 'insideZone', { front, playside, personnel });
@@ -505,17 +505,23 @@ test('F-57 #6 (R-16): one cut, no back-out', () => {
     let lane = null;
     let x = null;
     let fixed = false;
+    let bounces = 0;
     for (let n = 1; n <= CAP && play.ball.phase !== 'dead'; n++) {
       const y0 = rb.y;
       play.step(DT);
       if (!run.locked) continue;
       assert.ok(run.bends <= 1, `${tag} tick ${n} bends ${run.bends}`);
       if (lane && (run.lane.side !== lane.side || run.lane.name !== lane.name || run.x !== x)) {
-        assert.ok(!fixed, `${tag} tick ${n}: lane changed after he was at los - GAP_BACK`);
-        assert.ok(y0 < LOS - GAP_BACK, `${tag} tick ${n}: lane changed at y ${y0}`);
+        // F-67 hole bounce: the one approved lane change after the cut window
+        const hole = (run.bounces ?? 0) === bounces + 1;
+        if (!hole) {
+          assert.ok(!fixed, `${tag} tick ${n}: lane changed after he was at los - GAP_BACK`);
+          assert.ok(y0 < LOS - GAP_BACK, `${tag} tick ${n}: lane changed at y ${y0}`);
+        }
       }
       lane = { ...run.lane };
       x = run.x;
+      bounces = run.bounces ?? 0;
       if (rb.y >= LOS - GAP_BACK) fixed = true;
     }
   }
