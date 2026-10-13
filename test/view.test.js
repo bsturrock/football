@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel, PAGE_MATCHUP, MATCHUP_LOCKED, SETUP_FIELDS, playSetup, applySetup, REVIEW_PLAYS, reviewOptions, stepOneTick, tickLabel } from '../src/dots/view.js';
+import { fieldToWorld, pickDot, blockSummary, reactLabel, shiftLabel, fightLabel, movesLabel, seedLabel, moveLabel, numberLabel, runLabel, formatYards, frontOptions, personnelOptions, callOptions, LABEL_SIZE, speedStep, SPEED_STEP, BALL_DRAW_AHEAD, HASH_HALF, HASH_LEN, YARD_LINE_W, GOAL_LINE_W, BORDER_W, UPRIGHTS_W, RING_INNER, RING_OUTER, drawPos, resultLabel, drawFacing, noseTriangle, NOSE_HALF_W, versionLabel, PAGE_MATCHUP, MATCHUP_LOCKED, SETUP_FIELDS, playSetup, applySetup, REVIEW_PLAYS, reviewOptions, stepOneTick, tickLabel, recogLabel } from '../src/dots/view.js';
 import { createPlay, DL_SHIFT_STEP, LB_SHIFT_STEP, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, FIXED_DT } from '../src/dots/play.js';
 import { BODY_RADIUS } from '../src/dots/blocking.js';
 import { angleDiff } from '../src/dots/facing.js';
 import { FRONTS, PERSONNEL, BALL_LENGTH } from '../src/dots/roster.js';
-import { CALLS } from '../src/dots/defense.js';
+import { CALLS, recogTime } from '../src/dots/defense.js';
 
 test('frontOptions has one entry per FRONTS key, in order, with matching names', () => {
   const opts = frontOptions();
@@ -293,6 +293,18 @@ test('F-64 #1: PAGE_MATCHUP builds 11 personnel against the nickel 4-2-5', () =>
 
 test('F-64 #2: the matchup is locked on the page', () => {
   assert.equal(MATCHUP_LOCKED, true);
+});
+
+test('F-75 #6: recogLabel shows roster for null or undefined, else the rating and its read time', () => {
+  assert.equal(recogLabel(null), 'Recognition: roster');
+  assert.equal(recogLabel(undefined), 'Recognition: roster');
+  assert.equal(recogLabel(1), 'Recognition: 1 (read 1.20 s)');
+  assert.equal(recogLabel(99), 'Recognition: 99 (read 0.10 s)');
+  assert.equal(recogLabel(50), `Recognition: 50 (read ${recogTime(50).toFixed(2)} s)`);
+});
+
+test('F-75 #6: the page play starts with roster recognition', () => {
+  assert.equal(createPlay(25, 'insideZone', { ...PAGE_MATCHUP }).recog, null);
 });
 
 // F-63 #14: the review picker's setups, the one-tick step and the tick label.

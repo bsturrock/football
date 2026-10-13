@@ -3,7 +3,7 @@
 
 import { createPlay, FIXED_DT, SIM_SPEED, SIM_SPEED_MIN, SIM_SPEED_MAX, DL_SHIFT_STEP, LB_SHIFT_STEP } from './play.js';
 import { FRONTS, PERSONNEL, FORMATIONS, DEF_PERSONNEL, BALL_LENGTH, BALL_WIDTH } from './roster.js';
-import { SCRIPTS, CALLS } from './defense.js';
+import { SCRIPTS, CALLS, recogTime } from './defense.js';
 import { TRACK_HALF, TRACK_DEPTH } from './perceive.js';
 import { BODY_RADIUS } from './blocking.js';
 import { wrapAngle, angleDiff, facingDir } from './facing.js';
@@ -92,6 +92,12 @@ export function movesLabel(on) {
 // Hint text for the play's seed (shown on each Reset).
 export function seedLabel(seed) {
   return `Seed ${seed}`;
+}
+
+// Label for the play recognition range (null = roster reads; else the rating and its read time).
+export function recogLabel(v) {
+  if (v === null || v === undefined) return 'Recognition: roster';
+  return `Recognition: ${v} (read ${recogTime(v).toFixed(2)} s)`;
 }
 
 // Short on-field label for a defender's live pass-rush move ('' = none, or the move is at rest).
@@ -970,11 +976,26 @@ export function initDotsView(container) {
     movesBtn.blur();
   });
 
+  // Recognition range (0 = roster reads, 1-99 = rate every defender). Mouse and touch via a plain range input.
+  const recogRange = document.getElementById('recog-range');
+  const recogText = document.getElementById('recog-label');
+  const showRecog = () => {
+    if (recogText) recogText.textContent = recogLabel(play.recog);
+    if (recogRange) recogRange.value = String(play.recog ?? 0);
+  };
+  showRecog();
+  recogRange?.addEventListener('input', () => {
+    const v = Number(recogRange.value);
+    play.setRecog(v === 0 ? null : v);
+    showRecog();
+  });
+  recogRange?.addEventListener('change', () => recogRange.blur()); // so the -, =, R, M keys keep working
+
   const doReset = () => {
     // A review play replays its own setup (seed 1, so the same tick by tick); the page matchup bumps the seed.
     if (reviewEntry) applySetup(play, reviewEntry.setup);
     else { play.seed += 1; play.reset(); }
-    showShift(); showLB(); showFight(); showMoves(); showSeed();
+    showShift(); showLB(); showFight(); showMoves(); showSeed(); showRecog();
   };
   resetBtn?.addEventListener('click', doReset);
   // Buttons sit outside #field, so no pointer handlers here; blur keeps the -/= keys working.
@@ -1087,7 +1108,7 @@ export function initDotsView(container) {
     applySetup(play, entry ? entry.setup : home);
     if (selectedId && !play.player(selectedId)) selectedId = null;
     if (watchReadout) watchReadout.textContent = reviewEntry ? reviewEntry.watch : '';
-    showShift(); showLB(); showFight(); showMoves(); showSeed();
+    showShift(); showLB(); showFight(); showMoves(); showSeed(); showRecog();
     syncPickers();
     reviewSelect.blur();
   });
