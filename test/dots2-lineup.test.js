@@ -3,27 +3,45 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dots2Lineup, LOS } from '../src/dots2/lineup.js';
-import { POSITIONS, DEF_PERSONNEL, DL_DEPTH, LB_DEPTH } from '../src/dots/roster.js';
+import { POSITIONS, PERSONNEL, DEF_PERSONNEL, DL_DEPTH, LB_DEPTH } from '../src/dots/roster.js';
 
-const ORDER = ['LT', 'LG', 'C', 'RG', 'RT', 'PE', 'PT', 'BT', 'BE', 'MIK', 'WIL'];
+const ORDER = ['LT', 'LG', 'C', 'RG', 'RT', 'QB', 'RB', 'TE', 'PE', 'PT', 'BT', 'BE', 'MIK', 'WIL'];
 const NICKEL = DEF_PERSONNEL.nickel.defenders;
 
 function rowFor(id) {
-  return POSITIONS.find((p) => p.id === id) ?? NICKEL.find((p) => p.id === id);
+  return POSITIONS.find((p) => p.id === id) ?? PERSONNEL.te.rows.find((p) => p.id === id) ?? NICKEL.find((p) => p.id === id);
 }
 
-test('dots2Lineup has 11 players in order with the right roles and teams', () => {
+test('dots2Lineup has 14 players in order with the right roles and teams', () => {
   const players = dots2Lineup();
-  assert.equal(players.length, 11);
-  assert.equal(new Set(players.map((p) => p.id)).size, 11);
+  assert.equal(players.length, 14);
+  assert.equal(new Set(players.map((p) => p.id)).size, 14);
   assert.deepEqual(players.map((p) => p.id), ORDER);
   const count = (role) => players.filter((p) => p.role === role).length;
   assert.equal(count('OL'), 5);
+  assert.equal(count('QB'), 1);
+  assert.equal(count('RB'), 1);
+  assert.equal(count('TE'), 1);
   assert.equal(count('DE'), 2);
   assert.equal(count('DT'), 2);
   assert.equal(count('LB'), 2);
-  for (const p of players.filter((q) => q.role === 'OL')) assert.equal(p.team, 'offense');
-  for (const p of players.filter((q) => q.role !== 'OL')) assert.equal(p.team, 'defense');
+  const offense = ['OL', 'QB', 'RB', 'TE'];
+  for (const p of players.filter((q) => offense.includes(q.role))) assert.equal(p.team, 'offense');
+  for (const p of players.filter((q) => !offense.includes(q.role))) assert.equal(p.team, 'defense');
+});
+
+test('QB, RB and TE stand at their pre-snap spots on the dots page', () => {
+  const players = dots2Lineup();
+  const at = (id) => players.find((p) => p.id === id);
+  const qb = at('QB');
+  assert.equal(qb.x, 0);
+  assert.ok(Math.abs(qb.y - (LOS - 5.3)) < 1e-9);
+  const rb = at('RB');
+  assert.ok(Math.abs(rb.x - 1.6) < 1e-9);
+  assert.ok(Math.abs(rb.y - (LOS - 5.3)) < 1e-9);
+  const te = at('TE');
+  assert.ok(Math.abs(te.x - 3.6) < 1e-9);
+  assert.ok(Math.abs(te.y - (LOS - 0.75)) < 1e-9);
 });
 
 test('each player sits at its roster dx and LOS + dy, with the depth constants', () => {
