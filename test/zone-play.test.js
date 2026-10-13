@@ -8,6 +8,7 @@ import { RIDE_MIN, CLIMB_LANE_REACH, TECHNIQUES, footGoal, aimPoint, leadSpot, H
 import { gapSpan, GOALS, FILL_DEPTH, READ_STEP_DOWN, keyRead, FIT_LEAD } from '../src/dots/defense.js';
 import { zoneSwitch, pickClimber, zonePlan, SWITCH_DIST, COMBO_TOUCH, RIDE_DEPTH, TRACK_HALF, dangerOf, claimedSet, WALL_GAP, unclaimedInReach, DANGER_MARGIN } from '../src/dots/zone.js';
 import { GAP_DEPTH } from '../src/dots/carrier.js';
+import { ballPast } from '../src/dots/geometry.js';
 import { readFront, HEAD_UP, LINE_DEPTH } from '../src/dots/front.js';
 import { FRONT_NAMES, frontPlayers } from './fixtures/fronts.js';
 import { numberPlay } from '../src/dots/numbering.js';
@@ -1604,6 +1605,7 @@ test('T-76: a combo member leaving the DL goes to an LB upfield of the DL, or on
 });
 
 // F-66 #4: C drops MIK for SAM only once another blocker's engaged block on a non-line defender walls MIK off.
+// Judges only releases where the ball is not yet past MIK (those are the wall releases); a ballPast release is the P-3 rule.
 test('F-66 #4: over43 te right, C leaves a walled-off MIK for SAM', (t) => {
   const play = createPlay(25, 'insideZone', { accel: true, tackles: false, front: 'over43', personnel: 'te', playside: 'right' });
   pinLbDepth(play, OLD_LB_DY);
@@ -1627,14 +1629,18 @@ test('F-66 #4: over43 te right, C leaves a walled-off MIK for SAM', (t) => {
         rtTarget: g('RT').block.target, rtEngaged: g('RT').block.engaged,
         gap: Math.min(segDist(g('WIL'), g('C'), g('MIK')), segDist(g('RT'), g('C'), g('MIK'))),
         wall: wall.length,
+        past: ballPos != null && ballPast(g('MIK'), ballPos),
       });
     }
     return out;
   };
   for (let i = 0; i < 150 && play.ball.phase !== 'dead'; i++) play.step(FIXED_DT);
   t.diagnostic(`C retargets off MIK ${seen.length} times`);
-  if (seen.length === 0) return;
-  const r = seen[0];
+  for (const s of seen) t.diagnostic(`  target ${s.e.target}, past ${s.past}, gap ${s.gap.toFixed(3)}`);
+  const walledOff = seen.filter((s) => !s.past);
+  t.diagnostic(`${walledOff.length} of them are walled-off releases (ball not past MIK)`);
+  if (walledOff.length === 0) return;
+  const r = walledOff[0];
   assert.equal(r.rtTarget, 'WIL');
   assert.equal(r.rtEngaged, true);
   assert.ok(r.gap <= WALL_GAP, `a wall lies on the C-MIK segment (${r.gap})`);
